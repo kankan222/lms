@@ -1,39 +1,61 @@
-import { pool } from "../../database/pool.js";
 import * as repo from "./dashboard.repository.js";
 
-export async function parentDashboard(parentId){
-
-  const conn = await pool.getConnection();
-
-  try{
-
-    const children =
-      await repo.getChildren(conn,parentId);
-
-    const result = [];
-
-    for(const child of children){
-
-      const attendance =
-        await repo.getAttendanceSummary(conn,child.id);
-
-      const results =
-        await repo.getResultSummary(conn,child.id);
-
-      const fees =
-        await repo.getFeeStatus(conn,child.id);
-
-      result.push({
-        student: child,
-        attendance,
-        results,
-        fees
-      });
-    }
-
-    return result;
-
-  }finally{
-    conn.release();
+async function safeRun(task, fallback) {
+  try {
+    return await task();
+  } catch {
+    return fallback;
   }
+}
+
+export async function getDashboardSummary() {
+  const [
+    totalStudents,
+    totalTeachers,
+    studentAttendance,
+    teacherAttendance,
+    upcomingExamsCount,
+    newAdmissionsThisMonth,
+    upcomingExams,
+    recentActivities,
+    recentMessages,
+    classOverview
+  ] = await Promise.all([
+    safeRun(() => repo.getTotalStudents(), 0),
+    safeRun(() => repo.getTotalTeachers(), 0),
+    safeRun(() => repo.getStudentAttendanceTodayBreakdown(), { present: 0, absent: 0, late: 0 }),
+    safeRun(() => repo.getTeacherAttendanceTodayBreakdown(), { present: 0, absent: 0 }),
+    safeRun(() => repo.getUpcomingExamsCount(), 0),
+    safeRun(() => repo.getNewAdmissionsThisMonth(), 0),
+    safeRun(() => repo.getUpcomingExams(5), []),
+    safeRun(() => repo.getRecentActivities(10), []),
+    safeRun(() => repo.getRecentConversations(5), []),
+    safeRun(() => repo.getClassOverview(), [])
+  ]);
+
+  return {
+    stats: {
+      totalStudents,
+      totalTeachers,
+      studentsPresentToday: studentAttendance.present,
+      teachersPresentToday: teacherAttendance.present,
+      upcomingExams: upcomingExamsCount,
+      newAdmissionsThisMonth
+    },
+    attendance: {
+      student: {
+        present: studentAttendance.present,
+        absent: studentAttendance.absent,
+        late: studentAttendance.late
+      },
+      teacher: {
+        present: teacherAttendance.present,
+        absent: teacherAttendance.absent
+      }
+    },
+    upcomingExams,
+    recentActivities,
+    recentMessages,
+    classOverview
+  };
 }

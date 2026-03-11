@@ -1,6 +1,6 @@
 import { useState } from "react";
 
-export default function ChatWindow({ chat, onSendMessage }) {
+export default function ChatWindow({ chat, messages = [], currentUserId, onSendMessage }) {
   const [input, setInput] = useState("");
 
   if (!chat) {
@@ -27,24 +27,27 @@ export default function ChatWindow({ chat, onSendMessage }) {
 
       {/* Messages */}
       <div className="flex-1 p-4 overflow-y-auto space-y-3">
-        {chat.messages.map(msg => (
+        {messages.map((msg) => (
           <div
             key={msg.id}
             className={`flex ${
-              msg.sender === "me" ? "justify-end" : "justify-start"
+              Number(msg.sender_id) === Number(currentUserId) ? "justify-end" : "justify-start"
             }`}
           >
             <div
               className={`
                 px-4 py-2 rounded-2xl max-w-xs text-sm
                 ${
-                  msg.sender === "me"
+                  Number(msg.sender_id) === Number(currentUserId)
                     ? "bg-blue-600 text-white"
                     : "bg-gray-100 text-gray-800"
                 }
               `}
             >
-              {msg.text}
+              <div>{msg.message}</div>
+              <div className="text-[10px] mt-1 opacity-70">
+                {new Date(msg.created_at).toLocaleString()}
+              </div>
             </div>
           </div>
         ))}

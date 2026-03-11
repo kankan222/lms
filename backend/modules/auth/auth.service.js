@@ -1,8 +1,9 @@
 import bcrypt from "bcrypt";
 import { v4 as uuid } from "uuid";
 import {
-  findUserByIdentifier,
+  findUserByEmailOrPhone,
   getUserPermissions,
+  getUserRoles,
   createSession,
   findSession,
   updateSessionToken,
@@ -19,29 +20,37 @@ import {
 
 import AppError from "../../core/errors/AppError.js";
 export async function login(data, meta) {
-
-  const identifier = data.identifier;
-  if (!identifier || !data.password) {
+  const email = data.email?.trim();
+  const phone = data.phone?.trim();
+  const password = data.password;
+  if ((!email && !phone) || !password) {
     throw new AppError("Missing credentials", 400);
   }
-  const user = await findUserByIdentifier(identifier);
+  const user = await findUserByEmailOrPhone({ email, phone });
 
   if (!user)
     throw new AppError("Invalid credentials", 401);
 
+  if (user.status !== "active") {
+    throw new AppError("Account is inactive. Contact admin.", 403);
+  }
+
   const match = await bcrypt.compare(
-    data.password,
+    password,
     user.password_hash
   );
 
   if (!match)
-    throw new Error("Invalid credentials");
+    throw new AppError("Invalid credentials");
 
-  const permissionsRows =
-    await getUserPermissions(user.id);
+  const [permissionsRows, roleRows] = await Promise.all([
+    getUserPermissions(user.id),
+    getUserRoles(user.id)
+  ]);
 
   const permissions =
     permissionsRows.map(p => p.name);
+  const roles = roleRows.map((r) => r.name);
 
   const sessionId = uuid();
 
@@ -75,7 +84,8 @@ export async function login(data, meta) {
       id: user.id,
       name: user.name,
       email: user.email,
-      permissions
+      permissions,
+      roles
     }
   };
 }
@@ -89,7 +99,7 @@ export async function refresh(refreshToken) {
   try {
     payload = verifyRefreshToken(refreshToken);
   } catch {
-    throw new Error("Invalid refresh token");
+    throw new AppError("Invalid refresh token");
   }
 
   const session = await findSession(payload.sessionId);

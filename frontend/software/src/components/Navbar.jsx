@@ -1,4 +1,4 @@
-import { Link } from "react-router-dom";
+import { Link , useNavigate} from "react-router-dom";
 import { Moon, User, Settings, LogOut, Sun, Mail } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -18,8 +18,19 @@ import { SidebarTrigger,  SidebarGroup,
 import { Separator } from "@/components/ui/separator"
 import { Search } from "lucide-react"
 import { Input } from "@/components/ui/input"
+import { logoutApi } from "../api/auth.api";
 const Navbar = () => {
   const { setTheme } = useTheme();
+  const navigate = useNavigate();
+  const handleLogout = async () => {
+  try {
+    await logoutApi();
+  } catch (err) {
+    console.error(err);
+  } finally {
+    navigate("/login");
+  }
+};
   return (
     <nav className="p-2 flex items-center justify-between">
       {/* LEFT  */}
@@ -95,7 +106,7 @@ const Navbar = () => {
             </DropdownMenuGroup>
             <DropdownMenuGroup>
               <DropdownMenuSeparator />
-              <DropdownMenuItem variant="destructive">
+              <DropdownMenuItem variant="destructive" onClick={handleLogout}>
                 <LogOut />
                 LogOut
               </DropdownMenuItem>

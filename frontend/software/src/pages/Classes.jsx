@@ -13,9 +13,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
   Sheet,
-  SheetClose,
   SheetContent,
-  SheetDescription,
   SheetFooter,
   SheetHeader,
   SheetTitle,
@@ -28,47 +26,124 @@ const Classes = () => {
   const [createOpen, setCreateOpen] = useState(false);
   const [newClass, setNewClass] = useState({
     name: "",
-    sections: [""],
+    sections: [{ name: "", medium: "" }],
   });
+  const [createError, setCreateError] = useState("");
+  const [editError, setEditError] = useState("");
   useEffect(() => {
     loadClasses();
   }, []);
+
+  function normalizeSections(value) {
+    if (Array.isArray(value)) {
+      return value
+        .map((s) => ({
+          name: String(s?.name || "").trim(),
+          medium: String(s?.medium || "").trim(),
+        }))
+        .filter((s) => s.name);
+    }
+    return String(value || "")
+      .split(",")
+      .map((v) => ({ name: v.trim(), medium: "" }))
+      .filter((s) => s.name);
+  }
+
   async function loadClasses() {
     const res = await getClasses();
 
-    const normalized = res.data.map((c) => ({
-      ...c,
-      sections: c.sections ? c.sections.split(",") : [],
-      subjects: c.subjects ? c.subjects.split(",") : [],
-    }));
+    const normalized = res.data.map((c) => {
+      const sections = normalizeSections(c.section_details || c.sections);
+      return {
+        ...c,
+        sections,
+        subjects: String(c.subjects || "")
+          .split(",")
+          .map((v) => v.trim())
+          .filter(Boolean),
+      };
+    });
 
     setClasses(normalized);
   }
 
   async function handleCreate(e) {
     e.preventDefault();
+    setCreateError("");
 
-    await createClass({
-      name: newClass.name,
-      sections: newClass.sections.filter((s) => s.trim() !== ""),
-    });
+    const cleanName = String(newClass.name || "").trim();
+    const cleanSections = (newClass.sections || [])
+      .map((s) => ({
+        name: String(s?.name || "").trim(),
+        medium: String(s?.medium || "").trim(),
+      }))
+      .filter((s) => s.name);
+
+    if (!cleanName) {
+      setCreateError("Class name is required.");
+      return;
+    }
+    if (!cleanSections.length) {
+      setCreateError("At least one section is required.");
+      return;
+    }
+    if (cleanSections.some((s) => !s.medium)) {
+      setCreateError("Each section must have a medium.");
+      return;
+    }
+
+    try {
+      await createClass({
+        name: cleanName,
+        sections: cleanSections,
+      });
+    } catch (err) {
+      setCreateError(err?.message || "Failed to create class.");
+      return;
+    }
 
     await loadClasses(); // wait for refresh first
 
     setNewClass({
       name: "",
-      sections: [""],
+      sections: [{ name: "", medium: "" }],
     });
 
     setCreateOpen(false); // close sheet last
   }
   async function handleUpdate(e) {
     e.preventDefault();
+    setEditError("");
+    const cleanName = String(editingClass?.name || "").trim();
+    const cleanSections = (editingClass?.sections || [])
+      .map((s) => ({
+        name: String(s?.name || "").trim(),
+        medium: String(s?.medium || "").trim(),
+      }))
+      .filter((s) => s.name);
 
-    await updateClass(editingClass.id, {
-      name: editingClass.name,
-      sections: editingClass.sections || [],
-    });
+    if (!cleanName) {
+      setEditError("Class name is required.");
+      return;
+    }
+    if (!cleanSections.length) {
+      setEditError("At least one section is required.");
+      return;
+    }
+    if (cleanSections.some((s) => !s.medium)) {
+      setEditError("Each section must have a medium.");
+      return;
+    }
+
+    try {
+      await updateClass(editingClass.id, {
+        name: cleanName,
+        sections: cleanSections,
+      });
+    } catch (err) {
+      setEditError(err?.message || "Failed to update class.");
+      return;
+    }
     setEditingClass(null);
     loadClasses();
   }
@@ -99,9 +174,10 @@ const Classes = () => {
                 </SheetHeader>
 
                 <div className="grid mb-4 gap-2">
-                  <Label>Class Name</Label>
+                  <Label>Class Name *</Label>
 
                   <Input
+                    required
                     value={newClass.name}
                     onChange={(e) =>
                       setNewClass({
@@ -112,23 +188,39 @@ const Classes = () => {
                   />
                 </div>
                 <div className="grid gap-2 mb-2">
-                  <Label>Section Name</Label>
+                  <Label>Sections *</Label>
                   {newClass.sections.map((sec, i) => (
-                    <Input
-                      key={i}
-                      value={sec}
-                      onChange={(e) => {
-                        const updated = [...newClass.sections];
-                        updated[i] = e.target.value;
-
-                        setNewClass({
-                          ...newClass,
-                          sections: updated,
-                        });
-                      }}
-                    />
+                    <div key={i} className="grid grid-cols-2 gap-2">
+                      <Input
+                        required={i === 0}
+                        value={sec.name}
+                        placeholder={`Section ${i + 1}`}
+                        onChange={(e) => {
+                          const updated = [...newClass.sections];
+                          updated[i] = { ...updated[i], name: e.target.value };
+                          setNewClass({ ...newClass, sections: updated });
+                        }}
+                      />
+                      <select
+                        className="border rounded p-2 w-full bg-background"
+                        required={i === 0}
+                        value={sec.medium}
+                        onChange={(e) => {
+                          const updated = [...newClass.sections];
+                          updated[i] = { ...updated[i], medium: e.target.value };
+                          setNewClass({ ...newClass, sections: updated });
+                        }}
+                      >
+                        <option value="">Select Medium</option>
+                        <option value="English">English</option>
+                        <option value="Assamese">Assamese</option>
+                      </select>
+                    </div>
                   ))}
                 </div>
+                {createError && (
+                  <p className="text-sm text-red-600 mb-2">{createError}</p>
+                )}
                 <div className="flex gap-2 items-center">
                   <Button
                     variant="secondary"
@@ -136,7 +228,7 @@ const Classes = () => {
                     onClick={() =>
                       setNewClass({
                         ...newClass,
-                        sections: [...newClass.sections, ""],
+                        sections: [...newClass.sections, { name: "", medium: "" }],
                       })
                     }
                   >
@@ -165,12 +257,12 @@ const Classes = () => {
               </Button>
             </div>
             <div className="flex-1">
-              <p className="text-xl font-bold">{data.name}</p>
-              <p className="text-base flex-1">
+              <p className="text-xl font-bold">Class : {data.name}</p>
+              <p className="text-sm flex-1">
                 Section :{" "}
                 {data.sections.map((sec, i) => (
                   <span key={i}>
-                    {sec}
+                    {sec.name}{sec.medium ? ` (${sec.medium})` : ""}
                     {i < data.sections.length - 1 ? ", " : ""}
                   </span>
                 ))}
@@ -211,9 +303,10 @@ const Classes = () => {
             </SheetHeader>
 
             <div className="grid gap-4 py-4">
-              <Label>Name</Label>
+              <Label>Name *</Label>
 
               <Input
+                required
                 value={editingClass?.name || ""}
                 onChange={(e) =>
                   setEditingClass({
@@ -223,22 +316,41 @@ const Classes = () => {
                 }
               />
 
-              <Label>Sections</Label>
+              <Label>Sections *</Label>
 
               {editingClass?.sections?.map((sec, i) => (
-                <Input
-                  key={i}
-                  value={sec}
-                  onChange={(e) => {
-                    const updated = [...editingClass.sections];
-                    updated[i] = e.target.value;
-
-                    setEditingClass({
-                      ...editingClass,
-                      sections: updated,
-                    });
-                  }}
-                />
+                <div key={i} className="grid grid-cols-2 gap-2">
+                  <Input
+                    required={i === 0}
+                    value={sec.name}
+                    placeholder={`Section ${i + 1}`}
+                    onChange={(e) => {
+                      const updated = [...editingClass.sections];
+                      updated[i] = { ...updated[i], name: e.target.value };
+                      setEditingClass({
+                        ...editingClass,
+                        sections: updated,
+                      });
+                    }}
+                  />
+                  <select
+                    className="border rounded p-2 w-full bg-background"
+                    required={i === 0}
+                    value={sec.medium}
+                    onChange={(e) => {
+                      const updated = [...editingClass.sections];
+                      updated[i] = { ...updated[i], medium: e.target.value };
+                      setEditingClass({
+                        ...editingClass,
+                        sections: updated,
+                      });
+                    }}
+                  >
+                    <option value="">Select Medium</option>
+                    <option value="English">English</option>
+                    <option value="Assamese">Assamese</option>
+                  </select>
+                </div>
               ))}
 
               <Button
@@ -247,12 +359,15 @@ const Classes = () => {
                 onClick={() =>
                   setEditingClass({
                     ...editingClass,
-                    sections: [...editingClass.sections, ""],
+                    sections: [...editingClass.sections, { name: "", medium: "" }],
                   })
                 }
-              >
+                >
                 Add a New Section
               </Button>
+              {editError && (
+                <p className="text-sm text-red-600">{editError}</p>
+              )}
             </div>
 
             <SheetFooter>

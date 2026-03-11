@@ -30,35 +30,61 @@ export async function getClasses() {
   SELECT
   c.id,
   c.name,
+  c.medium,
   IFNULL(GROUP_CONCAT(DISTINCT sec.name ORDER BY sec.name), '') AS sections,
+  IFNULL(GROUP_CONCAT(DISTINCT CONCAT(sec.name, ':', sec.medium) ORDER BY sec.name), '') AS section_mediums,
   IFNULL(GROUP_CONCAT(DISTINCT sub.name ORDER BY sub.name), '') AS subjects
 FROM classes c
 LEFT JOIN sections sec ON sec.class_id = c.id
 LEFT JOIN class_subjects cs ON cs.class_id = c.id
 LEFT JOIN subjects sub ON sub.id = cs.subject_id
 WHERE c.is_active = TRUE
-GROUP BY c.id
+GROUP BY c.id, c.name, c.medium
 ORDER BY c.id
   `);
 }
-export async function createClass(name, sections) {
+export async function getClassStructure() {
+  return query(`
+    SELECT
+      c.id AS class_id,
+      c.name AS class_name,
+      c.medium AS class_medium,
+      s.id AS section_id,
+      s.name AS section_name,
+      s.medium AS section_medium,
+      sub.id AS subject_id,
+      sub.name AS subject_name
+    FROM classes c
+    LEFT JOIN sections s ON s.class_id = c.id
+    LEFT JOIN class_subjects cs ON cs.class_id = c.id
+    LEFT JOIN subjects sub ON sub.id = cs.subject_id
+    WHERE c.is_active = TRUE
+    ORDER BY c.id
+  `);
+}
+export async function createClass(name, sections = []) {
   const conn = await pool.getConnection();
 
   try {
     await conn.beginTransaction();
 
+    const mediumValue = Array.isArray(sections)
+      ? [...new Set(sections.map((s) => String(s?.medium || "").trim()).filter(Boolean))].join(",")
+      : "";
+    if (!mediumValue.trim()) {
+      throw new Error("Each section must have a medium");
+    }
     const [result] = await conn.query(
-      `INSERT INTO classes (name, is_active) VALUES (?, TRUE)`,
-      [name]
+      `INSERT INTO classes (name, medium, is_active) VALUES (?, ?, TRUE)`,
+      [name, mediumValue]
     );
 
     const classId = result.insertId;
-    console.log("Repo", classId);
 
     for (const sec of sections) {
       await conn.query(
-        `INSERT INTO sections (class_id, name) VALUES (?, ?)`,
-        [classId, sec]
+        `INSERT INTO sections (class_id, name, medium) VALUES (?, ?, ?)`,
+        [classId, sec.name, sec.medium]
       );
     }
 
@@ -73,21 +99,55 @@ export async function createClass(name, sections) {
     conn.release();
   }
 }
-export async function updateClass(id, name, sections) {
+export async function updateClass(id, name, sections = []) {
   const conn = await pool.getConnection();
 
   try {
     await conn.beginTransaction();
 
-    await conn.query(`UPDATE classes SET name=? WHERE id=?`, [name, id]);
+    const mediumValue = Array.isArray(sections)
+      ? [...new Set(sections.map((s) => String(s?.medium || "").trim()).filter(Boolean))].join(",")
+      : "";
+    if (!mediumValue.trim()) {
+      throw new Error("Each section must have a medium");
+    }
+    await conn.query(`UPDATE classes SET name=?, medium=? WHERE id=?`, [name, mediumValue, id]);
 
-    await conn.query(`DELETE FROM sections WHERE class_id=?`, [id]);
+    // Non-destructive section sync:
+    // keep existing sections (they may be referenced by enrollments/exams/assignments)
+    // and insert only new section names.
+    const [existingSections] = await conn.query(
+      `SELECT id, name, medium FROM sections WHERE class_id=?`,
+      [id]
+    );
+    const existingByName = new Map(
+      existingSections.map((s) => [
+        String(s.name || "").trim().toLowerCase(),
+        { id: s.id, medium: s.medium },
+      ])
+    );
 
-    for (const sec of sections) {
-      await conn.query(
-        `INSERT INTO sections (class_id, name) VALUES (?, ?)`,
-        [id, sec]
-      );
+    const normalizedIncoming = (sections || [])
+      .map((s) => ({
+        name: String(s?.name || "").trim(),
+        medium: String(s?.medium || "").trim(),
+      }))
+      .filter((s) => s.name && s.medium);
+
+    for (const sec of normalizedIncoming) {
+      const key = sec.name.toLowerCase();
+      const existing = existingByName.get(key);
+      if (!existing) {
+        await conn.query(
+          `INSERT INTO sections (class_id, name, medium) VALUES (?, ?, ?)`,
+          [id, sec.name, sec.medium]
+        );
+      } else if (String(existing.medium || "") !== sec.medium) {
+        await conn.query(
+          `UPDATE sections SET medium=? WHERE id=?`,
+          [sec.medium, existing.id]
+        );
+      }
     }
 
     await conn.commit();

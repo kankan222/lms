@@ -39,6 +39,9 @@ const Subjects = () => {
   });
   const [selectedClass, setSelectedClass] = useState("");
   const [selectedSubjects, setSelectedSubjects] = useState([]);
+  const [createError, setCreateError] = useState("");
+  const [editError, setEditError] = useState("");
+  const [assignError, setAssignError] = useState("");
 
   useEffect(() => {
     loadSubjects();
@@ -56,8 +59,22 @@ const Subjects = () => {
   }
   async function handleCreate(e) {
     e.preventDefault();
+    setCreateError("");
+    if (!String(newSubject.name || "").trim()) {
+      setCreateError("Subject name is required.");
+      return;
+    }
+    if (!String(newSubject.code || "").trim()) {
+      setCreateError("Subject code is required.");
+      return;
+    }
 
-    await createSubject(newSubject);
+    try {
+      await createSubject(newSubject);
+    } catch (err) {
+      setCreateError(err?.message || "Failed to create subject.");
+      return;
+    }
 
     await loadSubjects();
 
@@ -71,8 +88,22 @@ const Subjects = () => {
 
   async function handleUpdate(e) {
     e.preventDefault();
+    setEditError("");
+    if (!String(editingSubject?.name || "").trim()) {
+      setEditError("Subject name is required.");
+      return;
+    }
+    if (!String(editingSubject?.code || "").trim()) {
+      setEditError("Subject code is required.");
+      return;
+    }
 
-    await updateSubject(editingSubject.id, editingSubject);
+    try {
+      await updateSubject(editingSubject.id, editingSubject);
+    } catch (err) {
+      setEditError(err?.message || "Failed to update subject.");
+      return;
+    }
 
     await loadSubjects();
 
@@ -88,12 +119,25 @@ const Subjects = () => {
     setSubjects((prev) => prev.filter((s) => s.id !== id));
   }
 async function handleAssign() {
-    if (!selectedClass || selectedSubjects.length === 0) return;
+    setAssignError("");
+    if (!selectedClass) {
+      setAssignError("Class is required.");
+      return;
+    }
+    if (selectedSubjects.length === 0) {
+      setAssignError("Select at least one subject.");
+      return;
+    }
 
-    await assignSubjects({
-      classId: selectedClass,
-      subjectIds: selectedSubjects,
-    });
+    try {
+      await assignSubjects({
+        classId: selectedClass,
+        subjectIds: selectedSubjects,
+      });
+    } catch (err) {
+      setAssignError(err?.message || "Failed to assign subjects.");
+      return;
+    }
 
     setAssignOpen(false);
     setSelectedClass("");
@@ -119,8 +163,9 @@ async function handleAssign() {
                 </SheetHeader>
 
                 <div className="grid gap-2 mb-4">
-                  <Label>Subject Name</Label>
+                  <Label>Subject Name *</Label>
                   <Input
+                    required
                     value={newSubject.name}
                     onChange={(e) =>
                       setNewSubject({
@@ -132,8 +177,9 @@ async function handleAssign() {
                 </div>
 
                 <div className="grid gap-2 mb-4">
-                  <Label>Code</Label>
+                  <Label>Code *</Label>
                   <Input
+                    required
                     value={newSubject.code}
                     onChange={(e) =>
                       setNewSubject({
@@ -143,6 +189,7 @@ async function handleAssign() {
                     }
                   />
                 </div>
+                {createError && <p className="text-sm text-red-600 mb-3">{createError}</p>}
 
                 <SheetFooter>
                   <Button type="submit">Save</Button>
@@ -167,7 +214,7 @@ async function handleAssign() {
                 <div className="grid gap-4 py-4">
 
                   <div>
-                    <Label>Class</Label>
+                    <Label>Class *</Label>
 
                     <select
                       className="w-full border p-2 rounded"
@@ -177,7 +224,7 @@ async function handleAssign() {
                       <option value="">Select Class</option>
                       {classes.map((c) => (
                         <option key={c.id} value={c.id}>
-                          {c.name}
+                          {c.name}{c.medium ? ` (${c.medium})` : ""}
                         </option>
                       ))}
                     </select>
@@ -185,7 +232,7 @@ async function handleAssign() {
                   </div>
 
                   <div>
-                    <Label>Subjects</Label>
+                    <Label>Subjects *</Label>
 
                     <div className="grid gap-2 mt-2">
 
@@ -220,6 +267,7 @@ async function handleAssign() {
                   </div>
 
                 </div>
+                {assignError && <p className="text-sm text-red-600">{assignError}</p>}
 
                 <SheetFooter>
                   <Button onClick={handleAssign}>
@@ -296,8 +344,9 @@ async function handleAssign() {
 
             <div className="grid gap-4 py-4">
 
-              <Label>Name</Label>
+              <Label>Name *</Label>
               <Input
+                required
                 value={editingSubject?.name || ""}
                 onChange={(e) =>
                   setEditingSubject({
@@ -307,8 +356,9 @@ async function handleAssign() {
                 }
               />
 
-              <Label>Code</Label>
+              <Label>Code *</Label>
               <Input
+                required
                 value={editingSubject?.code || ""}
                 onChange={(e) =>
                   setEditingSubject({
@@ -319,6 +369,7 @@ async function handleAssign() {
               />
 
             </div>
+            {editError && <p className="text-sm text-red-600">{editError}</p>}
 
             <SheetFooter>
               <Button type="submit">Save</Button>

@@ -39,7 +39,7 @@ export default function StudentSelector({ onSelect }) {
         <SelectContent>
           {classes.map(c => (
             <SelectItem key={c.id} value={String(c.id)}>
-              {c.name}
+              {c.name}{c.medium ? ` (${c.medium})` : ""}
             </SelectItem>
           ))}
         </SelectContent>

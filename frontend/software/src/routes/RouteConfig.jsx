@@ -14,10 +14,10 @@ import {
   FileStack,
   NotebookTabs,
   Settings,
-  CircleUserRound,
-  ArrowUp,
-  ChevronUp,
   BriefcaseBusinessIcon,
+  Users,
+  ContactRound,
+  Globe,
 } from "lucide-react";
 
 
@@ -25,7 +25,8 @@ import DashBoard from "../pages/Dashboard"
 import Classes from "../pages/Classes";
 import Subjects from "../pages/Subjects";
 import Students from "../pages/Students"
-import Teachers from "../pages/Teachers";
+import Teachers from "../pages/teacher/Teachers";
+import TeacherDetails from "../pages/teacher/TeacherDetails"
 import Fees from "../pages/Fees";
 import Payments from "../pages/Payments";
 import Attendance from "../pages/Attendance";
@@ -33,6 +34,9 @@ import Messaging from "../pages/Messaging";
 import Exams from "../pages/Exams";
 import Reports from "../pages/Reports";
 import SettingsPage from "../pages/Settings";
+import UsersPage from "../pages/Users";
+import StaffPage from "../pages/Staff";
+import WebsiteModule from "../pages/WebsiteModule";
 
 
 import StudentDetails from "../pages/modules/StudentDetails";
@@ -41,7 +45,7 @@ export const appRoutes = [
     {
       title: "Dashboard",
       icon: LayoutDashboard,
-      path: "/",
+      path: "/dashboard",
       element : <DashBoard/>,
       protected : true,
       permission: "dashboard.view"
@@ -52,7 +56,7 @@ export const appRoutes = [
       path : "/classes",
       element: <Classes/>,
       protected : true,
-      permission: ""
+      permission: "academic.view"
     },
     {
       title: "Subjects",
@@ -60,7 +64,7 @@ export const appRoutes = [
       path: "/subjects",
       element: <Subjects/>,
       protected : true,
-      permission: ""
+      permission: "subjects.view"
     },
     {
       title: "Students",
@@ -69,13 +73,6 @@ export const appRoutes = [
       element: <Students />,
       protected : true,
       permission: "student.view",
-      children : [
-        {
-            path: ":id",
-            element : <StudentDetails />,
-            permission: "student.view"
-        }
-      ]
     },
     {
       title: "Teachers",
@@ -83,7 +80,15 @@ export const appRoutes = [
       path: "/teachers",
       element: <Teachers />,
       protected : true,
-      permission: ""
+      permission: "teacher.view",
+    },
+      {
+      title: "Attendance",
+      icon: Hand,
+      path: "/attendance",
+      element: <Attendance/>,
+      protected : true,
+      permission: "attendance.take",
     },
     {
       title: "Fees",
@@ -91,7 +96,7 @@ export const appRoutes = [
       path: "/payments",
       element: <Fees/>,
       protected : true,
-      permission: "",
+      permission: "fee.view",
     },
     {
       title: "Payments",
@@ -99,15 +104,7 @@ export const appRoutes = [
       path: "/fees",
       element: <Payments />,
       protected : true,
-      permission: "",
-    },
-    {
-      title: "Attendance",
-      icon: Hand,
-      path: "/attendance",
-      element: <Attendance/>,
-      protected : true,
-      permission: "",
+      permission: "fee.view",
     },
     // {
     //   title: "Timetable",
@@ -125,7 +122,7 @@ export const appRoutes = [
       path: "/messaging",
       element: <Messaging />,
       protected : true,
-      permission: "",
+      permission: "messages.view",
     },
     // {
     //   title: "Question Paper",
@@ -138,7 +135,7 @@ export const appRoutes = [
       path: "/exams",
       element: <Exams/>,
       protected : true,
-      permission: "",
+      permission: "exams.view",
     },
     // {
     //   title: "Class Tests",
@@ -151,7 +148,31 @@ export const appRoutes = [
       path: "/reports",
       element: <Reports/>,
       protected : true,
-      permission: "",
+      permission: "marks.view",
+    },
+    {
+      title: "Users",
+      icon: Users,
+      path: "/users",
+      element: <UsersPage />,
+      protected: true,
+      permission: "teacher.update",
+    },
+    {
+      title: "Staff",
+      icon: ContactRound,
+      path: "/staff",
+      element: <StaffPage />,
+      protected: true,
+      permission: "dashboard.view",
+    },
+    {
+      title: "Website",
+      icon: Globe,
+      path: "/website",
+      element: <WebsiteModule />,
+      protected: true,
+      permission: "dashboard.view",
     },
     {
       title: "Settings",
@@ -159,6 +180,22 @@ export const appRoutes = [
       path: "/settings",
       element: <SettingsPage />,
       protected : true,
-      permission: "",
+      permission: "dashboard.view",
     },
   ];
+
+
+  export const hiddenRoutes = [
+      {
+      path: "/teachers/:id",
+      element: <TeacherDetails />,
+      protected : true,
+      permission: "",
+    },
+    {
+      path: "/students/:id",
+      element: <StudentDetails />,
+      protected: true,
+      permission: "",
+    },
+  ]

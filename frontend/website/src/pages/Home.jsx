@@ -1,7 +1,7 @@
 import { useNavigate } from "react-router-dom";
 import logo from "/assets/site/logo.png";
 import { Button } from "@/components/ui/button";
-import { ArrowUpRight, School , GraduationCap, MonitorCheck} from "lucide-react";
+import { Phone, Mail,  School , GraduationCap, MonitorCheck} from "lucide-react";
 
 const Home = () => {
   const navigate = useNavigate();
@@ -30,7 +30,7 @@ const Home = () => {
   ];
   return (
     <>
-      <header className="flex items-center justify-between py-2 text-black z-50 flex-col sm:flex-row md:flex-row lg:flex-row 2xl:flex-row px-5 lg:px-15  2xl:px-30">
+      <header className="flex items-center xl:justify-between py-2 text-black z-50 flex-col sm:flex-row md:flex-row lg:flex-row 2xl:flex-row px-5 lg:px-15  2xl:px-30">
         <div className="header-left flex items-center gap-2">
           <div className="header-img w-25">
             <img src={logo} alt="" />
@@ -46,10 +46,14 @@ const Home = () => {
           </div>
         </div>
 
-        <div className="header-right">
+        <div className="header-right flex gap-2">
           <Button className="bg-punch-600 rounded-2xl hover:bg-punch-800 cursor-pointer mt-2.5 lg:mt-0 3xl:mt-0 w-fit">
-            Admission
-            <ArrowUpRight />
+            <Phone />
+            Enquire Now
+          </Button>
+          <Button variant="secondary" className="rounded-2xl cursor-pointer mt-2.5 lg:mt-0 3xl:mt-0 w-fit">
+            <Mail />
+            Contact Us
           </Button>
         </div>
       </header>

@@ -6,22 +6,31 @@ export async function attachPermissions(
   next
 ) {
   try {
+    if (!req.user?.userId) {
+      return res.status(401).json({
+        message: "Unauthorized"
+      });
+    }
 
     const permissions =
       await loadPermissions(req.user.userId);
+      req.user.permissions = permissions;
+      next();
 
-    req.user.permissions = permissions;
-
-    next();
-
-  } catch (err) {
-    next(err);
+      
+    } catch (err) {
+      next(err);
+    }
   }
-}
-
-export function requirePermission(permission) {
-
-  return (req, res, next) => {
+  
+  export function requirePermission(permission) {
+    
+    return (req, res, next) => {
+      if (!req.user) {
+        return res.status(401).json({
+          message: "Unauthorized"
+        });
+      }
 
     if (
       !req.user.permissions ||

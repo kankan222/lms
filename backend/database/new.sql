@@ -90,10 +90,10 @@ CREATE TABLE fee_receipts (
 
 
 CREATE TABLE messaging_permissions (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    user_id INT NOT NULL UNIQUE,
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    user_id BIGINT NOT NULL UNIQUE,
     can_send_message BOOLEAN DEFAULT FALSE,
-    approved_by INT,
+    approved_by BIGINT,
     approved_at DATETIME,
 
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
@@ -102,24 +102,40 @@ CREATE TABLE messaging_permissions (
 CREATE TABLE conversations (
     id INT AUTO_INCREMENT PRIMARY KEY,
     type ENUM('direct','class','section','broadcast') NOT NULL,
-    created_by INT NOT NULL,
+    name VARCHAR(150),
+    class_id INT,
+    section_id INT,
+    created_by BIGINT NOT NULL,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    last_message_at DATETIME NULL,
 
-    FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE CASCADE
+    FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (class_id) REFERENCES classes(id) ON DELETE SET NULL,
+    FOREIGN KEY (section_id) REFERENCES sections(id) ON DELETE SET NULL
+);
+CREATE TABLE conversation_members (
+    conversation_id INT NOT NULL,
+    user_id BIGINT NOT NULL,
+    last_read_at DATETIME NULL,
+
+    PRIMARY KEY (conversation_id, user_id),
+    FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 CREATE TABLE conversation_recipients (
     id INT AUTO_INCREMENT PRIMARY KEY,
     conversation_id INT NOT NULL,
     recipient_type ENUM('user','class','section','all') NOT NULL,
-    recipient_id INT NULL,
+    recipient_id BIGINT NULL,
 
     FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
 );
 CREATE TABLE messages (
     id INT AUTO_INCREMENT PRIMARY KEY,
     conversation_id INT NOT NULL,
-    sender_id INT NOT NULL,
+    sender_id BIGINT NOT NULL,
     message TEXT,
+    attachment_url TEXT NULL,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 
     FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE,
@@ -139,7 +155,7 @@ CREATE TABLE message_attachments (
 CREATE TABLE message_status (
     id INT AUTO_INCREMENT PRIMARY KEY,
     message_id INT NOT NULL,
-    user_id INT NOT NULL,
+    user_id BIGINT NOT NULL,
     status ENUM('sent','delivered','read') DEFAULT 'sent',
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 
@@ -148,3 +164,8 @@ CREATE TABLE message_status (
     FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE CASCADE,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
+
+CREATE INDEX idx_conversations_last_message ON conversations(last_message_at);
+CREATE INDEX idx_conversations_scope ON conversations(type, class_id, section_id);
+CREATE INDEX idx_members_user ON conversation_members(user_id);
+CREATE INDEX idx_messages_conversation_created ON messages(conversation_id, created_at);

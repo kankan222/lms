@@ -20,8 +20,7 @@ export async function getSubjects() {
       name,
       code
     FROM subjects
-    WHERE is_active = TRUE
-    ORDER BY name
+  ORDER BY name
   `);
 }
 

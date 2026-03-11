@@ -1,53 +1,50 @@
 import express from "express";
 import * as controller from "./student.controller.js";
-
-import { authenticate }
-from "../auth/auth.middleware.js";
-
 import {
-  attachPermissions,
-  requirePermission
+  requirePermission,
 } from "../../core/rbac/rbac.middleware.js";
+import { uploadStudentFile } from "./student.middleware.js";
 
 const router = express.Router();
 
-router.get(
-  "/",
-  authenticate,
-  attachPermissions,
-  requirePermission("student.view"),
-  controller.getStudents
-);
-router.get(
-  "/by-class-section",
-  authenticate,
-  attachPermissions,
-  requirePermission("sectionStudent.view"),
-  controller.getStudentsByClassSection
-);
-
 router.post(
   "/",
-  authenticate,
-  attachPermissions,
   requirePermission("student.create"),
-  controller.createStudent
+  uploadStudentFile.single("photo"),
+  controller.createStudent,
+);
+router.post(
+  "/bulk-upload",
+  requirePermission("student.create"),
+  uploadStudentFile.single("file"),
+  controller.bulkUploadStudents,
+);
+router.get(
+  "/",
+  requirePermission("student.view"),
+  controller.getStudents,
 );
 
-
-router.put(
+router.get(
+  "/parents/search",
+  requirePermission("student.view"),
+  controller.searchParent,
+);
+router.get(
   "/:id",
-  authenticate,
-  attachPermissions,
+  requirePermission("student.view"),
+  controller.getStudentById,
+);
+
+router.patch(
+  "/:id",
   requirePermission("student.update"),
-  controller.updateStudent
+  controller.updateStudent,
 );
 router.delete(
   "/:id",
-  authenticate,
-  attachPermissions,
   requirePermission("student.delete"),
-  controller.deleteStudent
+  controller.deleteStudent,
 );
 
 export default router;

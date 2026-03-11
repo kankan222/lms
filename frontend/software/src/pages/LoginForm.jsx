@@ -1,4 +1,5 @@
 import { useNavigate } from "react-router-dom"
+import { useState } from "react"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
@@ -12,19 +13,59 @@ import {
 import { Input } from "@/components/ui/input"
 import { useAuth } from "../hooks/useAuth"
 import {loginApi} from "../api/auth.api"
+import { getDefaultLandingPath } from "../utils/defaultLanding"
 
 export default function LoginForm({ className, ...props }) {
   const navigate = useNavigate()
   const {login} = useAuth();
+  const [error, setError] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+
+  function validateCredentials(identifier, password) {
+    const credential = identifier.trim();
+    const pass = password.trim();
+
+    if (!credential || !pass) {
+      return "Email/phone and password are required.";
+    }
+
+    if (credential.includes("@")) {
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(credential)) {
+        return "Enter a valid email address.";
+      }
+      return null;
+    }
+
+    // Allow international-style phone values with separators.
+    const phoneRegex = /^\+?[0-9\s\-()]{7,20}$/;
+    const digitCount = credential.replace(/\D/g, "").length;
+    if (!phoneRegex.test(credential) || digitCount < 7 || digitCount > 15) {
+      return "Enter a valid phone number.";
+    }
+
+    return null;
+  }
+
   async function handleSubmit(e){
     e.preventDefault();
-    const email = e.target.email.value;
+    setError("");
+    const identifier = e.target.identifier.value.trim();
     const password = e.target.password.value;
+    const validationError = validateCredentials(identifier, password);
+    if (validationError) {
+      setError(validationError);
+      return;
+    }
 
-    const res = await loginApi(email, password);
-    const data = res.data;
-    login(data);
-    navigate("/")
+    try {
+      const res = await loginApi(identifier, password);
+      const data = res.data;
+      login(data);
+      navigate(getDefaultLandingPath(data?.user), { replace: true });
+    } catch (err) {
+      setError(err?.message || "Invalid email/phone or password.");
+    }
   }
   return (
     <div className="flex items-center justify-center mt-25">
@@ -41,11 +82,12 @@ export default function LoginForm({ className, ...props }) {
               </div>
 
               <Field>
-                <FieldLabel htmlFor="email">Email</FieldLabel>
+                <FieldLabel htmlFor="identifier">Email or Phone</FieldLabel>
                 <Input
-                  id="email"
-                  type="email"
-                  placeholder="m@example.com"
+                  id="identifier"
+                  name="identifier"
+                  type="text"
+                  placeholder="m@example.com or 9876543210"
                   required
                 />
               </Field>
@@ -53,19 +95,27 @@ export default function LoginForm({ className, ...props }) {
               <Field>
                 <div className="flex items-center">
                   <FieldLabel htmlFor="password">Password</FieldLabel>
-                  <a
-                    href="#"
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword((prev) => !prev)}
                     className="ml-auto text-sm underline-offset-2 hover:underline"
                   >
-                    Forgot your password?
-                  </a>
+                    {showPassword ? "Hide" : "Show"}
+                  </button>
                 </div>
-                <Input id="password" type="password" required />
+                <Input
+                  id="password"
+                  type={showPassword ? "text" : "password"}
+                  required
+                />
               </Field>
 
               <Field>
                 <Button type="submit">Login</Button>
               </Field>
+              {error && (
+                <p className="text-sm text-red-600">{error}</p>
+              )}
             </FieldGroup>
           </form>
 

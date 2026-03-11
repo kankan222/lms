@@ -1,29 +1,114 @@
 import * as repo from "./messaging.repository.js";
 
-export async function sendMessage(data, senderId) {
+async function getOrCreateDirectConversation(senderId, recipientUserId) {
+  const existing = await repo.getDirectConversation(senderId, recipientUserId);
+  if (existing?.id) return existing.id;
 
-  const isMember = await repo.findMember(data.conversation_id, senderId);
+  const conversationId = await repo.createConversation({
+    type: "direct",
+    name: null,
+    created_by: senderId
+  });
 
+  await repo.addConversationMembers(conversationId, [senderId, recipientUserId]);
+  return conversationId;
+}
+
+async function getOrCreateScopedConversation(senderId, type, classId, sectionId, name) {
+  const existing = await repo.getScopedConversation(type, classId, sectionId);
+  if (existing?.id) return existing.id;
+
+  const conversationId = await repo.createConversation({
+    type,
+    name,
+    class_id: classId,
+    section_id: sectionId,
+    created_by: senderId
+  });
+
+  await repo.addConversationMember(conversationId, senderId);
+  return conversationId;
+}
+
+export async function sendMessage(data, senderUserId) {
+  if (!data?.message || !String(data.message).trim()) {
+    throw new Error("Message is required");
+  }
+
+  let conversationId = data.conversation_id ? Number(data.conversation_id) : null;
+
+  if (!conversationId) {
+    const targetType = data.target_type;
+
+    if (!targetType) {
+      throw new Error("target_type is required for new conversation");
+    }
+
+    if (["direct", "parent", "teacher"].includes(targetType)) {
+      const recipientUserId = Number(data.recipient_user_id);
+      if (!recipientUserId) throw new Error("recipient_user_id is required");
+      conversationId = await getOrCreateDirectConversation(senderUserId, recipientUserId);
+    } else if (targetType === "class") {
+      const classId = Number(data.class_id);
+      if (!classId) throw new Error("class_id is required");
+
+      conversationId = await getOrCreateScopedConversation(
+        senderUserId,
+        "class",
+        classId,
+        null,
+        data.name || `Class ${classId}`
+      );
+
+      const recipients = await repo.getClassRecipientUsers(classId);
+      await repo.addConversationMembers(
+        conversationId,
+        recipients.map((r) => r.user_id)
+      );
+    } else if (targetType === "section") {
+      const sectionId = Number(data.section_id);
+      if (!sectionId) throw new Error("section_id is required");
+
+      conversationId = await getOrCreateScopedConversation(
+        senderUserId,
+        "section",
+        null,
+        sectionId,
+        data.name || `Section ${sectionId}`
+      );
+
+      const recipients = await repo.getSectionRecipientUsers(sectionId);
+      await repo.addConversationMembers(
+        conversationId,
+        recipients.map((r) => r.user_id)
+      );
+    } else {
+      throw new Error("Unsupported target_type");
+    }
+  }
+
+  const isMember = await repo.findMember(conversationId, senderUserId);
   if (!isMember) {
-    throw new Error("User not part of conversation");
+    await repo.addConversationMember(conversationId, senderUserId);
   }
 
   const messageId = await repo.insertMessage({
-    conversation_id: data.conversation_id,
-    sender_id: senderId,
+    conversation_id: conversationId,
+    sender_id: senderUserId,
     message: data.message,
     attachment_url: data.attachment_url || null
   });
 
-  await repo.updateConversationLastMessage(data.conversation_id);
+  await repo.updateConversationLastMessage(conversationId);
 
-  return messageId;
+  return {
+    conversation_id: conversationId,
+    message_id: messageId
+  };
 }
 
 export async function fetchMessages(conversationId, page = 1, limit = 30) {
-
   const offset = (page - 1) * limit;
-
   return repo.getConversationMessages(conversationId, limit, offset);
 }
 
@@ -37,4 +122,15 @@ export async function markRead(conversationId, userId) {
 
 export async function unreadCounts(userId) {
   return repo.getUnreadCounts(userId);
+}
+
+export async function getTargets() {
+  const [parents, teachers, classes, sections] = await Promise.all([
+    repo.getParentTargets(),
+    repo.getTeacherTargets(),
+    repo.getClassTargets(),
+    repo.getSectionTargets()
+  ]);
+
+  return { parents, teachers, classes, sections };
 }

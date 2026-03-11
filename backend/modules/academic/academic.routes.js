@@ -33,7 +33,12 @@ router.get(
   requirePermission("academic.view"),
   controller.getClasses
 );
-
+router.get(
+  "/classes/structure", 
+  authenticate,
+  attachPermissions,
+  controller.getClassStructure
+);
 router.post(
   "/classes",
   authenticate,

@@ -65,6 +65,43 @@ export async function insertInstallment(data) {
 
   return result;
 }
+
+export async function getInstallmentById(id) {
+  const rows = await query(
+    `SELECT id, fee_structure_id, installment_name, amount, due_date
+     FROM fee_installments
+     WHERE id = ?
+     LIMIT 1`,
+    [id]
+  );
+  return rows[0] || null;
+}
+
+export async function updateFeeStructure(id, data) {
+  const sql = `
+    UPDATE fee_structures
+    SET class_id = ?, session_id = ?, admission_fee = ?
+    WHERE id = ?
+  `;
+  return execute(sql, [data.class_id, data.session_id, data.admission_fee, id]);
+}
+
+export async function deleteFeeStructure(id) {
+  return execute(`DELETE FROM fee_structures WHERE id = ?`, [id]);
+}
+
+export async function updateInstallment(id, data) {
+  const sql = `
+    UPDATE fee_installments
+    SET installment_name = ?, amount = ?, due_date = ?
+    WHERE id = ?
+  `;
+  return execute(sql, [data.installment_name, data.amount, data.due_date ?? null, id]);
+}
+
+export async function deleteInstallment(id) {
+  return execute(`DELETE FROM fee_installments WHERE id = ?`, [id]);
+}
 export async function insertAdmissionFee(enrollmentId, amount) {
 
   const sql = `
@@ -105,12 +142,11 @@ LEFT JOIN fee_installments fi
 ON sf.installment_id = fi.id
 LEFT JOIN payments p
 ON sf.id = p.student_fee_id
-AND p.status='approved'
 WHERE sf.enrollment_id=?
 GROUP BY sf.id
   `;
 
-  const rows = await execute(sql, [enrollmentId]);
+  const rows = await query(sql, [enrollmentId]);
 
   return rows;
 }
@@ -126,7 +162,7 @@ export async function insertPayment(data) {
     data.student_fee_id ?? null,
     data.amount_paid ?? 0,
     data.remarks ?? null,
-    data.status ?? "pending",
+    "approved",
     data.created_by ?? null
   ];
 
@@ -147,7 +183,7 @@ export async function approvePayment(paymentId, adminId) {
 export async function getPendingPayments() {
 
   const sql = `
-  SELECT p.id, s.first_name, s.last_name, p.amount_paid
+  SELECT p.id, s.name, p.amount_paid
   FROM payments p
   JOIN student_fees sf ON p.student_fee_id = sf.id
   JOIN student_enrollments e ON sf.enrollment_id = e.id
@@ -155,9 +191,66 @@ export async function getPendingPayments() {
   WHERE p.status='pending'
   `;
 
-  const rows = await execute(sql);
+  const rows = await query(sql);
 
   return rows;
+}
+export async function getActiveEnrollmentByStudent(studentId) {
+  const sql = `
+    SELECT id, class_id, section_id, session_id
+    FROM student_enrollments
+    WHERE student_id = ?
+      AND status = 'active'
+    ORDER BY id DESC
+    LIMIT 1
+  `;
+  const rows = await query(sql, [studentId]);
+  return rows[0];
+}
+
+export async function getFeeStructureById(id) {
+  const rows = await query(
+    `SELECT id, class_id, session_id, admission_fee
+     FROM fee_structures
+     WHERE id = ?
+     LIMIT 1`,
+    [id]
+  );
+  return rows[0] || null;
+}
+
+export async function countStudentFees(enrollmentId) {
+  const sql = `
+    SELECT COUNT(*) AS total
+    FROM student_fees
+    WHERE enrollment_id = ?
+  `;
+  const rows = await query(sql, [enrollmentId]);
+  return Number(rows[0]?.total || 0);
+}
+
+export async function getStudentFeeOptions(enrollmentId) {
+  const sql = `
+    SELECT
+      sf.id,
+      sf.fee_type,
+      sf.amount,
+      sf.status,
+      fi.installment_name,
+      fi.due_date,
+      COALESCE(SUM(p.amount_paid), 0) AS paid,
+      (sf.amount - COALESCE(SUM(p.amount_paid), 0)) AS remaining
+    FROM student_fees sf
+    LEFT JOIN fee_installments fi
+      ON sf.installment_id = fi.id
+    LEFT JOIN payments p
+      ON p.student_fee_id = sf.id
+    WHERE sf.enrollment_id = ?
+    GROUP BY sf.id, sf.fee_type, sf.amount, sf.status, fi.installment_name, fi.due_date
+    HAVING remaining > 0
+    ORDER BY fi.due_date IS NULL DESC, fi.due_date ASC, sf.id ASC
+  `;
+  return query(sql, [enrollmentId]);
 }
 export async function getStructureByEnrollment(enrollmentId) {
   const sql = `
@@ -252,18 +345,205 @@ export async function getPaymentReceipt(paymentId){
     p.id,
     p.amount_paid,
     p.remarks,
+    p.status,
     p.created_at,
-    s.first_name,
-    s.last_name,
+    s.name,
     c.name AS class_name
+    ,sec.name AS section_name
+    ,sec.medium AS medium
+    ,sf.fee_type
+    ,sf.status AS fee_status
+    ,sf.amount AS fee_amount
+    ,fi.installment_name
+    ,(sf.amount - COALESCE((
+      SELECT SUM(pp.amount_paid)
+      FROM payments pp
+      WHERE pp.student_fee_id = sf.id
+    ),0)) AS remaining_amount
   FROM payments p
   JOIN student_fees sf ON p.student_fee_id = sf.id
   JOIN student_enrollments e ON sf.enrollment_id = e.id
   JOIN students s ON e.student_id = s.id
   JOIN classes c ON e.class_id = c.id
+  JOIN sections sec ON e.section_id = sec.id
+  LEFT JOIN fee_installments fi ON sf.installment_id = fi.id
   WHERE p.id = ?
   `;
 
   const rows = await query(sql,[paymentId]);
   return rows[0];
+}
+
+export async function getPayments(filters = {}) {
+  const where = [];
+  const params = [];
+
+  if (filters.class_id) {
+    where.push("e.class_id = ?");
+    params.push(filters.class_id);
+  }
+  if (filters.section_id) {
+    where.push("e.section_id = ?");
+    params.push(filters.section_id);
+  }
+  if (filters.student_id) {
+    where.push("s.id = ?");
+    params.push(filters.student_id);
+  }
+  if (filters.teacher_user_id) {
+    where.push(`EXISTS (
+      SELECT 1
+      FROM teachers t
+      JOIN teacher_class_assignments tca ON tca.teacher_id = t.id
+      WHERE t.user_id = ?
+        AND tca.class_id = e.class_id
+        AND tca.section_id = e.section_id
+        AND tca.session_id = e.session_id
+    )`);
+    params.push(filters.teacher_user_id);
+  }
+
+  const whereClause = where.length ? `WHERE ${where.join(" AND ")}` : "";
+
+  const sql = `
+    SELECT
+      p.id,
+      p.student_fee_id,
+      p.amount_paid,
+      p.remarks,
+      p.status,
+      p.created_at,
+      sf.fee_type,
+      sf.amount AS fee_amount,
+      sf.status AS fee_status,
+      s.id AS student_id,
+      s.name AS student_name,
+      c.name AS class_name,
+      sec.name AS section_name,
+      sec.medium AS medium
+    FROM payments p
+    JOIN student_fees sf ON p.student_fee_id = sf.id
+    JOIN student_enrollments e ON sf.enrollment_id = e.id
+    JOIN students s ON e.student_id = s.id
+    JOIN classes c ON e.class_id = c.id
+    JOIN sections sec ON e.section_id = sec.id
+    ${whereClause}
+    ORDER BY p.created_at DESC
+  `;
+
+  return query(sql, params);
+}
+
+export async function getUserRoleNames(userId) {
+  const rows = await query(
+    `SELECT r.name
+     FROM user_roles ur
+     JOIN roles r ON r.id = ur.role_id
+     WHERE ur.user_id = ?`,
+    [userId]
+  );
+  return rows.map((r) => r.name);
+}
+
+export async function getEnrollmentByStudentFeeId(studentFeeId) {
+  const rows = await query(
+    `SELECT
+      e.id,
+      e.class_id,
+      e.section_id,
+      e.session_id
+     FROM student_fees sf
+     JOIN student_enrollments e ON e.id = sf.enrollment_id
+     WHERE sf.id = ?
+     LIMIT 1`,
+    [studentFeeId]
+  );
+  return rows[0] || null;
+}
+
+export async function getEnrollmentByPaymentId(paymentId) {
+  const rows = await query(
+    `SELECT
+      e.id,
+      e.class_id,
+      e.section_id,
+      e.session_id
+     FROM payments p
+     JOIN student_fees sf ON sf.id = p.student_fee_id
+     JOIN student_enrollments e ON e.id = sf.enrollment_id
+     WHERE p.id = ?
+     LIMIT 1`,
+    [paymentId]
+  );
+  return rows[0] || null;
+}
+
+export async function isTeacherAssignedToScope(userId, classId, sectionId, sessionId) {
+  const rows = await query(
+    `SELECT 1
+     FROM teachers t
+     JOIN teacher_class_assignments tca ON tca.teacher_id = t.id
+     WHERE t.user_id = ?
+       AND tca.class_id = ?
+       AND tca.section_id = ?
+       AND tca.session_id = ?
+     LIMIT 1`,
+    [userId, classId, sectionId, sessionId]
+  );
+  return rows.length > 0;
+}
+
+export async function getPaymentById(paymentId) {
+  const sql = `SELECT * FROM payments WHERE id = ?`;
+  const rows = await query(sql, [paymentId]);
+  return rows[0];
+}
+
+export async function updatePayment(paymentId, data) {
+  const sql = `
+    UPDATE payments
+    SET amount_paid = ?, remarks = ?, status = ?
+    WHERE id = ?
+  `;
+  return execute(sql, [
+    data.amount_paid,
+    data.remarks ?? null,
+    "approved",
+    paymentId
+  ]);
+}
+
+export async function deletePayment(paymentId) {
+  return execute(`DELETE FROM payments WHERE id = ?`, [paymentId]);
+}
+
+export async function recalculateStudentFeeStatus(studentFeeId) {
+  const row = await query(
+    `
+    SELECT
+      sf.id,
+      sf.amount,
+      COALESCE(SUM(p.amount_paid), 0) AS paid
+    FROM student_fees sf
+    LEFT JOIN payments p
+      ON p.student_fee_id = sf.id
+    WHERE sf.id = ?
+    GROUP BY sf.id, sf.amount
+    `,
+    [studentFeeId]
+  );
+
+  if (!row[0]) return;
+
+  const total = Number(row[0].amount || 0);
+  const paid = Number(row[0].paid || 0);
+
+  let status = "pending";
+  if (paid >= total && total > 0) status = "paid";
+  else if (paid > 0) status = "partial";
+
+  await execute(
+    `UPDATE student_fees SET status = ? WHERE id = ?`,
+    [status, studentFeeId]
+  );
 }

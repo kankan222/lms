@@ -6,29 +6,46 @@ export async function apiRequest(path, options = {}, retry = true) {
   const token = localStorage.getItem("accessToken");
 
   const headers = {
-    "Content-Type": "application/json",
     ...(token && { Authorization: `Bearer ${token}` }),
     ...(options.headers || {})
   };
+
+  // Only set JSON header if body is not FormData
+  if (!(options.body instanceof FormData)) {
+    headers["Content-Type"] = "application/json";
+  }
 
   const response = await fetch(`${API_URL}${path}`, {
     ...options,
     headers
   });
 
-  if (response.status === 401 && retry && path !== "/auth/refresh") {
+  const isAuthPath = path.startsWith("/auth/");
+
+  if (response.status === 401 && retry && !isAuthPath) {
 
     const refreshed = await refreshToken();
 
     if (!refreshed) {
       localStorage.removeItem("accessToken");
       localStorage.removeItem("refreshToken");
-      window.location.href = "/login";
-      return;
+      throw new Error("Session expired. Please login again.");
     }
 
     return apiRequest(path, options, false);
   }
 
-  return response.json();
+  if (response.status === 204) return null;
+
+  const payload = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    const message = payload?.message || payload?.error || `Request failed (${response.status})`;
+    const err = new Error(message);
+    err.status = response.status;
+    err.payload = payload;
+    throw err;
+  }
+
+  return payload;
 }

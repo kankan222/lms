@@ -5,27 +5,46 @@ export default function DataTable({
   columns,
   data,
   rowsPerPageOptions = [5, 10, 20],
+  paginationMode = "client",
+  page = 1,
+  totalPages: serverTotalPages = 1,
+  totalRows = 0,
+  rowsPerPage: serverRowsPerPage = 5,
+  onPageChange,
+  onRowsPerPageChange,
   onEdit,
   onDelete,
+  onRowClick,
+  renderActions
 }) {
-  const [search, setSearch] = useState("");
+  const [search] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
   const [rowsPerPage, setRowsPerPage] = useState(rowsPerPageOptions[0]);
   const [selectedRows, setSelectedRows] = useState([]);
+  const showActions = onEdit || onDelete || renderActions;
+  const isServerPagination = paginationMode === "server";
+  const effectiveCurrentPage = isServerPagination ? page : currentPage;
+  const effectiveRowsPerPage = isServerPagination ? serverRowsPerPage : rowsPerPage;
 
   // Filtering
   const filteredData = useMemo(() => {
+    if (isServerPagination) return data;
     return data.filter((row) =>
       Object.values(row).join(" ").toLowerCase().includes(search.toLowerCase()),
     );
-  }, [search, data]);
+  }, [search, data, isServerPagination]);
 
   // Pagination
-  const totalPages = Math.ceil(filteredData.length / rowsPerPage);
-  const paginatedData = filteredData.slice(
-    (currentPage - 1) * rowsPerPage,
-    currentPage * rowsPerPage,
-  );
+  const totalPages = isServerPagination
+    ? serverTotalPages
+    : Math.ceil(filteredData.length / rowsPerPage);
+  const paginatedData = isServerPagination
+    ? filteredData
+    : filteredData.slice(
+        (currentPage - 1) * rowsPerPage,
+        currentPage * rowsPerPage,
+      );
+  const totalRowsCount = isServerPagination ? totalRows : filteredData.length;
 
   // Selection
   const toggleRow = (id) => {
@@ -43,8 +62,18 @@ export default function DataTable({
   };
 
   const statusColor = (status) => {
-    if (status === "active") return "bg-green-100 text-green-700";
-    if (status === "primary") return "bg-blue-100 text-blue-700";
+    const value = String(status || "").trim().toLowerCase();
+
+    if (value === "paid" || value === "active") {
+      return "bg-green-100 text-green-700";
+    }
+    if (value === "partial") {
+      return "bg-amber-100 text-amber-700";
+    }
+    if (value === "pending" || value === "inactive" || value === "deactive" || value === "suspended") {
+      return "bg-red-100 text-red-700";
+    }
+    if (value === "primary") return "bg-blue-100 text-blue-700";
     return "bg-gray-100 text-gray-700";
   };
 
@@ -85,14 +114,18 @@ export default function DataTable({
                   {col.header}
                 </th>
               ))}
-
-              <th className="p-3">Actions</th>
+              {showActions && <th className="p-3">Actions</th>}
+              
             </tr>
           </thead>
 
           <tbody>
             {paginatedData.map((row) => (
-              <tr key={row.id} className="border-b hover:bg-gray-50 transition">
+              <tr
+                key={row.id}
+                className="border-b hover:bg-gray-50 transition"
+                onClick={() => onRowClick?.(row)}
+              >
                 <td className="p-3">
                   <input
                     type="checkbox"
@@ -103,7 +136,7 @@ export default function DataTable({
 
                 {columns.map((col) => (
                   <td key={col.accessor} className="p-3 text-base text-primary">
-                    {col.accessor === "status" ? (
+                    {col.accessor === "status" || col.accessor === "display_status" ? (
                       <span
                         className={`px-3 py-1 text-xs rounded-full font-medium ${statusColor(
                           row[col.accessor],
@@ -117,15 +150,21 @@ export default function DataTable({
                   </td>
                 ))}
 
-                <td className="p-3 flex gap-2">
-                  <Button onClick={() => onEdit(row)} variant="secondary">
-                    Edit
-                  </Button>
-
-                  <Button onClick={() => onDelete(row)} variant="destructive">
-                    Delete
-                  </Button>
-                </td>
+                {showActions && (
+                  <td className="p-3 flex gap-2">
+                    {onEdit && (
+                      <Button onClick={(e) => { e.stopPropagation(); onEdit(row); }} variant="secondary">
+                        Edit
+                      </Button>
+                    )}
+                    {onDelete && (
+                      <Button onClick={(e) => { e.stopPropagation(); onDelete(row); }} variant="destructive">
+                        Delete
+                      </Button>
+                    )}
+                    {renderActions?.(row)}
+                  </td>
+                )}
               </tr>
             ))}
 
@@ -147,7 +186,7 @@ export default function DataTable({
       <div className="flex justify-between px-4 py-2">
         <div className="flex justify-between items-center mt-4">
           <p className="text-sm text-muted-foreground">
-            {selectedRows.length} of {filteredData.length} row(s) selected
+            {selectedRows.length} of {totalRowsCount} row(s) selected
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -155,10 +194,15 @@ export default function DataTable({
             <p>Rows per page</p>
             <select
               className=" border rounded-lg"
-              value={rowsPerPage}
+              value={effectiveRowsPerPage}
               onChange={(e) => {
-                setRowsPerPage(Number(e.target.value));
-                setCurrentPage(1);
+                const nextValue = Number(e.target.value);
+                if (isServerPagination) {
+                  onRowsPerPageChange?.(nextValue);
+                } else {
+                  setRowsPerPage(nextValue);
+                  setCurrentPage(1);
+                }
               }}
             >
               {rowsPerPageOptions.map((option) => (
@@ -169,20 +213,32 @@ export default function DataTable({
             </select>
           </div>
           <span className="text-sm text-gray-500">
-            Page {currentPage} of {totalPages}
+            Page {effectiveCurrentPage} of {totalPages || 1}
           </span>
           <div className="flex gap-2 items-center">
             <button
-              disabled={currentPage === 1}
-              onClick={() => setCurrentPage((prev) => prev - 1)}
+              disabled={effectiveCurrentPage === 1}
+              onClick={() => {
+                if (isServerPagination) {
+                  onPageChange?.(Math.max(effectiveCurrentPage - 1, 1));
+                } else {
+                  setCurrentPage((prev) => prev - 1);
+                }
+              }}
               className="px-3 py-1 border rounded-lg disabled:opacity-50"
             >
               Prev
             </button>
 
             <button
-              disabled={currentPage === totalPages}
-              onClick={() => setCurrentPage((prev) => prev + 1)}
+              disabled={effectiveCurrentPage >= (totalPages || 1)}
+              onClick={() => {
+                if (isServerPagination) {
+                  onPageChange?.(Math.min(effectiveCurrentPage + 1, totalPages || 1));
+                } else {
+                  setCurrentPage((prev) => prev + 1);
+                }
+              }}
               className="px-3 py-1 border rounded-lg disabled:opacity-50"
             >
               Next

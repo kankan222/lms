@@ -2,7 +2,7 @@ export default function ChatList({
   conversations,
   activeChatId,
   onSelect,
-  onNewChat,
+  onNewChat
 }) {
   return (
     <div className="w-80 border-r flex flex-col">
@@ -29,9 +29,9 @@ export default function ChatList({
               ${activeChatId === conv.id ? "bg-gray-100" : ""}
             `}
           >
-            <p className="font-medium text-sm">{conv.name}</p>
+            <p className="font-medium text-sm">{conv.name || `${conv.type} #${conv.id}`}</p>
             <p className="text-xs text-gray-500 truncate">
-              {conv.lastMessage}
+              {conv.last_message || "No messages yet"}
             </p>
           </div>
         ))}

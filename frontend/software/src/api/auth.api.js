@@ -1,9 +1,16 @@
 import { apiRequest } from "../../../shared/api/client.js";
 
-export async function loginApi(email, password) {
+export async function loginApi(identifier, password) {
+  const credential = identifier?.trim();
+  const isEmail = credential?.includes("@");
+  const payload = {
+    password,
+    ...(isEmail ? { email: credential } : { phone: credential })
+  };
+
   return apiRequest("/auth/login", {
     method: "POST",
-    body: JSON.stringify({ email, password })
+    body: JSON.stringify(payload)
   });
 }
 
@@ -23,9 +30,24 @@ export async function refreshToken() {
 
   const data = await res.json();
 
-  if (!data.accessToken) return false;
+  if (!data?.data?.accessToken) return false;
 
-  localStorage.setItem("accessToken", data.accessToken);
+  localStorage.setItem("accessToken", data.data.accessToken);
+  if (data?.data?.refreshToken) {
+    localStorage.setItem("refreshToken", data.data.refreshToken);
+  }
 
   return true;
+}
+
+export async function logoutApi() {
+  try {
+    await apiRequest("/auth/logout", {
+      method: "POST"
+    });
+  } finally {
+    // Always clear tokens even if API fails
+    localStorage.removeItem("accessToken");
+    localStorage.removeItem("refreshToken");
+  }
 }

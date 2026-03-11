@@ -1,6 +1,7 @@
 import bcrypt from "bcrypt";
 import { query } from "../../core/db/query.js";
 
+const ADMIN_EMAIL="admin@kkv.com"
 const ADMIN_USERNAME = "admin";
 const ADMIN_PASSWORD = "Admin@KKV147"; // change anytime
 
@@ -40,7 +41,7 @@ async function seedAdmin() {
       VALUES (?, ?, ?, 'active')`,
       [
         ADMIN_USERNAME,
-        "admin@system.local",
+        ADMIN_EMAIL,
         passwordHash
       ]
     );

@@ -1,5 +1,23 @@
 import * as feeService from "./fee.service.js";
 
+function mapFeeError(err, res) {
+  if (err?.code === "ER_DUP_ENTRY") {
+    return res.status(400).json({
+      message: "Fee structure already exists for this class and session"
+    });
+  }
+  if (err?.code === "ER_ROW_IS_REFERENCED_2") {
+    return res.status(400).json({
+      message: "Cannot delete record because it is already used in student fees/payments"
+    });
+  }
+  if (typeof err?.statusCode === "number") {
+    return res.status(err.statusCode).json({ message: err.message });
+  }
+  console.error(err);
+  return res.status(500).json({ message: "Internal server error" });
+}
+
 export async function createFeeStructure(req, res) {
   try {
 
@@ -8,19 +26,25 @@ export async function createFeeStructure(req, res) {
     res.json(result);
 
   } catch (err) {
+    return mapFeeError(err, res);
+  }
+}
 
-    if (err.code === "ER_DUP_ENTRY") {
-      return res.status(400).json({
-        message: "Fee structure already exists for this class and session"
-      });
-    }
+export async function updateFeeStructure(req, res) {
+  try {
+    const result = await feeService.updateFeeStructure(req.params.id, req.body || {});
+    res.json(result);
+  } catch (err) {
+    return mapFeeError(err, res);
+  }
+}
 
-    console.error(err);
-
-    res.status(500).json({
-      message: "Internal server error"
-    });
-
+export async function deleteFeeStructure(req, res) {
+  try {
+    const result = await feeService.deleteFeeStructure(req.params.id);
+    res.json(result);
+  } catch (err) {
+    return mapFeeError(err, res);
   }
 }
 
@@ -69,8 +93,30 @@ export async function getAllFeeStructures(req, res) {
   }
 }
 export async function createInstallment(req, res) {
-  const result = await feeService.createInstallment(req.body);
-  res.json(result);
+  try {
+    const result = await feeService.createInstallment(req.body);
+    res.json(result);
+  } catch (err) {
+    return mapFeeError(err, res);
+  }
+}
+
+export async function updateInstallment(req, res) {
+  try {
+    const result = await feeService.updateInstallment(req.params.id, req.body || {});
+    res.json(result);
+  } catch (err) {
+    return mapFeeError(err, res);
+  }
+}
+
+export async function deleteInstallment(req, res) {
+  try {
+    const result = await feeService.deleteInstallment(req.params.id);
+    res.json(result);
+  } catch (err) {
+    return mapFeeError(err, res);
+  }
 }
 
 export async function generateStudentLedger(req, res) {
@@ -85,8 +131,6 @@ export async function getStudentLedger(req, res) {
 }
 
 export async function createPayment(req, res) {
-  console.log("PAYMENT BODY:", req.body);
-  console.log("USER:", req.user);
   const result = await feeService.createPayment(req.body, req.user);
   res.json(result);
 }
@@ -113,4 +157,27 @@ export async function downloadReceipt(req,res){
   );
 
   res.send(pdfBuffer);
+}
+
+export async function getPayments(req, res) {
+  const result = await feeService.getPayments({
+    ...(req.query || {}),
+    userId: req.user?.userId
+  });
+  res.json({ data: result });
+}
+
+export async function getStudentFeeOptions(req, res) {
+  const result = await feeService.getStudentFeeOptions(req.params.studentId, req.user);
+  res.json({ data: result });
+}
+
+export async function updatePayment(req, res) {
+  const result = await feeService.updatePayment(req.params.id, req.body, req.user);
+  res.json(result);
+}
+
+export async function deletePayment(req, res) {
+  const result = await feeService.deletePayment(req.params.id, req.user);
+  res.json(result);
 }

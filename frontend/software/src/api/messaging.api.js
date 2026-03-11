@@ -1,4 +1,4 @@
-import { apiRequest } from "../../../shared/api/client";
+import { apiRequest } from "../../../shared/api/client.js";
 
 export function getConversations() {
   return apiRequest("/messages/conversations");
@@ -20,4 +20,8 @@ export function markAsRead(data) {
     method: "POST",
     body: JSON.stringify(data)
   });
+}
+
+export function getTargets() {
+  return apiRequest("/messages/targets");
 }

@@ -1,44 +1,42 @@
+import {useState, useEffect} from "react";
+import { getAllTeacherAttendance } from "../api/teachers.api";
+
 import DataTable from "../components/DataTable"
-import ButtonGroup from "../components/ButtonGroup";
+
 import TopBar from "../components/TopBar";
 const columns = [
-  { header: "ID", accessor: "name" },
-  { header: "Photo", accessor: "name" },
-  { header: "Student Name", accessor: "name" },
-  { header: "Class", accessor: "dob" },
-  { header: "Section", accessor: "gender" },
+  { header: "Teacher", accessor: "teacher" },
+  { header: "Date", accessor: "attendance_date" },
+  { header: "Check In", accessor: "check_in" },
+  { header: "Check Out", accessor: "check_out" },
   { header: "Status", accessor: "status" },
+  { header: "Worked Hours", accessor: "worked_hours" },
 ];
 
-const data = [
-  { id: 1, name: "John Doe", email: "john@mail.com", role: "Admin", status: "active" },
-  { id: 2, name: "Jane Smith", email: "jane@mail.com", role: "Editor", status: "primary" },
-  { id: 3, name: "Alex Brown", email: "alex@mail.com", role: "User", status: "secondary" },
-  { id: 4, name: "Mark Lee", email: "mark@mail.com", role: "User", status: "active" },
-  { id: 5, name: "Sara Khan", email: "sara@mail.com", role: "Editor", status: "secondary" },
-  { id: 1, name: "John Doe", email: "john@mail.com", role: "Admin", status: "active" },
-  { id: 2, name: "Jane Smith", email: "jane@mail.com", role: "Editor", status: "primary" },
-  { id: 3, name: "Alex Brown", email: "alex@mail.com", role: "User", status: "secondary" },
-  { id: 4, name: "Mark Lee", email: "mark@mail.com", role: "User", status: "active" },
-  { id: 5, name: "Sara Khan", email: "sara@mail.com", role: "Editor", status: "secondary" },
-];
 
 const Attendance = () => {
-  const handleEdit = (row) => {
-    console.log("Edit:", row);
-  };
 
-  const handleDelete = (row) => {
-    console.log("Delete:", row);
-  };
+  const [attendance, setAttendance] =useState([])
+
+  useEffect(()=>{
+    loadAttendance();
+  }, [])
+
+
+  async function loadAttendance() {
+    const res = await getAllTeacherAttendance()
+    setAttendance(res.data || [])
+    console.log(res)
+  }
   return (
     <>
-    <TopBar ButtonText="Add Attendance"/>
+    <TopBar
+    title="Attendance"
+    subTitle="Manage all attendances here"
+    />
       <DataTable
       columns={columns}
-      data={data}
-      onEdit={handleEdit}
-      onDelete={handleDelete}
+      data={attendance}
        />
     </>
   )

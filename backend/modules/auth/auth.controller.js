@@ -1,12 +1,34 @@
 import * as authService from "./auth.service.js";
 
+function normalizePhone(rawPhone) {
+  if (!rawPhone) return undefined;
+  const compact = rawPhone.trim().replace(/[^\d+]/g, "");
+  if (!compact) return undefined;
+  if (compact.startsWith("+")) {
+    return `+${compact.slice(1).replace(/\D/g, "")}`;
+  }
+  return compact.replace(/\D/g, "");
+}
+
 export async function login(req, res, next) {
   try {
-const { email, username, identifier, password } = req.body;
-console.log("Login body", req.body)
+    const { email, phone, identifier, password } = req.body;
+    const normalizedIdentifier = identifier?.trim();
+    const resolvedEmail =
+      email?.trim() ||
+      (normalizedIdentifier?.includes("@")
+        ? normalizedIdentifier
+        : undefined);
+    const resolvedPhone =
+      normalizePhone(phone) ||
+      (!normalizedIdentifier?.includes("@")
+        ? normalizePhone(normalizedIdentifier)
+        : undefined);
+
     const result = await authService.login(
-       {
-        identifier: identifier || email || username,
+      {
+        email: resolvedEmail,
+        phone: resolvedPhone,
         password
       },
       {

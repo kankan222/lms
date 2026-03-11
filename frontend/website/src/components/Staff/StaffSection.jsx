@@ -40,6 +40,36 @@ const staffSections = {
         },
       ],
     },
+    {
+      heading: "Teaching Staff",
+      staff: [
+        {
+          src: "/assets/staff/college/AnamikaKakoti.jpeg",
+          name: "Anamika Kakoti",
+        },
+        {
+          src: "/assets/staff/college/AnikaTehsinIslam.jpeg",
+          name: "Anika Tehsin Islam",
+        },
+        {
+          src: "/assets/staff/college/bikash.jpeg",
+          name: "Bikash Das",
+        },
+        {
+          src: "/assets/staff/college/binita.jpg",
+          name: "Binita Kakoti",
+        },
+        {
+          src: "/assets/staff/college/binod.jpeg",
+          name: "Binod Bora",
+        },
+        {
+          src: "/assets/staff/college/bornali.jpg",
+          name: "Bornali Modak",
+        },
+        
+      ],
+    },
   ],
   school: [
     {

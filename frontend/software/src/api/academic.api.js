@@ -6,6 +6,9 @@ export async function getSessions() {
 export async function getClasses() {
   return apiRequest("/academic/classes");
 }
+export async function getClassStructure() {
+  return apiRequest("/academic/classes/structure");
+}
 
 export async function createClass(data) {
   return apiRequest("/academic/classes",{

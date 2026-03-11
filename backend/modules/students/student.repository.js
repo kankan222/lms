@@ -1,166 +1,253 @@
-import { query } from "../../core/db/query.js";
+import {pool} from "../../database/pool.js";
 
-/* CREATE */
+export async function insertStudent(conn, student) {
 
-export async function createStudent(data) {
-
-  const sql = `
-  INSERT INTO students
-  (admission_no, first_name, last_name, dob, gender)
-  VALUES (?, ?, ?, ?, ?)
-  `;
-
-  const result = await query(sql, [
-    data.admission_no || null,
-    data.first_name || null,
-    data.last_name || null,
-    data.dob || null,
-    data.gender || null
-  ]);
+  const [result] = await conn.execute(
+    `INSERT INTO students
+     (admission_no, name, dob, gender, date_of_admission, mobile, photo_url)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    [
+      student.admission_no || null,
+      student.name || null,
+      student.dob || null,
+      student.gender || null,
+      student.date_of_admission || null,
+      student.mobile || null,
+      student.photo_url || null
+    ]
+  );
 
   return result.insertId;
 }
 
+export async function findUserByPhone(conn, phone) {
 
-/* CREATE ENROLLMENT */
+  const [rows] = await conn.execute(
+    `SELECT id FROM users WHERE phone = ?`,
+    [phone]
+  );
 
-export async function createEnrollment(studentId, data) {
-
-  const sql = `
-  INSERT INTO student_enrollments
-  (student_id, class_id, section_id, session_id, roll_number, status)
-  VALUES (?, ?, ?, ?, ?, ?)
-  `;
-
-  await query(sql, [
-    studentId,
-    data.class_id || null,
-    data.section_id || null,
-    data.session_id || null,
-    data.roll_number || null,
-    data.status || "active"
-  ]);
+  return rows[0];
 }
 
+export async function createUser(conn, user) {
 
-/* GET ALL STUDENTS */
+  const [result] = await conn.execute(
+    `INSERT INTO users (phone, email, password_hash)
+     VALUES (?, ?, ?)`,
+    [user.phone, user.email, user.password_hash]
+  );
 
-export function getStudents() {
-
-  return query(`
-  SELECT
-    s.id,
-    s.admission_no,
-    s.first_name,
-    s.last_name,
-    DATE_FORMAT(s.dob,'%Y-%m-%d') as dob,
-    s.gender,
-    se.roll_number,
-    se.status,
-    c.name AS class,
-    sec.name AS section
-  FROM students s
-
-  LEFT JOIN student_enrollments se
-    ON se.student_id = s.id
-    AND se.status='active'
-
-  LEFT JOIN classes c
-    ON c.id = se.class_id
-
-  LEFT JOIN sections sec
-    ON sec.id = se.section_id
-
-  ORDER BY s.id DESC
-  `);
-
+  return result.insertId;
 }
 
-export function getStudentsByClassSection() {
+export async function assignParentRole(conn, userId) {
 
-  return query(`
-  SELECT
-s.id,
-s.first_name,
-s.last_name
-FROM students s
-JOIN student_enrollments e
-ON s.id = e.student_id
-WHERE e.class_id = ?
-AND e.section = ?
-AND e.session_id = ?
-  `);
-
+  await conn.execute(
+    `INSERT IGNORE INTO user_roles (user_id, role_id)
+     SELECT ?, id FROM roles WHERE name = 'parent'`,
+    [userId]
+  );
 }
 
+export async function createParent(conn, parent) {
 
-/* UPDATE STUDENT */
+  const [result] = await conn.execute(
+    `INSERT INTO parents
+     (user_id, name, qualification, occupation)
+     VALUES (?, ?, ?, ?)`,
+    [
+      parent.user_id,
+      parent.name,
+      parent.qualification,
+      parent.occupation
+    ]
+  );
+
+  return result.insertId;
+}
+
+export async function findParentByUser(conn, userId) {
+
+  const [rows] = await conn.execute(
+    `SELECT * FROM parents WHERE user_id = ?`,
+    [userId]
+  );
+
+  return rows[0];
+}
+
+export async function linkParent(conn, studentId, parentId, relationship) {
+
+  await conn.execute(
+    `INSERT INTO student_parents
+     (student_id, parent_id, relationship)
+     VALUES (?, ?, ?)`,
+    [studentId, parentId, relationship]
+  );
+}
+
+export async function insertEnrollment(conn, enrollment) {
+
+  const [result] = await conn.execute(
+    `INSERT INTO student_enrollments
+     (student_id, session_id, class_id, section_id, stream_id, roll_number, status)
+     VALUES (?, ?, ?, ?, ?, ?, 'active')`,
+    [
+      enrollment.student_id,
+      enrollment.session_id,
+      enrollment.class_id,
+      enrollment.section_id,
+      enrollment.stream_id || null,
+      enrollment.roll_number || null
+    ]
+  );
+
+  return result.insertId;
+}
+
+export async function getStudents(filters = {}) {
+  const classId = filters.class_id ?? filters.classId;
+  const sectionId = filters.section_id ?? filters.sectionId;
+
+  const where = [];
+  const params = [];
+
+  if (classId) {
+    where.push("se.class_id = ?");
+    params.push(classId);
+  }
+
+  if (sectionId) {
+    where.push("se.section_id = ?");
+    params.push(sectionId);
+  }
+
+  const whereClause = where.length ? `WHERE ${where.join(" AND ")}` : "";
+
+  const [rows] = await pool.execute(
+    `SELECT
+      s.id,
+      s.admission_no,
+      s.name,
+      s.mobile AS phone,
+      s.gender,
+      s.dob,
+      se.roll_number,
+      se.class_id,
+      se.section_id,
+      c.name AS class,
+      sec.name AS section,
+      sec.medium AS medium
+     FROM students s
+     LEFT JOIN student_enrollments se
+       ON s.id = se.student_id AND se.status='active'
+     LEFT JOIN classes c
+       ON se.class_id = c.id
+     LEFT JOIN sections sec
+       ON se.section_id = sec.id
+     ${whereClause}
+     ORDER BY s.id DESC`,
+    params
+  );
+
+  return rows;
+}
+
+export async function getStudentById(id) {
+  const [rows] = await pool.execute(
+    `SELECT
+      s.*,
+      se.roll_number,
+      se.class_id,
+      se.section_id,
+      se.session_id,
+      c.name AS class,
+      sec.name AS section,
+      sec.medium AS medium,
+      sess.name AS session
+     FROM students s
+     LEFT JOIN student_enrollments se
+       ON s.id = se.student_id AND se.status='active'
+     LEFT JOIN classes c
+       ON se.class_id = c.id
+     LEFT JOIN sections sec
+       ON se.section_id = sec.id
+     LEFT JOIN academic_sessions sess
+       ON se.session_id = sess.id
+     WHERE s.id=?`,
+    [id]
+  );
+
+  const student = rows[0];
+  if (!student) return null;
+
+  const [parentRows] = await pool.execute(
+    `SELECT
+      sp.relationship,
+      p.name,
+      u.phone AS mobile,
+      u.email,
+      p.qualification,
+      p.occupation
+     FROM student_parents sp
+     JOIN parents p ON p.id = sp.parent_id
+     JOIN users u ON u.id = p.user_id
+     WHERE sp.student_id = ?`,
+    [id]
+  );
+
+  return {
+    ...student,
+    parents: parentRows
+  };
+}
 
 export async function updateStudent(id, data) {
 
-  const sql = `
-  UPDATE students
-  SET
-    admission_no = ?,
-    first_name = ?,
-    last_name = ?,
-    dob = ?,
-    gender = ?
-  WHERE id = ?
-  `;
+  await pool.execute(
+    `UPDATE students
+     SET
+       admission_no = ?,
+       name = ?,
+       mobile = ?,
+       gender = ?,
+       dob = ?,
+       date_of_admission = ?,
+       photo_url = COALESCE(?, photo_url)
+     WHERE id = ?`,
+    [
+      data.admission_no ?? null,
+      data.name ?? null,
+      data.mobile ?? null,
+      data.gender ?? null,
+      data.dob ?? null,
+      data.date_of_admission ?? null,
+      data.photo_url ?? null,
+      id
+    ]
+  );
 
-  await query(sql, [
-    data.admission_no || null,
-    data.first_name || null,
-    data.last_name || null,
-    data.dob || null,
-    data.gender || null,
-    id
-  ]);
-
+  return { message: "updated" };
 }
-
-
-/* UPDATE ENROLLMENT */
-
-export async function updateEnrollment(id, data) {
-
-  const sql = `
-  UPDATE student_enrollments
-  SET
-    class_id = ?,
-    section_id = ?,
-    session_id = ?,
-    roll_number = ?,
-    status = ?
-  WHERE student_id = ?
-  `;
-
-  await query(sql, [
-    data.classId || null,
-    data.sectionId || null,
-    data.sessionId || null,
-    data.rollNumber || null,
-    data.status || "active",
-    id
-  ]);
-
-}
-
-
-/* DELETE */
 
 export async function deleteStudent(id) {
 
-  await query(
-    `DELETE FROM student_enrollments WHERE student_id=?`,
-    [id]
-  );
-
-  await query(
+  await pool.execute(
     `DELETE FROM students WHERE id=?`,
     [id]
   );
-
 }
 
+export async function searchParent(phone) {
+
+  const [rows] = await pool.execute(
+    `SELECT p.id, p.name, u.phone
+     FROM parents p
+     JOIN users u ON p.user_id=u.id
+     WHERE u.phone=?`,
+    [phone]
+  );
+
+  return rows;
+}

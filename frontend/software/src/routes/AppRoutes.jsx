@@ -1,19 +1,36 @@
 import { Routes, Route } from "react-router-dom";
 
 import Layout from "../layout/layout";
-import { appRoutes } from "./RouteConfig";
+import { appRoutes, hiddenRoutes } from "./RouteConfig";
 
 import ProtectedRoute from "./ProtectedRoute";
+import PublicRoute from "./PublicRoute";
 import PermissionRoute from "./PermissionRoute";
+import RoleLandingRoute from "./RoleLandingRoute";
 
 import Login from "../pages/LoginForm";
+import Unauthorized from "../pages/Unauthorized";
 
 const AppRoutes = () => {
   return (
     <Routes>
-
       {/* PUBLIC ROUTE */}
-      <Route path="/login" element={<Login />} />
+      <Route
+        path="/login"
+        element={
+          <PublicRoute>
+            <Login />
+          </PublicRoute>
+        }
+      />
+      <Route
+        path="/unauthorized"
+        element={
+          <ProtectedRoute>
+            <Unauthorized />
+          </ProtectedRoute>
+        }
+      />
 
       {/* PROTECTED ROUTES */}
       <Route
@@ -24,9 +41,9 @@ const AppRoutes = () => {
           </ProtectedRoute>
         }
       >
+        <Route index element={<RoleLandingRoute />} />
 
         {appRoutes.map((route, i) => {
-
           let element = route.element;
 
           if (route.permission) {
@@ -40,23 +57,19 @@ const AppRoutes = () => {
           return (
             <Route
               key={i}
-              path={route.path === "/" ? undefined : route.path.substring(1)}
-              index={route.path === "/"}
+              path={route.path.substring(1)}
               element={element}
-            >
-              {route.children?.map((child, ci) => (
-                <Route
-                  key={ci}
-                  path={child.path}
-                  element={child.element}
-                />
-              ))}
-            </Route>
+            ></Route>
           );
         })}
-
+        {hiddenRoutes.map((route, i) => (
+          <Route
+            key={`hidden-${i}`}
+            path={route.path.substring(1)}
+            element={route.element}
+          />
+        ))}
       </Route>
-
     </Routes>
   );
 };

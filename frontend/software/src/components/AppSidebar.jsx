@@ -1,4 +1,4 @@
-import { NavLink } from "react-router-dom";
+import { NavLink, useNavigate } from "react-router-dom";
 import {
   Sidebar,
   SidebarContent,
@@ -27,10 +27,11 @@ import { CircleUserRound, ChevronUp } from "lucide-react";
 
 import { appRoutes } from "../routes/RouteConfig";
 import { usePermissions } from "../hooks/usePermissions";
-
+import { logoutApi } from "../api/auth.api";
 const AppSidebar = () => {
 
   const { can } = usePermissions();
+  const navigate = useNavigate()
 
   const visibleRoutes = appRoutes.filter(route => {
 
@@ -39,7 +40,15 @@ const AppSidebar = () => {
     return can(route.permission);
 
   });
-
+const handleLogout = async () => {
+  try {
+    await logoutApi();
+  } catch (err) {
+    console.error(err);
+  } finally {
+    navigate("/login");
+  }
+};
   return (
     <Sidebar collapsible="icon">
 
@@ -107,7 +116,7 @@ const AppSidebar = () => {
           <DropdownMenuContent align="end">
             <DropdownMenuItem>Account</DropdownMenuItem>
             <DropdownMenuItem>Settings</DropdownMenuItem>
-            <DropdownMenuItem>Logout</DropdownMenuItem>
+            <DropdownMenuItem onClick={handleLogout}>Logout</DropdownMenuItem>
           </DropdownMenuContent>
 
         </DropdownMenu>

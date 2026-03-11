@@ -1,120 +1,362 @@
-import { useState, useEffect } from "react";
+import { useEffect, useMemo, useState } from "react";
 import TopBar from "../components/TopBar";
 import { Button } from "../components/ui/button";
-import { getExam, createExam } from "../api/exam.api";
-
-import { FileSpreadsheet, TrashIcon } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-
+import { Trash2 } from "lucide-react";
 import {
   Sheet,
   SheetContent,
   SheetFooter,
   SheetHeader,
   SheetTitle,
-  SheetTrigger,
+  SheetTrigger
 } from "@/components/ui/sheet";
+import { getClassStructure } from "../api/academic.api";
+import { getSubjects } from "../api/subjects.api";
+import { createExam, deleteExam, getExamById, getExams, updateExam } from "../api/exam.api";
 
-const Exams = () => {
-
-  const [createOpen, setCreateOpen] = useState(false);
+export default function Exams() {
   const [exams, setExams] = useState([]);
+  const [classStructure, setClassStructure] = useState([]);
+  const [allSubjects, setAllSubjects] = useState([]);
+  const [open, setOpen] = useState(false);
+  const [editingId, setEditingId] = useState(null);
+  const [formError, setFormError] = useState("");
   const [form, setForm] = useState({
-    name: ""
+    name: "",
+    scopes: [{ class_id: "", section_id: "" }],
+    subjects: []
   });
 
-  useEffect(() => {
-    loadExams();
-  }, []);
+  const classMap = useMemo(
+    () => new Map(classStructure.map((c) => [String(c.id), c])),
+    [classStructure]
+  );
 
-  async function loadExams() {
-    const sessionId = 1;
-
-  const res = await getExam(sessionId);
-
-  setExams(res.data);
+  async function loadInitial() {
+    const [examsRes, classesRes, subjectsRes] = await Promise.all([
+      getExams(),
+      getClassStructure(),
+      getSubjects()
+    ]);
+    setExams(examsRes?.data || []);
+    setClassStructure(classesRes?.data || []);
+    setAllSubjects(subjectsRes?.data || []);
   }
 
-  function handleChange(e) {
+  useEffect(() => {
+    loadInitial();
+  }, []);
+
+  function resetForm() {
+    setEditingId(null);
     setForm({
-      ...form,
-      [e.target.name]: e.target.value,
+      name: "",
+      scopes: [{ class_id: "", section_id: "" }],
+      subjects: []
     });
   }
 
-  async function handleSubmit(e) {
+  function setScope(idx, key, value) {
+    setForm((prev) => ({
+      ...prev,
+      scopes: prev.scopes.map((s, i) =>
+        i === idx
+          ? key === "class_id"
+            ? { class_id: value, section_id: "" }
+            : { ...s, [key]: value }
+          : s
+      )
+    }));
+  }
+
+  function addScopeRow() {
+    setForm((prev) => ({
+      ...prev,
+      scopes: [...prev.scopes, { class_id: "", section_id: "" }]
+    }));
+  }
+
+  function removeScopeRow(idx) {
+    setForm((prev) => ({
+      ...prev,
+      scopes: prev.scopes.filter((_, i) => i !== idx)
+    }));
+  }
+
+  function toggleSubject(subject) {
+    const exists = form.subjects.find((s) => Number(s.subject_id) === Number(subject.id));
+    if (exists) {
+      setForm((prev) => ({
+        ...prev,
+        subjects: prev.subjects.filter((s) => Number(s.subject_id) !== Number(subject.id))
+      }));
+      return;
+    }
+    setForm((prev) => ({
+      ...prev,
+      subjects: [
+        ...prev.subjects,
+        {
+          subject_id: subject.id,
+          subject_name: subject.name,
+          max_marks: 100
+        }
+      ]
+    }));
+  }
+
+  function updateSubjectField(subjectId, key, value) {
+    const digitsOnly = String(value || "").replace(/[^\d]/g, "");
+    const wholeNumber = digitsOnly ? Number.parseInt(digitsOnly, 10) : 0;
+    setForm((prev) => ({
+      ...prev,
+      subjects: prev.subjects.map((s) =>
+        Number(s.subject_id) === Number(subjectId) ? { ...s, [key]: wholeNumber } : s
+      )
+    }));
+  }
+
+  async function onSubmit(e) {
     e.preventDefault();
+    setFormError("");
 
-    await createExam(form);
+    const cleanName = String(form.name || "").trim();
+    if (!cleanName) {
+      setFormError("Exam name is required.");
+      return;
+    }
 
-    setCreateOpen(false);
-    setForm({ name: "" });
+    const cleanScopes = form.scopes
+      .map((s) => ({
+        class_id: Number(s.class_id),
+        section_id: Number(s.section_id)
+      }))
+      .filter((s) => s.class_id && s.section_id);
 
-    loadExams();
+    if (!cleanScopes.length) {
+      setFormError("At least one valid class-section scope is required.");
+      return;
+    }
+
+    const cleanSubjects = form.subjects
+      .map((s) => ({
+        subject_id: Number(s.subject_id),
+        max_marks: Math.trunc(Number(s.max_marks))
+      }))
+      .filter((s) => s.subject_id && s.max_marks > 0);
+
+    if (!cleanSubjects.length) {
+      setFormError("At least one subject is required.");
+      return;
+    }
+
+    const payload = {
+      name: cleanName,
+      scopes: cleanScopes,
+      subjects: cleanSubjects
+    };
+
+    try {
+      if (editingId) await updateExam(editingId, payload);
+      else await createExam(payload);
+    } catch (err) {
+      setFormError(err?.message || "Failed to save exam.");
+      return;
+    }
+
+    await loadInitial();
+    setOpen(false);
+    resetForm();
+  }
+
+  async function onEdit(examId) {
+    const res = await getExamById(examId);
+    const exam = res?.data;
+    if (!exam) return;
+
+    setEditingId(exam.id);
+    setForm({
+      name: exam.name || "",
+      scopes:
+        (exam.scopes || []).map((s) => ({
+          class_id: String(s.class_id),
+          section_id: String(s.section_id)
+        })) || [{ class_id: "", section_id: "" }],
+      subjects: (exam.subjects || []).map((s) => ({
+        subject_id: s.subject_id,
+        subject_name: s.subject_name,
+        max_marks: Math.trunc(Number(s.max_marks || 0))
+      }))
+    });
+    setOpen(true);
+  }
+
+  async function onDelete(examId) {
+    if (!window.confirm("Delete this exam?")) return;
+    await deleteExam(examId);
+    await loadInitial();
   }
 
   return (
     <>
       <TopBar
         title="Exams"
-        subTitle="Find all exams here"
+        subTitle="Create exams for multiple classes/sections with subject mark allocation"
         action={
-          <Sheet open={createOpen} onOpenChange={setCreateOpen}>
+          <Sheet
+            open={open}
+            onOpenChange={(v) => {
+              setOpen(v);
+              if (!v) resetForm();
+            }}
+          >
             <SheetTrigger asChild>
-              <Button>Add Exam</Button>
+              <Button>{editingId ? "Edit Exam" : "Add Exam"}</Button>
             </SheetTrigger>
 
-            <SheetContent>
-              <form onSubmit={handleSubmit} className="px-4">
-
+            <SheetContent className="overflow-y-auto">
+              <form onSubmit={onSubmit} className="px-4 space-y-4">
                 <SheetHeader>
-                  <SheetTitle>Create Exam</SheetTitle>
+                  <SheetTitle>{editingId ? "Update Exam" : "Create Exam"}</SheetTitle>
                 </SheetHeader>
 
-                <div className="grid gap-2 mb-4">
-                  <Label>Exam Name</Label>
+                <div className="grid gap-2">
+                  <Label>Exam Name *</Label>
                   <Input
-                    name="name"
                     value={form.name}
-                    onChange={handleChange}
+                    onChange={(e) => setForm((p) => ({ ...p, name: e.target.value }))}
+                    required
                   />
                 </div>
 
-                <SheetFooter>
-                  <Button type="submit">Save</Button>
-                </SheetFooter>
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <Label>Class-Section Scopes *</Label>
+                    <Button type="button" variant="outline" size="sm" onClick={addScopeRow}>
+                      Add Scope
+                    </Button>
+                  </div>
 
+                  {form.scopes.map((scope, idx) => {
+                    const selectedClass = classMap.get(String(scope.class_id));
+                    const sections = selectedClass?.sections || [];
+                    return (
+                      <div key={idx} className="grid grid-cols-12 gap-2 border rounded p-2">
+                        <select
+                          className="border rounded p-2 col-span-5"
+                          value={scope.class_id}
+                          onChange={(e) => setScope(idx, "class_id", e.target.value)}
+                          required
+                        >
+                          <option value="">Class</option>
+                          {classStructure.map((c) => (
+                            <option key={c.id} value={c.id}>
+                              {c.name}
+                            </option>
+                          ))}
+                        </select>
+
+                        <select
+                          className="border rounded p-2 col-span-5"
+                          value={scope.section_id}
+                          onChange={(e) => setScope(idx, "section_id", e.target.value)}
+                          required
+                        >
+                          <option value="">Section</option>
+                          {sections.map((s) => (
+                            <option key={s.id} value={s.id}>
+                              {s.name}{s.medium ? ` (${s.medium})` : ""}
+                            </option>
+                          ))}
+                        </select>
+
+                        <button
+                          type="button"
+                          className="col-span-2 inline-flex items-center justify-center rounded border border-red-200 bg-red-50 text-red-600 hover:bg-red-100 disabled:opacity-50"
+                          onClick={() => removeScopeRow(idx)}
+                          disabled={form.scopes.length === 1}
+                          aria-label="Delete scope"
+                          title="Delete scope"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Subjects (select and set marks) *</Label>
+                  <div className="grid grid-cols-2 gap-2 max-h-40 overflow-auto border rounded p-2">
+                    {allSubjects.map((subject) => {
+                      const checked = form.subjects.some(
+                        (s) => Number(s.subject_id) === Number(subject.id)
+                      );
+                      return (
+                        <label key={subject.id} className="flex items-center gap-2 text-sm">
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() => toggleSubject(subject)}
+                          />
+                          {subject.name}
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {form.subjects.length > 0 && (
+                  <div className="space-y-2">
+                    {form.subjects.map((s) => (
+                      <div key={s.subject_id} className="grid grid-cols-2 gap-2 border rounded p-2">
+                        <div className="text-sm flex items-center">{s.subject_name}</div>
+                        <Input
+                          type="number"
+                          min="1"
+                          step="1"
+                          value={s.max_marks}
+                          onChange={(e) => updateSubjectField(s.subject_id, "max_marks", e.target.value)}
+                          placeholder="Max"
+                        />
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {formError && (
+                  <p className="text-sm text-red-600">{formError}</p>
+                )}
+                <SheetFooter>
+                  <Button type="submit" className="w-full">
+                    {editingId ? "Update Exam" : "Save Exam"}
+                  </Button>
+                </SheetFooter>
               </form>
             </SheetContent>
           </Sheet>
         }
       />
 
-      <div className="grid grid-cols-3 gap-2">
-
-        {exams.map((data) => (
-          <div
-            key={data.id}
-            className="flex bg-secondary border border-border rounded-sm px-5 py-5 gap-2.5 items-start w-full"
-          >
-            <div>
-              <Button size="icon">
-                <FileSpreadsheet />
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+        {exams.map((exam) => (
+          <div key={exam.id} className="border rounded p-4 bg-secondary/70">
+            <p className="font-semibold text-lg">{exam.name}</p>
+            <p className="text-xs text-muted-foreground">Session: {exam.session_name || "-"}</p>
+            <p className="text-xs text-muted-foreground">Exam ID: {exam.id}</p>
+            <div className="flex gap-2 mt-3">
+              <Button size="sm" onClick={() => onEdit(exam.id)}>
+                Edit
+              </Button>
+              <Button size="sm" variant="destructive" onClick={() => onDelete(exam.id)}>
+                Delete
               </Button>
             </div>
-
-            <div className="flex-1">
-              <p className="text-xl font-bold">{data.name}</p>
-              <p className="text-sm">ID : {data.id}</p>
-            </div>
-
           </div>
         ))}
-
       </div>
     </>
   );
-};
-
-export default Exams;
+}

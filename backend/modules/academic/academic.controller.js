@@ -30,6 +30,14 @@ export async function getClasses(req, res, next) {
     next(err);
   }
 }
+export async function getClassStructure(req,res,next){
+  try{
+    const data = await service.getClassStructure();
+    res.json({ success:true, data });
+  }catch(err){
+    next(err);
+  }
+}
 // POST 
 export async function createClass(req, res, next) {
   try {

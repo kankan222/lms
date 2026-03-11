@@ -25,9 +25,8 @@ const Navbar = () => {
     <nav className="hidden sm:block md:block lg:block xl:block 2xl:block">
       <ul className="flex align-center">
         {NavItem.map((item, index) => (
-          <li className="px-2 py-1.5 rounded-xl text-sm border border-transparent text-stone-700 hover:text-stone-950 hover:bg-stone-50 hover:border-stone-100">
+          <li key={index} className="px-2 py-1.5 rounded-xl text-sm border border-transparent text-stone-700 hover:text-stone-950 hover:bg-stone-50 hover:border-stone-100">
             <NavLink
-              key={index}
               to = {`/${section}/${item.link}`}
               className={({ isActive }) => `${isActive ? "bg-stone-50 border-stone-100" : ""} `}
             >

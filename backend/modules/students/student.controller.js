@@ -1,106 +1,138 @@
-import * as service from "./student.service.js";
+import * as studentService from "./student.service.js";
+import fs from "node:fs/promises";
 
+function parseCsvLine(line) {
+  return line
+    .split(/,(?=(?:(?:[^\"]*\"){2})*[^\"]*$)/)
+    .map((value) => value.replace(/^\"|\"$/g, "").trim());
+}
 
-export async function getStudents(req,res,next){
-  try{
-
-    const students = await service.getStudents();
-
-    res.json({
-      success:true,
-      data:students
-    });
-
-  }catch(err){
-    next(err)
-  }
+function mapCsvRow(headers, values) {
+  const row = {};
+  headers.forEach((header, idx) => {
+    row[header] = values[idx] ?? "";
+  });
+  return row;
 }
 
 export async function createStudent(req, res, next) {
   try {
+    const payload = req.body?.payload
+      ? JSON.parse(req.body.payload)
+      : req.body;
 
-    const data = {
-      admissionNo: req.body.admission_no,
-      firstName: req.body.first_name,
-      lastName: req.body.last_name,
-      dob: req.body.dob,
-      gender: req.body.gender,
-      classId: req.body.classId,
-      sectionId: req.body.sectionId,
-      sessionId: req.body.sessionId,
-      rollNumber: req.body.rollNumber,
-      status: req.body.status
-    };
+    if (req.file) {
+      payload.student = payload.student || {};
+      payload.student.photo_url = `/uploads/students/${req.file.filename}`;
+    }
 
-    const result = await service.createStudent(data);
-
-    res.json({
-      success: true,
-      data: result
-    });
-
+    const result = await studentService.createStudent(payload);
+    res.status(201).json(result);
   } catch (err) {
     next(err);
   }
 }
 
+export async function getStudents(req, res, next) {
+  try {
+    const students = await studentService.getStudents(req.query);
+    res.json(students);
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function getStudentById(req, res, next) {
+  try {
+    const student = await studentService.getStudentById(req.params.id);
+    res.json(student);
+  } catch (err) {
+    next(err);
+  }
+}
 
 export async function updateStudent(req, res, next) {
-
   try {
-
-    const { id } = req.params;
-
-    const data = {
-      admissionNo: req.body.admission_no,
-      firstName: req.body.first_name,
-      lastName: req.body.last_name,
-      dob: req.body.dob,
-      gender: req.body.gender,
-      classId: req.body.classId,
-      sectionId: req.body.sectionId,
-      sessionId: req.body.sessionId,
-      rollNumber: req.body.rollNumber,
-      status: req.body.status
-    };
-
-    await service.updateStudent(id, data);
-
-    res.json({ success: true });
-
+    const student = await studentService.updateStudent(req.params.id, req.body);
+    res.json(student);
   } catch (err) {
     next(err);
   }
-
 }
 
-
-export async function deleteStudent(req,res,next){
-
-  try{
-
-    const {id} = req.params;
-
-    await service.deleteStudent(id);
-
-    res.json({
-      success:true
-    });
-
-  }catch(err){
-    next(err)
+export async function deleteStudent(req, res, next) {
+  try {
+    await studentService.deleteStudent(req.params.id);
+    res.json({ message: "Student deleted" });
+  } catch (err) {
+    next(err);
   }
 }
 
-export async function getStudentsByClassSection(req, res) {
+export async function searchParent(req, res, next) {
+  try {
+    const parent = await studentService.searchParent(req.query.phone);
+    res.json(parent);
+  } catch (err) {
+    next(err);
+  }
+}
 
-  const { class_id, section, session_id } = req.query;
+export async function bulkUploadStudents(req, res, next) {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ message: "CSV file is required" });
+    }
 
-  const students = await studentService.getStudentsByClassSection(
-    class_id,
-    section,
-    session_id
-  );
+    const text = await fs.readFile(req.file.path, "utf8");
+    const lines = text
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean);
 
-  res.json(students);
+    if (lines.length < 2) {
+      return res.status(400).json({ message: "CSV is empty" });
+    }
+
+    const headers = parseCsvLine(lines[0]);
+    const rows = lines.slice(1).map((line) => mapCsvRow(headers, parseCsvLine(line)));
+
+    const payloads = rows.map((row) => ({
+      student: {
+        admission_no: row.admission_no,
+        name: row.name,
+        dob: row.dob,
+        gender: row.gender,
+        mobile: row.mobile,
+        date_of_admission: row.date_of_admission,
+        photo_url: row.photo_url || null
+      },
+      enrollment: {
+        session_id: row.session_id,
+        class_id: row.class_id,
+        section_id: row.section_id,
+        medium: row.medium,
+        roll_number: row.roll_number
+      },
+      father: {
+        name: row.father_name,
+        mobile: row.father_mobile,
+        email: row.father_email,
+        occupation: row.father_occupation,
+        qualification: row.father_qualification
+      },
+      mother: {
+        name: row.mother_name,
+        mobile: row.mother_mobile,
+        email: row.mother_email,
+        occupation: row.mother_occupation,
+        qualification: row.mother_qualification
+      }
+    }));
+
+    const result = await studentService.bulkCreateStudents(payloads);
+    res.status(201).json(result);
+  } catch (err) {
+    next(err);
+  }
 }

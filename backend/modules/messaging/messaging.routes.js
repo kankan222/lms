@@ -1,16 +1,39 @@
 import express from "express";
 import * as controller from "./messaging.controller.js";
+import { requirePermission } from "../../core/rbac/rbac.middleware.js";
 
 const router = express.Router();
 
-router.post("/", controller.sendMessage);
+router.get(
+  "/conversations",
+  requirePermission("messages.view"),
+  controller.getConversations
+);
+router.get(
+  "/targets",
+  requirePermission("messages.view"),
+  controller.getTargets
+);
+router.get(
+  "/unread/count",
+  requirePermission("messages.view"),
+  controller.unreadMessages
+);
+router.post(
+  "/",
+  requirePermission("messages.send"),
+  controller.sendMessage
+);
+router.post(
+  "/read",
+  requirePermission("messages.view"),
+  controller.markAsRead
+);
 
-router.get("/conversations", controller.getConversations);
-
-router.get("/:conversationId", controller.getMessages);
-
-router.post("/read", controller.markAsRead);
-
-router.get("/unread/count", controller.unreadMessages);
+router.get(
+  "/:conversationId",
+  requirePermission("messages.view"),
+  controller.getMessages
+);
 
 export default router;

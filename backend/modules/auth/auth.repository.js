@@ -1,32 +1,74 @@
 import { query } from "../../core/db/query.js";
 
-export async function findUserByIdentifier(identifier) {
-   if (!identifier) {
-    throw new Error("Identifier missing");
+export async function findUserByEmailOrPhone({ email, phone }) {
+  if (!email && !phone) {
+    throw new Error("Email or phone is required");
   }
+
+  const where = [];
+  const params = [];
+
+  if (email) {
+    where.push("email = ?");
+    params.push(email);
+  }
+  if (phone) {
+    where.push("phone = ?");
+    params.push(phone);
+  }
+
   const sql = `
     SELECT * FROM users
-    WHERE email = ? OR phone = ? OR username = ?
+    WHERE ${where.join(" OR ")}
     LIMIT 1
   `;
 
-  const rows = await query(sql, [
-    identifier,
-    identifier,
-    identifier
-  ]);
+  const rows = await query(sql, params);
 
   return rows[0] || null;
 }
 export async function getUserPermissions(userId) {
-  const sql = `
-    SELECT p.name
-    FROM permissions p
-    JOIN role_permissions rp ON rp.permission_id = p.id
-    JOIN user_roles ur ON ur.role_id = rp.role_id
-    WHERE ur.user_id = ?
+  const sqlWithUserPermissions = `
+    SELECT DISTINCT name
+    FROM (
+      SELECT p.name
+      FROM permissions p
+      JOIN role_permissions rp ON rp.permission_id = p.id
+      JOIN user_roles ur ON ur.role_id = rp.role_id
+      WHERE ur.user_id = ?
+
+      UNION
+
+      SELECT p2.name
+      FROM permissions p2
+      JOIN user_permissions up ON up.permission_id = p2.id
+      WHERE up.user_id = ?
+    ) x
   `;
 
+  try {
+    return await query(sqlWithUserPermissions, [userId, userId]);
+  } catch (err) {
+    if (err?.code !== "ER_NO_SUCH_TABLE") throw err;
+
+    const fallbackSql = `
+      SELECT DISTINCT p.name
+      FROM permissions p
+      JOIN role_permissions rp ON rp.permission_id = p.id
+      JOIN user_roles ur ON ur.role_id = rp.role_id
+      WHERE ur.user_id = ?
+    `;
+    return query(fallbackSql, [userId]);
+  }
+}
+
+export async function getUserRoles(userId) {
+  const sql = `
+    SELECT r.name
+    FROM user_roles ur
+    JOIN roles r ON r.id = ur.role_id
+    WHERE ur.user_id = ?
+  `;
   return query(sql, [userId]);
 }
 
