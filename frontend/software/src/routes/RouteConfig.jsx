@@ -93,7 +93,7 @@ export const appRoutes = [
     {
       title: "Fees",
       icon: BriefcaseBusinessIcon,
-      path: "/payments",
+      path: "/fees",
       element: <Fees/>,
       protected : true,
       permission: "fee.view",
@@ -101,10 +101,10 @@ export const appRoutes = [
     {
       title: "Payments",
       icon: IndianRupee,
-      path: "/fees",
+      path: "/payments",
       element: <Payments />,
       protected : true,
-      permission: "fee.view",
+      permission: "payment.view",
     },
     // {
     //   title: "Timetable",
@@ -190,12 +190,12 @@ export const appRoutes = [
       path: "/teachers/:id",
       element: <TeacherDetails />,
       protected : true,
-      permission: "",
+      permission: "teacher.view",
     },
     {
       path: "/students/:id",
       element: <StudentDetails />,
       protected: true,
-      permission: "",
+      permission: "student.view",
     },
   ]

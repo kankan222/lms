@@ -62,13 +62,25 @@ const AppRoutes = () => {
             ></Route>
           );
         })}
-        {hiddenRoutes.map((route, i) => (
-          <Route
-            key={`hidden-${i}`}
-            path={route.path.substring(1)}
-            element={route.element}
-          />
-        ))}
+        {hiddenRoutes.map((route, i) => {
+          let element = route.element;
+
+          if (route.permission) {
+            element = (
+              <PermissionRoute permission={route.permission}>
+                {element}
+              </PermissionRoute>
+            );
+          }
+
+          return (
+            <Route
+              key={`hidden-${i}`}
+              path={route.path.substring(1)}
+              element={element}
+            />
+          );
+        })}
       </Route>
     </Routes>
   );

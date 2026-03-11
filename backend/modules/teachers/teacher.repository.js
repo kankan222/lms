@@ -1,20 +1,57 @@
 import { query } from "../../core/db/query.js";
 
+let teacherClassScopeColumnPromise;
+
+function hasTeacherClassScopeColumn() {
+  if (!teacherClassScopeColumnPromise) {
+    teacherClassScopeColumnPromise = query(
+      `
+        SELECT 1
+        FROM information_schema.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = 'teachers'
+          AND COLUMN_NAME = 'class_scope'
+        LIMIT 1
+      `
+    ).then((rows) => rows.length > 0);
+  }
+
+  return teacherClassScopeColumnPromise;
+}
+
 /* ------------------ CREATE ------------------ */
 
 export async function createTeacher(data, conn) {
+  const hasClassScope = await hasTeacherClassScopeColumn();
+
+  if (hasClassScope) {
+    const [result] = await conn.execute(`
+      INSERT INTO teachers
+      (user_id, employee_id, name, phone, email, class_scope, photo_url)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `, [
+      data.user_id ,
+      data.employee_id || null,
+      data.name || null,
+      data.phone || null,
+      data.email || null,
+      data.class_scope || "school",
+      data.photo_url || null
+    ]);
+
+    return result.insertId;
+  }
 
   const [result] = await conn.execute(`
     INSERT INTO teachers
-    (user_id, employee_id, name, phone, email, class_scope, photo_url)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
+    (user_id, employee_id, name, phone, email, photo_url)
+    VALUES (?, ?, ?, ?, ?, ?)
   `, [
     data.user_id ,
     data.employee_id || null,
     data.name || null,
     data.phone || null,
     data.email || null,
-    data.class_scope || "school",
     data.photo_url || null
   ]);
 
@@ -24,6 +61,8 @@ export async function createTeacher(data, conn) {
 /* ------------------ READ ------------------ */
 
 export async function getTeachers() {
+  const hasClassScope = await hasTeacherClassScopeColumn();
+
   return query(`
     SELECT
       t.id,
@@ -32,7 +71,7 @@ export async function getTeachers() {
       t.name,
       t.phone,
       t.email,
-      t.class_scope,
+      ${hasClassScope ? "t.class_scope" : "'school' AS class_scope"},
       t.photo_url
     FROM teachers t
     ORDER BY t.id DESC
@@ -40,6 +79,8 @@ export async function getTeachers() {
 }
 
 export async function getTeacherById(id) {
+  const hasClassScope = await hasTeacherClassScopeColumn();
+
   return query(`
     SELECT
       id,
@@ -48,7 +89,7 @@ export async function getTeacherById(id) {
       name,
       phone,
       email,
-      class_scope,
+      ${hasClassScope ? "class_scope" : "'school' AS class_scope"},
       photo_url
     FROM teachers
     WHERE id = ?
@@ -60,26 +101,47 @@ export async function getTeacherById(id) {
 /* ------------------ UPDATE ------------------ */
 
 export function updateTeacher(id, data) {
+  return hasTeacherClassScopeColumn().then((hasClassScope) => {
+    if (hasClassScope) {
+      return query(`
+        UPDATE teachers
+        SET
+          employee_id = ?,
+          name = ?,
+          phone = ?,
+          email = ?,
+          class_scope = COALESCE(?, class_scope),
+          photo_url = ?
+        WHERE id = ?
+      `, [
+        data.employee_id,
+        data.name,
+        data.phone,
+        data.email,
+        data.class_scope ?? null,
+        data.photo_url,
+        id
+      ]);
+    }
 
-  return query(`
-    UPDATE teachers
-    SET
-      employee_id = ?,
-      name = ?,
-      phone = ?,
-      email = ?,
-      class_scope = COALESCE(?, class_scope),
-      photo_url = ?
-    WHERE id = ?
-  `, [
-    data.employee_id,
-    data.name,
-    data.phone,
-    data.email,
-    data.class_scope ?? null,
-    data.photo_url,
-    id
-  ]);
+    return query(`
+      UPDATE teachers
+      SET
+        employee_id = ?,
+        name = ?,
+        phone = ?,
+        email = ?,
+        photo_url = ?
+      WHERE id = ?
+    `, [
+      data.employee_id,
+      data.name,
+      data.phone,
+      data.email,
+      data.photo_url,
+      id
+    ]);
+  });
 }
 
 export function getClassById(classId) {

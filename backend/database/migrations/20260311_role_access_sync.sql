@@ -1,7 +1,9 @@
--- Ensure super_admin (admin role) has every permission in the system
--- Safe to run multiple times
+-- Sync role access model on server
+-- Intended result:
+--   super_admin -> all permissions
+--   teacher     -> marks + teacher listing + attendance only
+--   accounts    -> payments only
 
--- 1) Create any missing permissions referenced across modules
 INSERT IGNORE INTO permissions(name) VALUES
 ('dashboard.view'),
 ('academic.view'),
@@ -45,9 +47,35 @@ INSERT IGNORE INTO permissions(name) VALUES
 ('messages.send'),
 ('notifications.view');
 
--- 2) Grant all permissions to super_admin role
+-- super_admin gets everything
 INSERT IGNORE INTO role_permissions (role_id, permission_id)
 SELECT r.id, p.id
 FROM roles r
 JOIN permissions p
 WHERE r.name = 'super_admin';
+
+-- teacher gets only these permissions
+DELETE rp
+FROM role_permissions rp
+JOIN roles r ON r.id = rp.role_id
+WHERE r.name = 'teacher';
+
+INSERT IGNORE INTO role_permissions (role_id, permission_id)
+SELECT r.id, p.id
+FROM roles r
+JOIN permissions p
+  ON p.name IN ('marks.enter', 'marks.view', 'teacher.view', 'attendance.take')
+WHERE r.name = 'teacher';
+
+-- accounts gets only payments access
+DELETE rp
+FROM role_permissions rp
+JOIN roles r ON r.id = rp.role_id
+WHERE r.name = 'accounts';
+
+INSERT IGNORE INTO role_permissions (role_id, permission_id)
+SELECT r.id, p.id
+FROM roles r
+JOIN permissions p
+  ON p.name IN ('payment.view', 'payment.create', 'payment.update', 'payment.delete')
+WHERE r.name = 'accounts';

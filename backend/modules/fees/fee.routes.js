@@ -31,7 +31,7 @@ router.get(
 );
 router.get(
   "/receipt/:paymentId",
-  requirePermission("fee.view"),
+  requirePermission("payment.view"),
   feeController.downloadReceipt,
 );
 router.post(
@@ -64,39 +64,39 @@ router.get(
 
 router.post(
   "/payment",
-  requirePermission("fee.create"),
+  requirePermission("payment.create"),
   feeController.createPayment,
 );
 router.get(
   "/payments",
-  requirePermission("fee.view"),
+  requirePermission("payment.view"),
   feeController.getPayments,
 );
 router.get(
   "/student-fees/:studentId",
-  requirePermission("fee.view"),
+  requirePermission("payment.view"),
   feeController.getStudentFeeOptions,
 );
 router.put(
   "/payment/:id",
-  requirePermission("fee.create"),
+  requirePermission("payment.update"),
   feeController.updatePayment,
 );
 router.delete(
   "/payment/:id",
-  requirePermission("fee.create"),
+  requirePermission("payment.delete"),
   feeController.deletePayment,
 );
 
 router.post(
   "/payment/:id/approve",
-  requirePermission("fee.create"),
+  requirePermission("payment.update"),
   feeController.approvePayment,
 );
 
 router.get(
   "/payments/pending",
-  requirePermission("fee.view"),
+  requirePermission("payment.view"),
   feeController.getPendingPayments,
 );
 
