@@ -24,7 +24,10 @@ export async function createTeacher(req, res, next) {
 
 export async function getTeachers(req, res, next) {
   try {
-    const teachers = await service.getTeachers();
+    const teachers = await service.getTeachersForActor({
+      actorUserId: req.user?.userId,
+      actorPermissions: req.user?.permissions || [],
+    });
     res.json({ success: true, data: teachers });
   } catch (err) {
     next(err);
@@ -33,7 +36,11 @@ export async function getTeachers(req, res, next) {
 
 export async function getTeacherById(req, res, next) {
   try {
-    const teacher = await service.getTeacherById(req.params.id);
+    const teacher = await service.getTeacherForActor({
+      teacherId: req.params.id,
+      actorUserId: req.user?.userId,
+      actorPermissions: req.user?.permissions || [],
+    });
     res.json({ success: true, data: teacher });
   } catch (err) {
     next(err);
@@ -84,7 +91,11 @@ export async function removeAssignment(req, res, next) {
 
 export async function getAssignments(req, res, next) {
   try {
-    const data = await service.getTeacherAssignments(req.params.id);
+    const data = await service.getTeacherAssignmentsForActor({
+      teacherId: req.params.id,
+      actorUserId: req.user?.userId,
+      actorPermissions: req.user?.permissions || [],
+    });
     res.json({ success: true, data });
   } catch (err) {
     next(err);
@@ -126,8 +137,10 @@ export async function logTeacherAttendance(req, res, next) {
 
 export async function getTeacherAttendance(req, res, next) {
   try {
-    const data = await service.getTeacherAttendance({
+    const data = await service.getTeacherAttendanceForActor({
       teacherId: req.params.id,
+      actorUserId: req.user?.userId,
+      actorPermissions: req.user?.permissions || [],
       startDate: req.query.startDate,
       endDate: req.query.endDate
     });
@@ -142,7 +155,9 @@ export async function getAllTeacherAttendance(req,res,next){
   try{
 
     const data =
-      await service.getAllTeacherAttendance({
+      await service.getAllTeacherAttendanceForActor({
+        actorUserId: req.user?.userId,
+        actorPermissions: req.user?.permissions || [],
         startDate: req.query.startDate,
         endDate: req.query.endDate
       });

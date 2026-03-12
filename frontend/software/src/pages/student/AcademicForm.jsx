@@ -4,6 +4,12 @@ import { Field, FieldGroup } from "@/components/ui/field";
 
 import { getSessions, getClassStructure } from "../../api/academic.api";
 
+const STREAM_OPTIONS = [
+  { value: "Arts", label: "Arts" },
+  { value: "Commerce", label: "Commerce" },
+  { value: "Science", label: "Science" },
+];
+
 export default function AcademicForm({ update, errors = {} }) {
   const [sessions, setSessions] = useState([]);
   const [classes, setClasses] = useState([]);
@@ -62,6 +68,8 @@ export default function AcademicForm({ update, errors = {} }) {
               update("enrollment", "class_id", e.target.value);
               update("enrollment", "section_id", "");
               update("enrollment", "medium", "");
+              update("enrollment", "stream", "");
+              update("enrollment", "stream_id", "");
             }}
           >
             <option value="">Select Class</option>
@@ -105,6 +113,29 @@ export default function AcademicForm({ update, errors = {} }) {
           )}
           {errors.medium && <p className="text-xs text-red-500">{errors.medium}</p>}
         </Field>
+
+        {selectedClass?.class_scope === "hs" ? (
+          <Field>
+            <Label>Stream *</Label>
+
+            <select
+              required
+              className="border rounded p-2 w-full"
+              onChange={(e) => {
+                update("enrollment", "stream", e.target.value);
+                update("enrollment", "stream_id", "");
+              }}
+            >
+              <option value="">Select Stream</option>
+              {STREAM_OPTIONS.map((stream) => (
+                <option key={stream.value} value={stream.value}>
+                  {stream.label}
+                </option>
+              ))}
+            </select>
+            {errors.stream && <p className="text-xs text-red-500">{errors.stream}</p>}
+          </Field>
+        ) : null}
 
         <Field>
           <Label>Roll Number *</Label>

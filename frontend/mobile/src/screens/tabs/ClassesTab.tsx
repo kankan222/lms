@@ -12,13 +12,14 @@ import {
 } from "react-native";
 import {
   ClassItem,
+  ClassPayload,
+  ClassScope,
+  SectionMedium,
   createClass,
   deleteClass,
   getClasses,
   updateClass,
 } from "../../services/classesService";
-
-type SectionMedium = "English" | "Assamese";
 
 type SectionForm = {
   name: string;
@@ -27,19 +28,21 @@ type SectionForm = {
 
 type ClassForm = {
   name: string;
+  class_scope: ClassScope;
   sections: SectionForm[];
 };
 
 type ClassView = {
   id: number;
   name: string;
+  class_scope: ClassScope;
   sections: SectionForm[];
   subjects: string[];
 };
 
 type ValidationResult =
   | { ok: false; message: string }
-  | { ok: true; name: string; sections: Array<{ name: string; medium: SectionMedium }> };
+  | { ok: true; payload: ClassPayload };
 
 type SectionRowError = {
   medium?: string;
@@ -47,8 +50,13 @@ type SectionRowError = {
 
 const EMPTY_FORM: ClassForm = {
   name: "",
+  class_scope: "school",
   sections: [{ name: "", medium: "" }],
 };
+
+function formatScope(scope: ClassScope) {
+  return scope === "hs" ? "Higher Secondary" : "School";
+}
 
 export default function ClassesTab() {
   const [rows, setRows] = useState<ClassView[]>([]);
@@ -102,6 +110,7 @@ export default function ClassesTab() {
     return {
       id: Number(item.id),
       name: item.name,
+      class_scope: (item.class_scope || "school") as ClassScope,
       sections,
       subjects: splitCsv(item.subjects),
     };
@@ -117,12 +126,22 @@ export default function ClassesTab() {
       .filter((s) => s.name);
 
     if (!name) return { ok: false, message: "Class name is required." };
+    if (!["school", "hs"].includes(form.class_scope)) {
+      return { ok: false, message: "Class scope is required." };
+    }
     if (!sections.length) return { ok: false, message: "At least one section is required." };
     if (sections.some((s) => s.medium !== "English" && s.medium !== "Assamese")) {
       return { ok: false, message: "Each section must have a medium." };
     }
 
-    return { ok: true, name, sections: sections as Array<{ name: string; medium: SectionMedium }> };
+    return {
+      ok: true,
+      payload: {
+        name,
+        class_scope: form.class_scope,
+        sections: sections as Array<{ name: string; medium: SectionMedium }>,
+      },
+    };
   }
 
   function buildSectionErrors(form: ClassForm): SectionRowError[] {
@@ -146,10 +165,7 @@ export default function ClassesTab() {
 
     setSaving(true);
     try {
-      await createClass({
-        name: result.name,
-        sections: result.sections,
-      });
+      await createClass(result.payload);
       setCreateOpen(false);
       setCreateForm(EMPTY_FORM);
       setCreateSectionErrors([]);
@@ -165,6 +181,7 @@ export default function ClassesTab() {
     setEditingId(row.id);
     setEditForm({
       name: row.name,
+      class_scope: row.class_scope,
       sections: row.sections.length ? row.sections : [{ name: "", medium: "" }],
     });
     setEditSectionErrors([]);
@@ -182,10 +199,7 @@ export default function ClassesTab() {
 
     setSaving(true);
     try {
-      await updateClass(editingId, {
-        name: result.name,
-        sections: result.sections,
-      });
+      await updateClass(editingId, result.payload);
       setEditOpen(false);
       setEditingId(null);
       setEditForm(EMPTY_FORM);
@@ -198,8 +212,8 @@ export default function ClassesTab() {
     }
   }
 
-  async function confirmDelete(id: number) {
-    Alert.alert("Delete class", "Do you want to deactivate this class?", [
+  async function confirmDelete(id: number, className: string) {
+    Alert.alert("Delete class", `This will remove ${className} from the active classes list.`, [
       { text: "Cancel", style: "cancel" },
       {
         text: "Delete",
@@ -219,7 +233,10 @@ export default function ClassesTab() {
   return (
     <View style={styles.root}>
       <View style={styles.toolbar}>
-        <Text style={styles.title}>Classes</Text>
+        <View>
+          <Text style={styles.title}>Classes</Text>
+          <Text style={styles.subtitle}>Find all classes here</Text>
+        </View>
         <Pressable style={styles.primaryBtn} onPress={() => setCreateOpen(true)}>
           <Text style={styles.primaryBtnText}>Add Class</Text>
         </Pressable>
@@ -235,18 +252,36 @@ export default function ClassesTab() {
           <View style={styles.grid}>
             {rows.map((row) => (
               <View key={row.id} style={styles.card}>
-                <Text style={styles.className}>Class {row.name}</Text>
-                <Text style={styles.meta}>
-                  Sections: {row.sections.length ? row.sections.map((s) => `${s.name}${s.medium ? ` (${s.medium})` : ""}`).join(", ") : "-"}
-                </Text>
-                <Text style={styles.meta}>
-                  Subjects: {row.subjects.length ? row.subjects.join(", ") : "None"}
-                </Text>
+                <View style={styles.cardMain}>
+                  <View style={styles.iconBadge}>
+                    <Text style={styles.iconBadgeText}>C</Text>
+                  </View>
+                  <View style={styles.cardContent}>
+                    <Text style={styles.className}>Class: {row.name}</Text>
+                    <Text style={styles.meta}><Text style={styles.metaLabel}>Scope: </Text>{formatScope(row.class_scope)}</Text>
+                    <View style={styles.sectionBlock}>
+                      <Text style={styles.metaLabel}>Sections:</Text>
+                      {row.sections.length ? (
+                        row.sections.map((section, index) => (
+                          <Text key={`${row.id}-section-${index}`} style={styles.listItem}>
+                            • {section.name}{section.medium ? ` (${section.medium})` : ""}
+                          </Text>
+                        ))
+                      ) : (
+                        <Text style={styles.listItem}>• None</Text>
+                      )}
+                    </View>
+                    <Text style={styles.meta}>
+                      <Text style={styles.metaLabel}>Subjects: </Text>
+                      {row.subjects.length ? row.subjects.join(", ") : "None"}
+                    </Text>
+                  </View>
+                </View>
                 <View style={styles.rowActions}>
                   <Pressable style={styles.secondaryBtn} onPress={() => openEdit(row)}>
                     <Text style={styles.secondaryBtnText}>Edit</Text>
                   </Pressable>
-                  <Pressable style={styles.deleteBtn} onPress={() => confirmDelete(row.id)}>
+                  <Pressable style={styles.deleteBtn} onPress={() => confirmDelete(row.id, row.name)}>
                     <Text style={styles.deleteBtnText}>Delete</Text>
                   </Pressable>
                 </View>
@@ -333,6 +368,24 @@ function ClassFormModal({
               onChangeText={(value) => onChange({ ...form, name: value })}
               placeholder="Class name"
             />
+
+            <Text style={[styles.inputLabel, styles.spaceTop]}>Class Scope *</Text>
+            <View style={styles.scopeRow}>
+              {(["school", "hs"] as const).map((scope) => {
+                const active = form.class_scope === scope;
+                return (
+                  <Pressable
+                    key={scope}
+                    style={[styles.scopeChip, active && styles.scopeChipActive]}
+                    onPress={() => onChange({ ...form, class_scope: scope })}
+                  >
+                    <Text style={[styles.scopeChipText, active && styles.scopeChipTextActive]}>
+                      {formatScope(scope)}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
 
             <Text style={[styles.inputLabel, styles.spaceTop]}>Sections *</Text>
             {form.sections.map((section, index) => (
@@ -427,48 +480,63 @@ function getErrorMessage(err: unknown, fallback: string) {
 
 const styles = StyleSheet.create({
   root: { gap: 12 },
-  toolbar: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  title: { color: "#0f172a", fontWeight: "700", fontSize: 18 },
+  toolbar: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
+  title: { color: "#0f172a", fontWeight: "800", fontSize: 20 },
+  subtitle: { color: "#64748b", marginTop: 4 },
   centered: { alignItems: "center", justifyContent: "center", paddingTop: 30 },
   errorText: { color: "#dc2626", fontWeight: "600" },
-  grid: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
+  grid: { gap: 10 },
   card: {
-    width: "100%",
     borderWidth: 1,
     borderColor: "#e2e8f0",
-    borderRadius: 12,
+    borderRadius: 16,
     backgroundColor: "#ffffff",
-    padding: 12,
+    padding: 14,
+    gap: 12,
   },
-  className: { color: "#0f172a", fontWeight: "700", fontSize: 16 },
-  meta: { color: "#475569", marginTop: 6 },
-  rowActions: { marginTop: 12, flexDirection: "row", gap: 8 },
-  primaryBtn: {
-    backgroundColor: "#0f172a",
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 8,
+  cardMain: { flexDirection: "row", gap: 12, alignItems: "flex-start" },
+  iconBadge: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: "#e2e8f0",
     alignItems: "center",
     justifyContent: "center",
   },
-  primaryBtnText: { color: "#ffffff", fontWeight: "600" },
+  iconBadgeText: { color: "#0f172a", fontWeight: "800" },
+  cardContent: { flex: 1, gap: 4 },
+  className: { color: "#0f172a", fontWeight: "800", fontSize: 17 },
+  meta: { color: "#475569", marginTop: 2 },
+  metaLabel: { color: "#0f172a", fontWeight: "700" },
+  sectionBlock: { marginTop: 2, gap: 2 },
+  listItem: { color: "#475569" },
+  rowActions: { flexDirection: "row", gap: 8 },
+  primaryBtn: {
+    backgroundColor: "#0f172a",
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  primaryBtnText: { color: "#ffffff", fontWeight: "700" },
   secondaryBtn: {
     borderWidth: 1,
     borderColor: "#cbd5e1",
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 10,
     alignItems: "center",
     justifyContent: "center",
   },
-  secondaryBtnText: { color: "#334155", fontWeight: "600" },
+  secondaryBtnText: { color: "#334155", fontWeight: "700" },
   deleteBtn: {
     borderWidth: 1,
     borderColor: "#fecaca",
     backgroundColor: "#fee2e2",
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 10,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -479,24 +547,35 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(15, 23, 42, 0.35)",
   },
   modalCard: {
-    maxHeight: "82%",
+    maxHeight: "86%",
     backgroundColor: "#ffffff",
-    borderTopLeftRadius: 16,
-    borderTopRightRadius: 16,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
     padding: 16,
   },
-  modalTitle: { fontSize: 18, fontWeight: "700", color: "#0f172a", marginBottom: 10 },
-  modalBody: { maxHeight: 420 },
-  inputLabel: { color: "#334155", fontWeight: "600", marginBottom: 6 },
+  modalTitle: { fontSize: 18, fontWeight: "800", color: "#0f172a", marginBottom: 10 },
+  modalBody: { maxHeight: 460 },
+  inputLabel: { color: "#334155", fontWeight: "700", marginBottom: 6 },
   input: {
     borderWidth: 1,
     borderColor: "#cbd5e1",
-    borderRadius: 10,
+    borderRadius: 12,
     backgroundColor: "#ffffff",
     paddingHorizontal: 12,
     paddingVertical: 10,
     marginBottom: 8,
   },
+  scopeRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 6 },
+  scopeChip: {
+    borderWidth: 1,
+    borderColor: "#cbd5e1",
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  scopeChipActive: { borderColor: "#0f172a", backgroundColor: "#0f172a" },
+  scopeChipText: { color: "#334155", fontWeight: "700", fontSize: 12 },
+  scopeChipTextActive: { color: "#ffffff" },
   sectionRow: { marginBottom: 8 },
   sectionInput: { marginBottom: 6 },
   spaceTop: { marginTop: 8 },
@@ -504,12 +583,12 @@ const styles = StyleSheet.create({
     marginTop: 4,
     borderWidth: 1,
     borderColor: "#cbd5e1",
-    borderRadius: 8,
+    borderRadius: 10,
     paddingHorizontal: 12,
     paddingVertical: 8,
     alignSelf: "flex-start",
   },
-  addSectionBtnText: { color: "#334155", fontWeight: "600" },
+  addSectionBtnText: { color: "#334155", fontWeight: "700" },
   mediumRow: { flexDirection: "row", gap: 8, flexWrap: "wrap", marginBottom: 4 },
   mediumChip: {
     borderWidth: 1,
@@ -520,10 +599,9 @@ const styles = StyleSheet.create({
   },
   mediumChipActive: { borderColor: "#0f172a", backgroundColor: "#0f172a" },
   mediumChipError: { borderColor: "#dc2626" },
-  mediumChipText: { color: "#334155", fontWeight: "600", fontSize: 12 },
+  mediumChipText: { color: "#334155", fontWeight: "700", fontSize: 12 },
   mediumChipTextActive: { color: "#ffffff" },
   fieldError: { color: "#b91c1c", marginBottom: 6, fontSize: 12 },
   modalFooter: { marginTop: 12, flexDirection: "row", justifyContent: "flex-end", gap: 8 },
   disabledBtn: { opacity: 0.7 },
 });
-

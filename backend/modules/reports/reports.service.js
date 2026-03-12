@@ -14,31 +14,41 @@ export async function generateReport(data){
     if(!marks.length)
       throw new AppError("No approved marks",404);
 
-    // totals
-    const total = marks.reduce(
-      (sum,m)=>sum + Number(m.marks),
-      0
-    );
-
-    const maxMarks = marks.length * 100;
-    const percentage =
-      (total / maxMarks) * 100;
+    const total = marks.reduce((sum, row) => sum + Number(row.marks || 0), 0);
+    const maxMarks = marks.reduce((sum, row) => sum + Number(row.max_marks || 0), 0);
+    const percentage = maxMarks ? (total / maxMarks) * 100 : 0;
 
     const grade = calculateGrade(percentage);
+    const classScope = String(marks[0].class_scope || "school").trim().toLowerCase();
 
     return {
       student:{
-        id:marks[0].student_id,
-        name:`${marks[0].first_name} ${marks[0].last_name}`
+        id: marks[0].student_id,
+        name: marks[0].student_name,
+        roll_number: marks[0].roll_number ?? "-"
       },
-      exam:marks[0].exam,
+      exam:{
+        id: marks[0].exam_id,
+        name: marks[0].exam_name,
+        class_name: marks[0].class_name,
+        class_scope: classScope,
+        section_name: marks[0].section_name,
+        medium: marks[0].medium,
+      },
       subjects:marks.map(m=>({
-        subject:m.subject,
-        marks:m.marks
+        subject: m.subject_name,
+        marks: Number(m.marks || 0),
+        max_marks: Number(m.max_marks || 0),
+        pass_marks: Number(m.pass_marks || 0),
       })),
+      summary: {
+        total,
+        max_total: maxMarks,
+        percentage: Number(percentage.toFixed(2)),
+      },
       total,
-      percentage:Number(percentage.toFixed(2)),
-      grade
+      percentage: Number(percentage.toFixed(2)),
+      grade,
     };
 
   }finally{

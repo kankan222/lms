@@ -2,6 +2,56 @@ import * as repo from "./fee.repository.js";
 import { generateReceiptPdf } from "./feePdf.service.js";
 import AppError from "../../core/errors/AppError.js";
 
+const ALLOWED_SCOPES = new Set(["school", "hs"]);
+
+function normalizeScope(value) {
+  if (value === undefined || value === null || value === "") return undefined;
+  const scope = String(value).trim().toLowerCase();
+  if (!ALLOWED_SCOPES.has(scope)) {
+    throw new AppError("Invalid scope. Allowed values: school, hs", 400);
+  }
+  return scope;
+}
+
+function normalizeDate(value, fieldName) {
+  if (!value) return undefined;
+  const date = String(value).trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    throw new AppError(`Invalid ${fieldName}. Use YYYY-MM-DD format`, 400);
+  }
+  return date;
+}
+
+function csvEscape(value) {
+  const str = String(value ?? "");
+  if (str.includes(",") || str.includes("\"") || str.includes("\n")) {
+    return `"${str.replace(/"/g, "\"\"")}"`;
+  }
+  return str;
+}
+
+function buildPaymentQueryFilters(filters = {}) {
+  const queryFilters = { ...(filters || {}) };
+  const userId = queryFilters.userId;
+  delete queryFilters.userId;
+
+  queryFilters.scope = normalizeScope(queryFilters.scope);
+  queryFilters.payment_date = normalizeDate(queryFilters.payment_date, "payment_date");
+  queryFilters.date_from = normalizeDate(queryFilters.date_from, "date_from");
+  queryFilters.date_to = normalizeDate(queryFilters.date_to, "date_to");
+
+  if (queryFilters.payment_date) {
+    queryFilters.date_from = queryFilters.payment_date;
+    queryFilters.date_to = queryFilters.payment_date;
+  }
+
+  if (queryFilters.date_from && queryFilters.date_to && queryFilters.date_from > queryFilters.date_to) {
+    throw new AppError("date_from cannot be after date_to", 400);
+  }
+
+  return { userId, queryFilters };
+}
+
 async function getUserFlags(userId) {
   const roles = await repo.getUserRoleNames(userId);
   return {
@@ -99,7 +149,13 @@ export async function deleteInstallment(id) {
 
 export async function generateStudentLedger(enrollmentId) {
   const structure = await repo.getStructureByEnrollment(enrollmentId);
-  if (!structure) throw new Error("Fee structure not found");
+  if (!structure) {
+    const enrollment = await repo.getEnrollmentSummary(enrollmentId);
+    const context = enrollment
+      ? `${enrollment.class_name} / ${enrollment.session_name}`
+      : `enrollment ${enrollmentId}`;
+    throw new AppError(`Fee structure not found for ${context}`, 404);
+  }
 
   const installments = await repo.getInstallments(structure.id);
 
@@ -159,9 +215,7 @@ export async function generateReceipt(paymentId) {
 }
 
 export async function getPayments(filters = {}) {
-  const queryFilters = { ...(filters || {}) };
-  const userId = queryFilters.userId;
-  delete queryFilters.userId;
+  const { userId, queryFilters } = buildPaymentQueryFilters(filters);
 
   if (userId) {
     const flags = await getUserFlags(userId);
@@ -171,6 +225,51 @@ export async function getPayments(filters = {}) {
   }
 
   return repo.getPayments(queryFilters);
+}
+
+export async function exportPaymentsCsv(filters = {}) {
+  const rows = await getPayments(filters);
+
+  const headers = [
+    "payment_id",
+    "payment_date",
+    "student_name",
+    "class_name",
+    "class_scope",
+    "section_name",
+    "medium",
+    "fee_type",
+    "fee_amount",
+    "amount_paid",
+    "fee_status",
+    "payment_status",
+    "remarks",
+  ];
+
+  const lines = [
+    headers.join(","),
+    ...rows.map((row) =>
+      [
+        row.id,
+        row.payment_date || (row.created_at ? String(row.created_at).slice(0, 10) : ""),
+        row.student_name,
+        row.class_name,
+        row.class_scope,
+        row.section_name,
+        row.medium,
+        row.fee_type,
+        row.fee_amount,
+        row.amount_paid,
+        row.fee_status,
+        row.status,
+        row.remarks,
+      ]
+        .map(csvEscape)
+        .join(",")
+    ),
+  ];
+
+  return lines.join("\n");
 }
 
 export async function getStudentFeeOptions(studentId, user) {

@@ -16,7 +16,6 @@ import {
   Settings,
   BriefcaseBusinessIcon,
   Users,
-  ContactRound,
   Globe,
 } from "lucide-react";
 
@@ -35,11 +34,20 @@ import Exams from "../pages/Exams";
 import Reports from "../pages/Reports";
 import SettingsPage from "../pages/Settings";
 import UsersPage from "../pages/Users";
-import StaffPage from "../pages/Staff";
 import WebsiteModule from "../pages/WebsiteModule";
 
 
 import StudentDetails from "../pages/modules/StudentDetails";
+
+export function isRouteAllowedForUser(route, user) {
+  const roles = Array.isArray(user?.roles) ? user.roles : [];
+
+  if (Array.isArray(route.hideForRoles) && route.hideForRoles.some((role) => roles.includes(role))) {
+    return false;
+  }
+
+  return true;
+}
 
 export const appRoutes = [   
     {
@@ -48,7 +56,8 @@ export const appRoutes = [
       path: "/dashboard",
       element : <DashBoard/>,
       protected : true,
-      permission: "dashboard.view"
+      permission: "dashboard.view",
+      hideForRoles: ["teacher"],
     },
     {
       title: "Classes",
@@ -56,7 +65,8 @@ export const appRoutes = [
       path : "/classes",
       element: <Classes/>,
       protected : true,
-      permission: "academic.view"
+      permission: "academic.view",
+      hideForRoles: ["teacher"],
     },
     {
       title: "Subjects",
@@ -64,7 +74,8 @@ export const appRoutes = [
       path: "/subjects",
       element: <Subjects/>,
       protected : true,
-      permission: "subjects.view"
+      permission: "subjects.view",
+      hideForRoles: ["teacher"],
     },
     {
       title: "Students",
@@ -73,6 +84,7 @@ export const appRoutes = [
       element: <Students />,
       protected : true,
       permission: "student.view",
+      hideForRoles: ["teacher"],
     },
     {
       title: "Teachers",
@@ -97,6 +109,7 @@ export const appRoutes = [
       element: <Fees/>,
       protected : true,
       permission: "fee.view",
+      hideForRoles: ["teacher"],
     },
     {
       title: "Payments",
@@ -105,6 +118,7 @@ export const appRoutes = [
       element: <Payments />,
       protected : true,
       permission: "payment.view",
+      hideForRoles: ["teacher"],
     },
     // {
     //   title: "Timetable",
@@ -123,6 +137,7 @@ export const appRoutes = [
       element: <Messaging />,
       protected : true,
       permission: "messages.view",
+      hideForRoles: ["teacher"],
     },
     // {
     //   title: "Question Paper",
@@ -157,14 +172,7 @@ export const appRoutes = [
       element: <UsersPage />,
       protected: true,
       permission: "teacher.update",
-    },
-    {
-      title: "Staff",
-      icon: ContactRound,
-      path: "/staff",
-      element: <StaffPage />,
-      protected: true,
-      permission: "dashboard.view",
+      hideForRoles: ["teacher"],
     },
     {
       title: "Website",
@@ -173,6 +181,7 @@ export const appRoutes = [
       element: <WebsiteModule />,
       protected: true,
       permission: "dashboard.view",
+      hideForRoles: ["teacher"],
     },
     {
       title: "Settings",
@@ -181,6 +190,7 @@ export const appRoutes = [
       element: <SettingsPage />,
       protected : true,
       permission: "dashboard.view",
+      hideForRoles: ["teacher"],
     },
   ];
 
@@ -197,5 +207,6 @@ export const appRoutes = [
       element: <StudentDetails />,
       protected: true,
       permission: "student.view",
+      hideForRoles: ["teacher"],
     },
   ]

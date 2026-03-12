@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import TopBar from "../../components/TopBar";
+import { usePermissions } from "../../hooks/usePermissions";
 
 import {
   getTeacher,
@@ -57,6 +58,8 @@ import { Label } from "@/components/ui/label";
 
 export default function TeacherDetails() {
   const { id } = useParams();
+  const { can } = usePermissions();
+  const canManageTeachers = can("teacher.update");
 
   const [teacher, setTeacher] = useState(null);
   const [classes, setClasses] = useState([]);
@@ -262,6 +265,7 @@ export default function TeacherDetails() {
             </div>
 
             {/* Actions */}
+            {canManageTeachers ? (
             <div className="flex gap-2">
               <Dialog
                 open={assignDialogOpen}
@@ -403,6 +407,7 @@ export default function TeacherDetails() {
                 </DialogContent>
               </Dialog>
             </div>
+            ) : null}
           </div>
         </div>
       </div>

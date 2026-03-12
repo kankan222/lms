@@ -167,6 +167,21 @@ export async function getPayments(req, res) {
   res.json({ data: result });
 }
 
+export async function exportPaymentsCsv(req, res) {
+  const csv = await feeService.exportPaymentsCsv({
+    ...(req.query || {}),
+    userId: req.user?.userId
+  });
+
+  const dateLabel = String(req.query?.payment_date || new Date().toISOString().slice(0, 10));
+  res.setHeader("Content-Type", "text/csv; charset=utf-8");
+  res.setHeader(
+    "Content-Disposition",
+    `attachment; filename=payments-${dateLabel}.csv`
+  );
+  res.send(csv);
+}
+
 export async function getStudentFeeOptions(req, res) {
   const result = await feeService.getStudentFeeOptions(req.params.studentId, req.user);
   res.json({ data: result });

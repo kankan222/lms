@@ -1,98 +1,434 @@
 import bcrypt from "bcrypt";
-import { query } from "../../core/db/query.js";
+import { execute, query } from "../../core/db/query.js";
 
-const ADMIN_EMAIL="admin@kkv.com"
-const ADMIN_USERNAME = "admin";
-const ADMIN_PASSWORD = "Admin@KKV147"; // change anytime
+const ROLES = [
+  "super_admin",
+  "teacher",
+  "student",
+  "parent",
+  "accounts",
+  "staff",
+];
 
-async function seedAdmin() {
+const PERMISSIONS = [
+  "dashboard.view",
+  "academic.view",
+  "academic.create",
+  "academic.update",
+  "academic.delete",
+  "attendance.take",
+  "subjects.view",
+  "subjects.create",
+  "subjects.update",
+  "subjects.delete",
+  "subjects.assign",
+  "classSubjects.view",
+  "parent.create",
+  "parent.view",
+  "student.create",
+  "student.view",
+  "student.update",
+  "student.delete",
+  "teacher.create",
+  "teacher.view",
+  "teacher.update",
+  "teacher.delete",
+  "teacher.assign",
+  "fee.view",
+  "fee.create",
+  "fee.update",
+  "fee.delete",
+  "payment.view",
+  "payment.create",
+  "payment.update",
+  "payment.delete",
+  "exams.create",
+  "exams.view",
+  "exams.update",
+  "exams.delete",
+  "marks.enter",
+  "marks.view",
+  "marks.approve",
+  "messages.view",
+  "messages.send",
+  "notifications.view",
+];
 
-  console.log("🌱 Seeding Super Admin...");
+const ROLE_PERMISSION_MAP = {
+  super_admin: PERMISSIONS,
+  teacher: ["marks.enter", "marks.view", "teacher.view", "attendance.take", "subjects.view", "exams.view"],
+  student: [],
+  parent: ["student.view", "fee.view", "marks.view", "messages.view"],
+  accounts: ["payment.view", "payment.create", "payment.update", "payment.delete"],
+  staff: ["exams.create", "exams.view", "exams.update", "exams.delete", "marks.view", "marks.approve"],
+};
 
-  // hash password
-  const passwordHash = await bcrypt.hash(
-    ADMIN_PASSWORD,
-    10
+const USERS = [
+  {
+    role: "super_admin",
+    username: "admin",
+    email: "admin@kkv.com",
+    phone: null,
+    password: "Admin@KKV147",
+    status: "active",
+  },
+  {
+    role: "accounts",
+    username: "accounts.ronit",
+    email: "ronit.mehta@kkv.edu.in",
+    phone: "9001002001",
+    password: "Accounts@KKV147",
+    status: "active",
+  },
+  {
+    role: "staff",
+    username: "staff.nandita",
+    email: "nandita.sen@kkv.edu.in",
+    phone: "9001002002",
+    password: "Staff@KKV147",
+    status: "active",
+  },
+  {
+    role: "teacher",
+    username: "teacher.ananya",
+    email: "ananya.sharma@kkv.edu.in",
+    phone: "9001003001",
+    password: "Teacher@KKV147",
+    status: "active",
+    teacherProfile: {
+      employee_id: "TCH-1001",
+      name: "Ananya Sharma",
+      class_scope: "school",
+    },
+  },
+  {
+    role: "parent",
+    username: "parent.rahul",
+    email: "rahul.bora@gmail.com",
+    phone: "9001004001",
+    password: "Parent@KKV147",
+    status: "active",
+    parentProfile: {
+      name: "Rahul Bora",
+      qualification: null,
+      occupation: null,
+      class_scope: "school",
+    },
+  },
+];
+
+async function hasColumn(tableName, columnName) {
+  const rows = await query(
+    `
+      SELECT 1
+      FROM information_schema.COLUMNS
+      WHERE TABLE_SCHEMA = DATABASE()
+        AND TABLE_NAME = ?
+        AND COLUMN_NAME = ?
+      LIMIT 1
+    `,
+    [tableName, columnName]
   );
 
-  // check if admin exists
-  const existing = await query(
-    `SELECT id FROM users WHERE username=? LIMIT 1`,
-    [ADMIN_USERNAME]
-  );
-
-  let userId;
-
-  if (existing.length) {
-    userId = existing[0].id;
-
-    // update password safely
-    await query(
-      `UPDATE users SET password_hash=? WHERE id=?`,
-      [passwordHash, userId]
-    );
-
-    console.log("✅ Admin password updated");
-  } else {
-
-    const result = await query(
-      `INSERT INTO users
-      (username, email, password_hash, status)
-      VALUES (?, ?, ?, 'active')`,
-      [
-        ADMIN_USERNAME,
-        ADMIN_EMAIL,
-        passwordHash
-      ]
-    );
-
-    userId = result.insertId;
-
-    console.log("✅ Admin user created");
-  }
-
-  /* ---------- ROLE ---------- */
-
-  const role = await query(
-    `SELECT id FROM roles WHERE name='super_admin' LIMIT 1`
-  );
-
-  if (!role.length)
-    throw new Error("super_admin role missing");
-
-  const roleId = role[0].id;
-
-  await query(
-    `INSERT IGNORE INTO user_roles (user_id, role_id)
-     VALUES (?, ?)`,
-    [userId, roleId]
-  );
-
-  console.log("✅ Role assigned");
-
-  /* ---------- PERMISSIONS ---------- */
-
-  const permissions = await query(
-    `SELECT id FROM permissions`
-  );
-
-  for (const perm of permissions) {
-    await query(
-      `INSERT IGNORE INTO role_permissions
-       (role_id, permission_id)
-       VALUES (?, ?)`,
-      [roleId, perm.id]
-    );
-  }
-
-  console.log("✅ Permissions assigned");
-
-  console.log("🎉 Super Admin Ready");
+  return rows.length > 0;
 }
 
-seedAdmin()
-  .then(() => process.exit())
-  .catch(err => {
+async function ensureRoles() {
+  for (const role of ROLES) {
+    await execute("INSERT IGNORE INTO roles(name) VALUES (?)", [role]);
+  }
+}
+
+async function ensurePermissions() {
+  for (const permission of PERMISSIONS) {
+    await execute("INSERT IGNORE INTO permissions(name) VALUES (?)", [permission]);
+  }
+}
+
+async function getRoleIdByName(roleName) {
+  const rows = await query("SELECT id FROM roles WHERE name = ? LIMIT 1", [roleName]);
+  return rows[0]?.id || null;
+}
+
+async function getPermissionIdByName(permissionName) {
+  const rows = await query("SELECT id FROM permissions WHERE name = ? LIMIT 1", [permissionName]);
+  return rows[0]?.id || null;
+}
+
+async function syncRolePermissions() {
+  for (const roleName of Object.keys(ROLE_PERMISSION_MAP)) {
+    const roleId = await getRoleIdByName(roleName);
+    if (!roleId) {
+      throw new Error(`Missing role: ${roleName}`);
+    }
+
+    await execute("DELETE FROM role_permissions WHERE role_id = ?", [roleId]);
+
+    for (const permissionName of ROLE_PERMISSION_MAP[roleName]) {
+      const permissionId = await getPermissionIdByName(permissionName);
+      if (!permissionId) {
+        throw new Error(`Missing permission: ${permissionName}`);
+      }
+
+      await execute(
+        "INSERT IGNORE INTO role_permissions (role_id, permission_id) VALUES (?, ?)",
+        [roleId, permissionId]
+      );
+    }
+  }
+}
+
+async function getUserByIdentity({ username, email, phone }) {
+  const rows = await query(
+    `
+      SELECT id, username, email, phone
+      FROM users
+      WHERE username = ? OR email = ? OR phone = ?
+      ORDER BY id
+      LIMIT 1
+    `,
+    [username || null, email || null, phone || null]
+  );
+
+  return rows[0] || null;
+}
+
+async function upsertUser(user) {
+  const passwordHash = await bcrypt.hash(user.password, 10);
+  const existing = await getUserByIdentity(user);
+
+  if (existing) {
+    await execute(
+      `
+        UPDATE users
+        SET username = ?,
+            email = ?,
+            phone = ?,
+            password_hash = ?,
+            status = ?
+        WHERE id = ?
+      `,
+      [user.username || null, user.email || null, user.phone || null, passwordHash, user.status || "active", existing.id]
+    );
+
+    return existing.id;
+  }
+
+  const result = await execute(
+    `
+      INSERT INTO users (username, email, phone, password_hash, status)
+      VALUES (?, ?, ?, ?, ?)
+    `,
+    [user.username || null, user.email || null, user.phone || null, passwordHash, user.status || "active"]
+  );
+
+  return result.insertId;
+}
+
+async function assignRole(userId, roleName) {
+  const roleId = await getRoleIdByName(roleName);
+  if (!roleId) {
+    throw new Error(`Missing role: ${roleName}`);
+  }
+
+  await execute("INSERT IGNORE INTO user_roles (user_id, role_id) VALUES (?, ?)", [userId, roleId]);
+}
+
+async function ensureTeacherProfile(userId, profile = {}) {
+  const existing = await query("SELECT id FROM teachers WHERE user_id = ? LIMIT 1", [userId]);
+  const teacherHasScope = await hasColumn("teachers", "class_scope");
+
+  if (existing.length) {
+    if (teacherHasScope) {
+      await execute(
+        `
+          UPDATE teachers
+          SET employee_id = ?,
+              name = ?,
+              phone = ?,
+              email = ?,
+              class_scope = ?,
+              photo_url = NULL
+          WHERE user_id = ?
+        `,
+        [
+          profile.employee_id || null,
+          profile.name || null,
+          profile.phone || null,
+          profile.email || null,
+          profile.class_scope || "school",
+          userId,
+        ]
+      );
+      return;
+    }
+
+    await execute(
+      `
+        UPDATE teachers
+        SET employee_id = ?,
+            name = ?,
+            phone = ?,
+            email = ?,
+            photo_url = NULL
+        WHERE user_id = ?
+      `,
+      [profile.employee_id || null, profile.name || null, profile.phone || null, profile.email || null, userId]
+    );
+    return;
+  }
+
+  if (teacherHasScope) {
+    await execute(
+      `
+        INSERT INTO teachers (user_id, employee_id, name, phone, email, class_scope, photo_url)
+        VALUES (?, ?, ?, ?, ?, ?, NULL)
+      `,
+      [
+        userId,
+        profile.employee_id || null,
+        profile.name || null,
+        profile.phone || null,
+        profile.email || null,
+        profile.class_scope || "school",
+      ]
+    );
+    return;
+  }
+
+  await execute(
+    `
+      INSERT INTO teachers (user_id, employee_id, name, phone, email, photo_url)
+      VALUES (?, ?, ?, ?, ?, NULL)
+    `,
+    [userId, profile.employee_id || null, profile.name || null, profile.phone || null, profile.email || null]
+  );
+}
+
+async function ensureParentProfile(userId, profile = {}) {
+  const existing = await query("SELECT id FROM parents WHERE user_id = ? LIMIT 1", [userId]);
+  const parentHasScope = await hasColumn("parents", "class_scope");
+
+  if (existing.length) {
+    if (parentHasScope) {
+      await execute(
+        `
+          UPDATE parents
+          SET name = ?,
+              qualification = ?,
+              occupation = ?,
+              mobile = ?,
+              email = ?,
+              class_scope = ?
+          WHERE user_id = ?
+        `,
+        [
+          profile.name || null,
+          profile.qualification || null,
+          profile.occupation || null,
+          profile.mobile || null,
+          profile.email || null,
+          profile.class_scope || "school",
+          userId,
+        ]
+      );
+      return;
+    }
+
+    await execute(
+      `
+        UPDATE parents
+        SET name = ?,
+            qualification = ?,
+            occupation = ?,
+            mobile = ?,
+            email = ?
+        WHERE user_id = ?
+      `,
+      [
+        profile.name || null,
+        profile.qualification || null,
+        profile.occupation || null,
+        profile.mobile || null,
+        profile.email || null,
+        userId,
+      ]
+    );
+    return;
+  }
+
+  if (parentHasScope) {
+    await execute(
+      `
+        INSERT INTO parents (user_id, name, qualification, occupation, mobile, email, class_scope, address_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, NULL)
+      `,
+      [
+        userId,
+        profile.name || null,
+        profile.qualification || null,
+        profile.occupation || null,
+        profile.mobile || null,
+        profile.email || null,
+        profile.class_scope || "school",
+      ]
+    );
+    return;
+  }
+
+  await execute(
+    `
+      INSERT INTO parents (user_id, name, qualification, occupation, mobile, email, address_id)
+      VALUES (?, ?, ?, ?, ?, ?, NULL)
+    `,
+    [
+      userId,
+      profile.name || null,
+      profile.qualification || null,
+      profile.occupation || null,
+      profile.mobile || null,
+      profile.email || null,
+    ]
+  );
+}
+
+async function seedUsers() {
+  for (const user of USERS) {
+    const userId = await upsertUser(user);
+    await assignRole(userId, user.role);
+
+    if (user.teacherProfile) {
+      await ensureTeacherProfile(userId, {
+        ...user.teacherProfile,
+        phone: user.phone || null,
+        email: user.email || null,
+      });
+    }
+
+    if (user.parentProfile) {
+      await ensureParentProfile(userId, {
+        ...user.parentProfile,
+        mobile: user.phone || null,
+        email: user.email || null,
+      });
+    }
+  }
+}
+
+async function seed() {
+  console.log("Seeding users, roles, and permissions...");
+
+  await ensureRoles();
+  await ensurePermissions();
+  await syncRolePermissions();
+  await seedUsers();
+
+  console.log("Seed complete.");
+}
+
+seed()
+  .then(() => process.exit(0))
+  .catch((err) => {
     console.error(err);
     process.exit(1);
   });

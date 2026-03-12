@@ -10,8 +10,11 @@ import RoleLandingRoute from "./RoleLandingRoute";
 
 import Login from "../pages/LoginForm";
 import Unauthorized from "../pages/Unauthorized";
+import { useAuth } from "../hooks/useAuth";
+import { isRouteAllowedForUser } from "./RouteConfig";
 
 const AppRoutes = () => {
+  const { user } = useAuth();
   return (
     <Routes>
       {/* PUBLIC ROUTE */}
@@ -45,6 +48,10 @@ const AppRoutes = () => {
 
         {appRoutes.map((route, i) => {
           let element = route.element;
+
+          if (!isRouteAllowedForUser(route, user)) {
+            element = <Unauthorized />;
+          }
 
           if (route.permission) {
             element = (

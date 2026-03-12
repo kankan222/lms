@@ -24,6 +24,7 @@ import {
 import { ClassStructureItem, getClassStructure, getSessions, SessionItem } from "../../services/classesService";
 
 type TeacherScope = "school" | "hs";
+type ScopeFilter = "all" | TeacherScope;
 
 type CreateTeacherForm = {
   employee_id: string;
@@ -86,6 +87,8 @@ export default function TeachersTab() {
   const [createOpen, setCreateOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [assignmentOpen, setAssignmentOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const [scopeFilter, setScopeFilter] = useState<ScopeFilter>("all");
 
   const [createForm, setCreateForm] = useState<CreateTeacherForm>(EMPTY_CREATE);
   const [editForm, setEditForm] = useState<EditTeacherForm>(EMPTY_EDIT);
@@ -97,9 +100,26 @@ export default function TeachersTab() {
 
   const filteredAssignmentClasses = useMemo(() => {
     const scope = (selectedTeacher?.class_scope ?? "school") as TeacherScope;
-    return classStructure.filter((item) => matchesScope(item.name, scope));
+    return classStructure.filter((item) => matchesScope(item, scope));
   }, [classStructure, selectedTeacher?.class_scope]);
 
+
+  const filteredTeachers = useMemo(() => {
+    const query = search.trim().toLowerCase();
+    return teachers.filter((teacher) => {
+      const matchesQuery =
+        !query ||
+        String(teacher.name || "").toLowerCase().includes(query) ||
+        String(teacher.employee_id || "").toLowerCase().includes(query) ||
+        String(teacher.phone || "").toLowerCase().includes(query) ||
+        String(teacher.email || "").toLowerCase().includes(query);
+
+      const matchesScope =
+        scopeFilter === "all" || (teacher.class_scope ?? "school") === scopeFilter;
+
+      return matchesQuery && matchesScope;
+    });
+  }, [scopeFilter, search, teachers]);
   const selectedClass = useMemo(
     () => filteredAssignmentClasses.find((item) => item.id === assignmentForm.class_id) ?? null,
     [assignmentForm.class_id, filteredAssignmentClasses]
@@ -119,7 +139,7 @@ export default function TeachersTab() {
         getClassStructure(),
         getSessions(),
       ]);
-      setTeachers(teacherRows);
+      setTeachers(teacherRows.map((teacher) => ({ ...teacher, class_scope: (teacher.class_scope ?? "school") as TeacherScope })));
       setClassStructure(structureRows);
       setSessions(sessionRows);
     } catch (err: unknown) {
@@ -303,7 +323,10 @@ export default function TeachersTab() {
   return (
     <View style={styles.root}>
       <View style={styles.toolbar}>
-        <Text style={styles.title}>Teachers</Text>
+        <View style={styles.toolbarCopy}>
+          <Text style={styles.title}>Teachers</Text>
+          <Text style={styles.subtitle}>{filteredTeachers.length} of {teachers.length} teachers</Text>
+        </View>
         <Pressable style={styles.primaryBtn} onPress={() => setCreateOpen(true)}>
           <Text style={styles.primaryBtnText}>Add Teacher</Text>
         </Pressable>
@@ -685,8 +708,9 @@ function isHsClassName(name: string) {
   return false;
 }
 
-function matchesScope(className: string, scope: TeacherScope) {
-  const hs = isHsClassName(className);
+function matchesScope(item: ClassStructureItem, scope: TeacherScope) {
+  const resolvedScope = item.class_scope ?? (isHsClassName(item.name) ? "hs" : "school");
+  const hs = resolvedScope === "hs";
   return scope === "hs" ? hs : !hs;
 }
 
@@ -701,11 +725,21 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
+    gap: 12,
+  },
+  toolbarCopy: {
+    flex: 1,
   },
   title: {
     color: "#0f172a",
     fontWeight: "700",
     fontSize: 18,
+  },
+  subtitle: {
+    marginTop: 4,
+    color: "#64748b",
+    fontSize: 12,
+    fontWeight: "600",
   },
   centered: {
     alignItems: "center",
@@ -715,6 +749,13 @@ const styles = StyleSheet.create({
   errorText: {
     color: "#dc2626",
     fontWeight: "600",
+  },
+  filterCard: {
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
+    borderRadius: 12,
+    backgroundColor: "#ffffff",
+    padding: 12,
   },
   grid: {
     gap: 10,
@@ -726,10 +767,41 @@ const styles = StyleSheet.create({
     backgroundColor: "#ffffff",
     padding: 12,
   },
+  cardHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    gap: 8,
+  },
   teacherName: {
     color: "#0f172a",
     fontWeight: "700",
     fontSize: 16,
+    flex: 1,
+  },
+  scopeBadge: {
+    borderWidth: 1,
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  scopeBadgeSchool: {
+    borderColor: "#bfdbfe",
+    backgroundColor: "#eff6ff",
+  },
+  scopeBadgeHs: {
+    borderColor: "#fde68a",
+    backgroundColor: "#fffbeb",
+  },
+  scopeBadgeText: {
+    fontWeight: "700",
+    fontSize: 12,
+  },
+  scopeBadgeTextSchool: {
+    color: "#1d4ed8",
+  },
+  scopeBadgeTextHs: {
+    color: "#b45309",
   },
   meta: {
     marginTop: 4,
@@ -799,6 +871,10 @@ const styles = StyleSheet.create({
     color: "#0f172a",
     fontWeight: "700",
     fontSize: 18,
+    marginBottom: 10,
+  },
+  modalHint: {
+    color: "#64748b",
     marginBottom: 10,
   },
   modalBody: {
@@ -875,6 +951,19 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     fontSize: 12,
   },
+  emptyCard: {
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
+    borderStyle: "dashed",
+    borderRadius: 12,
+    backgroundColor: "#f8fafc",
+    padding: 20,
+  },
+  emptyTitle: {
+    color: "#0f172a",
+    fontWeight: "700",
+    fontSize: 15,
+  },
   emptyText: {
     color: "#64748b",
     marginTop: 8,
@@ -889,6 +978,16 @@ const styles = StyleSheet.create({
     gap: 8,
   },
 });
+
+
+
+
+
+
+
+
+
+
 
 
 

@@ -144,8 +144,8 @@ export default function SubjectsTab() {
     }
   }
 
-  async function handleDelete(id: number) {
-    Alert.alert("Delete subject", "Do you want to deactivate this subject?", [
+  async function handleDelete(id: number, name: string) {
+    Alert.alert("Delete subject", `This will remove ${name} from the subjects list.`, [
       { text: "Cancel", style: "cancel" },
       {
         text: "Delete",
@@ -193,10 +193,13 @@ export default function SubjectsTab() {
   return (
     <View style={styles.root}>
       <View style={styles.toolbar}>
-        <Text style={styles.title}>Subjects</Text>
+        <View>
+          <Text style={styles.title}>Subjects</Text>
+          <Text style={styles.subtitle}>Find all subjects here</Text>
+        </View>
         <View style={styles.toolbarActions}>
           <Pressable style={styles.secondaryBtn} onPress={() => setAssignOpen(true)}>
-            <Text style={styles.secondaryBtnText}>Assign</Text>
+            <Text style={styles.secondaryBtnText}>Assign Subjects</Text>
           </Pressable>
           <Pressable style={styles.primaryBtn} onPress={() => setCreateOpen(true)}>
             <Text style={styles.primaryBtnText}>Add Subject</Text>
@@ -214,13 +217,20 @@ export default function SubjectsTab() {
           <View style={styles.grid}>
             {subjects.map((subject) => (
               <View key={subject.id} style={styles.card}>
-                <Text style={styles.subjectName}>{subject.name}</Text>
-                <Text style={styles.meta}>Code: {subject.code}</Text>
+                <View style={styles.cardMain}>
+                  <View style={styles.iconBadge}>
+                    <Text style={styles.iconBadgeText}>S</Text>
+                  </View>
+                  <View style={styles.cardContent}>
+                    <Text style={styles.subjectName}>{subject.name}</Text>
+                    <Text style={styles.meta}>Code: {subject.code}</Text>
+                  </View>
+                </View>
                 <View style={styles.rowActions}>
                   <Pressable style={styles.secondaryBtn} onPress={() => openEdit(subject)}>
                     <Text style={styles.secondaryBtnText}>Edit</Text>
                   </Pressable>
-                  <Pressable style={styles.deleteBtn} onPress={() => handleDelete(subject.id)}>
+                  <Pressable style={styles.deleteBtn} onPress={() => handleDelete(subject.id, subject.name)}>
                     <Text style={styles.deleteBtnText}>Delete</Text>
                   </Pressable>
                 </View>
@@ -283,7 +293,7 @@ export default function SubjectsTab() {
                       }}
                     >
                       <Text style={[styles.classItemText, isSelected && styles.classItemTextActive]}>
-                        Class {item.name}
+                        {item.name}{item.medium ? ` (${item.medium})` : ""}
                       </Text>
                     </Pressable>
                   );
@@ -291,21 +301,23 @@ export default function SubjectsTab() {
               </View>
 
               <Text style={[styles.inputLabel, styles.spaceTop]}>Subjects *</Text>
-              {subjects.map((item) => {
-                const checked = selectedSubjectIds.includes(item.id);
-                return (
-                  <Pressable
-                    key={item.id}
-                    style={styles.checkboxRow}
-                    onPress={() => toggleSubjectSelection(item.id)}
-                  >
-                    <View style={[styles.checkbox, checked && styles.checkboxChecked]} />
-                    <Text style={styles.checkboxText}>
-                      {item.name} ({item.code})
-                    </Text>
-                  </Pressable>
-                );
-              })}
+              <View style={styles.subjectCheckList}>
+                {subjects.map((item) => {
+                  const checked = selectedSubjectIds.includes(item.id);
+                  return (
+                    <Pressable
+                      key={item.id}
+                      style={styles.checkboxRow}
+                      onPress={() => toggleSubjectSelection(item.id)}
+                    >
+                      <View style={[styles.checkbox, checked && styles.checkboxChecked]} />
+                      <Text style={styles.checkboxText}>
+                        {item.name} ({item.code})
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
 
               {selectedClassId !== null && (
                 <View style={styles.assignedBlock}>
@@ -429,11 +441,17 @@ const styles = StyleSheet.create({
   toolbarActions: {
     flexDirection: "row",
     gap: 8,
+    flexWrap: "wrap",
+    justifyContent: "flex-end",
   },
   title: {
     color: "#0f172a",
-    fontWeight: "700",
-    fontSize: 18,
+    fontWeight: "800",
+    fontSize: 20,
+  },
+  subtitle: {
+    color: "#64748b",
+    marginTop: 4,
   },
   centered: {
     alignItems: "center",
@@ -451,56 +469,77 @@ const styles = StyleSheet.create({
     width: "100%",
     borderWidth: 1,
     borderColor: "#e2e8f0",
-    borderRadius: 12,
+    borderRadius: 16,
     backgroundColor: "#ffffff",
-    padding: 12,
+    padding: 14,
+    gap: 12,
+  },
+  cardMain: {
+    flexDirection: "row",
+    gap: 12,
+    alignItems: "flex-start",
+  },
+  iconBadge: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: "#e2e8f0",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  iconBadgeText: {
+    color: "#0f172a",
+    fontWeight: "800",
+  },
+  cardContent: {
+    flex: 1,
+    gap: 4,
   },
   subjectName: {
     color: "#0f172a",
-    fontWeight: "700",
-    fontSize: 16,
+    fontWeight: "800",
+    fontSize: 17,
   },
   meta: {
     color: "#475569",
-    marginTop: 6,
+    marginTop: 2,
   },
   rowActions: {
-    marginTop: 12,
     flexDirection: "row",
     gap: 8,
   },
   primaryBtn: {
     backgroundColor: "#0f172a",
     paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 8,
+    paddingVertical: 9,
+    borderRadius: 10,
     alignItems: "center",
     justifyContent: "center",
   },
   primaryBtnText: {
     color: "#ffffff",
-    fontWeight: "600",
+    fontWeight: "700",
   },
   secondaryBtn: {
     borderWidth: 1,
     borderColor: "#cbd5e1",
     paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 8,
+    paddingVertical: 9,
+    borderRadius: 10,
     alignItems: "center",
     justifyContent: "center",
   },
   secondaryBtnText: {
     color: "#334155",
-    fontWeight: "600",
+    fontWeight: "700",
   },
   deleteBtn: {
     borderWidth: 1,
     borderColor: "#fecaca",
     backgroundColor: "#fee2e2",
     paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 8,
+    paddingVertical: 9,
+    borderRadius: 10,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -519,13 +558,13 @@ const styles = StyleSheet.create({
   modalCard: {
     maxHeight: "85%",
     backgroundColor: "#ffffff",
-    borderTopLeftRadius: 16,
-    borderTopRightRadius: 16,
+    borderTopLeftRadius: 18,
+    borderTopRightRadius: 18,
     padding: 16,
   },
   modalTitle: {
     fontSize: 18,
-    fontWeight: "700",
+    fontWeight: "800",
     color: "#0f172a",
     marginBottom: 10,
   },
@@ -534,13 +573,13 @@ const styles = StyleSheet.create({
   },
   inputLabel: {
     color: "#334155",
-    fontWeight: "600",
+    fontWeight: "700",
     marginBottom: 6,
   },
   input: {
     borderWidth: 1,
     borderColor: "#cbd5e1",
-    borderRadius: 10,
+    borderRadius: 12,
     backgroundColor: "#ffffff",
     paddingHorizontal: 12,
     paddingVertical: 10,
@@ -553,7 +592,7 @@ const styles = StyleSheet.create({
   classItem: {
     borderWidth: 1,
     borderColor: "#cbd5e1",
-    borderRadius: 8,
+    borderRadius: 10,
     paddingVertical: 8,
     paddingHorizontal: 10,
     backgroundColor: "#ffffff",
@@ -564,15 +603,23 @@ const styles = StyleSheet.create({
   },
   classItemText: {
     color: "#334155",
-    fontWeight: "600",
+    fontWeight: "700",
   },
   classItemTextActive: {
     color: "#0f172a",
   },
+  subjectCheckList: {
+    gap: 6,
+  },
   checkboxRow: {
     flexDirection: "row",
     alignItems: "center",
-    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 9,
+    backgroundColor: "#ffffff",
   },
   checkbox: {
     width: 18,
@@ -589,19 +636,19 @@ const styles = StyleSheet.create({
   },
   checkboxText: {
     color: "#334155",
-    fontWeight: "500",
+    fontWeight: "600",
   },
   assignedBlock: {
     marginTop: 12,
     borderWidth: 1,
     borderColor: "#e2e8f0",
-    borderRadius: 10,
+    borderRadius: 12,
     padding: 10,
     backgroundColor: "#f8fafc",
   },
   assignedTitle: {
     color: "#0f172a",
-    fontWeight: "700",
+    fontWeight: "800",
     marginBottom: 6,
   },
   assignedText: {
@@ -620,4 +667,3 @@ const styles = StyleSheet.create({
     opacity: 0.7,
   },
 });
-

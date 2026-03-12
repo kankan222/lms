@@ -17,6 +17,12 @@ export type ExamItem = {
   session_name?: string;
 };
 
+export type ExamListFilters = {
+  session_id?: number | string;
+  class_id?: number | string;
+  section_id?: number | string;
+};
+
 export type ExamScope = {
   id?: number;
   class_id: number;
@@ -58,8 +64,14 @@ export type StudentReport = {
   }>;
 };
 
-export async function getExams() {
-  const response = await api.get<ApiEnvelope<ExamItem[]>>("/exams");
+export async function getExams(filters: ExamListFilters = {}) {
+  const params = new URLSearchParams();
+  if (filters.session_id) params.set("session_id", String(filters.session_id));
+  if (filters.class_id) params.set("class_id", String(filters.class_id));
+  if (filters.section_id) params.set("section_id", String(filters.section_id));
+
+  const query = params.toString();
+  const response = await api.get<ApiEnvelope<ExamItem[]>>(`/exams${query ? `?${query}` : ""}`);
   return response.data.data ?? [];
 }
 

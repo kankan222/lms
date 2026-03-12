@@ -1,3 +1,13 @@
+INSERT INTO roles(name) VALUES
+('super_admin'),
+('teacher'),
+('student'),
+('parent'),
+('accounts'),
+('staff');
+
+INSERT INTO streams(name)
+VALUES ('Arts'),('Science'),('Commerce');
 
 
 INSERT IGNORE INTO permissions(name) VALUES

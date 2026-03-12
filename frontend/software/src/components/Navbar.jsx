@@ -18,19 +18,15 @@ import { SidebarTrigger,  SidebarGroup,
 import { Separator } from "@/components/ui/separator"
 import { Search } from "lucide-react"
 import { Input } from "@/components/ui/input"
-import { logoutApi } from "../api/auth.api";
+import { useAuth } from "../hooks/useAuth";
 const Navbar = () => {
   const { setTheme } = useTheme();
+  const { logout } = useAuth();
   const navigate = useNavigate();
   const handleLogout = async () => {
-  try {
-    await logoutApi();
-  } catch (err) {
-    console.error(err);
-  } finally {
-    navigate("/login");
-  }
-};
+    await logout();
+    navigate("/login", { replace: true });
+  };
   return (
     <nav className="p-2 flex items-center justify-between">
       {/* LEFT  */}

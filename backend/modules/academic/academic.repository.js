@@ -30,6 +30,7 @@ export async function getClasses() {
   SELECT
   c.id,
   c.name,
+  c.class_scope,
   c.medium,
   IFNULL(GROUP_CONCAT(DISTINCT sec.name ORDER BY sec.name), '') AS sections,
   IFNULL(GROUP_CONCAT(DISTINCT CONCAT(sec.name, ':', sec.medium) ORDER BY sec.name), '') AS section_mediums,
@@ -39,7 +40,7 @@ LEFT JOIN sections sec ON sec.class_id = c.id
 LEFT JOIN class_subjects cs ON cs.class_id = c.id
 LEFT JOIN subjects sub ON sub.id = cs.subject_id
 WHERE c.is_active = TRUE
-GROUP BY c.id, c.name, c.medium
+GROUP BY c.id, c.name, c.class_scope, c.medium
 ORDER BY c.id
   `);
 }
@@ -48,6 +49,7 @@ export async function getClassStructure() {
     SELECT
       c.id AS class_id,
       c.name AS class_name,
+      c.class_scope AS class_scope,
       c.medium AS class_medium,
       s.id AS section_id,
       s.name AS section_name,
@@ -62,7 +64,7 @@ export async function getClassStructure() {
     ORDER BY c.id
   `);
 }
-export async function createClass(name, sections = []) {
+export async function createClass(name, classScope, sections = []) {
   const conn = await pool.getConnection();
 
   try {
@@ -75,8 +77,8 @@ export async function createClass(name, sections = []) {
       throw new Error("Each section must have a medium");
     }
     const [result] = await conn.query(
-      `INSERT INTO classes (name, medium, is_active) VALUES (?, ?, TRUE)`,
-      [name, mediumValue]
+      `INSERT INTO classes (name, class_scope, medium, is_active) VALUES (?, ?, ?, TRUE)`,
+      [name, classScope, mediumValue]
     );
 
     const classId = result.insertId;
@@ -99,7 +101,7 @@ export async function createClass(name, sections = []) {
     conn.release();
   }
 }
-export async function updateClass(id, name, sections = []) {
+export async function updateClass(id, name, classScope, sections = []) {
   const conn = await pool.getConnection();
 
   try {
@@ -111,7 +113,10 @@ export async function updateClass(id, name, sections = []) {
     if (!mediumValue.trim()) {
       throw new Error("Each section must have a medium");
     }
-    await conn.query(`UPDATE classes SET name=?, medium=? WHERE id=?`, [name, mediumValue, id]);
+    await conn.query(
+      `UPDATE classes SET name=?, class_scope=?, medium=? WHERE id=?`,
+      [name, classScope, mediumValue, id]
+    );
 
     // Non-destructive section sync:
     // keep existing sections (they may be referenced by enrollments/exams/assignments)

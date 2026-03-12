@@ -23,7 +23,15 @@ export async function updateSubject(id, data) {
 }
 
 export async function deleteSubject(id) {
-  return repo.deleteSubject(id);
+  try {
+    return await repo.deleteSubject(id);
+  } catch (err) {
+    if (err?.code === "ER_ROW_IS_REFERENCED_2" || err?.code === "ER_ROW_IS_REFERENCED") {
+      throw new AppError("Subject cannot be deleted because it is already used in marks or class records", 400);
+    }
+
+    throw err;
+  }
 }
 
 
@@ -47,3 +55,5 @@ export async function getClassSubjects(classId) {
     conn.release();
   }
 }
+
+

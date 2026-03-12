@@ -1,21 +1,33 @@
 import express from "express";
 import * as controller from "./marks.controller.js";
-
-import { authenticate }
-from "../auth/auth.middleware.js";
-
-import {
-  attachPermissions,
-  requirePermission
-} from "../../core/rbac/rbac.middleware.js";
+import { requirePermission } from "../../core/rbac/rbac.middleware.js";
 
 const router = express.Router();
 
+router.get("/grid", requirePermission("marks.view"), controller.getMarksGrid);
+router.post("/save", requirePermission("marks.enter"), controller.saveMarks);
+router.post("/submit", requirePermission("marks.enter"), controller.submitMarksForApproval);
 
-router.post(
-  "/",
-  requirePermission("marks.enter"),
-  controller.submitMarks
+router.post("/approve", requirePermission("marks.approve"), controller.approveMarks);
+router.post("/reject", requirePermission("marks.approve"), controller.rejectMarks);
+
+router.get(
+  "/reports/:examId/student/:studentId",
+  requirePermission("marks.view"),
+  controller.getStudentReport
+);
+router.get(
+  "/reports/:examId/student/:studentId/pdf",
+  requirePermission("marks.view"),
+  controller.downloadStudentReport
 );
 
-export default router
+router.get("/my-results", requirePermission("marks.view"), controller.getMyApprovedResults);
+router.get("/my-students", requirePermission("marks.view"), controller.getMyStudents);
+router.get(
+  "/my-results/pdf",
+  requirePermission("marks.view"),
+  controller.downloadMyApprovedMarksheet
+);
+
+export default router;

@@ -6,14 +6,20 @@ export type Student = {
   admission_no?: string;
   name: string;
   phone?: string;
+  mobile?: string;
+  date_of_admission?: string;
   medium?: string | null;
+  class_scope?: "school" | "hs";
+  stream_name?: string | null;
   gender?: string;
   dob?: string;
   roll_number?: string | number;
   class_id?: number;
   section_id?: number;
+  session_id?: number;
   class?: string;
   section?: string;
+  session?: string;
 };
 
 export type StudentParent = {
@@ -38,6 +44,9 @@ export type StudentDetails = {
   class_id?: number;
   section_id?: number;
   session_id?: number;
+  class_scope?: "school" | "hs";
+  stream_id?: number | null;
+  stream_name?: string | null;
   class?: string;
   section?: string;
   session?: string;
@@ -60,6 +69,7 @@ export type CreateStudentPayload = {
     section_id: number;
     medium?: string;
     roll_number: string | number;
+    stream?: string;
     stream_id?: number | null;
   };
   father?: {
@@ -105,6 +115,12 @@ export async function updateStudent(
     dob: string;
     date_of_admission?: string;
     photo_url?: string | null;
+    session_id?: number;
+    class_id?: number;
+    section_id?: number;
+    roll_number?: string | number;
+    stream?: string;
+    stream_id?: number | null;
   }
 ) {
   const response = await api.patch(`/students/${id}`, payload);

@@ -96,12 +96,38 @@ export async function getTeacherById(id) {
   `, [id]).then(rows => rows[0]);
 }
 
+export async function getTeacherByUserId(userId) {
+  const hasClassScope = await hasTeacherClassScopeColumn();
+
+  return query(`
+    SELECT
+      id,
+      user_id,
+      employee_id,
+      name,
+      phone,
+      email,
+      ${hasClassScope ? "class_scope" : "'school' AS class_scope"},
+      photo_url
+    FROM teachers
+    WHERE user_id = ?
+    LIMIT 1
+  `, [userId]).then((rows) => rows[0]);
+}
+
 
 
 /* ------------------ UPDATE ------------------ */
 
 export function updateTeacher(id, data) {
   return hasTeacherClassScopeColumn().then((hasClassScope) => {
+    const employeeId = data.employee_id ?? null;
+    const name = data.name ?? null;
+    const phone = data.phone ?? null;
+    const email = data.email ?? null;
+    const classScope = data.class_scope ?? null;
+    const photoUrl = data.photo_url ?? null;
+
     if (hasClassScope) {
       return query(`
         UPDATE teachers
@@ -114,12 +140,12 @@ export function updateTeacher(id, data) {
           photo_url = ?
         WHERE id = ?
       `, [
-        data.employee_id,
-        data.name,
-        data.phone,
-        data.email,
-        data.class_scope ?? null,
-        data.photo_url,
+        employeeId,
+        name,
+        phone,
+        email,
+        classScope,
+        photoUrl,
         id
       ]);
     }
@@ -134,11 +160,11 @@ export function updateTeacher(id, data) {
         photo_url = ?
       WHERE id = ?
     `, [
-      data.employee_id,
-      data.name,
-      data.phone,
-      data.email,
-      data.photo_url,
+      employeeId,
+      name,
+      phone,
+      email,
+      photoUrl,
       id
     ]);
   });

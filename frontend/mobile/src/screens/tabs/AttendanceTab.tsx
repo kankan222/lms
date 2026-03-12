@@ -9,8 +9,12 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { getClassStructure } from "../../services/classesService";
-import { getStudents } from "../../services/studentsService";
+import {
+  ClassStructureItem,
+  ClassStructureSection,
+  getClassStructure,
+} from "../../services/classesService";
+import { getStudents, Student } from "../../services/studentsService";
 import {
   getAllTeacherAttendance,
   StudentAttendanceStatus,
@@ -26,12 +30,8 @@ type StudentItem = {
   class?: string;
   section?: string;
   roll_number?: string | number;
-};
-
-type ClassStructureItem = {
-  id: number;
-  name: string;
-  sections: Array<{ id: number; name: string }>;
+  medium?: string | null;
+  class_scope?: "school" | "hs";
 };
 
 const STATUS_OPTIONS: StudentAttendanceStatus[] = ["present", "absent", "late"];
@@ -65,6 +65,32 @@ export default function AttendanceTab() {
     return teacherRows.filter((item) => item.teacher.toLowerCase().includes(query));
   }, [teacherRows, teacherSearch]);
 
+  const teacherSummary = useMemo(() => {
+    return filteredTeacherRows.reduce(
+      (acc, row) => {
+        acc.total += 1;
+        if (String(row.status).toLowerCase() === "present") acc.present += 1;
+        if (String(row.status).toLowerCase() === "absent") acc.absent += 1;
+        return acc;
+      },
+      { total: 0, present: 0, absent: 0 },
+    );
+  }, [filteredTeacherRows]);
+
+  const studentSummary = useMemo(() => {
+    return students.reduce(
+      (acc, student) => {
+        const status = studentStatuses[student.id] ?? "present";
+        acc.total += 1;
+        if (status === "present") acc.present += 1;
+        if (status === "absent") acc.absent += 1;
+        if (status === "late") acc.late += 1;
+        return acc;
+      },
+      { total: 0, present: 0, absent: 0, late: 0 },
+    );
+  }, [studentStatuses, students]);
+
   useEffect(() => {
     loadTeacherAttendance();
     loadClassStructure();
@@ -89,7 +115,7 @@ export default function AttendanceTab() {
   async function loadClassStructure() {
     try {
       const rows = await getClassStructure();
-      setClasses(rows as ClassStructureItem[]);
+      setClasses(rows);
     } catch {
       setClasses([]);
     }
@@ -99,13 +125,17 @@ export default function AttendanceTab() {
     setStudentLoading(true);
     try {
       const rows = await getStudents({ class_id: String(classId), section_id: String(sectionId) });
-      const normalized = rows.map((row) => ({
-        id: Number(row.id),
-        name: row.name,
-        class: row.class,
-        section: row.section,
-        roll_number: (row as StudentItem).roll_number,
-      }));
+      const normalized = rows
+        .map((row: Student) => ({
+          id: Number(row.id),
+          name: row.name,
+          class: row.class,
+          section: row.section,
+          roll_number: row.roll_number,
+          medium: row.medium ?? null,
+          class_scope: row.class_scope,
+        }))
+        .sort((a, b) => String(a.roll_number ?? "").localeCompare(String(b.roll_number ?? ""), undefined, { numeric: true }));
       setStudents(normalized);
       const defaults: Record<number, StudentAttendanceStatus> = {};
       normalized.forEach((student) => {
@@ -160,7 +190,7 @@ export default function AttendanceTab() {
           status: studentStatuses[student.id] ?? "absent",
         })),
       });
-      Alert.alert("Success", "Student attendance saved.");
+      Alert.alert("Attendance saved", "Student attendance saved successfully.");
     } catch (err: unknown) {
       Alert.alert("Attendance failed", getErrorMessage(err, "Could not save attendance."));
     } finally {
@@ -168,10 +198,17 @@ export default function AttendanceTab() {
     }
   }
 
+  function resetTeacherFilters() {
+    setStartDate("");
+    setEndDate("");
+    setTeacherSearch("");
+  }
+
   return (
     <View style={styles.root}>
       <View style={styles.toolbar}>
         <Text style={styles.title}>Attendance</Text>
+        <Text style={styles.subtitle}>Teacher records and student attendance entry</Text>
         <View style={styles.modeSwitch}>
           <Pressable
             style={[styles.modeBtn, mode === "teachers" && styles.modeBtnActive]}
@@ -195,29 +232,42 @@ export default function AttendanceTab() {
       {mode === "teachers" ? (
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Teacher Attendance</Text>
-          <View style={styles.filterRow}>
+          <View style={styles.filterCard}>
             <TextInput
               style={styles.input}
-              value={startDate}
-              onChangeText={setStartDate}
-              placeholder="Start date YYYY-MM-DD"
+              value={teacherSearch}
+              onChangeText={setTeacherSearch}
+              placeholder="Search teacher name"
             />
-            <TextInput
-              style={styles.input}
-              value={endDate}
-              onChangeText={setEndDate}
-              placeholder="End date YYYY-MM-DD"
-            />
-            <Pressable style={styles.primaryBtn} onPress={loadTeacherAttendance}>
-              <Text style={styles.primaryBtnText}>Apply</Text>
-            </Pressable>
+            <View style={styles.filterRow}>
+              <TextInput
+                style={[styles.input, styles.filterInput]}
+                value={startDate}
+                onChangeText={setStartDate}
+                placeholder="Start YYYY-MM-DD"
+              />
+              <TextInput
+                style={[styles.input, styles.filterInput]}
+                value={endDate}
+                onChangeText={setEndDate}
+                placeholder="End YYYY-MM-DD"
+              />
+            </View>
+            <View style={styles.actionRow}>
+              <Pressable style={styles.secondaryBtn} onPress={resetTeacherFilters}>
+                <Text style={styles.secondaryBtnText}>Reset</Text>
+              </Pressable>
+              <Pressable style={styles.primaryBtn} onPress={loadTeacherAttendance}>
+                <Text style={styles.primaryBtnText}>Apply Filters</Text>
+              </Pressable>
+            </View>
           </View>
-          <TextInput
-            style={styles.input}
-            value={teacherSearch}
-            onChangeText={setTeacherSearch}
-            placeholder="Search teacher name"
-          />
+
+          <View style={styles.summaryGrid}>
+            <SummaryCard label="Records" value={teacherSummary.total} />
+            <SummaryCard label="Present" value={teacherSummary.present} tone="green" />
+            <SummaryCard label="Absent" value={teacherSummary.absent} tone="red" />
+          </View>
 
           {teacherLoading ? (
             <View style={styles.centered}>
@@ -228,9 +278,11 @@ export default function AttendanceTab() {
               {filteredTeacherRows.length ? (
                 filteredTeacherRows.map((row) => (
                   <View key={row.id} style={styles.card}>
-                    <Text style={styles.cardTitle}>{row.teacher}</Text>
+                    <View style={styles.cardHeader}>
+                      <Text style={styles.cardTitle}>{row.teacher}</Text>
+                      <StatusBadge status={String(row.status)} />
+                    </View>
                     <Text style={styles.meta}>Date: {row.attendance_date}</Text>
-                    <Text style={styles.meta}>Status: {row.status}</Text>
                     <Text style={styles.meta}>Check In: {row.check_in || "-"}</Text>
                     <Text style={styles.meta}>Check Out: {row.check_out || "-"}</Text>
                     <Text style={styles.meta}>Worked Hours: {row.worked_hours || "-"}</Text>
@@ -245,12 +297,15 @@ export default function AttendanceTab() {
       ) : (
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Take Student Attendance</Text>
-          <TextInput
-            style={styles.input}
-            value={attendanceDate}
-            onChangeText={setAttendanceDate}
-            placeholder="Attendance date YYYY-MM-DD"
-          />
+          <View style={styles.filterCard}>
+            <Text style={styles.inputLabel}>Attendance Date</Text>
+            <TextInput
+              style={styles.input}
+              value={attendanceDate}
+              onChangeText={setAttendanceDate}
+              placeholder="YYYY-MM-DD"
+            />
+          </View>
 
           <Text style={styles.inputLabel}>Class *</Text>
           <View style={styles.chipWrap}>
@@ -259,10 +314,13 @@ export default function AttendanceTab() {
               return (
                 <Pressable
                   key={item.id}
-                  style={[styles.chip, active && styles.chipActive]}
+                  style={[styles.classChip, active && styles.classChipActive]}
                   onPress={() => handleClassSelect(item.id)}
                 >
-                  <Text style={[styles.chipText, active && styles.chipTextActive]}>{item.name}</Text>
+                  <Text style={[styles.classChipTitle, active && styles.chipTextActive]}>{item.name}</Text>
+                  <Text style={[styles.classChipMeta, active && styles.classChipMetaActive]}>
+                    {formatScope(item.class_scope)}
+                  </Text>
                 </Pressable>
               );
             })}
@@ -278,10 +336,19 @@ export default function AttendanceTab() {
                   style={[styles.chip, active && styles.chipActive]}
                   onPress={() => handleSectionSelect(section.id)}
                 >
-                  <Text style={[styles.chipText, active && styles.chipTextActive]}>{section.name}</Text>
+                  <Text style={[styles.chipText, active && styles.chipTextActive]}>
+                    {sectionLabel(section)}
+                  </Text>
                 </Pressable>
               );
             })}
+          </View>
+
+          <View style={styles.summaryGrid}>
+            <SummaryCard label="Students" value={studentSummary.total} />
+            <SummaryCard label="Present" value={studentSummary.present} tone="green" />
+            <SummaryCard label="Absent" value={studentSummary.absent} tone="red" />
+            <SummaryCard label="Late" value={studentSummary.late} tone="amber" />
           </View>
 
           {studentLoading ? (
@@ -293,23 +360,34 @@ export default function AttendanceTab() {
               {students.length ? (
                 students.map((student) => (
                   <View key={student.id} style={styles.card}>
-                    <Text style={styles.cardTitle}>{student.name}</Text>
-                    <Text style={styles.meta}>
-                      {student.class || "-"} {student.section ? `- ${student.section}` : ""}
-                    </Text>
+                    <View style={styles.cardHeader}>
+                      <View style={styles.cardCopy}>
+                        <Text style={styles.cardTitle}>{student.name}</Text>
+                        <Text style={styles.meta}>
+                          Roll: {student.roll_number || "-"}
+                          {student.medium ? ` | ${student.medium}` : ""}
+                        </Text>
+                      </View>
+                      <View style={styles.scopePill}>
+                        <Text style={styles.scopePillText}>{formatScope(student.class_scope ?? selectedClass?.class_scope)}</Text>
+                      </View>
+                    </View>
                     <View style={styles.statusRow}>
                       {STATUS_OPTIONS.map((status) => {
                         const active = (studentStatuses[student.id] ?? "present") === status;
                         return (
                           <Pressable
                             key={`${student.id}-${status}`}
-                            style={[styles.statusChip, active && styles.statusChipActive]}
+                            style={[
+                              styles.statusChip,
+                              active && statusChipActiveStyle(status),
+                            ]}
                             onPress={() =>
                               setStudentStatuses((prev) => ({ ...prev, [student.id]: status }))
                             }
                           >
-                            <Text style={[styles.statusChipText, active && styles.statusChipTextActive]}>
-                              {status}
+                            <Text style={[styles.statusChipText, active && statusChipTextActiveStyle(status)]}>
+                              {capitalize(status)}
                             </Text>
                           </Pressable>
                         );
@@ -318,9 +396,7 @@ export default function AttendanceTab() {
                   </View>
                 ))
               ) : (
-                <Text style={styles.emptyText}>
-                  Select class and section to load students.
-                </Text>
+                <Text style={styles.emptyText}>Select class and section to load students.</Text>
               )}
             </ScrollView>
           )}
@@ -340,6 +416,32 @@ export default function AttendanceTab() {
   );
 }
 
+type SummaryCardProps = {
+  label: string;
+  value: number;
+  tone?: "default" | "green" | "red" | "amber";
+};
+
+function SummaryCard({ label, value, tone = "default" }: SummaryCardProps) {
+  return (
+    <View style={[styles.summaryCard, summaryCardTone(tone)]}>
+      <Text style={[styles.summaryValue, summaryValueTone(tone)]}>{value}</Text>
+      <Text style={styles.summaryLabel}>{label}</Text>
+    </View>
+  );
+}
+
+function StatusBadge({ status }: { status: string }) {
+  const normalized = String(status || "").toLowerCase();
+  return (
+    <View style={[styles.statusBadge, statusBadgeTone(normalized)]}>
+      <Text style={[styles.statusBadgeText, statusBadgeTextTone(normalized)]}>
+        {capitalize(normalized || "unknown")}
+      </Text>
+    </View>
+  );
+}
+
 function getTodayDate() {
   const now = new Date();
   const y = now.getFullYear();
@@ -353,12 +455,62 @@ function getErrorMessage(err: unknown, fallback: string) {
     typeof err === "object" &&
     err &&
     "response" in err &&
-    typeof (err as { response?: { data?: { message?: string } } }).response?.data?.message ===
-      "string"
+    typeof (err as { response?: { data?: { message?: string } } }).response?.data?.message === "string"
   ) {
     return (err as { response?: { data?: { message?: string } } }).response?.data?.message || fallback;
   }
   return fallback;
+}
+
+function formatScope(scope?: string | null) {
+  return scope === "hs" ? "Higher Secondary" : "School";
+}
+
+function capitalize(value: string) {
+  if (!value) return "";
+  return value.charAt(0).toUpperCase() + value.slice(1);
+}
+
+function sectionLabel(section: ClassStructureSection) {
+  return section.medium ? `${section.name} (${section.medium})` : section.name;
+}
+
+function summaryCardTone(tone: SummaryCardProps["tone"]) {
+  if (tone === "green") return { borderColor: "#bbf7d0", backgroundColor: "#f0fdf4" };
+  if (tone === "red") return { borderColor: "#fecaca", backgroundColor: "#fef2f2" };
+  if (tone === "amber") return { borderColor: "#fde68a", backgroundColor: "#fffbeb" };
+  return { borderColor: "#e2e8f0", backgroundColor: "#ffffff" };
+}
+
+function summaryValueTone(tone: SummaryCardProps["tone"]) {
+  if (tone === "green") return { color: "#15803d" };
+  if (tone === "red") return { color: "#b91c1c" };
+  if (tone === "amber") return { color: "#b45309" };
+  return { color: "#0f172a" };
+}
+
+function statusBadgeTone(status: string) {
+  if (status === "present") return { borderColor: "#bbf7d0", backgroundColor: "#f0fdf4" };
+  if (status === "absent") return { borderColor: "#fecaca", backgroundColor: "#fef2f2" };
+  return { borderColor: "#fde68a", backgroundColor: "#fffbeb" };
+}
+
+function statusBadgeTextTone(status: string) {
+  if (status === "present") return { color: "#15803d" };
+  if (status === "absent") return { color: "#b91c1c" };
+  return { color: "#b45309" };
+}
+
+function statusChipActiveStyle(status: StudentAttendanceStatus) {
+  if (status === "present") return { borderColor: "#15803d", backgroundColor: "#dcfce7" };
+  if (status === "absent") return { borderColor: "#b91c1c", backgroundColor: "#fee2e2" };
+  return { borderColor: "#b45309", backgroundColor: "#fef3c7" };
+}
+
+function statusChipTextActiveStyle(status: StudentAttendanceStatus) {
+  if (status === "present") return { color: "#166534" };
+  if (status === "absent") return { color: "#991b1b" };
+  return { color: "#92400e" };
 }
 
 const styles = StyleSheet.create({
@@ -366,12 +518,16 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   toolbar: {
-    gap: 10,
+    gap: 8,
   },
   title: {
     color: "#0f172a",
     fontWeight: "700",
     fontSize: 18,
+  },
+  subtitle: {
+    color: "#64748b",
+    fontSize: 13,
   },
   modeSwitch: {
     flexDirection: "row",
@@ -409,7 +565,24 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     fontSize: 16,
   },
+  filterCard: {
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
+    borderRadius: 12,
+    backgroundColor: "#f8fafc",
+    padding: 10,
+    gap: 8,
+  },
   filterRow: {
+    flexDirection: "row",
+    gap: 8,
+  },
+  filterInput: {
+    flex: 1,
+  },
+  actionRow: {
+    flexDirection: "row",
+    justifyContent: "flex-end",
     gap: 8,
   },
   input: {
@@ -449,8 +622,56 @@ const styles = StyleSheet.create({
   chipTextActive: {
     color: "#0f172a",
   },
+  classChip: {
+    minWidth: 120,
+    borderWidth: 1,
+    borderColor: "#cbd5e1",
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    backgroundColor: "#ffffff",
+  },
+  classChipActive: {
+    borderColor: "#0f172a",
+    backgroundColor: "#e2e8f0",
+  },
+  classChipTitle: {
+    color: "#0f172a",
+    fontWeight: "700",
+  },
+  classChipMeta: {
+    marginTop: 4,
+    color: "#64748b",
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  classChipMetaActive: {
+    color: "#334155",
+  },
+  summaryGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  summaryCard: {
+    minWidth: 88,
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  summaryValue: {
+    fontSize: 18,
+    fontWeight: "800",
+  },
+  summaryLabel: {
+    marginTop: 4,
+    color: "#64748b",
+    fontSize: 12,
+    fontWeight: "600",
+  },
   listWrap: {
-    maxHeight: 360,
+    maxHeight: 420,
   },
   listContent: {
     gap: 8,
@@ -468,6 +689,15 @@ const styles = StyleSheet.create({
     backgroundColor: "#f8fafc",
     padding: 10,
   },
+  cardHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    gap: 8,
+  },
+  cardCopy: {
+    flex: 1,
+  },
   cardTitle: {
     color: "#0f172a",
     fontWeight: "700",
@@ -476,8 +706,18 @@ const styles = StyleSheet.create({
     marginTop: 4,
     color: "#475569",
   },
+  statusBadge: {
+    borderWidth: 1,
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  statusBadgeText: {
+    fontSize: 12,
+    fontWeight: "700",
+  },
   statusRow: {
-    marginTop: 8,
+    marginTop: 10,
     flexDirection: "row",
     gap: 6,
     flexWrap: "wrap",
@@ -490,17 +730,20 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     backgroundColor: "#fff",
   },
-  statusChipActive: {
-    borderColor: "#0f172a",
-    backgroundColor: "#e2e8f0",
-  },
   statusChipText: {
     color: "#334155",
     fontWeight: "600",
-    textTransform: "capitalize",
   },
-  statusChipTextActive: {
-    color: "#0f172a",
+  scopePill: {
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    backgroundColor: "#eef2ff",
+  },
+  scopePillText: {
+    color: "#4338ca",
+    fontSize: 12,
+    fontWeight: "700",
   },
   primaryBtn: {
     backgroundColor: "#0f172a",
@@ -514,6 +757,20 @@ const styles = StyleSheet.create({
     color: "#fff",
     fontWeight: "700",
   },
+  secondaryBtn: {
+    borderWidth: 1,
+    borderColor: "#cbd5e1",
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 8,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#ffffff",
+  },
+  secondaryBtnText: {
+    color: "#334155",
+    fontWeight: "700",
+  },
   submitBtn: {
     marginTop: 4,
   },
@@ -524,4 +781,3 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
 });
-

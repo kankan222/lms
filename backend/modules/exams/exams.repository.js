@@ -52,6 +52,7 @@ export async function updateExam(conn, id, data) {
 }
 
 export async function deleteExam(conn, id) {
+  await conn.execute(`DELETE FROM marks_entries WHERE exam_id = ?`, [id]);
   await conn.execute(`DELETE FROM exams WHERE id = ?`, [id]);
 }
 
@@ -310,12 +311,12 @@ export async function upsertMarks(conn, rows) {
 
   await conn.query(
     `INSERT INTO marks_entries
-     (student_id, exam_id, subject_id, marks, entered_by, approval_status, approved_by, approved_at)
+     (student_id, exam_id, subject_id, marks, entered_by)
      VALUES ?
      ON DUPLICATE KEY UPDATE
        marks = VALUES(marks),
        entered_by = VALUES(entered_by),
-       approval_status = 'pending',
+       approval_status = 'draft',
        approved_by = NULL,
        approved_at = NULL`,
     [values]
@@ -357,7 +358,7 @@ export async function updateMarkById(conn, markId, marks, enteredBy) {
     `UPDATE marks_entries
      SET marks = ?,
          entered_by = ?,
-         approval_status = 'pending',
+         approval_status = 'draft',
          approved_by = NULL,
          approved_at = NULL
      WHERE id = ?`,
@@ -370,6 +371,7 @@ export async function deleteMarkById(conn, markId) {
 }
 
 export async function approveMarksByExamSubjectScope(conn, examId, subjectId, classId, sectionId, status, approvedBy) {
+  const nextStatus = status === "rejected" ? "draft" : status;
   const [result] = await conn.execute(
     `UPDATE marks_entries me
      JOIN student_enrollments se
@@ -378,15 +380,15 @@ export async function approveMarksByExamSubjectScope(conn, examId, subjectId, cl
        ON e.id = me.exam_id
       AND e.session_id = se.session_id
      SET me.approval_status = ?,
-         me.approved_by = ?,
-         me.approved_at = NOW()
+         me.approved_by = CASE WHEN ? = 'approved' THEN ? ELSE NULL END,
+         me.approved_at = CASE WHEN ? = 'approved' THEN NOW() ELSE NULL END
      WHERE me.exam_id = ?
        AND me.subject_id = ?
        AND se.class_id = ?
        AND se.section_id = ?
        AND se.status = 'active'
        AND me.approval_status = 'pending'`,
-    [status, approvedBy, examId, subjectId, classId, sectionId]
+    [nextStatus, nextStatus, approvedBy, nextStatus, examId, subjectId, classId, sectionId]
   );
   return result.affectedRows;
 }

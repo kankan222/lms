@@ -111,6 +111,8 @@ export async function bulkUploadStudents(req, res, next) {
         session_id: row.session_id,
         class_id: row.class_id,
         section_id: row.section_id,
+        stream_id: row.stream_id || null,
+        stream: row.stream || row.stream_name || null,
         medium: row.medium,
         roll_number: row.roll_number
       },

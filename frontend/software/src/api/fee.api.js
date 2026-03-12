@@ -76,8 +76,41 @@ export function getPayments(params = {}) {
   if (params.class_id) query.set("class_id", params.class_id);
   if (params.section_id) query.set("section_id", params.section_id);
   if (params.student_id) query.set("student_id", params.student_id);
+  if (params.scope) query.set("scope", params.scope);
+  if (params.payment_date) query.set("payment_date", params.payment_date);
+  if (params.date_from) query.set("date_from", params.date_from);
+  if (params.date_to) query.set("date_to", params.date_to);
   const suffix = query.toString() ? `?${query.toString()}` : "";
   return apiRequest(`/fees/payments${suffix}`);
+}
+
+export async function exportPaymentsCsv(params = {}) {
+  const query = new URLSearchParams();
+  if (params.class_id) query.set("class_id", params.class_id);
+  if (params.section_id) query.set("section_id", params.section_id);
+  if (params.student_id) query.set("student_id", params.student_id);
+  if (params.scope) query.set("scope", params.scope);
+  if (params.payment_date) query.set("payment_date", params.payment_date);
+  if (params.date_from) query.set("date_from", params.date_from);
+  if (params.date_to) query.set("date_to", params.date_to);
+
+  const token = localStorage.getItem("accessToken");
+  const suffix = query.toString() ? `?${query.toString()}` : "";
+  const baseUrl = import.meta.env.VITE_API_URL || "http://localhost:5000/api/v1";
+  const response = await fetch(`${baseUrl}/fees/payments/export${suffix}`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+
+  if (!response.ok) {
+    let message = "Failed to export payments.";
+    try {
+      const data = await response.json();
+      message = data?.message || message;
+    } catch {}
+    throw new Error(message);
+  }
+
+  return response.blob();
 }
 
 export function getStudentFeeOptions(studentId) {

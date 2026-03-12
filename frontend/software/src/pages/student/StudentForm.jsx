@@ -19,6 +19,8 @@ export default function StudentForm({ onSubmit, errors = {} }) {
     class_id: "",
     section_id: "",
     medium: "",
+    stream: "",
+    stream_id: "",
     roll_number: ""
   },
   father: {},

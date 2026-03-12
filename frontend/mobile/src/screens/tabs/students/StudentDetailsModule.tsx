@@ -29,7 +29,12 @@ function statusBadgeStyle(status: string) {
   return styles.statusDefault;
 }
 
-
+function formatScope(value?: string | null) {
+  const scope = String(value || "").trim().toLowerCase();
+  if (scope === "hs") return "Higher Secondary";
+  if (scope === "school") return "School";
+  return "-";
+}
 
 export default function StudentDetailsModule({ studentId, exams }: Props) {
   const [loading, setLoading] = useState(false);
@@ -135,6 +140,8 @@ export default function StudentDetailsModule({ studentId, exams }: Props) {
           <View style={styles.row}>
             <Badge text={student.gender || "-"} />
             <Badge text={`${student.class || "-"} - ${student.section || "-"}`} />
+            <Badge text={formatScope(student.class_scope)} />
+            {student.class_scope === "hs" && student.stream_name ? <Badge text={student.stream_name} /> : null}
           </View>
         </View>
       </View>
@@ -142,6 +149,8 @@ export default function StudentDetailsModule({ studentId, exams }: Props) {
       <View style={styles.grid}>
         <InfoCard label="Roll" value={String(student.roll_number || "-")} />
         <InfoCard label="Session" value={student.session || "-"} />
+        <InfoCard label="Scope" value={formatScope(student.class_scope)} />
+        <InfoCard label="Stream" value={student.class_scope === "hs" ? student.stream_name || "-" : "-"} />
         <InfoCard label="DOB" value={formatDateLabel(student.dob)} />
         <InfoCard label="Admission Date" value={formatDateLabel(student.date_of_admission)} />
       </View>
@@ -159,6 +168,8 @@ export default function StudentDetailsModule({ studentId, exams }: Props) {
           <InfoRow label="Student ID" value={`#${student.id}`} />
           <InfoRow label="Class" value={student.class || "-"} />
           <InfoRow label="Section" value={student.section || "-"} />
+          <InfoRow label="Scope" value={formatScope(student.class_scope)} />
+          <InfoRow label="Stream" value={student.class_scope === "hs" ? student.stream_name || "-" : "-"} />
           <InfoRow label="Gender" value={student.gender || "-"} />
         </View>
       ) : null}
@@ -190,7 +201,7 @@ export default function StudentDetailsModule({ studentId, exams }: Props) {
             feeItems.map((item) => (
               <View key={`fee-${item.id}`} style={styles.listItem}>
                 <Text style={styles.listTitle}>{item.installment_name || item.fee_type}</Text>
-                                <View style={styles.statusRow}>
+                <View style={styles.statusRow}>
                   <Text style={styles.muted}>Due: {formatDateLabel(item.due_date)}</Text>
                   <View style={[styles.statusBadge, statusBadgeStyle(normalizeFeeStatus(item.status))]}>
                     <Text style={styles.statusBadgeText}>{toTitle(normalizeFeeStatus(item.status))}</Text>
@@ -208,7 +219,7 @@ export default function StudentDetailsModule({ studentId, exams }: Props) {
             payments.map((p) => (
               <View key={`pay-${p.id}-${p.created_at}`} style={styles.listItem}>
                 <Text style={styles.listTitle}>{p.fee_type || "-"} - Rs {Number(p.amount_paid || 0)}</Text>
-                                <View style={styles.statusRow}>
+                <View style={styles.statusRow}>
                   <Text style={styles.muted}>Date: {formatDateLabel(p.created_at)}</Text>
                   <View style={[styles.statusBadge, statusBadgeStyle(normalizeFeeStatus(p.fee_status || p.status))]}>
                     <Text style={styles.statusBadgeText}>{toTitle(normalizeFeeStatus(p.fee_status || p.status))}</Text>
@@ -338,10 +349,5 @@ const styles = StyleSheet.create({
   downloadBtn: { backgroundColor: "#0f172a", borderRadius: 8, paddingVertical: 10, paddingHorizontal: 12, marginTop: 8, alignSelf: "flex-start" },
   downloadText: { color: "#fff", fontWeight: "600" },
   btnDisabled: { opacity: 0.45 },
-  mt: { marginTop: 10 },
+  mt: { marginTop: 8 },
 });
-
-
-
-
-

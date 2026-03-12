@@ -1,5 +1,24 @@
 import { execute, query } from "../../core/db/query.js";
 
+let teacherClassScopeColumnPromise;
+
+function hasTeacherClassScopeColumn() {
+  if (!teacherClassScopeColumnPromise) {
+    teacherClassScopeColumnPromise = query(
+      `
+        SELECT 1
+        FROM information_schema.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = 'teachers'
+          AND COLUMN_NAME = 'class_scope'
+        LIMIT 1
+      `
+    ).then((rows) => rows.length > 0);
+  }
+
+  return teacherClassScopeColumnPromise;
+}
+
 export async function findMember(conversationId, userId) {
   const rows = await query(
     `SELECT 1
@@ -37,6 +56,19 @@ export async function getScopedConversation(type, classId, sectionId) {
      ORDER BY id DESC
      LIMIT 1`,
     [type, classId ?? null, sectionId ?? null]
+  );
+  return rows[0];
+}
+
+export async function getBroadcastConversation(name) {
+  const rows = await query(
+    `SELECT id
+     FROM conversations
+     WHERE type = 'broadcast'
+       AND name = ?
+     ORDER BY id DESC
+     LIMIT 1`,
+    [name]
   );
   return rows[0];
 }
@@ -188,7 +220,9 @@ export async function getParentTargets() {
       e.class_id,
       e.section_id,
       c.name AS class_name,
-      s.name AS section_name
+      c.class_scope,
+      s.name AS section_name,
+      s.medium
     FROM parents p
     LEFT JOIN student_parents sp ON sp.parent_id = p.id
     LEFT JOIN student_enrollments e
@@ -201,6 +235,8 @@ export async function getParentTargets() {
 }
 
 export async function getTeacherTargets() {
+  const hasClassScope = await hasTeacherClassScopeColumn();
+
   return query(
     `SELECT
       t.id AS teacher_id,
@@ -208,10 +244,17 @@ export async function getTeacherTargets() {
       t.phone,
       t.email,
       t.user_id,
+      ${hasClassScope ? "t.class_scope" : "'school'"} AS class_scope,
+      CASE
+        WHEN ${hasClassScope ? "t.class_scope" : "'school'"} = 'hs' THEN 'college'
+        ELSE 'school'
+      END AS type,
       tca.class_id,
       tca.section_id,
       c.name AS class_name,
-      s.name AS section_name
+      c.medium AS class_medium,
+      s.name AS section_name,
+      s.medium
     FROM teachers t
     LEFT JOIN teacher_class_assignments tca ON tca.teacher_id = t.id
     LEFT JOIN classes c ON c.id = tca.class_id
@@ -222,7 +265,7 @@ export async function getTeacherTargets() {
 
 export async function getClassTargets() {
   return query(
-    `SELECT id, name
+    `SELECT id, name, medium, class_scope
      FROM classes
      WHERE is_active = TRUE
      ORDER BY id ASC`
@@ -231,7 +274,7 @@ export async function getClassTargets() {
 
 export async function getSectionTargets() {
   return query(
-    `SELECT s.id, s.name, s.class_id, c.name AS class_name
+    `SELECT s.id, s.name, s.class_id, c.name AS class_name, s.medium, c.class_scope
      FROM sections s
      JOIN classes c ON c.id = s.class_id
      WHERE c.is_active = TRUE
@@ -278,5 +321,91 @@ export async function getSectionRecipientUsers(sectionId) {
     ) x
     WHERE recipient_user_id IS NOT NULL`,
     [sectionId, sectionId]
+  );
+}
+
+export async function getAllActiveUserRecipients() {
+  return query(
+    `SELECT id AS user_id
+     FROM users
+     WHERE status = 'active'`
+  );
+}
+
+export async function getAllParentRecipientUsers() {
+  return query(
+    `SELECT DISTINCT user_id
+     FROM parents
+     WHERE user_id IS NOT NULL`
+  );
+}
+
+export async function getAllTeacherRecipientUsers(teacherType) {
+  const hasClassScope = await hasTeacherClassScopeColumn();
+
+  if (hasClassScope && teacherType === "college") {
+    return query(
+      `SELECT DISTINCT user_id
+       FROM teachers
+       WHERE user_id IS NOT NULL
+         AND class_scope = 'hs'`
+    );
+  }
+
+  if (hasClassScope && teacherType === "school") {
+    return query(
+      `SELECT DISTINCT user_id
+       FROM teachers
+       WHERE user_id IS NOT NULL
+         AND class_scope = 'school'`
+    );
+  }
+
+  return query(
+    `SELECT DISTINCT user_id
+     FROM teachers
+     WHERE user_id IS NOT NULL`
+  );
+}
+
+export async function getAllClassRecipientUsers() {
+  return query(
+    `SELECT DISTINCT recipient_user_id AS user_id FROM (
+      SELECT p.user_id AS recipient_user_id
+      FROM student_enrollments e
+      JOIN student_parents sp ON sp.student_id = e.student_id
+      JOIN parents p ON p.id = sp.parent_id
+      WHERE e.status = 'active'
+        AND e.class_id IS NOT NULL
+
+      UNION
+
+      SELECT t.user_id AS recipient_user_id
+      FROM teacher_class_assignments tca
+      JOIN teachers t ON t.id = tca.teacher_id
+      WHERE tca.class_id IS NOT NULL
+    ) x
+    WHERE recipient_user_id IS NOT NULL`
+  );
+}
+
+export async function getAllSectionRecipientUsers() {
+  return query(
+    `SELECT DISTINCT recipient_user_id AS user_id FROM (
+      SELECT p.user_id AS recipient_user_id
+      FROM student_enrollments e
+      JOIN student_parents sp ON sp.student_id = e.student_id
+      JOIN parents p ON p.id = sp.parent_id
+      WHERE e.status = 'active'
+        AND e.section_id IS NOT NULL
+
+      UNION
+
+      SELECT t.user_id AS recipient_user_id
+      FROM teacher_class_assignments tca
+      JOIN teachers t ON t.id = tca.teacher_id
+      WHERE tca.section_id IS NOT NULL
+    ) x
+    WHERE recipient_user_id IS NOT NULL`
   );
 }

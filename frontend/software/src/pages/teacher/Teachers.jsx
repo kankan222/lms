@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import DataTable from "../../components/DataTable";
 import TopBar from "../../components/TopBar";
+import { usePermissions } from "../../hooks/usePermissions";
 
 import {
   getTeachers,
@@ -22,6 +23,25 @@ import {
   SheetTitle,
   SheetTrigger,
 } from "@/components/ui/sheet";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
 const columns = [
   { header: "Employee ID", accessor: "employee_id" },
@@ -32,12 +52,16 @@ const columns = [
 ];
 
 const Teachers = () => {
+  const { can } = usePermissions();
+  const canManageTeachers = can("teacher.update");
   const [teachers, setTeachers] = useState([]);
 
   const [createOpen, setCreateOpen] = useState(false);
   const [editingTeacher, setEditingTeacher] = useState(null);
+  const [deletingTeacher, setDeletingTeacher] = useState(null);
   const [errors, setErrors] = useState({});
   const [editError, setEditError] = useState("");
+  const [notice, setNotice] = useState(null);
 
   const [newTeacher, setNewTeacher] = useState({
     employee_id: "",
@@ -56,6 +80,18 @@ const Teachers = () => {
   useEffect(() => {
     loadTeachers();
   }, []);
+
+  useEffect(() => {
+    if (!notice) return undefined;
+    const timeoutId = window.setTimeout(() => {
+      setNotice(null);
+    }, 3500);
+    return () => window.clearTimeout(timeoutId);
+  }, [notice]);
+
+  function showNotice(title, message, variant = "success") {
+    setNotice({ title, message, variant });
+  }
 
   async function loadTeachers() {
     const res = await getTeachers();
@@ -124,6 +160,7 @@ const Teachers = () => {
     try {
       await createTeacher(formData);
     } catch (err) {
+      showNotice("Create Failed", err?.message || "Failed to create teacher.", "error");
       setErrors({ form: err?.message || "Failed to create teacher." });
       return;
     }
@@ -140,6 +177,7 @@ const Teachers = () => {
     });
 
     setCreateOpen(false);
+    showNotice("Teacher Created", "Teacher record created successfully.");
   }
 
   function validateEditTeacher(data) {
@@ -173,20 +211,26 @@ const Teachers = () => {
         class_scope: editingTeacher.class_scope || "school",
       });
     } catch (err) {
+      showNotice("Update Failed", err?.message || "Failed to update teacher.", "error");
       setEditError(err?.message || "Failed to update teacher.");
       return;
     }
 
    await loadTeachers();
     setEditingTeacher(null);
+    showNotice("Teacher Updated", "Teacher record updated successfully.");
   }
 
-  async function handleDelete(row) {
-    if (!confirm("Delete this teacher?")) return;
-
-    await deleteTeacher(row.id);
-
-    setTeachers((prev) => prev.filter((t) => t.id !== row.id));
+  async function handleDelete() {
+    if (!deletingTeacher?.id) return;
+    try {
+      await deleteTeacher(deletingTeacher.id);
+      setTeachers((prev) => prev.filter((t) => t.id !== deletingTeacher.id));
+      setDeletingTeacher(null);
+      showNotice("Teacher Deleted", "Teacher record deleted successfully.");
+    } catch (err) {
+      showNotice("Delete Failed", err?.message || "Failed to delete teacher.", "error");
+    }
   }
 
   function handleEdit(row) {
@@ -195,20 +239,40 @@ const Teachers = () => {
 
   return (
     <>
-      <TopBar
-        title="Teachers"
-        subTitle="Manage all teachers"
-        action={
-          <Sheet open={createOpen} onOpenChange={setCreateOpen} >
-            <SheetTrigger asChild>
-              <Button>Add Teacher</Button>
-            </SheetTrigger>
+      <div className="pointer-events-none fixed top-6 right-6 z-50 w-full max-w-sm">
+        <div
+          className={`transition-all duration-500 ease-out ${
+            notice
+              ? "translate-x-0 scale-100 opacity-100"
+              : "translate-x-12 scale-95 opacity-0"
+          }`}
+        >
+          {notice && (
+            <Alert
+              variant={notice.variant === "error" ? "destructive" : "success"}
+              className="pointer-events-auto overflow-hidden border shadow-xl"
+            >
+              <AlertTitle>{notice.title}</AlertTitle>
+              <AlertDescription>{notice.message}</AlertDescription>
+            </Alert>
+          )}
+        </div>
+      </div>
 
-            <SheetContent className="overflow-y-scroll">
-              <form onSubmit={handleCreate} className="px-4">
-                <SheetHeader>
-                  <SheetTitle>Add Teacher</SheetTitle>
-                </SheetHeader>
+      <TopBar
+        title={canManageTeachers ? "Teachers" : "My Profile"}
+        subTitle={canManageTeachers ? "Manage all teachers" : "View your teacher profile"}
+        action={canManageTeachers ? (
+          <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+            <DialogTrigger asChild>
+              <Button>Add Teacher</Button>
+            </DialogTrigger>
+
+            <DialogContent className="max-h-[85vh] overflow-y-auto">
+              <form onSubmit={handleCreate} className="px-1">
+                <DialogHeader>
+                  <DialogTitle className="mb-5 text-center">Add Teacher</DialogTitle>
+                </DialogHeader>
 
                 <div className="grid gap-3 py-4">
                   <Label>Employee ID *</Label>
@@ -310,22 +374,45 @@ const Teachers = () => {
                   )}
                 </div>
 
-                <SheetFooter>
+                <DialogFooter>
                   <Button type="submit">Save</Button>
-                </SheetFooter>
+                </DialogFooter>
               </form>
-            </SheetContent>
-          </Sheet>
-        }
+            </DialogContent>
+          </Dialog>
+        ) : null}
       />
 
-      <DataTable
-        columns={columns}
-        data={teachers}
-        onEdit={handleEdit}
-        onDelete={handleDelete}
-        onRowClick={handleRowClick}
-      />
+      {canManageTeachers ? (
+        <DataTable
+          columns={columns}
+          data={teachers}
+          onEdit={handleEdit}
+          onDelete={setDeletingTeacher}
+          onRowClick={handleRowClick}
+        />
+      ) : (
+        <div className="rounded-xl border bg-card p-6 shadow-sm">
+          {teachers[0] ? (
+            <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+              <div className="space-y-2">
+                <h2 className="text-xl font-semibold text-foreground">{teachers[0].name}</h2>
+                <div className="grid gap-1 text-sm text-muted-foreground">
+                  <p>Employee ID: {teachers[0].employee_id || "-"}</p>
+                  <p>Phone: {teachers[0].phone || "-"}</p>
+                  <p>Email: {teachers[0].email || "-"}</p>
+                  <p>Scope: {teachers[0].class_scope === "hs" ? "Higher Secondary" : "School"}</p>
+                </div>
+              </div>
+              <div>
+                <Button onClick={() => handleRowClick(teachers[0])}>Open Full Profile</Button>
+              </div>
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">Teacher profile not found.</p>
+          )}
+        </div>
+      )}
 
       {/* EDIT FORM */}
 
@@ -407,6 +494,30 @@ const Teachers = () => {
           </form>
         </SheetContent>
       </Sheet>
+
+      <AlertDialog
+        open={!!deletingTeacher}
+        onOpenChange={(open) => {
+          if (!open) setDeletingTeacher(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete teacher?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {deletingTeacher
+                ? `This will remove ${deletingTeacher.name} from the teachers list.`
+                : "This action cannot be undone."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction variant="destructive" onClick={handleDelete}>
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   );
 };

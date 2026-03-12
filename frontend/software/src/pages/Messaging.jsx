@@ -29,7 +29,8 @@ export default function Messaging() {
     parents: [],
     teachers: [],
     classes: [],
-    sections: []
+    sections: [],
+    broadcast_targets: []
   });
   const [openCompose, setOpenCompose] = useState(false);
   const [compose, setCompose] = useState({
@@ -37,15 +38,32 @@ export default function Messaging() {
     recipient_user_id: "",
     class_id: "",
     section_id: "",
+    teacher_type: "all",
     message: ""
   });
   const [recipientFilters, setRecipientFilters] = useState({
     search: "",
     role: "all",
     class_id: "",
-    section_id: ""
+    section_id: "",
+    medium: "",
+    teacher_type: "all"
   });
   const [composeError, setComposeError] = useState("");
+  const isRecipientTarget = ["direct", "parent", "teacher"].includes(compose.target_type);
+  const broadcastTargetOptions = useMemo(() => {
+    if ((targets.broadcast_targets || []).length > 0) {
+      return targets.broadcast_targets;
+    }
+
+    return [
+      { key: "broadcast", label: "All Users" },
+      { key: "all_classes", label: "All Classes" },
+      { key: "all_sections", label: "All Sections" },
+      { key: "all_parents", label: "All Parents" },
+      { key: "all_teachers", label: "All Teachers" }
+    ];
+  }, [targets.broadcast_targets]);
 
   const activeChat = conversations.find((c) => Number(c.id) === Number(activeChatId));
 
@@ -68,7 +86,9 @@ export default function Messaging() {
       class_id: p.class_id ? String(p.class_id) : "",
       section_id: p.section_id ? String(p.section_id) : "",
       class_name: p.class_name || "",
-      section_name: p.section_name || ""
+      section_name: p.section_name || "",
+      medium: p.medium || "",
+      class_scope: p.class_scope || ""
     }));
 
     const teachers = targets.teachers.map((t) => ({
@@ -80,7 +100,10 @@ export default function Messaging() {
       class_id: t.class_id ? String(t.class_id) : "",
       section_id: t.section_id ? String(t.section_id) : "",
       class_name: t.class_name || "",
-      section_name: t.section_name || ""
+      section_name: t.section_name || "",
+      medium: t.medium || t.class_medium || "",
+      class_scope: t.class_scope || "",
+      teacher_type: t.type || "school"
     }));
 
     return [...parents, ...teachers].filter((r) => r.user_id);
@@ -104,7 +127,10 @@ export default function Messaging() {
           classIds: new Set(),
           sectionIds: new Set(),
           classNames: new Set(),
-          sectionNames: new Set()
+          sectionNames: new Set(),
+          mediums: new Set(),
+          classScopes: new Set(),
+          teacherTypes: new Set()
         });
       }
 
@@ -114,6 +140,9 @@ export default function Messaging() {
       if (row.section_id) item.sectionIds.add(row.section_id);
       if (row.class_name) item.classNames.add(row.class_name);
       if (row.section_name) item.sectionNames.add(row.section_name);
+      if (row.medium) item.mediums.add(row.medium);
+      if (row.class_scope) item.classScopes.add(row.class_scope);
+      if (row.teacher_type) item.teacherTypes.add(row.teacher_type);
     }
 
     const targetRole =
@@ -132,12 +161,23 @@ export default function Messaging() {
         classIds: Array.from(u.classIds),
         sectionIds: Array.from(u.sectionIds),
         classNames: Array.from(u.classNames),
-        sectionNames: Array.from(u.sectionNames)
+        sectionNames: Array.from(u.sectionNames),
+        mediums: Array.from(u.mediums),
+        classScopes: Array.from(u.classScopes),
+        teacherTypes: Array.from(u.teacherTypes)
       }))
       .filter((u) => {
         if (targetRole !== "all" && !u.roles.includes(targetRole)) return false;
         if (recipientFilters.class_id && !u.classIds.includes(recipientFilters.class_id)) return false;
         if (recipientFilters.section_id && !u.sectionIds.includes(recipientFilters.section_id)) return false;
+        if (recipientFilters.medium && !u.mediums.includes(recipientFilters.medium)) return false;
+        if (
+          recipientFilters.teacher_type !== "all" &&
+          u.roles.includes("teacher") &&
+          !u.teacherTypes.includes(recipientFilters.teacher_type)
+        ) {
+          return false;
+        }
 
         if (!search) return true;
         const searchText = [
@@ -146,7 +186,10 @@ export default function Messaging() {
           u.mobile,
           u.roles.join(" "),
           u.classNames.join(" "),
-          u.sectionNames.join(" ")
+          u.sectionNames.join(" "),
+          u.mediums.join(" "),
+          u.classScopes.join(" "),
+          u.teacherTypes.join(" ")
         ]
           .join(" ")
           .toLowerCase();
@@ -165,6 +208,14 @@ export default function Messaging() {
     return targets.sections.filter((s) => String(s.class_id) === String(recipientFilters.class_id));
   }, [targets.sections, recipientFilters.class_id]);
 
+  const availableMedia = useMemo(() => {
+    const values = new Set();
+    for (const item of [...targets.sections, ...targets.classes, ...targets.parents, ...targets.teachers]) {
+      if (item?.medium) values.add(item.medium);
+    }
+    return Array.from(values).sort((a, b) => a.localeCompare(b));
+  }, [targets]);
+
   async function loadConversations() {
     const res = await getConversations();
     setConversations(res?.data || []);
@@ -182,7 +233,8 @@ export default function Messaging() {
       parents: [],
       teachers: [],
       classes: [],
-      sections: []
+      sections: [],
+      broadcast_targets: []
     });
   }
 
@@ -211,7 +263,7 @@ export default function Messaging() {
       message: compose.message.trim()
     };
 
-    if (["direct", "parent", "teacher"].includes(compose.target_type)) {
+    if (isRecipientTarget) {
       if (!compose.recipient_user_id) {
         setComposeError("Recipient is required.");
         return;
@@ -238,6 +290,32 @@ export default function Messaging() {
       payload.name = `Section ${section?.class_name || ""} ${section?.name || compose.section_id}`.trim();
     }
 
+    if (compose.target_type === "broadcast") {
+      payload.name = "All Users";
+    }
+
+    if (compose.target_type === "all_classes") {
+      payload.name = "All Classes";
+    }
+
+    if (compose.target_type === "all_sections") {
+      payload.name = "All Sections";
+    }
+
+    if (compose.target_type === "all_parents") {
+      payload.name = "All Parents";
+    }
+
+    if (compose.target_type === "all_teachers") {
+      payload.teacher_type = compose.teacher_type;
+      payload.name =
+        compose.teacher_type === "college"
+          ? "All College Teachers"
+          : compose.teacher_type === "school"
+            ? "All School Teachers"
+            : "All Teachers";
+    }
+
     let res;
     try {
       res = await sendMessage(payload);
@@ -252,13 +330,16 @@ export default function Messaging() {
       recipient_user_id: "",
       class_id: "",
       section_id: "",
+      teacher_type: "all",
       message: ""
     });
     setRecipientFilters({
       search: "",
       role: "all",
       class_id: "",
-      section_id: ""
+      section_id: "",
+      medium: "",
+      teacher_type: "all"
     });
     setOpenCompose(false);
 
@@ -300,24 +381,33 @@ export default function Messaging() {
                     className="border rounded p-2"
                     value={compose.target_type}
                     onChange={(e) =>
-                      setCompose((prev) => ({
-                        ...prev,
-                        target_type: e.target.value,
-                        recipient_user_id: "",
-                        class_id: "",
-                        section_id: ""
-                      }))
+                      {
+                        setCompose((prev) => ({
+                          ...prev,
+                          target_type: e.target.value,
+                          recipient_user_id: "",
+                          class_id: "",
+                          section_id: "",
+                          teacher_type: "all"
+                        }));
+                        setComposeError("");
+                      }
                     }
                   >
                     <option value="direct">One-to-One</option>
-                    <option value="parent">To Parent</option>
-                    <option value="teacher">To Teacher</option>
+                    <option value="parent">One Parent</option>
+                    <option value="teacher">One Teacher</option>
                     <option value="class">To Class</option>
                     <option value="section">To Section</option>
+                    {broadcastTargetOptions.map((item) => (
+                      <option key={item.key} value={item.key}>
+                        {item.label}
+                      </option>
+                    ))}
                   </select>
                 </div>
 
-                {["direct", "parent", "teacher"].includes(compose.target_type) && (
+                {isRecipientTarget && (
                   <div className="space-y-2">
                     <Label>Find Recipient</Label>
 
@@ -329,8 +419,8 @@ export default function Messaging() {
                       }
                     />
 
-                    {compose.target_type === "direct" && (
-                      <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+                    <div className="grid grid-cols-1 md:grid-cols-4 gap-2">
+                      {compose.target_type === "direct" && (
                         <select
                           className="border rounded p-2"
                           value={recipientFilters.role}
@@ -345,42 +435,84 @@ export default function Messaging() {
                           <option value="parent">Parents</option>
                           <option value="teacher">Teachers</option>
                         </select>
+                      )}
 
+                      <select
+                        className="border rounded p-2"
+                        value={recipientFilters.class_id}
+                        onChange={(e) =>
+                          setRecipientFilters((prev) => ({
+                            ...prev,
+                            class_id: e.target.value,
+                            section_id: ""
+                          }))
+                        }
+                      >
+                        <option value="">All Classes</option>
+                        {targets.classes.map((c) => (
+                          <option key={c.id} value={c.id}>
+                            {c.name}
+                            {c.medium ? ` (${c.medium})` : ""}
+                            {c.class_scope ? ` - ${c.class_scope === "hs" ? "Higher Secondary" : "School"}` : ""}
+                          </option>
+                        ))}
+                      </select>
+
+                      <select
+                        className="border rounded p-2"
+                        value={recipientFilters.section_id}
+                        onChange={(e) =>
+                          setRecipientFilters((prev) => ({
+                            ...prev,
+                            section_id: e.target.value
+                          }))
+                        }
+                      >
+                        <option value="">All Sections</option>
+                        {sectionsByFilterClass.map((s) => (
+                          <option key={s.id} value={s.id}>
+                            {s.class_name} - {s.name}{s.medium ? ` (${s.medium})` : ""}
+                          </option>
+                        ))}
+                      </select>
+
+                      <select
+                        className="border rounded p-2"
+                        value={recipientFilters.medium}
+                        onChange={(e) =>
+                          setRecipientFilters((prev) => ({
+                            ...prev,
+                            medium: e.target.value
+                          }))
+                        }
+                      >
+                        <option value="">All Media</option>
+                        {availableMedia.map((medium) => (
+                          <option key={medium} value={medium}>
+                            {medium}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {(compose.target_type === "teacher" ||
+                      (compose.target_type === "direct" &&
+                        (recipientFilters.role === "teacher" || recipientFilters.role === "all"))) && (
+                      <div className="grid gap-1">
+                        <Label>Teacher Type</Label>
                         <select
                           className="border rounded p-2"
-                          value={recipientFilters.class_id}
+                          value={recipientFilters.teacher_type}
                           onChange={(e) =>
                             setRecipientFilters((prev) => ({
                               ...prev,
-                              class_id: e.target.value,
-                              section_id: ""
+                              teacher_type: e.target.value
                             }))
                           }
                         >
-                          <option value="">All Classes</option>
-                          {targets.classes.map((c) => (
-                            <option key={c.id} value={c.id}>
-                              {c.name}{c.medium ? ` (${c.medium})` : ""}
-                            </option>
-                          ))}
-                        </select>
-
-                        <select
-                          className="border rounded p-2"
-                          value={recipientFilters.section_id}
-                          onChange={(e) =>
-                            setRecipientFilters((prev) => ({
-                              ...prev,
-                              section_id: e.target.value
-                            }))
-                          }
-                        >
-                          <option value="">All Sections</option>
-                          {sectionsByFilterClass.map((s) => (
-                            <option key={s.id} value={s.id}>
-                              {s.class_name} - {s.name}
-                            </option>
-                          ))}
+                          <option value="all">All Teacher Types</option>
+                          <option value="school">School</option>
+                          <option value="college">College</option>
                         </select>
                       </div>
                     )}
@@ -400,10 +532,13 @@ export default function Messaging() {
                               key={u.user_id}
                               type="button"
                               onClick={() =>
-                                setCompose((prev) => ({
-                                  ...prev,
-                                  recipient_user_id: String(u.user_id)
-                                }))
+                                {
+                                  setCompose((prev) => ({
+                                    ...prev,
+                                    recipient_user_id: String(u.user_id)
+                                  }));
+                                  setComposeError("");
+                                }
                               }
                               className={`w-full text-left rounded border p-2 transition ${
                                 isSelected ? "bg-primary/10 border-primary" : "hover:bg-muted/70"
@@ -414,6 +549,12 @@ export default function Messaging() {
                                 {u.roles.map((r) => r[0].toUpperCase() + r.slice(1)).join(", ")}
                                 {u.mobile ? ` | ${u.mobile}` : ""}
                                 {u.email ? ` | ${u.email}` : ""}
+                              </div>
+                              <div className="text-xs text-muted-foreground">
+                                {u.classNames.length ? `Class: ${u.classNames.join(", ")}` : ""}
+                                {u.sectionNames.length ? ` | Section: ${u.sectionNames.join(", ")}` : ""}
+                                {u.mediums.length ? ` | Medium: ${u.mediums.join(", ")}` : ""}
+                                {u.teacherTypes.length ? ` | Type: ${u.teacherTypes.join(", ")}` : ""}
                               </div>
                             </button>
                           );
@@ -436,7 +577,9 @@ export default function Messaging() {
                       <option value="">Select Class</option>
                       {targets.classes.map((c) => (
                         <option key={c.id} value={c.id}>
-                          {c.name}{c.medium ? ` (${c.medium})` : ""}
+                          {c.name}
+                          {c.medium ? ` (${c.medium})` : ""}
+                          {c.class_scope ? ` - ${c.class_scope === "hs" ? "Higher Secondary" : "School"}` : ""}
                         </option>
                       ))}
                     </select>
@@ -461,7 +604,9 @@ export default function Messaging() {
                         <option value="">Select Class</option>
                         {targets.classes.map((c) => (
                           <option key={c.id} value={c.id}>
-                            {c.name}{c.medium ? ` (${c.medium})` : ""}
+                            {c.name}
+                            {c.medium ? ` (${c.medium})` : ""}
+                            {c.class_scope ? ` - ${c.class_scope === "hs" ? "Higher Secondary" : "School"}` : ""}
                           </option>
                         ))}
                       </select>
@@ -479,12 +624,32 @@ export default function Messaging() {
                         <option value="">Select Section</option>
                         {sectionsBySelectedClass.map((s) => (
                           <option key={s.id} value={s.id}>
-                            {s.class_name} - {s.name}
+                            {s.class_name} - {s.name}{s.medium ? ` (${s.medium})` : ""}
                           </option>
                         ))}
                       </select>
                     </div>
                   </>
+                )}
+
+                {compose.target_type === "all_teachers" && (
+                  <div className="grid gap-1">
+                    <Label>Teacher Type</Label>
+                    <select
+                      className="border rounded p-2"
+                      value={compose.teacher_type}
+                      onChange={(e) =>
+                        setCompose((prev) => ({
+                          ...prev,
+                          teacher_type: e.target.value
+                        }))
+                      }
+                    >
+                      <option value="all">All Teachers</option>
+                      <option value="school">School Teachers</option>
+                      <option value="college">College Teachers</option>
+                    </select>
+                  </div>
                 )}
 
                 <div className="grid gap-1">

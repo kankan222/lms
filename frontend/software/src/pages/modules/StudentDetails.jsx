@@ -4,10 +4,12 @@ import TopBar from "../../components/TopBar";
 import { getStudent } from "../../api/students.api";
 import { getStudentFeeOptions, getPayments } from "../../api/fee.api";
 import {
-  downloadStudentReportPdf,
   getExams,
-  getStudentReport
 } from "../../api/exam.api";
+import {
+  downloadStudentMarksheet,
+  getStudentReport,
+} from "../../api/marks.api";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -35,6 +37,13 @@ function normalizeFeeStatus(value, fallback = "-") {
   return status || fallback;
 }
 
+function formatClassScope(value) {
+  const scope = String(value || "").trim().toLowerCase();
+  if (scope === "hs") return "Higher Secondary";
+  if (scope === "school") return "School";
+  return value || "-";
+}
+
 const StudentDetails = () => {
   const { id } = useParams();
   const [student, setStudent] = useState(null);
@@ -50,6 +59,7 @@ const StudentDetails = () => {
   const [report, setReport] = useState(null);
   const [reportError, setReportError] = useState("");
   const [reportLoading, setReportLoading] = useState(false);
+  const API_ORIGIN = (import.meta.env.VITE_API_URL || "http://localhost:5000/api/v1").replace(/\/api\/v1\/?$/, "");
 
   useEffect(() => {
     loadStudent();
@@ -124,7 +134,7 @@ const StudentDetails = () => {
 
   async function handleDownloadMarksheet() {
     if (!selectedExamId || !student?.id) return;
-    const blob = await downloadStudentReportPdf(selectedExamId, student.id);
+    const blob = await downloadStudentMarksheet(selectedExamId, student.id);
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
@@ -175,7 +185,7 @@ const StudentDetails = () => {
         <div className="w-24 h-24 rounded-lg overflow-hidden bg-muted shrink-0">
           {student.photo_url ? (
             <img
-              src={`http://localhost:5000${student.photo_url}`}
+              src={`${API_ORIGIN}${student.photo_url}`}
               alt={student.name}
               className="w-full h-full object-cover"
             />
@@ -207,6 +217,10 @@ const StudentDetails = () => {
               <Badge variant="outline">
                 {student.class || "-"} - {student.section || "-"}
               </Badge>
+              <Badge variant="outline">{formatClassScope(student.class_scope || "school")}</Badge>
+              {student.class_scope === "hs" && student.stream_name ? (
+                <Badge variant="outline">{student.stream_name}</Badge>
+              ) : null}
             </div>
           </div>
 
@@ -220,6 +234,14 @@ const StudentDetails = () => {
             <div className="rounded-md border p-3">
               <p className="text-muted-foreground">Session</p>
               <p className="font-medium">{student.session || "-"}</p>
+            </div>
+            <div className="rounded-md border p-3">
+              <p className="text-muted-foreground">Scope</p>
+              <p className="font-medium">{formatClassScope(student.class_scope || "-")}</p>
+            </div>
+            <div className="rounded-md border p-3">
+              <p className="text-muted-foreground">Stream</p>
+              <p className="font-medium">{student.class_scope === "hs" ? student.stream_name || "-" : "-"}</p>
             </div>
             <div className="rounded-md border p-3">
               <p className="text-muted-foreground">Admission Date</p>
@@ -248,8 +270,16 @@ const StudentDetails = () => {
               <p className="text-base font-medium">{student.class || "-"}</p>
             </div>
             <div className="rounded-lg border bg-card p-4">
+              <p className="text-sm text-muted-foreground">Scope</p>
+              <p className="text-base font-medium">{formatClassScope(student.class_scope || "-")}</p>
+            </div>
+            <div className="rounded-lg border bg-card p-4">
               <p className="text-sm text-muted-foreground">Section</p>
               <p className="text-base font-medium">{student.section || "-"}</p>
+            </div>
+            <div className="rounded-lg border bg-card p-4">
+              <p className="text-sm text-muted-foreground">Stream</p>
+              <p className="text-base font-medium">{student.class_scope === "hs" ? student.stream_name || "-" : "-"}</p>
             </div>
             <div className="rounded-lg border bg-card p-4">
               <p className="text-sm text-muted-foreground">Mobile</p>

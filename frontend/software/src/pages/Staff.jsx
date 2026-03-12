@@ -4,31 +4,80 @@ import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
 import {
-  Sheet,
-  SheetContent,
-  SheetFooter,
-  SheetHeader,
-  SheetTitle,
-  SheetTrigger,
-} from "../components/ui/sheet";
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "../components/ui/dialog";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "../components/ui/alert-dialog";
+import {
+  bulkCreateStaff,
   createStaff,
   deleteStaff,
   listStaff,
   updateStaff,
 } from "../api/staff.api";
 
+const API_ROOT = "http://localhost:5000";
+const SECTION_OPTIONS = [
+  { value: "head", label: "Head Staff" },
+  { value: "teaching", label: "Teaching Staff" },
+  { value: "non_teaching", label: "Non Teaching Staff" },
+];
+const TYPE_OPTIONS = [
+  { value: "school", label: "School" },
+  { value: "college", label: "College" },
+];
+
 const EMPTY_FORM = {
+  image: null,
   image_url: "",
   name: "",
-  title: "",
+  section: "head",
   type: "school",
 };
 
-const TITLE_OPTIONS = ["HEADSTAFF", "TEACHINGSTAFF", "NONTEACHINGSTAFF"];
+const EMPTY_BULK_FORM = {
+  type: "school",
+  section: "teaching",
+  images: [],
+};
 
-function normalizeTitle(value) {
-  return String(value || "").toUpperCase().replace(/[\s_-]+/g, "");
+function resolveImageUrl(path) {
+  if (!path) return "";
+  if (String(path).startsWith("http")) return path;
+  return `${API_ROOT}${path}`;
+}
+
+function sectionLabel(value) {
+  return (
+    SECTION_OPTIONS.find((item) => item.value === value)?.label ||
+    String(value || "")
+  );
+}
+
+function titleToSection(value) {
+  const normalized = String(value || "")
+    .trim()
+    .toUpperCase()
+    .replace(/[\s_-]+/g, "");
+
+  if (normalized === "HEADSTAFF") return "head";
+  if (normalized === "TEACHINGSTAFF") return "teaching";
+  if (normalized === "NONTEACHINGSTAFF") return "non_teaching";
+  return "head";
 }
 
 export default function StaffPage() {
@@ -40,13 +89,18 @@ export default function StaffPage() {
   const [createForm, setCreateForm] = useState(EMPTY_FORM);
   const [createErr, setCreateErr] = useState("");
 
+  const [bulkOpen, setBulkOpen] = useState(false);
+  const [bulkForm, setBulkForm] = useState(EMPTY_BULK_FORM);
+  const [bulkErr, setBulkErr] = useState("");
+
   const [editRow, setEditRow] = useState(null);
   const [editErr, setEditErr] = useState("");
+  const [deletingRow, setDeletingRow] = useState(null);
 
   const grouped = useMemo(() => {
-    const map = { HEADSTAFF: [], TEACHINGSTAFF: [], NONTEACHINGSTAFF: [] };
+    const map = { head: [], teaching: [], non_teaching: [] };
     for (const row of rows) {
-      const key = normalizeTitle(row.title);
+      const key = row.section || titleToSection(row.title);
       if (map[key]) map[key].push(row);
     }
     return map;
@@ -70,26 +124,29 @@ export default function StaffPage() {
     }
   }
 
-  function validate(data) {
+  function validate(data, requireImage = false) {
     if (!String(data.name || "").trim()) return "Name is required.";
-    if (!String(data.title || "").trim()) return "Title is required.";
+    if (!String(data.section || "").trim()) return "Section is required.";
     if (!["school", "college"].includes(String(data.type || "").toLowerCase())) {
       return "Type must be school or college.";
+    }
+    if (requireImage && !(data.image instanceof File)) {
+      return "Image is required.";
     }
     return "";
   }
 
   async function handleCreate(e) {
     e.preventDefault();
-    const msg = validate(createForm);
+    const msg = validate(createForm, true);
     setCreateErr(msg);
     if (msg) return;
 
     try {
       await createStaff({
-        image_url: createForm.image_url.trim(),
+        image: createForm.image,
         name: createForm.name.trim(),
-        title: normalizeTitle(createForm.title),
+        section: createForm.section,
         type: createForm.type,
       });
       setCreateOpen(false);
@@ -100,17 +157,41 @@ export default function StaffPage() {
     }
   }
 
+  async function handleBulkCreate(e) {
+    e.preventDefault();
+    setBulkErr("");
+
+    if (!bulkForm.section) {
+      setBulkErr("Section is required.");
+      return;
+    }
+    if (!bulkForm.images.length) {
+      setBulkErr("Select one or more image files.");
+      return;
+    }
+
+    try {
+      await bulkCreateStaff(bulkForm);
+      setBulkOpen(false);
+      setBulkForm(EMPTY_BULK_FORM);
+      await loadRows();
+    } catch (err) {
+      setBulkErr(err?.message || "Failed to bulk upload staff.");
+    }
+  }
+
   async function handleUpdate(e) {
     e.preventDefault();
-    const msg = validate(editRow || {});
+    const msg = validate(editRow || {}, false);
     setEditErr(msg);
     if (msg || !editRow?.id) return;
 
     try {
       await updateStaff(editRow.id, {
+        image: editRow.image || null,
         image_url: String(editRow.image_url || "").trim(),
         name: String(editRow.name || "").trim(),
-        title: normalizeTitle(editRow.title),
+        section: editRow.section || titleToSection(editRow.title),
         type: String(editRow.type || "").toLowerCase(),
       });
       setEditRow(null);
@@ -120,13 +201,14 @@ export default function StaffPage() {
     }
   }
 
-  async function handleDelete(id) {
-    if (!confirm("Delete this staff record?")) return;
+  async function handleDelete() {
+    if (!deletingRow?.id) return;
     try {
-      await deleteStaff(id);
+      await deleteStaff(deletingRow.id);
+      setDeletingRow(null);
       await loadRows();
     } catch (err) {
-      alert(err?.message || "Failed to delete staff.");
+      setError(err?.message || "Failed to delete staff.");
     }
   }
 
@@ -134,86 +216,257 @@ export default function StaffPage() {
     <>
       <TopBar
         title="Staff Module"
-        subTitle="Manage website staff records"
+        subTitle="Manage website staff records with single and bulk upload"
         action={
-          <Sheet open={createOpen} onOpenChange={setCreateOpen}>
-            <SheetTrigger asChild>
-              <Button>Add Staff</Button>
-            </SheetTrigger>
-            <SheetContent>
-              <form onSubmit={handleCreate} className="px-3">
-                <SheetHeader>
-                  <SheetTitle>Add Staff</SheetTitle>
-                </SheetHeader>
+          <div className="flex gap-2">
+            <Dialog open={bulkOpen} onOpenChange={setBulkOpen}>
+              <DialogTrigger asChild>
+                <Button variant="outline">Bulk Upload</Button>
+              </DialogTrigger>
+              <DialogContent className="max-h-[85vh] overflow-y-auto">
+                <form onSubmit={handleBulkCreate} className="space-y-4">
+                  <DialogHeader>
+                    <DialogTitle>Bulk Upload Staff</DialogTitle>
+                    <DialogDescription>
+                      Select one campus and section, then upload multiple staff photos at once.
+                    </DialogDescription>
+                  </DialogHeader>
 
-                <div className="grid gap-2 my-3">
-                  <Label>Name *</Label>
-                  <Input value={createForm.name} onChange={(e) => setCreateForm((p) => ({ ...p, name: e.target.value }))} required />
-                </div>
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <div className="grid gap-2">
+                      <Label>Type *</Label>
+                      <select
+                        className="w-full rounded-md border px-3 py-2"
+                        value={bulkForm.type}
+                        onChange={(e) =>
+                          setBulkForm((prev) => ({ ...prev, type: e.target.value }))
+                        }
+                      >
+                        {TYPE_OPTIONS.map((item) => (
+                          <option key={item.value} value={item.value}>
+                            {item.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
 
-                <div className="grid gap-2 my-3">
-                  <Label>Title *</Label>
-                  <select className="w-full border rounded-md h-10 px-2" value={createForm.title} onChange={(e) => setCreateForm((p) => ({ ...p, title: e.target.value }))} required>
-                    <option value="">Select title</option>
-                    {TITLE_OPTIONS.map((t) => <option key={t} value={t}>{t}</option>)}
-                  </select>
-                </div>
+                    <div className="grid gap-2">
+                      <Label>Section *</Label>
+                      <select
+                        className="w-full rounded-md border px-3 py-2"
+                        value={bulkForm.section}
+                        onChange={(e) =>
+                          setBulkForm((prev) => ({ ...prev, section: e.target.value }))
+                        }
+                      >
+                        {SECTION_OPTIONS.map((item) => (
+                          <option key={item.value} value={item.value}>
+                            {item.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
 
-                <div className="grid gap-2 my-3">
-                  <Label>Type *</Label>
-                  <select className="w-full border rounded-md h-10 px-2" value={createForm.type} onChange={(e) => setCreateForm((p) => ({ ...p, type: e.target.value }))}>
-                    <option value="school">school</option>
-                    <option value="college">college</option>
-                  </select>
-                </div>
+                  <div className="grid gap-2">
+                    <Label>Images *</Label>
+                    <Input
+                      type="file"
+                      accept="image/*"
+                      multiple
+                      onChange={(e) =>
+                        setBulkForm((prev) => ({
+                          ...prev,
+                          images: Array.from(e.target.files || []),
+                        }))
+                      }
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Staff names will be generated automatically from the file names.
+                    </p>
+                  </div>
 
-                <div className="grid gap-2 my-3">
-                  <Label>Image URL</Label>
-                  <Input value={createForm.image_url} onChange={(e) => setCreateForm((p) => ({ ...p, image_url: e.target.value }))} placeholder="https://..." />
-                </div>
+                  {bulkForm.images.length > 0 && (
+                    <div className="rounded-lg border p-3">
+                      <p className="mb-2 text-sm font-medium">Selected Files</p>
+                      <div className="grid gap-1 text-sm text-muted-foreground">
+                        {bulkForm.images.map((file) => (
+                          <span key={`${file.name}-${file.size}`}>{file.name}</span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
 
-                {createErr ? <p className="text-sm text-red-600 mb-2">{createErr}</p> : null}
+                  {bulkErr ? <p className="text-sm text-red-600">{bulkErr}</p> : null}
 
-                <SheetFooter>
-                  <Button type="submit">Save</Button>
-                </SheetFooter>
-              </form>
-            </SheetContent>
-          </Sheet>
+                  <DialogFooter showCloseButton>
+                    <Button type="submit">Upload Staff</Button>
+                  </DialogFooter>
+                </form>
+              </DialogContent>
+            </Dialog>
+
+            <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+              <DialogTrigger asChild>
+                <Button>Add Staff</Button>
+              </DialogTrigger>
+              <DialogContent className="max-h-[85vh] overflow-y-auto">
+                <form onSubmit={handleCreate} className="space-y-4">
+                  <DialogHeader>
+                    <DialogTitle>Add Staff</DialogTitle>
+                    <DialogDescription>
+                      Add a single staff record with section, campus, and photo.
+                    </DialogDescription>
+                  </DialogHeader>
+
+                  <div className="grid gap-2">
+                    <Label>Name *</Label>
+                    <Input
+                      value={createForm.name}
+                      onChange={(e) =>
+                        setCreateForm((prev) => ({ ...prev, name: e.target.value }))
+                      }
+                      required
+                    />
+                  </div>
+
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <div className="grid gap-2">
+                      <Label>Section *</Label>
+                      <select
+                        className="w-full rounded-md border px-3 py-2"
+                        value={createForm.section}
+                        onChange={(e) =>
+                          setCreateForm((prev) => ({ ...prev, section: e.target.value }))
+                        }
+                      >
+                        {SECTION_OPTIONS.map((item) => (
+                          <option key={item.value} value={item.value}>
+                            {item.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div className="grid gap-2">
+                      <Label>Type *</Label>
+                      <select
+                        className="w-full rounded-md border px-3 py-2"
+                        value={createForm.type}
+                        onChange={(e) =>
+                          setCreateForm((prev) => ({ ...prev, type: e.target.value }))
+                        }
+                      >
+                        {TYPE_OPTIONS.map((item) => (
+                          <option key={item.value} value={item.value}>
+                            {item.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="grid gap-2">
+                    <Label>Image *</Label>
+                    <Input
+                      type="file"
+                      accept="image/*"
+                      onChange={(e) =>
+                        setCreateForm((prev) => ({
+                          ...prev,
+                          image: e.target.files?.[0] || null,
+                        }))
+                      }
+                      required
+                    />
+                  </div>
+
+                  {createErr ? <p className="text-sm text-red-600">{createErr}</p> : null}
+
+                  <DialogFooter showCloseButton>
+                    <Button type="submit">Save</Button>
+                  </DialogFooter>
+                </form>
+              </DialogContent>
+            </Dialog>
+          </div>
         }
       />
 
       {loading ? <p>Loading...</p> : null}
-      {error ? <p className="text-sm text-red-600 mb-3">{error}</p> : null}
+      {error ? <p className="mb-3 text-sm text-red-600">{error}</p> : null}
 
-      {["HEADSTAFF", "TEACHINGSTAFF", "NONTEACHINGSTAFF"].map((section) => (
-        <div key={section} className="mb-6">
-          <h3 className="text-lg font-semibold mb-2">{section}</h3>
-          <div className="rounded-md border overflow-x-auto">
+      <div className="mb-4 grid gap-3 sm:grid-cols-3">
+        <div className="rounded-lg border bg-card p-4">
+          <p className="text-xs uppercase tracking-wide text-muted-foreground">Head Staff</p>
+          <p className="mt-1 text-2xl font-semibold">{grouped.head.length}</p>
+        </div>
+        <div className="rounded-lg border bg-card p-4">
+          <p className="text-xs uppercase tracking-wide text-muted-foreground">Teaching Staff</p>
+          <p className="mt-1 text-2xl font-semibold">{grouped.teaching.length}</p>
+        </div>
+        <div className="rounded-lg border bg-card p-4">
+          <p className="text-xs uppercase tracking-wide text-muted-foreground">Non Teaching Staff</p>
+          <p className="mt-1 text-2xl font-semibold">{grouped.non_teaching.length}</p>
+        </div>
+      </div>
+
+      {SECTION_OPTIONS.map((section) => (
+        <div key={section.value} className="mb-6">
+          <h3 className="mb-2 text-lg font-semibold">{section.label}</h3>
+          <div className="overflow-x-auto rounded-md border bg-card">
             <table className="w-full text-sm">
               <thead className="bg-muted">
                 <tr>
-                  <th className="p-2 text-left">Image URL</th>
+                  <th className="p-2 text-left">Photo</th>
                   <th className="p-2 text-left">Name</th>
                   <th className="p-2 text-left">Type</th>
+                  <th className="p-2 text-left">Section</th>
                   <th className="p-2 text-left">Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {(grouped[section] || []).map((row) => (
+                {(grouped[section.value] || []).map((row) => (
                   <tr key={row.id} className="border-t">
-                    <td className="p-2 truncate max-w-[280px]">{row.image_url || "-"}</td>
+                    <td className="p-2">
+                      {row.image_url ? (
+                        <img
+                          src={resolveImageUrl(row.image_url)}
+                          alt={row.name}
+                          className="h-12 w-12 rounded object-cover"
+                        />
+                      ) : (
+                        "-"
+                      )}
+                    </td>
                     <td className="p-2">{row.name}</td>
-                    <td className="p-2 uppercase">{row.type}</td>
-                    <td className="p-2 flex gap-2">
-                      <Button variant="outline" onClick={() => { setEditErr(""); setEditRow(row); }}>Edit</Button>
-                      <Button variant="destructive" onClick={() => handleDelete(row.id)}>Delete</Button>
+                    <td className="p-2 capitalize">{row.type}</td>
+                    <td className="p-2">{sectionLabel(row.section || titleToSection(row.title))}</td>
+                    <td className="flex gap-2 p-2">
+                      <Button
+                        variant="outline"
+                        onClick={() => {
+                          setEditErr("");
+                          setEditRow({
+                            ...row,
+                            image: null,
+                            section: row.section || titleToSection(row.title),
+                          });
+                        }}
+                      >
+                        Edit
+                      </Button>
+                      <Button variant="destructive" onClick={() => setDeletingRow(row)}>
+                        Delete
+                      </Button>
                     </td>
                   </tr>
                 ))}
-                {!grouped[section]?.length ? (
+                {!grouped[section.value]?.length ? (
                   <tr>
-                    <td className="p-3 text-muted-foreground" colSpan={4}>No records.</td>
+                    <td className="p-3 text-muted-foreground" colSpan={5}>
+                      No records.
+                    </td>
                   </tr>
                 ) : null}
               </tbody>
@@ -222,47 +475,120 @@ export default function StaffPage() {
         </div>
       ))}
 
-      <Sheet open={!!editRow} onOpenChange={() => setEditRow(null)}>
-        <SheetContent>
-          <form onSubmit={handleUpdate} className="px-3">
-            <SheetHeader>
-              <SheetTitle>Edit Staff</SheetTitle>
-            </SheetHeader>
+      <Dialog open={!!editRow} onOpenChange={() => setEditRow(null)}>
+        <DialogContent className="max-h-[85vh] overflow-y-auto">
+          <form onSubmit={handleUpdate} className="space-y-4">
+            <DialogHeader>
+              <DialogTitle>Edit Staff</DialogTitle>
+              <DialogDescription>
+                Update the staff record, section, campus, or replace the photo.
+              </DialogDescription>
+            </DialogHeader>
 
-            <div className="grid gap-2 my-3">
+            <div className="grid gap-2">
               <Label>Name *</Label>
-              <Input value={editRow?.name || ""} onChange={(e) => setEditRow((p) => ({ ...p, name: e.target.value }))} required />
+              <Input
+                value={editRow?.name || ""}
+                onChange={(e) =>
+                  setEditRow((prev) => ({ ...prev, name: e.target.value }))
+                }
+                required
+              />
             </div>
 
-            <div className="grid gap-2 my-3">
-              <Label>Title *</Label>
-              <select className="w-full border rounded-md h-10 px-2" value={editRow?.title || ""} onChange={(e) => setEditRow((p) => ({ ...p, title: e.target.value }))} required>
-                <option value="">Select title</option>
-                {TITLE_OPTIONS.map((t) => <option key={t} value={t}>{t}</option>)}
-              </select>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="grid gap-2">
+                <Label>Section *</Label>
+                <select
+                  className="w-full rounded-md border px-3 py-2"
+                  value={editRow?.section || "head"}
+                  onChange={(e) =>
+                    setEditRow((prev) => ({ ...prev, section: e.target.value }))
+                  }
+                >
+                  {SECTION_OPTIONS.map((item) => (
+                    <option key={item.value} value={item.value}>
+                      {item.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="grid gap-2">
+                <Label>Type *</Label>
+                <select
+                  className="w-full rounded-md border px-3 py-2"
+                  value={editRow?.type || "school"}
+                  onChange={(e) =>
+                    setEditRow((prev) => ({ ...prev, type: e.target.value }))
+                  }
+                >
+                  {TYPE_OPTIONS.map((item) => (
+                    <option key={item.value} value={item.value}>
+                      {item.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
             </div>
 
-            <div className="grid gap-2 my-3">
-              <Label>Type *</Label>
-              <select className="w-full border rounded-md h-10 px-2" value={editRow?.type || "school"} onChange={(e) => setEditRow((p) => ({ ...p, type: e.target.value }))}>
-                <option value="school">school</option>
-                <option value="college">college</option>
-              </select>
+            <div className="grid gap-2">
+              <Label>Replace Photo</Label>
+              <Input
+                type="file"
+                accept="image/*"
+                onChange={(e) =>
+                  setEditRow((prev) => ({
+                    ...prev,
+                    image: e.target.files?.[0] || null,
+                  }))
+                }
+              />
             </div>
 
-            <div className="grid gap-2 my-3">
-              <Label>Image URL</Label>
-              <Input value={editRow?.image_url || ""} onChange={(e) => setEditRow((p) => ({ ...p, image_url: e.target.value }))} />
-            </div>
+            {editRow?.image_url ? (
+              <div className="grid gap-2">
+                <Label>Current Photo</Label>
+                <img
+                  src={resolveImageUrl(editRow.image_url)}
+                  alt={editRow.name}
+                  className="h-24 w-24 rounded object-cover"
+                />
+              </div>
+            ) : null}
 
-            {editErr ? <p className="text-sm text-red-600 mb-2">{editErr}</p> : null}
+            {editErr ? <p className="text-sm text-red-600">{editErr}</p> : null}
 
-            <SheetFooter>
+            <DialogFooter showCloseButton>
               <Button type="submit">Update</Button>
-            </SheetFooter>
+            </DialogFooter>
           </form>
-        </SheetContent>
-      </Sheet>
+        </DialogContent>
+      </Dialog>
+
+      <AlertDialog
+        open={!!deletingRow}
+        onOpenChange={(open) => {
+          if (!open) setDeletingRow(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete staff record?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {deletingRow
+                ? `This will delete ${deletingRow.name} and remove the stored photo.`
+                : "This action cannot be undone."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction variant="destructive" onClick={handleDelete}>
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   );
 }

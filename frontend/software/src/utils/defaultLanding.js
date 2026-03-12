@@ -3,7 +3,7 @@ export function getDefaultLandingPath(user) {
   const permissions = user?.permissions || [];
 
   if (roles.includes("super_admin")) return "/dashboard";
-  if (roles.includes("teacher")) return "/teachers";
+  if (roles.includes("teacher")) return "/reports";
   if (roles.includes("parent")) return "/students";
   if (roles.includes("accounts")) return "/payments";
   if (roles.includes("staff")) return "/attendance";

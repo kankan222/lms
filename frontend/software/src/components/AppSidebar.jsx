@@ -1,4 +1,4 @@
-import { NavLink, useNavigate } from "react-router-dom";
+import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import {
   Sidebar,
   SidebarContent,
@@ -25,30 +25,41 @@ import {
 
 import { CircleUserRound, ChevronUp } from "lucide-react";
 
-import { appRoutes } from "../routes/RouteConfig";
+import { appRoutes, isRouteAllowedForUser } from "../routes/RouteConfig";
 import { usePermissions } from "../hooks/usePermissions";
-import { logoutApi } from "../api/auth.api";
+import { useAuth } from "../hooks/useAuth";
 const AppSidebar = () => {
 
   const { can } = usePermissions();
+  const { user, logout } = useAuth();
+  const location = useLocation();
   const navigate = useNavigate()
 
   const visibleRoutes = appRoutes.filter(route => {
+    if (!isRouteAllowedForUser(route, user)) return false;
 
     if (!route.permission) return true;
 
     return can(route.permission);
 
   });
-const handleLogout = async () => {
-  try {
-    await logoutApi();
-  } catch (err) {
-    console.error(err);
-  } finally {
-    navigate("/login");
+
+  function isRouteActive(path) {
+    if (path === "/") return location.pathname === path;
+    return (
+      location.pathname === path ||
+      location.pathname.startsWith(`${path}/`)
+    );
   }
-};
+
+  const roleLabel = Array.isArray(user?.roles) && user.roles.length
+    ? user.roles.join(", ")
+    : "User";
+
+const handleLogout = async () => {
+    await logout();
+    navigate("/login", { replace: true });
+  };
   return (
     <Sidebar collapsible="icon">
 
@@ -57,7 +68,7 @@ const handleLogout = async () => {
           <SidebarMenuItem>
             <SidebarMenuButton asChild>
               <NavLink to="/">
-                <span className="uppercase">Kalong Kapili Vidyapith</span>
+                <span className="uppercase font-medium">Kalong Kapili Vidyapith</span>
               </NavLink>
             </SidebarMenuButton>
           </SidebarMenuItem>
@@ -76,20 +87,24 @@ const handleLogout = async () => {
 
               {visibleRoutes.map((item, index) => (
                 <SidebarMenuItem key={index}>
+                  {(() => {
+                    const active = isRouteActive(item.path);
 
-                  <SidebarMenuButton asChild>
+                    return (
+                      <SidebarMenuButton
+                        asChild
+                        isActive={active}
+                        className={active ? "font-medium bg-white border border-border" : ""}
+                      >
 
-                    <NavLink
-                      to={item.path}
-                      className={({ isActive }) =>
-                        isActive ? "bg-muted" : ""
-                      }
-                    >
-                      <item.icon />
-                      <span>{item.title}</span>
-                    </NavLink>
+                        <NavLink to={item.path}>
+                          <item.icon />
+                          <span>{item.title}</span>
+                        </NavLink>
 
-                  </SidebarMenuButton>
+                      </SidebarMenuButton>
+                    );
+                  })()}
 
                 </SidebarMenuItem>
               ))}
@@ -108,7 +123,7 @@ const handleLogout = async () => {
           <DropdownMenuTrigger asChild>
             <SidebarMenuButton>
               <CircleUserRound />
-              <span>Admin</span>
+              <span className="truncate">{roleLabel}</span>
               <ChevronUp className="ml-auto" />
             </SidebarMenuButton>
           </DropdownMenuTrigger>

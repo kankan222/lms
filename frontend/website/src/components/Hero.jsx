@@ -29,11 +29,6 @@ function Hero({ Text }) {
               Apply for Admission
               <ArrowUpRight />
             </Button>
-            <Link to={Text === "school" ? "/college" : "/school "}>
-              <Button variant="secondary">
-                Go to {Text === "school" ? "College" : "School "} Section
-              </Button>
-            </Link>
           </div>
         </div>
 

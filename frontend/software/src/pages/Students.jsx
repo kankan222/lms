@@ -21,20 +21,28 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
-  DialogTrigger
+  DialogTrigger,
+  DialogFooter,
+  DialogDescription,
 } from "@/components/ui/dialog";
 import {
-  Sheet,
-  SheetContent,
-  SheetFooter,
-  SheetHeader,
-  SheetTitle
-} from "@/components/ui/sheet";
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
 const columns = [
   { header: "Id", accessor: "display_id" },
   { header: "Name", accessor: "name" },
   { header: "Class", accessor: "class" },
+  { header: "Scope", accessor: "class_scope" },
+  { header: "Stream", accessor: "stream_name" },
   { header: "Medium", accessor: "medium" },
   { header: "Section", accessor: "section" },
   { header: "Phone", accessor: "phone" },
@@ -42,6 +50,13 @@ const columns = [
   { header: "Gender", accessor: "gender" },
   { header: "DOB", accessor: "dob" }
 ];
+
+function formatClassScope(value) {
+  const scope = String(value || "").trim().toLowerCase();
+  if (scope === "hs") return "Higher Secondary";
+  if (scope === "school") return "School";
+  return value || "-";
+}
 
 export default function Student() {
   const navigate = useNavigate();
@@ -52,9 +67,18 @@ export default function Student() {
   const [sectionId, setSectionId] = useState("");
   const [open, setOpen] = useState(false);
   const [editingStudent, setEditingStudent] = useState(null);
+  const [deletingStudent, setDeletingStudent] = useState(null);
   const [errors, setErrors] = useState({});
   const [bulkFile, setBulkFile] = useState(null);
   const [bulkMessage, setBulkMessage] = useState("");
+  const [bulkOpen, setBulkOpen] = useState(false);
+  const [notice, setNotice] = useState(null);
+
+  const STREAM_OPTIONS = [
+    { value: "Arts", label: "Arts" },
+    { value: "Commerce", label: "Commerce" },
+    { value: "Science", label: "Science" },
+  ];
 
   useEffect(() => {
     loadAcademicOptions();
@@ -63,6 +87,18 @@ export default function Student() {
   useEffect(() => {
     loadStudents();
   }, [classId, sectionId, classes]);
+
+  useEffect(() => {
+    if (!notice) return undefined;
+    const timeoutId = window.setTimeout(() => {
+      setNotice(null);
+    }, 3500);
+    return () => window.clearTimeout(timeoutId);
+  }, [notice]);
+
+  function showNotice(title, message, variant = "success") {
+    setNotice({ title, message, variant });
+  }
 
   async function loadAcademicOptions() {
     const [classRes, sessionRes] = await Promise.all([getClassStructure(), getSessions()]);
@@ -90,7 +126,10 @@ export default function Student() {
         ...row,
         display_id: `KKV-${row.id}`,
         medium,
-        mediums: matched?.mediums || []
+        mediums: matched?.mediums || [],
+        class_scope: formatClassScope(row.class_scope || matched?.class_scope || "school"),
+        raw_class_scope: row.class_scope || matched?.class_scope || "school",
+        stream_name: row.stream_name || "-"
       };
     });
     setStudents(enriched);
@@ -110,6 +149,10 @@ export default function Student() {
     if (!payload?.enrollment?.section_id) next.section_id = "Section is required";
     if (!payload?.enrollment?.medium) next.medium = "Medium is required";
     if (!payload?.enrollment?.roll_number) next.roll_number = "Roll number is required";
+    const selectedClass = classes.find((c) => String(c.id) === String(payload?.enrollment?.class_id));
+    if (selectedClass?.class_scope === "hs" && !String(payload?.enrollment?.stream || payload?.enrollment?.stream_id || "").trim()) {
+      next.stream = "Stream is required for higher secondary classes";
+    }
 
     if (!payload?.father?.name?.trim()) next.father_name = "Father name is required";
     if (!/^\d{10}$/.test(String(payload?.father?.mobile || ""))) next.father_mobile = "Father phone must be 10 digits";
@@ -131,22 +174,27 @@ export default function Student() {
     setErrors(validation);
     if (Object.keys(validation).length > 0) return;
 
-    const formData = new FormData();
-    formData.append("payload", JSON.stringify({
-      ...data,
-      student: {
-        ...data.student,
-        photo_file: undefined
+    try {
+      const formData = new FormData();
+      formData.append("payload", JSON.stringify({
+        ...data,
+        student: {
+          ...data.student,
+          photo_file: undefined
+        }
+      }));
+      if (data?.student?.photo_file) {
+        formData.append("photo", data.student.photo_file);
       }
-    }));
-    if (data?.student?.photo_file) {
-      formData.append("photo", data.student.photo_file);
-    }
 
-    await createStudent(formData);
-    await loadStudents();
-    setOpen(false);
-    setErrors({});
+      await createStudent(formData);
+      await loadStudents();
+      setOpen(false);
+      setErrors({});
+      showNotice("Student Created", "Student record created successfully.");
+    } catch (err) {
+      showNotice("Create Failed", err?.message || "Failed to create student.", "error");
+    }
   }
 
   async function handleUpdate(e) {
@@ -158,27 +206,50 @@ export default function Student() {
     if (!/^\d{10}$/.test(String(editingStudent.phone || ""))) localErrors.phone = "Phone must be 10 digits";
     if (!editingStudent.gender) localErrors.gender = "Gender is required";
     if (!editingStudent.dob) localErrors.dob = "DOB is required";
+    if (!editingStudent.session_id) localErrors.session_id = "Session is required";
+    if (!editingStudent.class_id) localErrors.class_id = "Class is required";
+    if (!editingStudent.section_id) localErrors.section_id = "Section is required";
+    if (!editingStudent.roll_number) localErrors.roll_number = "Roll number is required";
+    if (editingStudent.raw_class_scope === "hs" && !String(editingStudent.stream_name || editingStudent.stream_id || "").trim()) {
+      localErrors.stream = "Stream is required for higher secondary classes";
+    }
 
     setErrors(localErrors);
     if (Object.keys(localErrors).length > 0) return;
 
-    await updateStudent(editingStudent.id, {
-      name: editingStudent.name,
-      mobile: editingStudent.phone,
-      gender: editingStudent.gender,
-      dob: editingStudent.dob,
-      date_of_admission: editingStudent.date_of_admission
-    });
-    await loadStudents();
-    setEditingStudent(null);
-    setErrors({});
+    try {
+      await updateStudent(editingStudent.id, {
+        name: editingStudent.name,
+        mobile: editingStudent.phone,
+        gender: editingStudent.gender,
+        dob: editingStudent.dob,
+        date_of_admission: editingStudent.date_of_admission,
+        session_id: editingStudent.session_id,
+        class_id: editingStudent.class_id,
+        section_id: editingStudent.section_id,
+        roll_number: editingStudent.roll_number,
+        stream: editingStudent.raw_class_scope === "hs" ? editingStudent.stream_name : "",
+      });
+      await loadStudents();
+      setEditingStudent(null);
+      setErrors({});
+      showNotice("Student Updated", "Student record updated successfully.");
+    } catch (err) {
+      showNotice("Update Failed", err?.message || "Failed to update student.", "error");
+    }
   }
 
-  async function handleDelete(row) {
-    if (!confirm("Delete this student?")) return;
+  async function handleDelete() {
+    if (!deletingStudent?.id) return;
 
-    await deleteStudent(row.id);
-    await loadStudents();
+    try {
+      await deleteStudent(deletingStudent.id);
+      await loadStudents();
+      setDeletingStudent(null);
+      showNotice("Student Deleted", "Student record deleted successfully.");
+    } catch (err) {
+      showNotice("Delete Failed", err?.message || "Failed to delete student.", "error");
+    }
   }
 
   function handleEdit(row) {
@@ -198,6 +269,7 @@ export default function Student() {
       "class",
       "section",
       "medium",
+      "stream",
       "roll_number",
       "father_name",
       "father_mobile",
@@ -211,7 +283,7 @@ export default function Student() {
       "mother_qualification",
       "photo_url"
     ];
-    const sample = [
+    const schoolSample = [
       "ADM-2026-001",
       "Rahul Das",
       "2012-05-10",
@@ -219,9 +291,10 @@ export default function Student() {
       "9876543210",
       "2026-04-01",
       "2026-2027",
-      "HS 1st Year",
-      "A1",
+      "Class 8",
+      "A",
       "English",
+      "",
       "5",
       "Ramesh Das",
       "9876500001",
@@ -233,10 +306,35 @@ export default function Student() {
       "sima@example.com",
       "Homemaker",
       "HS",
-      "/uploads/students/sample.jpg"
+      "/uploads/students/sample-school.jpg"
+    ];
+    const hsSample = [
+      "ADM-2026-101",
+      "Ankita Sharma",
+      "2008-07-12",
+      "female",
+      "9876543222",
+      "2026-04-01",
+      "2026-2027",
+      "HS 1st Year",
+      "A1",
+      "English",
+      "Science",
+      "12",
+      "Madan Sharma",
+      "9876500011",
+      "madan@example.com",
+      "Business",
+      "Graduate",
+      "Mina Sharma",
+      "9876500012",
+      "mina@example.com",
+      "Teacher",
+      "Graduate",
+      "/uploads/students/sample-hs.jpg"
     ];
 
-    const csv = `${headers.join(",")}\n${sample.join(",")}\n`;
+    const csv = `${headers.join(",")}\n${schoolSample.join(",")}\n${hsSample.join(",")}\n`;
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -302,6 +400,7 @@ export default function Student() {
       "class_id",
       "section_id",
       "medium",
+      "stream",
       "roll_number",
       "father_name",
       "father_mobile",
@@ -370,6 +469,13 @@ export default function Student() {
       const inputMedium = getCell(values, "medium");
       const sectionMedium = String(sectionObj?.medium || "").trim();
       const medium = String(inputMedium || "").trim() || sectionMedium;
+      const classScope = String(classObj?.class_scope || "school").trim().toLowerCase();
+      const stream = getCell(values, "stream", "stream_name", "stream_id");
+
+      if (classScope === "hs" && !String(stream || "").trim()) {
+        errors.push(`Row ${rowNo}: Stream is required for higher secondary class '${classObj?.name || classToken}'.`);
+        return;
+      }
 
       outRows.push({
         admission_no: getCell(values, "admission_no"),
@@ -382,6 +488,7 @@ export default function Student() {
         class_id: classId,
         section_id: sectionId,
         medium,
+        stream,
         roll_number: getCell(values, "roll_number"),
         father_name: getCell(values, "father_name"),
         father_mobile: getCell(values, "father_mobile"),
@@ -426,8 +533,11 @@ export default function Student() {
       setBulkFile(null);
       await loadStudents();
       setBulkMessage("Bulk upload completed successfully.");
+      setBulkOpen(false);
+      showNotice("Bulk Upload Complete", "Students uploaded successfully.");
     } catch (err) {
       setBulkMessage(err?.message || "Bulk upload failed.");
+      showNotice("Bulk Upload Failed", err?.message || "Bulk upload failed.", "error");
     }
   }
 
@@ -437,9 +547,31 @@ export default function Student() {
 
   const selectedClass = classes.find((c) => String(c.id) === String(classId));
   const sections = selectedClass?.sections || [];
+  const editingSelectedClass = classes.find((c) => String(c.id) === String(editingStudent?.class_id));
+  const editingSections = editingSelectedClass?.sections || [];
 
   return (
     <>
+      <div className="pointer-events-none fixed top-6 right-6 z-50 w-full max-w-sm">
+        <div
+          className={`transition-all duration-500 ease-out ${
+            notice
+              ? "translate-x-0 scale-100 opacity-100"
+              : "translate-x-12 scale-95 opacity-0"
+          }`}
+        >
+          {notice && (
+            <Alert
+              variant={notice.variant === "error" ? "destructive" : "success"}
+              className="pointer-events-auto overflow-hidden border shadow-xl"
+            >
+              <AlertTitle>{notice.title}</AlertTitle>
+              <AlertDescription>{notice.message}</AlertDescription>
+            </Alert>
+          )}
+        </div>
+      </div>
+
       <TopBar
         title="Students"
         subTitle="Find all student details here"
@@ -448,7 +580,16 @@ export default function Student() {
             <Button variant="outline" onClick={downloadCsvTemplate}>
               Download CSV Format
             </Button>
-            <Dialog>
+            <Dialog
+              open={bulkOpen}
+              onOpenChange={(nextOpen) => {
+                setBulkOpen(nextOpen);
+                if (!nextOpen) {
+                  setBulkFile(null);
+                  setBulkMessage("");
+                }
+              }}
+            >
               <DialogTrigger asChild>
                 <Button variant="outline">Bulk Upload CSV</Button>
               </DialogTrigger>
@@ -463,7 +604,7 @@ export default function Student() {
                     onChange={(e) => setBulkFile(e.target.files?.[0] || null)}
                   />
                   <p className="text-xs text-muted-foreground">
-                    Use names for session/class/section (not IDs). Keep header names unchanged.
+                    Use names for session, class, and section. Scope is derived automatically from the selected class. Keep `stream` blank for School classes and fill it only for Higher Secondary rows.
                   </p>
                   {bulkMessage && (
                     <p
@@ -540,15 +681,18 @@ export default function Student() {
         data={students}
         onRowClick={handleRowClick}
         onEdit={handleEdit}
-        onDelete={handleDelete}
+        onDelete={setDeletingStudent}
       />
 
-      <Sheet open={!!editingStudent} onOpenChange={() => setEditingStudent(null)}>
-        <SheetContent>
+      <Dialog open={!!editingStudent} onOpenChange={() => setEditingStudent(null)}>
+        <DialogContent className="max-h-[90vh] overflow-y-auto">
           <form onSubmit={handleUpdate} className="space-y-3">
-            <SheetHeader>
-              <SheetTitle>Edit Student</SheetTitle>
-            </SheetHeader>
+            <DialogHeader>
+              <DialogTitle>Edit Student</DialogTitle>
+              <DialogDescription>
+                Update student personal and enrollment details.
+              </DialogDescription>
+            </DialogHeader>
 
             <div className="grid gap-2">
               <Label>Name *</Label>
@@ -601,12 +745,144 @@ export default function Student() {
               {errors.dob && <p className="text-xs text-red-500">{errors.dob}</p>}
             </div>
 
-            <SheetFooter>
+            <div className="grid gap-2">
+              <Label>Session *</Label>
+              <select
+                className="border rounded p-2"
+                value={editingStudent?.session_id || ""}
+                onChange={(e) =>
+                  setEditingStudent((prev) => ({ ...prev, session_id: e.target.value }))
+                }
+              >
+                <option value="">Select</option>
+                {sessions.map((session) => (
+                  <option key={session.id} value={session.id}>
+                    {session.name}
+                  </option>
+                ))}
+              </select>
+              {errors.session_id && <p className="text-xs text-red-500">{errors.session_id}</p>}
+            </div>
+
+            <div className="grid gap-2">
+              <Label>Class *</Label>
+              <select
+                className="border rounded p-2"
+                value={editingStudent?.class_id || ""}
+                onChange={(e) => {
+                  const nextClass = classes.find((item) => String(item.id) === String(e.target.value));
+                  setEditingStudent((prev) => ({
+                    ...prev,
+                    class_id: e.target.value,
+                    section_id: "",
+                    class_scope: formatClassScope(nextClass?.class_scope || "school"),
+                    raw_class_scope: nextClass?.class_scope || "school",
+                    stream_name: nextClass?.class_scope === "hs" ? prev?.stream_name || "" : "",
+                    stream_id: nextClass?.class_scope === "hs" ? prev?.stream_id || "" : "",
+                  }));
+                }}
+              >
+                <option value="">Select</option>
+                {classes.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.name}
+                  </option>
+                ))}
+              </select>
+              {errors.class_id && <p className="text-xs text-red-500">{errors.class_id}</p>}
+            </div>
+
+            <div className="grid gap-2">
+              <Label>Section *</Label>
+              <select
+                className="border rounded p-2"
+                value={editingStudent?.section_id || ""}
+                onChange={(e) => {
+                  const nextSection = editingSections.find((item) => String(item.id) === String(e.target.value));
+                  setEditingStudent((prev) => ({
+                    ...prev,
+                    section_id: e.target.value,
+                    medium: nextSection?.medium || prev?.medium || "",
+                  }));
+                }}
+                disabled={!editingStudent?.class_id}
+              >
+                <option value="">Select</option>
+                {editingSections.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.name}{item.medium ? ` (${item.medium})` : ""}
+                  </option>
+                ))}
+              </select>
+              {errors.section_id && <p className="text-xs text-red-500">{errors.section_id}</p>}
+            </div>
+
+            {editingSelectedClass?.class_scope === "hs" ? (
+              <div className="grid gap-2">
+                <Label>Stream *</Label>
+                <select
+                  className="border rounded p-2"
+                  value={editingStudent?.stream_name || ""}
+                  onChange={(e) =>
+                    setEditingStudent((prev) => ({
+                      ...prev,
+                      stream_name: e.target.value,
+                      stream_id: "",
+                    }))
+                  }
+                >
+                  <option value="">Select</option>
+                  {STREAM_OPTIONS.map((item) => (
+                    <option key={item.value} value={item.value}>
+                      {item.label}
+                    </option>
+                  ))}
+                </select>
+                {errors.stream && <p className="text-xs text-red-500">{errors.stream}</p>}
+              </div>
+            ) : null}
+
+            <div className="grid gap-2">
+              <Label>Roll Number *</Label>
+              <Input
+                value={editingStudent?.roll_number || ""}
+                onChange={(e) =>
+                  setEditingStudent((prev) => ({ ...prev, roll_number: e.target.value }))
+                }
+              />
+              {errors.roll_number && <p className="text-xs text-red-500">{errors.roll_number}</p>}
+            </div>
+
+            <DialogFooter showCloseButton>
               <Button type="submit">Update</Button>
-            </SheetFooter>
+            </DialogFooter>
           </form>
-        </SheetContent>
-      </Sheet>
+        </DialogContent>
+      </Dialog>
+
+      <AlertDialog
+        open={!!deletingStudent}
+        onOpenChange={(open) => {
+          if (!open) setDeletingStudent(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete student?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {deletingStudent
+                ? `This will remove ${deletingStudent.name} from the students list.`
+                : "This action cannot be undone."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction variant="destructive" onClick={handleDelete}>
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
     </>
   );

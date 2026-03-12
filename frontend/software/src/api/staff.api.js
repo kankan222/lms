@@ -1,7 +1,11 @@
 import { apiRequest } from "../../../shared/api/client.js";
 
-export function listStaff() {
-  return apiRequest("/staff");
+export function listStaff(params = {}) {
+  const query = new URLSearchParams();
+  if (params.type) query.set("type", params.type);
+  if (params.section) query.set("section", params.section);
+  const suffix = query.toString() ? `?${query.toString()}` : "";
+  return apiRequest(`/staff${suffix}`);
 }
 
 export function getStaffById(id) {
@@ -9,22 +13,55 @@ export function getStaffById(id) {
 }
 
 export function createStaff(data) {
+  const body = new FormData();
+  body.append("name", data.name || "");
+  body.append("section", data.section || "");
+  body.append("type", data.type || "school");
+  if (data.image instanceof File) {
+    body.append("image", data.image);
+  }
+
   return apiRequest("/staff", {
     method: "POST",
-    body: JSON.stringify(data),
+    body,
   });
 }
 
 export function updateStaff(id, data) {
+  const body = new FormData();
+  body.append("name", data.name || "");
+  body.append("section", data.section || "");
+  body.append("type", data.type || "school");
+  if (data.image instanceof File) {
+    body.append("image", data.image);
+  } else if (data.image_url) {
+    body.append("image_url", data.image_url);
+  }
+
   return apiRequest(`/staff/${id}`, {
     method: "PUT",
-    body: JSON.stringify(data),
+    body,
   });
 }
 
 export function deleteStaff(id) {
   return apiRequest(`/staff/${id}`, {
     method: "DELETE",
+  });
+}
+
+export function bulkCreateStaff(data) {
+  const body = new FormData();
+  body.append("type", data.type || "school");
+  body.append("section", data.section || "");
+
+  for (const file of data.images || []) {
+    body.append("images", file);
+  }
+
+  return apiRequest("/staff/bulk", {
+    method: "POST",
+    body,
   });
 }
 

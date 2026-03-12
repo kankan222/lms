@@ -21,12 +21,16 @@ import {
   type ExamItem,
 } from "../../services/examsService";
 import { getSubjects, type SubjectItem } from "../../services/subjectsService";
+import { useAuthStore } from "../../store/authStore";
 
 type ClassItem = {
   id: number;
   name: string;
+  class_scope?: string | null;
   sections: Array<{ id: number; name: string; medium?: string | null }>;
 };
+
+type ExamDetailsMap = Record<number, ExamDetails>;
 
 type ScopeRow = {
   class_id: string;
@@ -60,8 +64,21 @@ function toWholeNumber(value: string) {
   return Number.parseInt(digitsOnly, 10);
 }
 
+function formatScopeLabel(scope?: string | null) {
+  return scope === "hs" ? "Higher Secondary" : "School";
+}
+
 export default function ExamsTab() {
+  const user = useAuthStore((state) => state.user);
+  const permissions = user?.permissions || [];
+  const roles = user?.roles || [];
+  const isSuperAdmin = roles.includes("super_admin");
+  const canCreate = isSuperAdmin || permissions.includes("exams.create");
+  const canUpdate = isSuperAdmin || permissions.includes("exams.update");
+  const canDelete = isSuperAdmin || permissions.includes("exams.delete");
+
   const [exams, setExams] = useState<ExamItem[]>([]);
+  const [examDetailsMap, setExamDetailsMap] = useState<ExamDetailsMap>({});
   const [classes, setClasses] = useState<ClassItem[]>([]);
   const [sessions, setSessions] = useState<Array<{ id: number; name: string; is_active?: number | boolean }>>([]);
   const [allSubjects, setAllSubjects] = useState<SubjectItem[]>([]);
@@ -70,28 +87,63 @@ export default function ExamsTab() {
   const [saving, setSaving] = useState(false);
   const [open, setOpen] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
+  const [search, setSearch] = useState("");
+  const [sessionFilter, setSessionFilter] = useState("");
+  const [classFilter, setClassFilter] = useState("");
+  const [sectionFilter, setSectionFilter] = useState("");
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
 
   const classMap = useMemo(() => new Map(classes.map((c) => [String(c.id), c])), [classes]);
+  const selectedClass = useMemo(
+    () => classes.find((c) => String(c.id) === String(classFilter)),
+    [classes, classFilter]
+  );
+  const filterSections = selectedClass?.sections || [];
   const activeSession = useMemo(
     () => sessions.find((s) => Number(s.is_active) === 1 || s.is_active === true) ?? null,
     [sessions]
+  );
+  const filteredExams = useMemo(() => {
+    const query = search.trim().toLowerCase();
+    if (!query) return exams;
+    return exams.filter((exam) => {
+      const details = examDetailsMap[exam.id];
+      const scopes = (details?.scopes || [])
+        .map((scope) => `${scope.class_name || ""} ${scope.section_name || ""}`)
+        .join(" ")
+        .toLowerCase();
+      return (
+        String(exam.name || "").toLowerCase().includes(query) ||
+        String(exam.session_name || "").toLowerCase().includes(query) ||
+        scopes.includes(query)
+      );
+    });
+  }, [examDetailsMap, exams, search]);
+  const totalScopes = useMemo(
+    () => filteredExams.reduce((sum, exam) => sum + (examDetailsMap[exam.id]?.scopes?.length || 0), 0),
+    [examDetailsMap, filteredExams]
+  );
+  const totalSubjects = useMemo(
+    () => filteredExams.reduce((sum, exam) => sum + (examDetailsMap[exam.id]?.subjects?.length || 0), 0),
+    [examDetailsMap, filteredExams]
   );
 
   useEffect(() => {
     loadInitial();
   }, []);
 
+  useEffect(() => {
+    loadExamList();
+  }, [sessionFilter, classFilter, sectionFilter]);
+
   async function loadInitial() {
     setLoading(true);
     try {
-      const [examsRes, classesRes, subjectsRes, sessionsRes] = await Promise.all([
-        getExams(),
+      const [classesRes, subjectsRes, sessionsRes] = await Promise.all([
         getClassStructure(),
         getSubjects(),
         getSessions(),
       ]);
-      setExams(examsRes || []);
       setClasses(classesRes as ClassItem[]);
       setAllSubjects(subjectsRes || []);
       setSessions(
@@ -101,8 +153,42 @@ export default function ExamsTab() {
           is_active: s.is_active,
         }))
       );
+      await loadExamList();
     } catch (err: unknown) {
       Alert.alert("Load failed", getErrorMessage(err, "Could not load exams module data."));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function loadExamList() {
+    setLoading(true);
+    try {
+      const examsRes = await getExams({
+        session_id: sessionFilter || undefined,
+        class_id: classFilter || undefined,
+        section_id: sectionFilter || undefined,
+      });
+      setExams(examsRes || []);
+
+      const detailResults = await Promise.all(
+        (examsRes || []).map(async (exam) => {
+          try {
+            const details = await getExamById(exam.id);
+            return [exam.id, details] as const;
+          } catch {
+            return [exam.id, null] as const;
+          }
+        })
+      );
+
+      const nextMap: ExamDetailsMap = {};
+      detailResults.forEach(([examId, details]) => {
+        if (details) nextMap[examId] = details;
+      });
+      setExamDetailsMap(nextMap);
+    } catch (err: unknown) {
+      Alert.alert("Load failed", getErrorMessage(err, "Could not load exams."));
     } finally {
       setLoading(false);
     }
@@ -114,6 +200,13 @@ export default function ExamsTab() {
       ...EMPTY_FORM,
       session_id: activeSession ? String(activeSession.id) : "",
     });
+  }
+
+  function resetFilters() {
+    setSearch("");
+    setSessionFilter("");
+    setClassFilter("");
+    setSectionFilter("");
   }
 
   function setScope(idx: number, key: "class_id" | "section_id", value: string) {
@@ -219,7 +312,7 @@ export default function ExamsTab() {
       } else {
         await createExam(payload);
       }
-      await loadInitial();
+      await loadExamList();
       setOpen(false);
       resetForm();
     } catch (err: unknown) {
@@ -262,7 +355,7 @@ export default function ExamsTab() {
         onPress: async () => {
           try {
             await deleteExam(examId);
-            await loadInitial();
+            await loadExamList();
           } catch (err: unknown) {
             Alert.alert("Delete failed", getErrorMessage(err, "Failed to delete exam."));
           }
@@ -273,17 +366,126 @@ export default function ExamsTab() {
 
   return (
     <View style={styles.root}>
-      <View style={styles.toolbar}>
-        <Text style={styles.title}>Exams</Text>
-        <Pressable
-          style={styles.primaryBtn}
-          onPress={() => {
-            resetForm();
-            setOpen(true);
-          }}
-        >
-          <Text style={styles.primaryBtnText}>{editingId ? "Edit Exam" : "Add Exam"}</Text>
-        </Pressable>
+      <View style={styles.heroCard}>
+        <View style={styles.heroText}>
+          <Text style={styles.title}>Exams</Text>
+          <Text style={styles.subtitle}>
+            Manage exam scopes and subject marks with the same structure used in the web software.
+          </Text>
+        </View>
+        {canCreate ? (
+          <Pressable
+            style={styles.primaryBtn}
+            onPress={() => {
+              resetForm();
+              setOpen(true);
+            }}
+          >
+            <Text style={styles.primaryBtnText}>Add Exam</Text>
+          </Pressable>
+        ) : null}
+      </View>
+
+      <View style={styles.summaryRow}>
+        <View style={styles.summaryCard}>
+          <Text style={styles.summaryLabel}>Visible Exams</Text>
+          <Text style={styles.summaryValue}>{filteredExams.length}</Text>
+        </View>
+        <View style={styles.summaryCard}>
+          <Text style={styles.summaryLabel}>Scopes</Text>
+          <Text style={styles.summaryValue}>{totalScopes}</Text>
+        </View>
+        <View style={styles.summaryCard}>
+          <Text style={styles.summaryLabel}>Subjects</Text>
+          <Text style={styles.summaryValue}>{totalSubjects}</Text>
+        </View>
+      </View>
+
+      <View style={styles.filterCard}>
+        <View style={styles.sectionHeader}>
+          <Text style={styles.filterTitle}>Filters</Text>
+          <Pressable style={styles.secondaryBtn} onPress={resetFilters}>
+            <Text style={styles.secondaryBtnText}>Reset</Text>
+          </Pressable>
+        </View>
+
+        <TextInput
+          style={styles.input}
+          value={search}
+          onChangeText={setSearch}
+          placeholder="Search by exam, session, class, or section"
+          placeholderTextColor="#94a3b8"
+        />
+
+        <Text style={[styles.inputLabel, styles.spaceTop]}>Session</Text>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.row}>
+          <Pressable
+            style={[styles.chip, !sessionFilter && styles.chipActive]}
+            onPress={() => setSessionFilter("")}
+          >
+            <Text style={[styles.chipText, !sessionFilter && styles.chipTextActive]}>All Sessions</Text>
+          </Pressable>
+          {sessions.map((s) => (
+            <Pressable
+              key={s.id}
+              style={[styles.chip, sessionFilter === String(s.id) && styles.chipActive]}
+              onPress={() => setSessionFilter(String(s.id))}
+            >
+              <Text style={[styles.chipText, sessionFilter === String(s.id) && styles.chipTextActive]}>
+                {s.name}
+              </Text>
+            </Pressable>
+          ))}
+        </ScrollView>
+
+        <Text style={[styles.inputLabel, styles.spaceTop]}>Class</Text>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.row}>
+          <Pressable
+            style={[styles.chip, !classFilter && styles.chipActive]}
+            onPress={() => {
+              setClassFilter("");
+              setSectionFilter("");
+            }}
+          >
+            <Text style={[styles.chipText, !classFilter && styles.chipTextActive]}>All Classes</Text>
+          </Pressable>
+          {classes.map((c) => (
+            <Pressable
+              key={c.id}
+              style={[styles.chip, classFilter === String(c.id) && styles.chipActive]}
+              onPress={() => {
+                setClassFilter(String(c.id));
+                setSectionFilter("");
+              }}
+            >
+              <Text style={[styles.chipText, classFilter === String(c.id) && styles.chipTextActive]}>
+                {c.name}
+              </Text>
+            </Pressable>
+          ))}
+        </ScrollView>
+
+        <Text style={[styles.inputLabel, styles.spaceTop]}>Section</Text>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.row}>
+          <Pressable
+            style={[styles.chip, !sectionFilter && styles.chipActive]}
+            onPress={() => setSectionFilter("")}
+          >
+            <Text style={[styles.chipText, !sectionFilter && styles.chipTextActive]}>All Sections</Text>
+          </Pressable>
+          {filterSections.map((s) => (
+            <Pressable
+              key={s.id}
+              style={[styles.chip, sectionFilter === String(s.id) && styles.chipActive]}
+              onPress={() => setSectionFilter(String(s.id))}
+            >
+              <Text style={[styles.chipText, sectionFilter === String(s.id) && styles.chipTextActive]}>
+                {s.name}
+                {s.medium ? ` (${s.medium})` : ""}
+              </Text>
+            </Pressable>
+          ))}
+        </ScrollView>
       </View>
 
       {loading ? (
@@ -292,24 +494,76 @@ export default function ExamsTab() {
         </View>
       ) : (
         <ScrollView style={styles.listWrap} contentContainerStyle={styles.listContent}>
-          {exams.length ? (
-            exams.map((exam) => (
+          {filteredExams.length ? (
+            filteredExams.map((exam) => {
+              const details = examDetailsMap[exam.id];
+              return (
               <View key={exam.id} style={styles.card}>
-                <Text style={styles.cardTitle}>{exam.name}</Text>
-                <Text style={styles.meta}>Session: {exam.session_name || "-"}</Text>
-                <Text style={styles.meta}>Exam ID: {exam.id}</Text>
-                <View style={styles.rowActions}>
-                  <Pressable style={styles.secondaryBtn} onPress={() => onEdit(exam.id)}>
-                    <Text style={styles.secondaryBtnText}>Edit</Text>
-                  </Pressable>
-                  <Pressable style={styles.deleteBtn} onPress={() => onDelete(exam.id)}>
-                    <Text style={styles.deleteBtnText}>Delete</Text>
-                  </Pressable>
+                <View style={styles.cardHeader}>
+                  <View style={styles.cardTitleWrap}>
+                    <Text style={styles.cardTitle}>{exam.name}</Text>
+                    <Text style={styles.meta}>Session: {exam.session_name || "-"}</Text>
+                  </View>
+                  <View style={styles.countBadge}>
+                    <Text style={styles.countBadgeText}>{details?.subjects?.length || 0} Subjects</Text>
+                  </View>
                 </View>
+
+                <Text style={styles.cardSectionTitle}>Scopes</Text>
+                <View style={styles.pillWrap}>
+                  {(details?.scopes || []).length ? (
+                    (details?.scopes || []).map((scope) => {
+                      const classItem = classMap.get(String(scope.class_id));
+                      return (
+                        <View
+                          key={`${exam.id}-${scope.class_id}-${scope.section_id}`}
+                          style={styles.scopePill}
+                        >
+                          <Text style={styles.scopePillText}>
+                            {scope.class_name} - {scope.section_name}
+                            {classItem?.class_scope ? ` - ${formatScopeLabel(classItem.class_scope)}` : ""}
+                          </Text>
+                        </View>
+                      );
+                    })
+                  ) : (
+                    <Text style={styles.meta}>No scope details available.</Text>
+                  )}
+                </View>
+
+                <Text style={[styles.cardSectionTitle, styles.spaceTop]}>Subjects</Text>
+                <View style={styles.pillWrap}>
+                  {(details?.subjects || []).map((subject) => (
+                    <View key={`${exam.id}-${subject.subject_id}`} style={styles.subjectPill}>
+                      <Text style={styles.scopePillText}>
+                        {subject.subject_name} - {subject.max_marks}
+                      </Text>
+                    </View>
+                  ))}
+                </View>
+
+                {(canUpdate || canDelete) ? (
+                  <View style={styles.rowActions}>
+                    {canUpdate ? (
+                      <Pressable style={styles.secondaryBtn} onPress={() => onEdit(exam.id)}>
+                        <Text style={styles.secondaryBtnText}>Edit</Text>
+                      </Pressable>
+                    ) : null}
+                    {canDelete ? (
+                      <Pressable style={styles.deleteBtn} onPress={() => onDelete(exam.id)}>
+                        <Text style={styles.deleteBtnText}>Delete</Text>
+                      </Pressable>
+                    ) : null}
+                  </View>
+                ) : null}
               </View>
-            ))
+            );
+            })
           ) : (
-            <Text style={styles.emptyText}>No exams found.</Text>
+            <View style={styles.emptyCard}>
+              <Text style={styles.emptyTitle}>No exams found.</Text>
+              <Text style={styles.emptyText}>Try a different filter or create a new exam.</Text>
+            </View>
           )}
         </ScrollView>
       )}
@@ -470,36 +724,85 @@ const styles = StyleSheet.create({
   root: {
     gap: 12,
   },
-  toolbar: {
+  heroCard: {
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
+    borderRadius: 16,
+    backgroundColor: "#ffffff",
+    padding: 16,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
+    gap: 12,
+  },
+  heroText: {
+    flex: 1,
   },
   title: {
     color: "#0f172a",
     fontWeight: "700",
-    fontSize: 18,
+    fontSize: 20,
+  },
+  subtitle: {
+    marginTop: 4,
+    color: "#64748b",
+  },
+  summaryRow: {
+    flexDirection: "row",
+    gap: 10,
+  },
+  summaryCard: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
+    borderRadius: 14,
+    backgroundColor: "#ffffff",
+    padding: 12,
+  },
+  summaryLabel: {
+    color: "#64748b",
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  summaryValue: {
+    marginTop: 6,
+    color: "#0f172a",
+    fontSize: 22,
+    fontWeight: "700",
+  },
+  filterCard: {
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
+    borderRadius: 16,
+    backgroundColor: "#ffffff",
+    padding: 14,
+  },
+  filterTitle: {
+    color: "#0f172a",
+    fontWeight: "700",
+    fontSize: 16,
   },
   primaryBtn: {
     backgroundColor: "#0f172a",
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 10,
     alignItems: "center",
     justifyContent: "center",
   },
   primaryBtnText: {
     color: "#fff",
-    fontWeight: "600",
+    fontWeight: "700",
   },
   secondaryBtn: {
     borderWidth: 1,
     borderColor: "#cbd5e1",
     paddingHorizontal: 12,
     paddingVertical: 8,
-    borderRadius: 8,
+    borderRadius: 10,
     alignItems: "center",
     justifyContent: "center",
+    backgroundColor: "#fff",
   },
   secondaryBtnText: {
     color: "#334155",
@@ -511,7 +814,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#fee2e2",
     paddingHorizontal: 12,
     paddingVertical: 8,
-    borderRadius: 8,
+    borderRadius: 10,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -525,36 +828,101 @@ const styles = StyleSheet.create({
     paddingTop: 30,
   },
   listWrap: {
-    maxHeight: 520,
+    maxHeight: 560,
   },
   listContent: {
-    gap: 10,
-    paddingBottom: 10,
+    gap: 12,
+    paddingBottom: 16,
   },
   card: {
     borderWidth: 1,
     borderColor: "#e2e8f0",
-    borderRadius: 12,
+    borderRadius: 16,
     backgroundColor: "#ffffff",
-    padding: 12,
+    padding: 14,
+  },
+  cardHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    gap: 10,
+  },
+  cardTitleWrap: {
+    flex: 1,
   },
   cardTitle: {
     color: "#0f172a",
     fontWeight: "700",
-    fontSize: 16,
+    fontSize: 17,
   },
   meta: {
     marginTop: 4,
-    color: "#475569",
+    color: "#64748b",
+  },
+  countBadge: {
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    backgroundColor: "#e2e8f0",
+    alignSelf: "flex-start",
+  },
+  countBadgeText: {
+    color: "#0f172a",
+    fontWeight: "700",
+    fontSize: 12,
+  },
+  cardSectionTitle: {
+    marginTop: 10,
+    color: "#0f172a",
+    fontWeight: "700",
+  },
+  pillWrap: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    marginTop: 8,
+  },
+  scopePill: {
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    backgroundColor: "#f8fafc",
+  },
+  subjectPill: {
+    borderWidth: 1,
+    borderColor: "#dbeafe",
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    backgroundColor: "#eff6ff",
+  },
+  scopePillText: {
+    color: "#334155",
+    fontWeight: "600",
   },
   rowActions: {
-    marginTop: 10,
+    marginTop: 12,
     flexDirection: "row",
     flexWrap: "wrap",
     gap: 8,
   },
+  emptyCard: {
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
+    borderRadius: 16,
+    backgroundColor: "#ffffff",
+    padding: 18,
+    alignItems: "center",
+  },
+  emptyTitle: {
+    color: "#0f172a",
+    fontWeight: "700",
+    fontSize: 16,
+  },
   emptyText: {
     color: "#64748b",
+    textAlign: "center",
   },
   modalOverlay: {
     flex: 1,
@@ -565,20 +933,19 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(15, 23, 42, 0.35)",
   },
   modalCard: {
-    maxHeight: "90%",
+    maxHeight: "92%",
     backgroundColor: "#ffffff",
-    borderTopLeftRadius: 16,
-    borderTopRightRadius: 16,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
     padding: 16,
   },
   modalTitle: {
     color: "#0f172a",
     fontWeight: "700",
     fontSize: 18,
-    marginBottom: 10,
   },
   modalBody: {
-    maxHeight: 510,
+    maxHeight: 560,
   },
   inputLabel: {
     color: "#334155",
@@ -608,9 +975,9 @@ const styles = StyleSheet.create({
   chip: {
     borderWidth: 1,
     borderColor: "#cbd5e1",
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
     backgroundColor: "#fff",
   },
   chipActive: {
@@ -623,10 +990,11 @@ const styles = StyleSheet.create({
   },
   chipTextActive: {
     color: "#0f172a",
-  },  scopeRow: {
+  },
+  scopeRow: {
     borderWidth: 1,
     borderColor: "#e2e8f0",
-    borderRadius: 10,
+    borderRadius: 12,
     padding: 10,
     marginTop: 8,
     backgroundColor: "#f8fafc",
@@ -653,9 +1021,9 @@ const styles = StyleSheet.create({
   subjectChip: {
     borderWidth: 1,
     borderColor: "#cbd5e1",
-    borderRadius: 8,
+    borderRadius: 999,
     paddingHorizontal: 10,
-    paddingVertical: 6,
+    paddingVertical: 8,
     backgroundColor: "#fff",
   },
   subjectChipActive: {
@@ -667,7 +1035,7 @@ const styles = StyleSheet.create({
     gap: 8,
     borderWidth: 1,
     borderColor: "#e2e8f0",
-    borderRadius: 10,
+    borderRadius: 12,
     backgroundColor: "#f8fafc",
     padding: 10,
     marginBottom: 8,
@@ -699,6 +1067,7 @@ const styles = StyleSheet.create({
     marginTop: 10,
   },
 });
+
 
 
 

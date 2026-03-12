@@ -24,6 +24,7 @@ import ExamsTab from "./tabs/ExamsTab";
 import MessagingTab from "./tabs/MessagingTab";
 import ProfileTab from "./tabs/ProfileTab";
 import ModulePlaceholderTab from "./tabs/ModulePlaceholderTab";
+import ReportsTab from "./tabs/ReportsTab";
 
 type TabKey =
   | "dashboard"
@@ -70,20 +71,22 @@ export default function AppShellScreen() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  async function loadDashboard() {
+    setIsLoading(true);
+    setError(null);
+    try {
+      const response = await getDashboardSummary();
+      setSummary(response);
+    } catch {
+      setSummary(null);
+      setError("Could not load dashboard data.");
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
   useEffect(() => {
-    (async () => {
-      setIsLoading(true);
-      setError(null);
-      try {
-        const response = await getDashboardSummary();
-        setSummary(response);
-      } catch {
-        setSummary(null);
-        setError("Could not load dashboard data.");
-      } finally {
-        setIsLoading(false);
-      }
-    })();
+    loadDashboard();
   }, []);
 
   const title = useMemo(() => {
@@ -113,7 +116,16 @@ export default function AppShellScreen() {
   }
 
   function renderContent() {
-    if (activeTab === "dashboard") return <DashboardTab summary={summary} />;
+    if (activeTab === "dashboard") {
+      return (
+        <DashboardTab
+          summary={summary}
+          loading={isLoading}
+          error={error}
+          onRefresh={loadDashboard}
+        />
+      );
+    }
     if (activeTab === "classes") return <ClassesTab />;
     if (activeTab === "subjects") return <SubjectsTab />;
     if (activeTab === "students") return <StudentsTab />;
@@ -125,13 +137,7 @@ export default function AppShellScreen() {
     if (activeTab === "messaging") return <MessagingTab />;
     if (activeTab === "users") return <ProfileTab />;
     if (activeTab === "reports") {
-      return (
-        <ModulePlaceholderTab
-          title="Reports"
-          subtitle="Report cards and exam-based progress."
-          stats={[{ label: "Upcoming Exams", value: summary?.upcomingExams.length ?? 0 }]}
-        />
-      );
+      return <ReportsTab />;
     }
     return <ModulePlaceholderTab title="Module" subtitle="No data available." stats={[]} />;
   }
@@ -223,15 +229,12 @@ export default function AppShellScreen() {
       </Modal>
 
       <ScrollView style={styles.content} contentContainerStyle={styles.contentContainer}>
-        {isLoading ? (
+        {activeTab !== "dashboard" && isLoading ? (
           <View style={styles.centeredBlock}>
             <ActivityIndicator size="large" color={theme.text} />
           </View>
         ) : (
-          <>
-            {error && <Text style={styles.errorText}>{error}</Text>}
-            {renderContent()}
-          </>
+          renderContent()
         )}
       </ScrollView>
 
@@ -260,37 +263,33 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    borderBottomWidth: 1,
+    borderBottomWidth: StyleSheet.hairlineWidth,
   },
   headerLeft: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
+    gap: 10,
   },
   headerRight: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
-  },
-  iconButton: {
-    width: 32,
-    height: 32,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: 16,
+    gap: 4,
   },
   brandText: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: "800",
-    letterSpacing: 0.8,
-  },
-  title: {
-    fontSize: 22,
-    fontWeight: "700",
-    color: "#0f172a",
+    letterSpacing: 0.4,
   },
   subtitle: {
     fontSize: 12,
+    marginTop: 2,
+  },
+  iconButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
   },
   modalRoot: {
     flex: 1,
@@ -298,59 +297,52 @@ const styles = StyleSheet.create({
   },
   backdrop: {
     flex: 1,
-    backgroundColor: "rgba(15, 23, 42, 0.35)",
+    backgroundColor: "rgba(15, 23, 42, 0.28)",
   },
   drawer: {
     width: 260,
-    borderRightWidth: 1,
-    paddingTop: 18,
-    paddingHorizontal: 12,
+    paddingTop: 48,
+    paddingHorizontal: 16,
+    borderRightWidth: StyleSheet.hairlineWidth,
   },
   drawerTitle: {
     fontSize: 18,
     fontWeight: "800",
-    marginBottom: 12,
+    marginBottom: 18,
   },
   drawerItem: {
-    height: 42,
-    borderRadius: 8,
-    marginBottom: 6,
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 10,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 11,
+    marginBottom: 6,
   },
   drawerIcon: {
     marginRight: 10,
   },
   drawerText: {
-    fontSize: 14,
+    fontSize: 15,
   },
   content: {
     flex: 1,
   },
   contentContainer: {
-    padding: 16,
-    paddingBottom: 24,
+    padding: 14,
+    paddingBottom: 28,
   },
   centeredBlock: {
-    paddingTop: 40,
+    minHeight: 240,
     alignItems: "center",
     justifyContent: "center",
   },
-  errorText: {
-    marginBottom: 12,
-    color: "#dc2626",
-    fontWeight: "600",
-  },
   footerHint: {
-    borderTopWidth: 1,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
   },
   footerText: {
     fontSize: 12,
-  },
-  container: {
-    paddingHorizontal: 16,
+    textAlign: "center",
   },
 });

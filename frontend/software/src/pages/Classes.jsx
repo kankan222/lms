@@ -19,20 +19,54 @@ import {
   SheetTitle,
   SheetTrigger,
 } from "@/components/ui/sheet";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
 const Classes = () => {
   const [classes, setClasses] = useState([]);
   const [editingClass, setEditingClass] = useState(null);
+  const [deletingClass, setDeletingClass] = useState(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [newClass, setNewClass] = useState({
     name: "",
+    class_scope: "school",
     sections: [{ name: "", medium: "" }],
   });
   const [createError, setCreateError] = useState("");
   const [editError, setEditError] = useState("");
+  const [notice, setNotice] = useState(null);
   useEffect(() => {
     loadClasses();
   }, []);
+
+  useEffect(() => {
+    if (!notice) return undefined;
+    const timeoutId = window.setTimeout(() => {
+      setNotice(null);
+    }, 3500);
+    return () => window.clearTimeout(timeoutId);
+  }, [notice]);
+
+  function showNotice(title, message, variant = "success") {
+    setNotice({ title, message, variant });
+  }
 
   function normalizeSections(value) {
     if (Array.isArray(value)) {
@@ -56,6 +90,7 @@ const Classes = () => {
       const sections = normalizeSections(c.section_details || c.sections);
       return {
         ...c,
+        class_scope: c.class_scope || "school",
         sections,
         subjects: String(c.subjects || "")
           .split(",")
@@ -83,6 +118,10 @@ const Classes = () => {
       setCreateError("Class name is required.");
       return;
     }
+    if (!newClass.class_scope) {
+      setCreateError("Class scope is required.");
+      return;
+    }
     if (!cleanSections.length) {
       setCreateError("At least one section is required.");
       return;
@@ -95,9 +134,11 @@ const Classes = () => {
     try {
       await createClass({
         name: cleanName,
+        class_scope: newClass.class_scope,
         sections: cleanSections,
       });
     } catch (err) {
+      showNotice("Create Failed", err?.message || "Failed to create class.", "error");
       setCreateError(err?.message || "Failed to create class.");
       return;
     }
@@ -106,10 +147,12 @@ const Classes = () => {
 
     setNewClass({
       name: "",
+      class_scope: "school",
       sections: [{ name: "", medium: "" }],
     });
 
     setCreateOpen(false); // close sheet last
+    showNotice("Class Created", "Class record created successfully.");
   }
   async function handleUpdate(e) {
     e.preventDefault();
@@ -126,6 +169,10 @@ const Classes = () => {
       setEditError("Class name is required.");
       return;
     }
+    if (!editingClass?.class_scope) {
+      setEditError("Class scope is required.");
+      return;
+    }
     if (!cleanSections.length) {
       setEditError("At least one section is required.");
       return;
@@ -138,40 +185,68 @@ const Classes = () => {
     try {
       await updateClass(editingClass.id, {
         name: cleanName,
+        class_scope: editingClass.class_scope,
         sections: cleanSections,
       });
     } catch (err) {
+      showNotice("Update Failed", err?.message || "Failed to update class.", "error");
       setEditError(err?.message || "Failed to update class.");
       return;
     }
     setEditingClass(null);
     loadClasses();
+    showNotice("Class Updated", "Class record updated successfully.");
   }
 
-  async function handleDelete(id) {
-    const confirmDelete = confirm("Delete this class?");
-    if (!confirmDelete) return;
-    await deleteClass(id);
-    setClasses((prev) => prev.filter((c) => c.id !== id));
+  async function handleDelete() {
+    if (!deletingClass?.id) return;
+    try {
+      await deleteClass(deletingClass.id);
+      setClasses((prev) => prev.filter((c) => c.id !== deletingClass.id));
+      setDeletingClass(null);
+      showNotice("Class Deleted", "Class record deleted successfully.");
+    } catch (err) {
+      showNotice("Delete Failed", err?.message || "Failed to delete class.", "error");
+    }
   }
 
   return (
     <>
+      <div className="pointer-events-none fixed top-6 right-6 z-50 w-full max-w-sm">
+        <div
+          className={`transition-all duration-500 ease-out ${
+            notice
+              ? "translate-x-0 scale-100 opacity-100"
+              : "translate-x-12 scale-95 opacity-0"
+          }`}
+        >
+          {notice && (
+            <Alert
+              variant={notice.variant === "error" ? "destructive" : "success"}
+              className="pointer-events-auto overflow-hidden border shadow-xl"
+            >
+              <AlertTitle>{notice.title}</AlertTitle>
+              <AlertDescription>{notice.message}</AlertDescription>
+            </Alert>
+          )}
+        </div>
+      </div>
+
       <TopBar
         ButtonText="Add Class"
         title="Classes"
         subTitle="Find all classes here"
         action={
-          <Sheet open={createOpen} onOpenChange={setCreateOpen}>
-            <SheetTrigger asChild>
+          <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+            <DialogTrigger asChild>
               <Button>Add a New Class</Button>
-            </SheetTrigger>
+            </DialogTrigger>
 
-            <SheetContent>
-              <form onSubmit={handleCreate} className="px-4">
-                <SheetHeader>
-                  <SheetTitle>Add Class</SheetTitle>
-                </SheetHeader>
+            <DialogContent>
+              <form onSubmit={handleCreate} className="px-1">
+                <DialogHeader>
+                  <DialogTitle className="mb-5 text-center">Add Class</DialogTitle>
+                </DialogHeader>
 
                 <div className="grid mb-4 gap-2">
                   <Label>Class Name *</Label>
@@ -186,6 +261,22 @@ const Classes = () => {
                       })
                     }
                   />
+                </div>
+                <div className="grid mb-4 gap-2">
+                  <Label>Class Scope *</Label>
+                  <select
+                    className="border rounded p-2 w-full bg-background"
+                    value={newClass.class_scope}
+                    onChange={(e) =>
+                      setNewClass({
+                        ...newClass,
+                        class_scope: e.target.value,
+                      })
+                    }
+                  >
+                    <option value="school">School</option>
+                    <option value="hs">Higher Secondary</option>
+                  </select>
                 </div>
                 <div className="grid gap-2 mb-2">
                   <Label>Sections *</Label>
@@ -235,13 +326,13 @@ const Classes = () => {
                     Add a new Section
                   </Button>
 
-                  <SheetFooter>
-                    <Button type="submit">Save</Button>
-                  </SheetFooter>
+                  <DialogFooter>
+                    <Button className={`flex-1`} type="submit">Save</Button>
+                  </DialogFooter>
                 </div>
               </form>
-            </SheetContent>
-          </Sheet>
+            </DialogContent>
+          </Dialog>
         }
       />
 
@@ -252,24 +343,28 @@ const Classes = () => {
             className="flex bg-secondary border border-border rounded-sm relative px-5 py-5 gap-2.5 items-start w-full"
           >
             <div>
-              <Button size="">
+              <Button variant="ghost">
                 <NotebookPen />
               </Button>
             </div>
             <div className="flex-1">
               <p className="text-xl font-bold">Class : {data.name}</p>
-              <p className="text-sm flex-1">
-                Section :{" "}
-                {data.sections.map((sec, i) => (
-                  <span key={i}>
-                    {sec.name}{sec.medium ? ` (${sec.medium})` : ""}
-                    {i < data.sections.length - 1 ? ", " : ""}
-                  </span>
-                ))}
+              <p className="text-sm">
+          <span className="font-medium">Scope: </span>{data.class_scope === "hs" ? "Higher Secondary" : "School"}
               </p>
+              <div className="text-sm flex-1">
+                <p className="font-medium">Sections:</p>
+                <ul className="mt-1 list-disc pl-5 space-y-1">
+                  {data.sections.map((sec, i) => (
+                    <li key={i}>
+                      {sec.name}{sec.medium ? ` (${sec.medium})` : ""}
+                    </li>
+                  ))}
+                </ul>
+              </div>
               {/* <p className="text-sm">{data.total_students} students</p> */}
               <p className="text-sm">
-                Subjects:
+               <span className="font-medium">Subjects: </span> 
                 {data.subjects.length === 0 && " None"}
                 {data.subjects.map((sub, i) => (
                   <span key={i}>
@@ -285,7 +380,7 @@ const Classes = () => {
               </Button>
               <Button
                 variant="destructive"
-                onClick={() => handleDelete(data.id)}
+                onClick={() => setDeletingClass(data)}
               >
                 <TrashIcon />
               </Button>
@@ -315,6 +410,21 @@ const Classes = () => {
                   })
                 }
               />
+
+              <Label>Class Scope *</Label>
+              <select
+                className="border rounded p-2 w-full bg-background"
+                value={editingClass?.class_scope || "school"}
+                onChange={(e) =>
+                  setEditingClass({
+                    ...editingClass,
+                    class_scope: e.target.value,
+                  })
+                }
+              >
+                <option value="school">School</option>
+                <option value="hs">Higher Secondary</option>
+              </select>
 
               <Label>Sections *</Label>
 
@@ -376,6 +486,30 @@ const Classes = () => {
           </form>
         </SheetContent>
       </Sheet>
+
+      <AlertDialog
+        open={!!deletingClass}
+        onOpenChange={(open) => {
+          if (!open) setDeletingClass(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete class?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {deletingClass
+                ? `This will remove ${deletingClass.name} from the active classes list.`
+                : "This action cannot be undone."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction variant="destructive" onClick={handleDelete}>
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   );
 };

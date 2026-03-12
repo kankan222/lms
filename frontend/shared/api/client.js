@@ -1,6 +1,13 @@
 const API_URL = "http://localhost:5000/api/v1";
 import { refreshToken } from "../../software/src/api/auth.api";
 
+function clearWebAuthState() {
+  localStorage.removeItem("accessToken");
+  localStorage.removeItem("refreshToken");
+  localStorage.removeItem("user");
+  window.dispatchEvent(new Event("auth:logout"));
+}
+
 export async function apiRequest(path, options = {}, retry = true) {
 
   const token = localStorage.getItem("accessToken");
@@ -27,8 +34,7 @@ export async function apiRequest(path, options = {}, retry = true) {
     const refreshed = await refreshToken();
 
     if (!refreshed) {
-      localStorage.removeItem("accessToken");
-      localStorage.removeItem("refreshToken");
+      clearWebAuthState();
       throw new Error("Session expired. Please login again.");
     }
 
@@ -40,6 +46,9 @@ export async function apiRequest(path, options = {}, retry = true) {
   const payload = await response.json().catch(() => ({}));
 
   if (!response.ok) {
+    if (response.status === 401 && isAuthPath) {
+      clearWebAuthState();
+    }
     const message = payload?.message || payload?.error || `Request failed (${response.status})`;
     const err = new Error(message);
     err.status = response.status;

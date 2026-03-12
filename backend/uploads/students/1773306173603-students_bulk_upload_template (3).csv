@@ -1,0 +1,3 @@
+admission_no,name,dob,gender,mobile,date_of_admission,session_id,class_id,section_id,medium,stream,roll_number,father_name,father_mobile,father_email,father_occupation,father_qualification,mother_name,mother_mobile,mother_email,mother_occupation,mother_qualification,photo_url
+ADM-2026-001,Pinky,5/10/2012,male,9876543210,4/1/2026,1,6,8,English,,5,Ramesh Das,9876450001,ramesh@example.com,Farmer,Graduate,Sima Das,9876550002,sima@example.com,Homemaker,HS,/uploads/students/sample-school.jpg
+ADM-2026-101,Marry,7/12/2008,female,9876543222,4/1/2026,1,14,27,English,,12,Madan Sharma,9876420011,madan@example.com,Business,Graduate,Mina Sharma,9876400012,mina@example.com,Teacher,Graduate,/uploads/students/sample-hs.jpg

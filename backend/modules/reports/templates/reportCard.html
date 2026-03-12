@@ -1,58 +1,210 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-<meta charset="UTF-8">
+<meta charset="UTF-8" />
+<title>Report Card</title>
 <style>
-body {
-  font-family: Arial;
-  padding: 40px;
-}
+  body {
+    font-family: Arial, sans-serif;
+    margin: 0;
+    padding: 28px 34px;
+    color: #0f172a;
+    font-size: 14px;
+  }
 
-h1 {
-  text-align:center;
-}
+  .header {
+    text-align: center;
+    border-bottom: 2px solid #0f172a;
+    padding-bottom: 14px;
+    margin-bottom: 18px;
+  }
 
-table {
-  width:100%;
-  border-collapse:collapse;
-  margin-top:20px;
-}
+  .school-name {
+    font-size: 26px;
+    font-weight: 800;
+    margin-bottom: 4px;
+    letter-spacing: 0.3px;
+  }
 
-th, td {
-  border:1px solid #000;
-  padding:8px;
-  text-align:center;
-}
+  .section-name {
+    font-size: 18px;
+    font-weight: 700;
+    margin-bottom: 4px;
+  }
 
-.summary {
-  margin-top:20px;
-  font-size:18px;
-}
+  .address {
+    font-size: 13px;
+    color: #334155;
+  }
+
+  .title {
+    margin-top: 10px;
+    font-size: 18px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+  }
+
+  .details {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 18px;
+  }
+
+  .details td {
+    padding: 6px 8px;
+    border: 1px solid #cbd5e1;
+    width: 25%;
+  }
+
+  .label {
+    font-weight: 700;
+    background: #f8fafc;
+  }
+
+  table.report {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 10px;
+  }
+
+  table.report th,
+  table.report td {
+    border: 1px solid #0f172a;
+    padding: 9px 8px;
+    text-align: center;
+  }
+
+  table.report th {
+    background: #e2e8f0;
+    font-weight: 700;
+  }
+
+  table.report td:first-child,
+  table.report th:first-child {
+    text-align: left;
+  }
+
+  .summary {
+    margin-top: 18px;
+    display: flex;
+    justify-content: flex-end;
+  }
+
+  .summary-box {
+    width: 280px;
+    border: 1px solid #0f172a;
+    border-radius: 8px;
+    overflow: hidden;
+  }
+
+  .summary-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 10px 12px;
+    border-bottom: 1px solid #cbd5e1;
+  }
+
+  .summary-row:last-child {
+    border-bottom: none;
+  }
+
+  .summary-label {
+    font-weight: 700;
+  }
+
+  .signature-area {
+    margin-top: 46px;
+    display: flex;
+    justify-content: flex-end;
+  }
+
+  .signature-block {
+    text-align: center;
+    width: 190px;
+  }
+
+  .signature-image {
+    width: 150px;
+    height: 70px;
+    object-fit: contain;
+    display: block;
+    margin: 0 auto 6px;
+  }
+
+  .signature-line {
+    border-top: 1px solid #0f172a;
+    padding-top: 6px;
+    font-weight: 700;
+  }
 </style>
 </head>
-
 <body>
+  <div class="header">
+    <div class="school-name">Kalong Kapili Vidyapith</div>
+    <div class="section-name">{{sectionTitle}}</div>
+    <div class="address">Address: {{sectionAddress}}</div>
+    <div class="title">Report Card</div>
+  </div>
 
-<h1>Report Card</h1>
+  <table class="details">
+    <tr>
+      <td class="label">Student Name</td>
+      <td>{{studentName}}</td>
+      <td class="label">Roll Number</td>
+      <td>{{rollNumber}}</td>
+    </tr>
+    <tr>
+      <td class="label">Exam</td>
+      <td>{{examName}}</td>
+      <td class="label">Class</td>
+      <td>{{className}}</td>
+    </tr>
+    <tr>
+      <td class="label">Section</td>
+      <td>{{sectionName}}</td>
+      <td class="label">Medium</td>
+      <td>{{medium}}</td>
+    </tr>
+    <tr>
+      <td class="label">Scope</td>
+      <td>{{scope}}</td>
+      <td class="label">Institution</td>
+      <td>Kalong Kapili Vidyapith</td>
+    </tr>
+  </table>
 
-<p><strong>Student:</strong> {{studentName}}</p>
-<p><strong>Exam:</strong> {{exam}}</p>
+  <table class="report">
+    <tr>
+      <th>Subject</th>
+      <th>Total Marks</th>
+      <th>Marks Obtained</th>
+    </tr>
+    {{rows}}
+  </table>
 
-<table>
-<tr>
-<th>Subject</th>
-<th>Marks</th>
-</tr>
+  <div class="summary">
+    <div class="summary-box">
+      <div class="summary-row">
+        <span class="summary-label">Total Obtained</span>
+        <span>{{total}}</span>
+      </div>
+      <div class="summary-row">
+        <span class="summary-label">Total Marks</span>
+        <span>{{maxTotal}}</span>
+      </div>
+      <div class="summary-row">
+        <span class="summary-label">Percentage</span>
+        <span>{{percentage}}%</span>
+      </div>
+    </div>
+  </div>
 
-{{rows}}
-
-</table>
-
-<div class="summary">
-<p>Total: {{total}}</p>
-<p>Percentage: {{percentage}}%</p>
-<p>Grade: {{grade}}</p>
-</div>
-
+  <div class="signature-area">
+    <div class="signature-block">
+      <img class="signature-image" src="{{signatureImage}}" alt="{{signatureLabel}}" />
+      <div class="signature-line">{{signatureLabel}}</div>
+    </div>
+  </div>
 </body>
 </html>

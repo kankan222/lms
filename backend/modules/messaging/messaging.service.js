@@ -30,6 +30,24 @@ async function getOrCreateScopedConversation(senderId, type, classId, sectionId,
   return conversationId;
 }
 
+async function getOrCreateBroadcastConversation(senderId, name) {
+  const existing = await repo.getBroadcastConversation(name);
+  if (existing?.id) return existing.id;
+
+  const conversationId = await repo.createConversation({
+    type: "broadcast",
+    name,
+    created_by: senderId
+  });
+
+  await repo.addConversationMember(conversationId, senderId);
+  return conversationId;
+}
+
+function uniqueUserIds(rows) {
+  return [...new Set((rows || []).map((row) => Number(row.user_id)).filter(Boolean))];
+}
+
 export async function sendMessage(data, senderUserId) {
   if (!data?.message || !String(data.message).trim()) {
     throw new Error("Message is required");
@@ -82,6 +100,51 @@ export async function sendMessage(data, senderUserId) {
         conversationId,
         recipients.map((r) => r.user_id)
       );
+    } else if (targetType === "broadcast") {
+      conversationId = await getOrCreateBroadcastConversation(
+        senderUserId,
+        data.name || "All Users"
+      );
+
+      const recipients = await repo.getAllActiveUserRecipients();
+      await repo.addConversationMembers(conversationId, uniqueUserIds(recipients));
+    } else if (targetType === "all_classes") {
+      conversationId = await getOrCreateBroadcastConversation(
+        senderUserId,
+        data.name || "All Classes"
+      );
+
+      const recipients = await repo.getAllClassRecipientUsers();
+      await repo.addConversationMembers(conversationId, uniqueUserIds(recipients));
+    } else if (targetType === "all_sections") {
+      conversationId = await getOrCreateBroadcastConversation(
+        senderUserId,
+        data.name || "All Sections"
+      );
+
+      const recipients = await repo.getAllSectionRecipientUsers();
+      await repo.addConversationMembers(conversationId, uniqueUserIds(recipients));
+    } else if (targetType === "all_parents") {
+      conversationId = await getOrCreateBroadcastConversation(
+        senderUserId,
+        data.name || "All Parents"
+      );
+
+      const recipients = await repo.getAllParentRecipientUsers();
+      await repo.addConversationMembers(conversationId, uniqueUserIds(recipients));
+    } else if (targetType === "all_teachers") {
+      conversationId = await getOrCreateBroadcastConversation(
+        senderUserId,
+        data.name ||
+          (data.teacher_type === "college"
+            ? "All College Teachers"
+            : data.teacher_type === "school"
+              ? "All School Teachers"
+              : "All Teachers")
+      );
+
+      const recipients = await repo.getAllTeacherRecipientUsers(data.teacher_type);
+      await repo.addConversationMembers(conversationId, uniqueUserIds(recipients));
     } else {
       throw new Error("Unsupported target_type");
     }
@@ -132,5 +195,17 @@ export async function getTargets() {
     repo.getSectionTargets()
   ]);
 
-  return { parents, teachers, classes, sections };
+  return {
+    parents,
+    teachers,
+    classes,
+    sections,
+    broadcast_targets: [
+      { key: "broadcast", label: "All Users" },
+      { key: "all_classes", label: "All Classes" },
+      { key: "all_sections", label: "All Sections" },
+      { key: "all_parents", label: "All Parents" },
+      { key: "all_teachers", label: "All Teachers" }
+    ]
+  };
 }

@@ -24,10 +24,21 @@ import {
 import { formatTimeLabel } from "../../utils/format";
 
 type ComposeState = {
-  target_type: "direct" | "parent" | "teacher" | "class" | "section";
+  target_type:
+    | "direct"
+    | "parent"
+    | "teacher"
+    | "class"
+    | "section"
+    | "broadcast"
+    | "all_classes"
+    | "all_sections"
+    | "all_parents"
+    | "all_teachers";
   recipient_user_id: string;
   class_id: string;
   section_id: string;
+  teacher_type: "all" | "school" | "college";
   message: string;
 };
 
@@ -36,6 +47,8 @@ type RecipientFilters = {
   role: "all" | "parent" | "teacher";
   class_id: string;
   section_id: string;
+  medium: string;
+  teacher_type: "all" | "school" | "college";
 };
 
 const EMPTY_COMPOSE: ComposeState = {
@@ -43,6 +56,7 @@ const EMPTY_COMPOSE: ComposeState = {
   recipient_user_id: "",
   class_id: "",
   section_id: "",
+  teacher_type: "all",
   message: "",
 };
 
@@ -51,7 +65,13 @@ const EMPTY_FILTERS: RecipientFilters = {
   role: "all",
   class_id: "",
   section_id: "",
+  medium: "",
+  teacher_type: "all",
 };
+
+function formatScopeLabel(scope?: string | null) {
+  return scope === "hs" ? "Higher Secondary" : scope === "school" ? "School" : "";
+}
 
 export default function MessagingTab() {
   const user = useAuthStore((state) => state.user);
@@ -62,6 +82,7 @@ export default function MessagingTab() {
     teachers: [],
     classes: [],
     sections: [],
+    broadcast_targets: [],
   });
 
   const [activeConversationId, setActiveConversationId] = useState<number | null>(null);
@@ -73,11 +94,32 @@ export default function MessagingTab() {
   const [composeOpen, setComposeOpen] = useState(false);
   const [compose, setCompose] = useState<ComposeState>(EMPTY_COMPOSE);
   const [recipientFilters, setRecipientFilters] = useState<RecipientFilters>(EMPTY_FILTERS);
+  const [conversationSearch, setConversationSearch] = useState("");
 
   const activeConversation = useMemo(
     () => conversations.find((c) => Number(c.id) === Number(activeConversationId)) ?? null,
     [conversations, activeConversationId]
   );
+  const broadcastTargetOptions = useMemo(
+    () =>
+      targets.broadcast_targets?.length
+        ? targets.broadcast_targets
+        : [
+            { key: "broadcast", label: "All Users" },
+            { key: "all_classes", label: "All Classes" },
+            { key: "all_sections", label: "All Sections" },
+            { key: "all_parents", label: "All Parents" },
+            { key: "all_teachers", label: "All Teachers" },
+          ],
+    [targets.broadcast_targets]
+  );
+  const filteredConversations = useMemo(() => {
+    const query = conversationSearch.trim().toLowerCase();
+    if (!query) return conversations;
+    return conversations.filter((item) =>
+      [item.name || "", item.type || "", item.last_message || ""].join(" ").toLowerCase().includes(query)
+    );
+  }, [conversationSearch, conversations]);
 
   const sectionsByClass = useMemo(() => {
     if (!compose.class_id) return [];
@@ -100,6 +142,9 @@ export default function MessagingTab() {
       section_id: p.section_id ? String(p.section_id) : "",
       class_name: p.class_name || "",
       section_name: p.section_name || "",
+      medium: p.medium || "",
+      class_scope: p.class_scope || "",
+      teacher_type: "",
     }));
 
     const teachers = targets.teachers.map((t) => ({
@@ -112,6 +157,9 @@ export default function MessagingTab() {
       section_id: t.section_id ? String(t.section_id) : "",
       class_name: t.class_name || "",
       section_name: t.section_name || "",
+      medium: t.medium || t.class_medium || "",
+      class_scope: t.class_scope || "",
+      teacher_type: t.type || "school",
     }));
 
     const merged = [...parents, ...teachers].filter((row) => row.user_id);
@@ -127,6 +175,9 @@ export default function MessagingTab() {
         sectionIds: Set<string>;
         classNames: Set<string>;
         sectionNames: Set<string>;
+        mediums: Set<string>;
+        classScopes: Set<string>;
+        teacherTypes: Set<string>;
       }
     >();
 
@@ -144,6 +195,9 @@ export default function MessagingTab() {
           sectionIds: new Set(),
           classNames: new Set(),
           sectionNames: new Set(),
+          mediums: new Set(),
+          classScopes: new Set(),
+          teacherTypes: new Set(),
         });
       }
       const item = map.get(key)!;
@@ -152,6 +206,9 @@ export default function MessagingTab() {
       if (row.section_id) item.sectionIds.add(row.section_id);
       if (row.class_name) item.classNames.add(row.class_name);
       if (row.section_name) item.sectionNames.add(row.section_name);
+      if (row.medium) item.mediums.add(row.medium);
+      if (row.class_scope) item.classScopes.add(row.class_scope);
+      if (row.teacher_type) item.teacherTypes.add(row.teacher_type);
     }
 
     const targetRole =
@@ -170,11 +227,22 @@ export default function MessagingTab() {
         sectionIds: Array.from(item.sectionIds),
         classNames: Array.from(item.classNames),
         sectionNames: Array.from(item.sectionNames),
+        mediums: Array.from(item.mediums),
+        classScopes: Array.from(item.classScopes),
+        teacherTypes: Array.from(item.teacherTypes),
       }))
       .filter((item) => {
         if (targetRole !== "all" && !item.roles.includes(targetRole)) return false;
         if (recipientFilters.class_id && !item.classIds.includes(recipientFilters.class_id)) return false;
         if (recipientFilters.section_id && !item.sectionIds.includes(recipientFilters.section_id)) return false;
+        if (recipientFilters.medium && !item.mediums.includes(recipientFilters.medium)) return false;
+        if (
+          recipientFilters.teacher_type !== "all" &&
+          item.roles.includes("teacher") &&
+          !item.teacherTypes.includes(recipientFilters.teacher_type)
+        ) {
+          return false;
+        }
         if (!search) return true;
         const text = [
           item.name,
@@ -183,6 +251,9 @@ export default function MessagingTab() {
           item.roles.join(" "),
           item.classNames.join(" "),
           item.sectionNames.join(" "),
+          item.mediums.join(" "),
+          item.classScopes.join(" "),
+          item.teacherTypes.join(" "),
         ]
           .join(" ")
           .toLowerCase();
@@ -190,6 +261,13 @@ export default function MessagingTab() {
       })
       .sort((a, b) => a.name.localeCompare(b.name));
   }, [targets.parents, targets.teachers, user?.id, compose.target_type, recipientFilters]);
+  const availableMedia = useMemo(() => {
+    const values = new Set<string>();
+    for (const item of [...targets.sections, ...targets.classes, ...targets.parents, ...targets.teachers]) {
+      if (item?.medium) values.add(String(item.medium));
+    }
+    return Array.from(values).sort((a, b) => a.localeCompare(b));
+  }, [targets]);
 
   useEffect(() => {
     loadConversations();
@@ -221,7 +299,7 @@ export default function MessagingTab() {
       const data = await getTargets();
       setTargets(data);
     } catch {
-      setTargets({ parents: [], teachers: [], classes: [], sections: [] });
+      setTargets({ parents: [], teachers: [], classes: [], sections: [], broadcast_targets: [] });
     }
   }
 
@@ -264,10 +342,21 @@ export default function MessagingTab() {
     }
 
     const payload: {
-      target_type: "direct" | "parent" | "teacher" | "class" | "section";
+      target_type:
+        | "direct"
+        | "parent"
+        | "teacher"
+        | "class"
+        | "section"
+        | "broadcast"
+        | "all_classes"
+        | "all_sections"
+        | "all_parents"
+        | "all_teachers";
       recipient_user_id?: number;
       class_id?: number;
       section_id?: number;
+      teacher_type?: "all" | "school" | "college";
       name?: string;
       message: string;
     } = {
@@ -302,6 +391,28 @@ export default function MessagingTab() {
       payload.name = `Section ${section?.class_name || ""} ${section?.name || compose.section_id}`.trim();
     }
 
+    if (compose.target_type === "broadcast") {
+      payload.name = "All Users";
+    }
+    if (compose.target_type === "all_classes") {
+      payload.name = "All Classes";
+    }
+    if (compose.target_type === "all_sections") {
+      payload.name = "All Sections";
+    }
+    if (compose.target_type === "all_parents") {
+      payload.name = "All Parents";
+    }
+    if (compose.target_type === "all_teachers") {
+      payload.teacher_type = compose.teacher_type;
+      payload.name =
+        compose.teacher_type === "school"
+          ? "All School Teachers"
+          : compose.teacher_type === "college"
+            ? "All College Teachers"
+            : "All Teachers";
+    }
+
     setSending(true);
     try {
       const result = await sendMessage(payload);
@@ -323,85 +434,127 @@ export default function MessagingTab() {
 
   return (
     <View style={styles.root}>
-      <View style={styles.toolbar}>
-        <Text style={styles.title}>Messaging</Text>
-        <Pressable style={styles.primaryBtn} onPress={() => setComposeOpen(true)}>
-          <Text style={styles.primaryBtnText}>New Message</Text>
-        </Pressable>
-      </View>
-
-      <View style={styles.panel}>
-        <Text style={styles.panelTitle}>Conversations</Text>
-        {loadingConversations ? (
-          <ActivityIndicator size="small" color="#0f172a" />
-        ) : (
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.conversationChips}>
-            {conversations.map((c) => {
-              const active = Number(c.id) === Number(activeConversationId);
-              return (
-                <Pressable
-                  key={c.id}
-                  style={[styles.conversationChip, active && styles.conversationChipActive]}
-                  onPress={() => setActiveConversationId(c.id)}
-                >
-                  <Text style={[styles.conversationText, active && styles.conversationTextActive]}>
-                    {c.name || c.type}
-                  </Text>
-                  {Number(c.unread) > 0 ? <Text style={styles.unread}>{c.unread}</Text> : null}
-                </Pressable>
-              );
-            })}
-          </ScrollView>
-        )}
-      </View>
-
-      <View style={styles.panel}>
-        <Text style={styles.panelTitle}>
-          {activeConversation ? activeConversation.name || activeConversation.type : "Chat"}
-        </Text>
-
-        {loadingMessages ? (
-          <View style={styles.centered}>
-            <ActivityIndicator size="small" color="#0f172a" />
+      {!activeConversationId ? (
+        <>
+          <View style={styles.toolbar}>
+            <View style={styles.toolbarCopy}>
+              <Text style={styles.title}>Messaging</Text>
+              <Text style={styles.toolbarSubTitle}>Teacher chat, parent chat, and broadcast updates.</Text>
+            </View>
+            <Pressable style={styles.primaryBtn} onPress={() => setComposeOpen(true)}>
+              <Text style={styles.primaryBtnText}>Compose</Text>
+            </Pressable>
           </View>
-        ) : (
-          <ScrollView style={styles.messagesWrap} contentContainerStyle={styles.messagesContent}>
-            {messages.length ? (
-              messages.map((m) => {
-                const mine = Number(m.sender_id) === Number(user?.id);
-                return (
-                  <View key={m.id} style={[styles.bubble, mine ? styles.bubbleMine : styles.bubbleOther]}>
-                    <Text style={styles.bubbleUser}>{mine ? "You" : m.username}</Text>
-                    <Text style={styles.bubbleMessage}>{m.message}</Text>
-                    <Text style={styles.bubbleTime}>{formatTimeLabel(m.created_at)}</Text>
-                  </View>
-                );
-              })
-            ) : (
-              <Text style={styles.emptyText}>No messages yet.</Text>
-            )}
-          </ScrollView>
-        )}
 
-        <View style={styles.inputRow}>
-          <TextInput
-            style={styles.input}
-            value={newMessageText}
-            onChangeText={setNewMessageText}
-            placeholder={activeConversationId ? "Type message..." : "Select conversation"}
-            editable={Boolean(activeConversationId) && !sending}
-          />
-          <Pressable style={styles.primaryBtn} onPress={sendInActiveConversation} disabled={sending || !activeConversationId}>
-            <Text style={styles.primaryBtnText}>{sending ? "..." : "Send"}</Text>
-          </Pressable>
+          <View style={styles.panel}>
+            <Text style={styles.panelTitle}>Conversations</Text>
+            <TextInput
+              style={[styles.input, styles.searchInput]}
+              value={conversationSearch}
+              onChangeText={setConversationSearch}
+              placeholder="Search conversations"
+              placeholderTextColor="#94a3b8"
+            />
+            {loadingConversations ? (
+              <ActivityIndicator size="small" color="#0f172a" />
+            ) : (
+              <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.conversationList}>
+                {filteredConversations.map((c) => {
+                  const active = Number(c.id) === Number(activeConversationId);
+                  return (
+                    <Pressable
+                      key={c.id}
+                      style={[styles.conversationCard, active && styles.conversationCardActive]}
+                      onPress={() => setActiveConversationId(c.id)}
+                    >
+                      <View style={styles.avatarCircle}>
+                        <Text style={styles.avatarText}>{String(c.name || c.type).charAt(0).toUpperCase()}</Text>
+                      </View>
+                      <View style={styles.conversationBody}>
+                        <View style={styles.conversationTopRow}>
+                          <Text style={[styles.conversationText, active && styles.conversationTextActive]}>
+                            {c.name || c.type}
+                          </Text>
+                          <Text style={styles.conversationTime}>
+                            {c.last_message_at ? formatTimeLabel(c.last_message_at) : ""}
+                          </Text>
+                        </View>
+                        <View style={styles.conversationBottomRow}>
+                          <Text style={styles.conversationPreview} numberOfLines={1}>
+                            {c.last_message || "No messages yet"}
+                          </Text>
+                          {Number(c.unread) > 0 ? <Text style={styles.unread}>{c.unread}</Text> : null}
+                        </View>
+                      </View>
+                    </Pressable>
+                  );
+                })}
+              </ScrollView>
+            )}
+          </View>
+        </>
+      ) : (
+        <View style={styles.chatScreen}>
+          <View style={styles.chatHeaderBar}>
+            <Pressable style={styles.backBtn} onPress={() => setActiveConversationId(null)}>
+              <Text style={styles.backBtnText}>Back</Text>
+            </Pressable>
+            <View style={styles.chatHeaderCopy}>
+              <Text style={styles.panelTitle}>
+                {activeConversation ? activeConversation.name || activeConversation.type : "Chat"}
+              </Text>
+              <Text style={styles.chatHeaderHint}>Conversation</Text>
+            </View>
+          </View>
+
+          <View style={styles.chatPanel}>
+            {loadingMessages ? (
+              <View style={styles.centered}>
+                <ActivityIndicator size="small" color="#0f172a" />
+              </View>
+            ) : (
+              <ScrollView style={styles.messagesWrap} contentContainerStyle={styles.messagesContent}>
+                {messages.length ? (
+                  messages.map((m) => {
+                    const mine = Number(m.sender_id) === Number(user?.id);
+                    return (
+                      <View key={m.id} style={[styles.messageRow, mine ? styles.messageRowMine : styles.messageRowOther]}>
+                        <View style={[styles.bubble, mine ? styles.bubbleMine : styles.bubbleOther]}>
+                          {!mine ? <Text style={styles.bubbleUser}>{m.username}</Text> : null}
+                          <Text style={styles.bubbleMessage}>{m.message}</Text>
+                          <Text style={styles.bubbleTime}>{formatTimeLabel(m.created_at)}</Text>
+                        </View>
+                      </View>
+                    );
+                  })
+                ) : (
+                  <Text style={styles.emptyText}>No messages yet.</Text>
+                )}
+              </ScrollView>
+            )}
+
+            <View style={styles.inputRow}>
+              <TextInput
+                style={styles.input}
+                value={newMessageText}
+                onChangeText={setNewMessageText}
+                placeholder="Type message..."
+                editable={!sending}
+              />
+              <Pressable style={styles.primaryBtn} onPress={sendInActiveConversation} disabled={sending}>
+                <Text style={styles.primaryBtnText}>{sending ? "..." : "Send"}</Text>
+              </Pressable>
+            </View>
+          </View>
         </View>
-      </View>
+      )}
 
       <Modal visible={composeOpen} transparent animationType="slide" onRequestClose={() => setComposeOpen(false)}>
         <View style={styles.modalOverlay}>
           <Pressable style={styles.modalBackdrop} onPress={() => setComposeOpen(false)} />
           <View style={styles.modalCard}>
             <Text style={styles.modalTitle}>Compose Message</Text>
+            <Text style={styles.modalSubTitle}>Choose a direct, class, section, or broadcast target.</Text>
             <ScrollView style={styles.modalBody}>
               <Text style={styles.inputLabel}>Target Type *</Text>
               <View style={styles.chipWrap}>
@@ -422,6 +575,26 @@ export default function MessagingTab() {
                       }
                     >
                       <Text style={[styles.chipText, active && styles.chipTextActive]}>{type}</Text>
+                    </Pressable>
+                  );
+                })}
+                {broadcastTargetOptions.map((target) => {
+                  const active = compose.target_type === target.key;
+                  return (
+                    <Pressable
+                      key={target.key}
+                      style={[styles.chip, active && styles.chipActive]}
+                      onPress={() =>
+                        setCompose((prev) => ({
+                          ...prev,
+                          target_type: target.key as ComposeState["target_type"],
+                          recipient_user_id: "",
+                          class_id: "",
+                          section_id: "",
+                        }))
+                      }
+                    >
+                      <Text style={[styles.chipText, active && styles.chipTextActive]}>{target.label}</Text>
                     </Pressable>
                   );
                 })}
@@ -500,6 +673,50 @@ export default function MessagingTab() {
                           </Pressable>
                         ))}
                       </View>
+
+                      <Text style={[styles.inputLabel, styles.spaceTop]}>Medium Filter</Text>
+                      <View style={styles.chipWrap}>
+                        <Pressable
+                          style={[styles.chip, recipientFilters.medium === "" && styles.chipActive]}
+                          onPress={() => setRecipientFilters((prev) => ({ ...prev, medium: "" }))}
+                        >
+                          <Text style={[styles.chipText, recipientFilters.medium === "" && styles.chipTextActive]}>
+                            All Medium
+                          </Text>
+                        </Pressable>
+                        {availableMedia.map((item) => (
+                          <Pressable
+                            key={item}
+                            style={[styles.chip, recipientFilters.medium === item && styles.chipActive]}
+                            onPress={() => setRecipientFilters((prev) => ({ ...prev, medium: item }))}
+                          >
+                            <Text style={[styles.chipText, recipientFilters.medium === item && styles.chipTextActive]}>
+                              {item}
+                            </Text>
+                          </Pressable>
+                        ))}
+                      </View>
+                    </>
+                  ) : null}
+
+                  {(compose.target_type === "teacher" ||
+                    (compose.target_type === "direct" && recipientFilters.role === "teacher")) ? (
+                    <>
+                      <Text style={[styles.inputLabel, styles.spaceTop]}>Teacher Type</Text>
+                      <View style={styles.chipWrap}>
+                        {(["all", "school", "college"] as const).map((item) => {
+                          const active = recipientFilters.teacher_type === item;
+                          return (
+                            <Pressable
+                              key={item}
+                              style={[styles.chip, active && styles.chipActive]}
+                              onPress={() => setRecipientFilters((prev) => ({ ...prev, teacher_type: item }))}
+                            >
+                              <Text style={[styles.chipText, active && styles.chipTextActive]}>{item}</Text>
+                            </Pressable>
+                          );
+                        })}
+                      </View>
                     </>
                   ) : null}
 
@@ -523,6 +740,11 @@ export default function MessagingTab() {
                               {r.roles.join(", ")}
                               {r.mobile ? ` | ${r.mobile}` : ""}
                             </Text>
+                            <Text style={styles.recipientMeta}>
+                              {r.classNames.join(", ")}
+                              {r.sectionNames.length ? ` | ${r.sectionNames.join(", ")}` : ""}
+                              {r.mediums.length ? ` | ${r.mediums.join(", ")}` : ""}
+                            </Text>
                           </Pressable>
                         );
                       })
@@ -541,9 +763,13 @@ export default function MessagingTab() {
                         <Pressable
                           key={c.id}
                           style={[styles.chip, active && styles.chipActive]}
-                          onPress={() => setCompose((prev) => ({ ...prev, class_id: String(c.id) }))}
-                        >
-                          <Text style={[styles.chipText, active && styles.chipTextActive]}>{c.name}</Text>
+                      onPress={() => setCompose((prev) => ({ ...prev, class_id: String(c.id) }))}
+                    >
+                          <Text style={[styles.chipText, active && styles.chipTextActive]}>
+                            {c.name}
+                            {c.medium ? ` (${c.medium})` : ""}
+                            {c.class_scope ? ` - ${formatScopeLabel(c.class_scope)}` : ""}
+                          </Text>
                         </Pressable>
                       );
                     })}
@@ -581,7 +807,28 @@ export default function MessagingTab() {
                         >
                           <Text style={[styles.chipText, active && styles.chipTextActive]}>
                             {s.class_name} - {s.name}
+                            {s.medium ? ` (${s.medium})` : ""}
                           </Text>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                </>
+              ) : null}
+
+              {compose.target_type === "all_teachers" ? (
+                <>
+                  <Text style={[styles.inputLabel, styles.spaceTop]}>Teacher Type</Text>
+                  <View style={styles.chipWrap}>
+                    {(["all", "school", "college"] as const).map((item) => {
+                      const active = compose.teacher_type === item;
+                      return (
+                        <Pressable
+                          key={item}
+                          style={[styles.chip, active && styles.chipActive]}
+                          onPress={() => setCompose((prev) => ({ ...prev, teacher_type: item }))}
+                        >
+                          <Text style={[styles.chipText, active && styles.chipTextActive]}>{item}</Text>
                         </Pressable>
                       );
                     })}
@@ -645,60 +892,136 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
+    gap: 12,
+  },
+  chatScreen: {
+    gap: 12,
+  },
+  chatHeaderBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  backBtn: {
+    borderRadius: 999,
+    backgroundColor: "#ffffff",
+    borderWidth: 1,
+    borderColor: "#cbd5e1",
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  backBtnText: {
+    color: "#334155",
+    fontWeight: "700",
+  },
+  chatHeaderCopy: {
+    flex: 1,
+  },
+  chatHeaderHint: {
+    marginTop: 2,
+    color: "#64748b",
+    fontSize: 12,
+  },
+  toolbarCopy: {
+    flex: 1,
   },
   title: {
     color: "#0f172a",
     fontWeight: "700",
-    fontSize: 18,
+    fontSize: 20,
+  },
+  toolbarSubTitle: {
+    marginTop: 4,
+    color: "#64748b",
   },
   panel: {
     borderWidth: 1,
-    borderColor: "#e2e8f0",
-    borderRadius: 12,
+    borderColor: "#d9f99d",
+    borderRadius: 18,
+    backgroundColor: "#ffffff",
+    padding: 12,
+  },
+  chatPanel: {
+    borderWidth: 1,
+    borderColor: "#d9f99d",
+    borderRadius: 18,
     backgroundColor: "#ffffff",
     padding: 12,
   },
   panelTitle: {
-    color: "#0f172a",
+    color: "#14532d",
     fontWeight: "700",
     marginBottom: 8,
   },
-  conversationChips: {
+  conversationList: {
     gap: 8,
-    paddingBottom: 4,
+    paddingBottom: 6,
   },
-  conversationChip: {
-    borderWidth: 1,
-    borderColor: "#cbd5e1",
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 7,
-    backgroundColor: "#fff",
+  conversationCard: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
+    gap: 12,
+    borderRadius: 16,
+    padding: 10,
+    backgroundColor: "#f8fafc",
   },
-  conversationChipActive: {
-    borderColor: "#0f172a",
-    backgroundColor: "#e2e8f0",
+  conversationCardActive: {
+    backgroundColor: "#dcfce7",
+  },
+  avatarCircle: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: "#bbf7d0",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  avatarText: {
+    color: "#166534",
+    fontWeight: "700",
+    fontSize: 16,
+  },
+  conversationBody: {
+    flex: 1,
+  },
+  conversationTopRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: 8,
+  },
+  conversationBottomRow: {
+    marginTop: 4,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
   },
   conversationText: {
-    color: "#334155",
-    fontWeight: "600",
+    color: "#0f172a",
+    fontWeight: "700",
     textTransform: "capitalize",
+    flex: 1,
   },
   conversationTextActive: {
-    color: "#0f172a",
+    color: "#166534",
+  },
+  conversationPreview: {
+    color: "#475569",
+    flex: 1,
+  },
+  conversationTime: {
+    color: "#64748b",
+    fontSize: 11,
   },
   unread: {
     color: "#fff",
-    backgroundColor: "#dc2626",
-    borderRadius: 10,
+    backgroundColor: "#16a34a",
+    borderRadius: 999,
     fontSize: 11,
     fontWeight: "700",
-    minWidth: 18,
+    minWidth: 20,
     textAlign: "center",
-    paddingHorizontal: 4,
+    paddingHorizontal: 6,
     paddingVertical: 2,
   },
   centered: {
@@ -707,28 +1030,39 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   messagesWrap: {
-    maxHeight: 320,
+    maxHeight: 360,
+    backgroundColor: "#f0fdf4",
   },
   messagesContent: {
     gap: 8,
     paddingBottom: 8,
+    paddingTop: 4,
+  },
+  messageRow: {
+    flexDirection: "row",
+  },
+  messageRowMine: {
+    justifyContent: "flex-end",
+  },
+  messageRowOther: {
+    justifyContent: "flex-start",
   },
   bubble: {
-    borderRadius: 10,
+    borderRadius: 18,
     padding: 10,
     maxWidth: "88%",
   },
   bubbleMine: {
-    backgroundColor: "#e2e8f0",
-    alignSelf: "flex-end",
+    backgroundColor: "#dcfce7",
+    borderTopRightRadius: 6,
   },
   bubbleOther: {
-    backgroundColor: "#f1f5f9",
-    alignSelf: "flex-start",
+    backgroundColor: "#ffffff",
+    borderTopLeftRadius: 6,
   },
   bubbleUser: {
     fontSize: 11,
-    color: "#475569",
+    color: "#166534",
     fontWeight: "700",
     marginBottom: 4,
   },
@@ -750,32 +1084,35 @@ const styles = StyleSheet.create({
     flex: 1,
     borderWidth: 1,
     borderColor: "#cbd5e1",
-    borderRadius: 10,
+    borderRadius: 14,
     backgroundColor: "#fff",
     paddingHorizontal: 12,
     paddingVertical: 10,
     color: "#0f172a",
+  },
+  searchInput: {
+    marginBottom: 8,
   },
   messageInput: {
     minHeight: 90,
     textAlignVertical: "top",
   },
   primaryBtn: {
-    backgroundColor: "#0f172a",
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+    backgroundColor: "#16a34a",
+    borderRadius: 999,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
     alignItems: "center",
     justifyContent: "center",
   },
   primaryBtnText: {
     color: "#fff",
-    fontWeight: "600",
+    fontWeight: "700",
   },
   secondaryBtn: {
     borderWidth: 1,
     borderColor: "#cbd5e1",
-    borderRadius: 8,
+    borderRadius: 999,
     paddingHorizontal: 12,
     paddingVertical: 8,
     alignItems: "center",
@@ -807,6 +1144,10 @@ const styles = StyleSheet.create({
     color: "#0f172a",
     fontWeight: "700",
     fontSize: 18,
+    marginBottom: 10,
+  },
+  modalSubTitle: {
+    color: "#64748b",
     marginBottom: 10,
   },
   modalBody: {
@@ -878,4 +1219,3 @@ const styles = StyleSheet.create({
     gap: 8,
   },
 });
-

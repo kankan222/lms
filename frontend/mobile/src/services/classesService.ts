@@ -6,20 +6,24 @@ type ApiEnvelope<T> = {
   message?: string;
 };
 
+export type ClassScope = "school" | "hs";
+export type SectionMedium = "English" | "Assamese";
+
 export type ClassItem = {
   id: number;
   name: string;
+  class_scope?: ClassScope;
   medium?: string | null;
-  mediums?: Array<"English" | "Assamese">;
+  mediums?: SectionMedium[];
   sections: string;
-  section_details?: Array<{ name: string; medium: "English" | "Assamese" }>;
+  section_details?: Array<{ name: string; medium: SectionMedium }>;
   subjects: string;
 };
 
 export type ClassStructureSection = {
   id: number;
   name: string;
-  medium?: "English" | "Assamese" | null;
+  medium?: SectionMedium | null;
 };
 
 export type ClassStructureSubject = {
@@ -30,8 +34,9 @@ export type ClassStructureSubject = {
 export type ClassStructureItem = {
   id: number;
   name: string;
+  class_scope?: ClassScope;
   medium?: string | null;
-  mediums?: Array<"English" | "Assamese">;
+  mediums?: SectionMedium[];
   sections: ClassStructureSection[];
   subjects: ClassStructureSubject[];
 };
@@ -46,7 +51,8 @@ export type SessionItem = {
 
 export type ClassPayload = {
   name: string;
-  sections: Array<{ name: string; medium: "English" | "Assamese" }>;
+  class_scope: ClassScope;
+  sections: Array<{ name: string; medium: SectionMedium }>;
 };
 
 export async function getClasses() {

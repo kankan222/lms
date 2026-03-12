@@ -254,15 +254,38 @@ export async function getStudentFeeOptions(enrollmentId) {
 }
 export async function getStructureByEnrollment(enrollmentId) {
   const sql = `
-    SELECT fs.*
+    SELECT
+      fs.*,
+      c.name AS class_name,
+      ses.name AS session_name
     FROM student_enrollments e
     JOIN fee_structures fs
     ON fs.class_id = e.class_id
     AND fs.session_id = e.session_id
+    JOIN classes c ON c.id = e.class_id
+    JOIN academic_sessions ses ON ses.id = e.session_id
     WHERE e.id = ?
   `;
   const rows = await query(sql, [enrollmentId]);
   return rows[0];
+}
+
+export async function getEnrollmentSummary(enrollmentId) {
+  const rows = await query(
+    `SELECT
+      e.id,
+      e.class_id,
+      e.session_id,
+      c.name AS class_name,
+      ses.name AS session_name
+     FROM student_enrollments e
+     JOIN classes c ON c.id = e.class_id
+     JOIN academic_sessions ses ON ses.id = e.session_id
+     WHERE e.id = ?
+     LIMIT 1`,
+    [enrollmentId]
+  );
+  return rows[0] || null;
 }
 export async function getInstallments(structureId) {
   const sql = `
@@ -390,6 +413,18 @@ export async function getPayments(filters = {}) {
     where.push("s.id = ?");
     params.push(filters.student_id);
   }
+  if (filters.scope) {
+    where.push("c.class_scope = ?");
+    params.push(filters.scope);
+  }
+  if (filters.date_from) {
+    where.push("DATE(p.created_at) >= ?");
+    params.push(filters.date_from);
+  }
+  if (filters.date_to) {
+    where.push("DATE(p.created_at) <= ?");
+    params.push(filters.date_to);
+  }
   if (filters.teacher_user_id) {
     where.push(`EXISTS (
       SELECT 1
@@ -419,8 +454,10 @@ export async function getPayments(filters = {}) {
       s.id AS student_id,
       s.name AS student_name,
       c.name AS class_name,
+      c.class_scope,
       sec.name AS section_name,
-      sec.medium AS medium
+      sec.medium AS medium,
+      DATE(p.created_at) AS payment_date
     FROM payments p
     JOIN student_fees sf ON p.student_fee_id = sf.id
     JOIN student_enrollments e ON sf.enrollment_id = e.id

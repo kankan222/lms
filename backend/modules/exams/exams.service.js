@@ -149,6 +149,9 @@ export async function deleteExam(id) {
     return { deleted: true };
   } catch (err) {
     await conn.rollback();
+    if (err?.code === "ER_ROW_IS_REFERENCED_2" || err?.code === "ER_ROW_IS_REFERENCED") {
+      throw new AppError("Exam cannot be deleted because marks already exist for this exam", 400);
+    }
     throw err;
   } finally {
     conn.release();
@@ -246,7 +249,7 @@ export async function submitMarks(examId, data, userId) {
     await conn.beginTransaction();
     await repo.upsertMarks(conn, rows);
     await conn.commit();
-    return { saved: true, count: rows.length };
+    return { saved: true, count: rows.length, approval_status: "draft" };
   } catch (err) {
     await conn.rollback();
     throw err;
@@ -330,14 +333,15 @@ export async function approveMarks(examId, data, userId) {
   const subjectId = Number(data.subject_id);
   const classId = Number(data.class_id);
   const sectionId = Number(data.section_id);
-  const status = data.status;
+  const requestedStatus = String(data.status || "").trim().toLowerCase();
+  const status = requestedStatus === "rejected" ? "draft" : requestedStatus;
 
   const roles = await repo.getUserRoleNames(userId);
   if (!roles.includes("super_admin")) {
     throw new AppError("Admin approval required for marks", 403);
   }
 
-  if (!subjectId || !classId || !sectionId || !["approved", "rejected"].includes(status)) {
+  if (!subjectId || !classId || !sectionId || !["approved", "draft"].includes(status)) {
     throw new AppError("subject_id, class_id, section_id and valid status are required", 400);
   }
 

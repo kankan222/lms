@@ -122,3 +122,37 @@
     @apply bg-background text-foreground;
   }
 }
+@theme {
+  --color-primary: rgb(218, 39, 31);
+  --color-punch-50: #fef3f2;
+  --color-punch-100: #ffe2e1;
+  --color-punch-200: #ffcbc9;
+  --color-punch-300: #fea7a3;
+  --color-punch-400: #fb746e;
+  --color-punch-500: #f24941;
+  --color-punch-600: #da271f;
+  --color-punch-700: #bc2019;
+  --color-punch-800: #9c1e18;
+  --color-punch-900: #811f1b;
+  --color-punch-950: #460c09;
+  --font-lato: "Lato", sans-serif;
+  --font-inter: "Inter", sans-serif;
+  --color-punch-50-1: hsla(5, 86%, 97%, 0.5);
+  --color-punch-100: hsl(2, 100%, 94%);
+  --color-punch-200: hsl(2, 100%, 89%);
+  --color-punch-300: hsl(3, 98%, 82%);
+  --color-punch-400: hsl(3, 95%, 71%);
+  --color-punch-500: hsl(3, 87%, 60%);
+  --color-punch-600: hsl(3, 75%, 49%);
+  --color-punch-700: hsl(3, 77%, 42%);
+  --color-punch-800: hsl(3, 73%, 35%);
+  --color-punch-900: hsl(2, 65%, 31%);
+  --color-punch-950: hsl(3, 77%, 15%);
+  --shadow-punch-primary:
+    hsla(3, 100%, 60%, 0.5) 0 1px 0 inset, hsla(3, 100%, 30%, 0.4) 0 -1px 0 1px inset, hsla(2, 10%, 4%, 0.1) 0 2px 4px 0;
+  --shadow-punch-secondary: #fff 0 1px 0 1px inset, hsla(3, 15%, 89%, 0.4) 0 -1px 0 1px inset, hsla(3, 15%, 89%, 0.5) 0 1px 2px 0;
+  --text-shadow-punch: 0 1px 1px hsla(2, 10%, 4%, 0.6);
+
+
+  --radius-10px: 10px;
+}

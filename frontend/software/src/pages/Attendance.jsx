@@ -1,5 +1,6 @@
 import {useState, useEffect} from "react";
 import { getAllTeacherAttendance } from "../api/teachers.api";
+import { usePermissions } from "../hooks/usePermissions";
 
 import DataTable from "../components/DataTable"
 
@@ -15,6 +16,8 @@ const columns = [
 
 
 const Attendance = () => {
+  const { can } = usePermissions();
+  const canManageTeachers = can("teacher.update");
 
   const [attendance, setAttendance] =useState([])
 
@@ -31,8 +34,8 @@ const Attendance = () => {
   return (
     <>
     <TopBar
-    title="Attendance"
-    subTitle="Manage all attendances here"
+    title={canManageTeachers ? "Attendance" : "My Attendance"}
+    subTitle={canManageTeachers ? "Manage all attendances here" : "View your own attendance records"}
     />
       <DataTable
       columns={columns}

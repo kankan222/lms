@@ -18,14 +18,25 @@ import {
 } from "@/components/ui/table";
 
 import {
-  Sheet,
-  SheetContent,
-  SheetFooter,
-  SheetHeader,
-  SheetTitle,
-  SheetTrigger,
-  SheetDescription,
-} from "@/components/ui/sheet";
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -50,6 +61,10 @@ export default function Fees() {
   const [sessions, setSessions] = useState([]);
   const [feeSheetOpen, setFeeSheetOpen] = useState(false);
   const [installmentSheetOpen, setInstallmentSheetOpen] = useState(false);
+  const [deletingFee, setDeletingFee] = useState(null);
+  const [deletingInstallment, setDeletingInstallment] = useState(null);
+  const [editingFee, setEditingFee] = useState(null);
+  const [editingInstallment, setEditingInstallment] = useState(null);
   const [classId, setClassId] = useState("");
   const [sessionId, setSessionId] = useState("");
   const [admissionFee, setAdmissionFee] = useState("");
@@ -59,12 +74,25 @@ export default function Fees() {
   const [dueDate, setDueDate] = useState("");
   const [feeError, setFeeError] = useState("");
   const [installmentError, setInstallmentError] = useState("");
+  const [notice, setNotice] = useState(null);
 
   useEffect(() => {
     loadClasses();
     loadSessions();
     loadFees();
   }, []);
+
+  useEffect(() => {
+    if (!notice) return undefined;
+    const timeoutId = window.setTimeout(() => {
+      setNotice(null);
+    }, 3500);
+    return () => window.clearTimeout(timeoutId);
+  }, [notice]);
+
+  function showNotice(title, message, variant = "success") {
+    setNotice({ title, message, variant });
+  }
 
   async function loadClasses() {
     const res = await getClasses();
@@ -106,7 +134,9 @@ export default function Fees() {
       setClassId("");
       setSessionId("");
       setAdmissionFee("");
+      showNotice("Fee Created", "Fee structure created successfully.");
     } catch (err) {
+      showNotice("Create Failed", err?.message || "Failed to create fee structure.", "error");
       setFeeError(err?.message || "Failed to create fee structure.");
     }
   }
@@ -134,118 +164,141 @@ export default function Fees() {
       setInstallmentAmount("");
       setDueDate("");
       setInstallmentSheetOpen(false);
+      showNotice("Installment Created", "Installment created successfully.");
     } catch (err) {
+      showNotice("Create Failed", err?.message || "Failed to create installment.", "error");
       setInstallmentError(err?.message || "Failed to create installment.");
     }
   }
 
-  async function handleEditFee(fee) {
+  async function handleEditFee(e) {
+    e.preventDefault();
+    if (!editingFee) return;
     setFeeError("");
-    const nextAdmissionFee = prompt("Enter admission fee", String(fee.admission_fee ?? ""));
-    if (nextAdmissionFee === null) return;
 
-    const amount = Number(nextAdmissionFee);
+    const amount = Number(editingFee.admission_fee);
     if (!amount || amount <= 0) {
       setFeeError("Admission fee must be a valid amount.");
       return;
     }
 
     try {
-      await updateFeeStructure(fee.id, {
-        class_id: fee.class_id,
-        session_id: fee.session_id,
+      await updateFeeStructure(editingFee.id, {
+        class_id: editingFee.class_id,
+        session_id: editingFee.session_id,
         admission_fee: amount,
       });
       await loadFees();
+      setEditingFee(null);
+      showNotice("Fee Updated", "Fee structure updated successfully.");
     } catch (err) {
+      showNotice("Update Failed", err?.message || "Failed to update fee structure.", "error");
       setFeeError(err?.message || "Failed to update fee structure.");
     }
   }
 
   async function handleDeleteFee(fee) {
     setFeeError("");
-    if (!confirm(`Delete fee structure for ${fee.class_name} (${fee.session_name})?`)) return;
 
     try {
       await deleteFeeStructure(fee.id);
       await loadFees();
+      setDeletingFee(null);
+      showNotice("Fee Deleted", "Fee structure deleted successfully.");
     } catch (err) {
+      showNotice("Delete Failed", err?.message || "Failed to delete fee structure.", "error");
       setFeeError(err?.message || "Failed to delete fee structure.");
     }
   }
 
-  async function handleEditInstallment(inst) {
+  async function handleEditInstallment(e) {
+    e.preventDefault();
+    if (!editingInstallment) return;
     setInstallmentError("");
-    const nextName = prompt("Installment name", String(inst.installment_name ?? ""));
-    if (nextName === null) return;
 
-    const nextAmountRaw = prompt("Amount", String(inst.amount ?? ""));
-    if (nextAmountRaw === null) return;
-
-    const nextDueDate = prompt(
-      "Due date (YYYY-MM-DD, optional)",
-      inst.due_date ? String(inst.due_date).split("T")[0] : ""
-    );
-    if (nextDueDate === null) return;
-
-    const nextAmount = Number(nextAmountRaw);
-    if (!nextName.trim() || !nextAmount || nextAmount <= 0) {
+    const nextAmount = Number(editingInstallment.amount);
+    if (!String(editingInstallment.installment_name || "").trim() || !nextAmount || nextAmount <= 0) {
       setInstallmentError("Installment name and valid amount are required.");
       return;
     }
 
     try {
-      await updateInstallment(inst.id, {
-        installment_name: nextName.trim(),
+      await updateInstallment(editingInstallment.id, {
+        installment_name: editingInstallment.installment_name.trim(),
         amount: nextAmount,
-        due_date: nextDueDate.trim() || null,
+        due_date: String(editingInstallment.due_date || "").trim() || null,
       });
       await loadFees();
+      setEditingInstallment(null);
+      showNotice("Installment Updated", "Installment updated successfully.");
     } catch (err) {
+      showNotice("Update Failed", err?.message || "Failed to update installment.", "error");
       setInstallmentError(err?.message || "Failed to update installment.");
     }
   }
 
   async function handleDeleteInstallment(inst) {
     setInstallmentError("");
-    if (!confirm(`Delete installment '${inst.installment_name}'?`)) return;
 
     try {
       await deleteInstallment(inst.id);
       await loadFees();
+      setDeletingInstallment(null);
+      showNotice("Installment Deleted", "Installment deleted successfully.");
     } catch (err) {
+      showNotice("Delete Failed", err?.message || "Failed to delete installment.", "error");
       setInstallmentError(err?.message || "Failed to delete installment.");
     }
   }
 
   return (
     <>
+      <div className="pointer-events-none fixed top-6 right-6 z-50 w-full max-w-sm">
+        <div
+          className={`transition-all duration-500 ease-out ${
+            notice
+              ? "translate-x-0 scale-100 opacity-100"
+              : "translate-x-12 scale-95 opacity-0"
+          }`}
+        >
+          {notice && (
+            <Alert
+              variant={notice.variant === "error" ? "destructive" : "success"}
+              className="pointer-events-auto overflow-hidden border shadow-xl"
+            >
+              <AlertTitle>{notice.title}</AlertTitle>
+              <AlertDescription>{notice.message}</AlertDescription>
+            </Alert>
+          )}
+        </div>
+      </div>
+
       <TopBar
         title="Fees"
         subTitle="Find all fee details here"
         action={
           <div className="flex gap-2">
-            <Sheet open={feeSheetOpen} onOpenChange={setFeeSheetOpen}>
-              <SheetTrigger asChild>
+            <Dialog open={feeSheetOpen} onOpenChange={setFeeSheetOpen}>
+              <DialogTrigger asChild>
                 <Button>Add Fee</Button>
-              </SheetTrigger>
+              </DialogTrigger>
 
-              <SheetContent>
-                <form onSubmit={handleCreateFee} className="px-4">
-                  <SheetHeader>
-                    <SheetTitle>Fee Structure</SheetTitle>
-                    <SheetDescription>
+              <DialogContent className="max-h-[85vh] overflow-y-auto">
+                <form onSubmit={handleCreateFee} className="space-y-4">
+                  <DialogHeader>
+                    <DialogTitle>Fee Structure</DialogTitle>
+                    <DialogDescription>
                       Create a fee structure for the selected class and session.
-                    </SheetDescription>
-                  </SheetHeader>
+                    </DialogDescription>
+                  </DialogHeader>
 
-                  <div className="grid gap-3 mt-4">
-                    <div>
+                  <div className="grid gap-3">
+                    <div className="grid gap-3">
                       <Label>Admission Fee *</Label>
                       <Input required value={admissionFee} onChange={(e) => setAdmissionFee(e.target.value)} />
                     </div>
 
-                    <div>
+                    <div className="grid gap-3">
                       <Label>Class *</Label>
                       <select
                         value={classId}
@@ -261,7 +314,7 @@ export default function Fees() {
                       </select>
                     </div>
 
-                    <div>
+                    <div className="grid gap-3">
                       <Label>Session *</Label>
                       <select
                         value={sessionId}
@@ -279,26 +332,26 @@ export default function Fees() {
                   </div>
                   {feeError && <p className="text-sm text-red-600">{feeError}</p>}
 
-                  <SheetFooter className="mt-6">
+                  <DialogFooter showCloseButton>
                     <Button type="submit">Save</Button>
-                  </SheetFooter>
+                  </DialogFooter>
                 </form>
-              </SheetContent>
-            </Sheet>
+              </DialogContent>
+            </Dialog>
 
-            <Sheet open={installmentSheetOpen} onOpenChange={setInstallmentSheetOpen}>
-              <SheetTrigger asChild>
+            <Dialog open={installmentSheetOpen} onOpenChange={setInstallmentSheetOpen}>
+              <DialogTrigger asChild>
                 <Button variant="secondary">Add Installment</Button>
-              </SheetTrigger>
+              </DialogTrigger>
 
-              <SheetContent>
+              <DialogContent className="max-h-[85vh] overflow-y-auto">
                 <form onSubmit={handleCreateInstallment} className="space-y-4">
-                  <SheetHeader>
-                    <SheetTitle>Add Installment</SheetTitle>
-                    <SheetDescription>
+                  <DialogHeader>
+                    <DialogTitle>Add Installment</DialogTitle>
+                    <DialogDescription>
                       Add installment details for the selected fee structure.
-                    </SheetDescription>
-                  </SheetHeader>
+                    </DialogDescription>
+                  </DialogHeader>
 
                   <div>
                     <Label>Fee Structure *</Label>
@@ -332,12 +385,12 @@ export default function Fees() {
                   </div>
                   {installmentError && <p className="text-sm text-red-600">{installmentError}</p>}
 
-                  <SheetFooter>
+                  <DialogFooter showCloseButton>
                     <Button type="submit">Save</Button>
-                  </SheetFooter>
+                  </DialogFooter>
                 </form>
-              </SheetContent>
-            </Sheet>
+              </DialogContent>
+            </Dialog>
           </div>
         }
       />
@@ -364,10 +417,19 @@ export default function Fees() {
 
               <AccordionContent>
                 <div className="mb-3 flex gap-2">
-                  <Button size="sm" variant="secondary" onClick={() => handleEditFee(fee)}>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onClick={() =>
+                      setEditingFee({
+                        ...fee,
+                        admission_fee: String(fee.admission_fee ?? ""),
+                      })
+                    }
+                  >
                     Edit Fee
                   </Button>
-                  <Button size="sm" variant="destructive" onClick={() => handleDeleteFee(fee)}>
+                  <Button size="sm" variant="destructive" onClick={() => setDeletingFee(fee)}>
                     Delete Fee
                   </Button>
                 </div>
@@ -394,10 +456,21 @@ export default function Fees() {
                         <TableCell className="text-right">Rs {inst.amount}</TableCell>
                         <TableCell className="text-right">
                           <div className="flex justify-end gap-2">
-                            <Button size="sm" variant="secondary" onClick={() => handleEditInstallment(inst)}>
+                            <Button
+                              size="sm"
+                              variant="secondary"
+                              onClick={() =>
+                                setEditingInstallment({
+                                  ...inst,
+                                  installment_name: String(inst.installment_name ?? ""),
+                                  amount: String(inst.amount ?? ""),
+                                  due_date: inst.due_date ? String(inst.due_date).split("T")[0] : "",
+                                })
+                              }
+                            >
                               Edit
                             </Button>
-                            <Button size="sm" variant="destructive" onClick={() => handleDeleteInstallment(inst)}>
+                            <Button size="sm" variant="destructive" onClick={() => setDeletingInstallment(inst)}>
                               Delete
                             </Button>
                           </div>
@@ -411,6 +484,163 @@ export default function Fees() {
           </Accordion>
         ))}
       </div>
+
+      <AlertDialog
+        open={!!deletingFee}
+        onOpenChange={(open) => {
+          if (!open) setDeletingFee(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete fee structure?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {deletingFee
+                ? `This will delete the fee structure for ${deletingFee.class_name} (${deletingFee.session_name}).`
+                : "This action cannot be undone."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              onClick={() => handleDeleteFee(deletingFee)}
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <Dialog
+        open={!!editingFee}
+        onOpenChange={(open) => {
+          if (!open) setEditingFee(null);
+        }}
+      >
+        <DialogContent>
+          <form onSubmit={handleEditFee} className="space-y-4">
+            <DialogHeader>
+              <DialogTitle>Edit Fee</DialogTitle>
+              <DialogDescription>
+                Update the admission fee for the selected class and session.
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="grid gap-2">
+              <Label>Admission Fee *</Label>
+              <Input
+                type="number"
+                min="1"
+                value={editingFee?.admission_fee || ""}
+                onChange={(e) =>
+                  setEditingFee((prev) => ({
+                    ...prev,
+                    admission_fee: e.target.value,
+                  }))
+                }
+              />
+            </div>
+            {feeError && <p className="text-sm text-red-600">{feeError}</p>}
+
+            <DialogFooter showCloseButton>
+              <Button type="submit">Update</Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={!!editingInstallment}
+        onOpenChange={(open) => {
+          if (!open) setEditingInstallment(null);
+        }}
+      >
+        <DialogContent>
+          <form onSubmit={handleEditInstallment} className="space-y-4">
+            <DialogHeader>
+              <DialogTitle>Edit Installment</DialogTitle>
+              <DialogDescription>
+                Update the installment details for the selected fee structure.
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="grid gap-2">
+              <Label>Installment Name *</Label>
+              <Input
+                value={editingInstallment?.installment_name || ""}
+                onChange={(e) =>
+                  setEditingInstallment((prev) => ({
+                    ...prev,
+                    installment_name: e.target.value,
+                  }))
+                }
+              />
+            </div>
+
+            <div className="grid gap-2">
+              <Label>Amount *</Label>
+              <Input
+                type="number"
+                min="1"
+                value={editingInstallment?.amount || ""}
+                onChange={(e) =>
+                  setEditingInstallment((prev) => ({
+                    ...prev,
+                    amount: e.target.value,
+                  }))
+                }
+              />
+            </div>
+
+            <div className="grid gap-2">
+              <Label>Due Date</Label>
+              <Input
+                type="date"
+                value={editingInstallment?.due_date || ""}
+                onChange={(e) =>
+                  setEditingInstallment((prev) => ({
+                    ...prev,
+                    due_date: e.target.value,
+                  }))
+                }
+              />
+            </div>
+            {installmentError && <p className="text-sm text-red-600">{installmentError}</p>}
+
+            <DialogFooter showCloseButton>
+              <Button type="submit">Update</Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      <AlertDialog
+        open={!!deletingInstallment}
+        onOpenChange={(open) => {
+          if (!open) setDeletingInstallment(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete installment?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {deletingInstallment
+                ? `This will delete the installment '${deletingInstallment.installment_name}'.`
+                : "This action cannot be undone."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              onClick={() => handleDeleteInstallment(deletingInstallment)}
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   );
 }

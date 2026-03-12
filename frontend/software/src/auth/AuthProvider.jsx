@@ -1,9 +1,11 @@
 import { useState, useEffect } from "react";
 import { AuthContext } from "./AuthContext";
+import { logoutApi } from "../api/auth.api";
 
 export default function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
+
   useEffect(() => {
     const accessToken = localStorage.getItem("accessToken");
     const userData = localStorage.getItem("user");
@@ -13,6 +15,18 @@ export default function AuthProvider({ children }) {
     }
     setLoading(false);
   }, []);
+
+  useEffect(() => {
+    function handleForcedLogout() {
+      setUser(null);
+    }
+
+    window.addEventListener("auth:logout", handleForcedLogout);
+    return () => {
+      window.removeEventListener("auth:logout", handleForcedLogout);
+    };
+  }, []);
+
   function login(data) {
     localStorage.setItem("accessToken", data.accessToken);
     localStorage.setItem("refreshToken", data.refreshToken);
@@ -21,12 +35,17 @@ export default function AuthProvider({ children }) {
     setUser(data.user);
   }
 
-  function logout() {
-    localStorage.removeItem("accessToken");
-    localStorage.removeItem("refreshToken");
-    localStorage.removeItem("user");
-
-    setUser(null);
+  async function logout() {
+    try {
+      await logoutApi();
+    } catch (err) {
+      console.error(err);
+    } finally {
+      localStorage.removeItem("accessToken");
+      localStorage.removeItem("refreshToken");
+      localStorage.removeItem("user");
+      setUser(null);
+    }
   }
 
   return (

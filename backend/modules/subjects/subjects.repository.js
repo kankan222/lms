@@ -34,11 +34,39 @@ export async function updateSubject(id, name, code) {
   );
 }
 
+let subjectIsActiveColumnPromise;
+
+function hasSubjectIsActiveColumn() {
+  if (!subjectIsActiveColumnPromise) {
+    subjectIsActiveColumnPromise = query(
+      `
+        SELECT 1
+        FROM information_schema.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = 'subjects'
+          AND COLUMN_NAME = 'is_active'
+        LIMIT 1
+      `,
+    ).then((rows) => rows.length > 0);
+  }
+
+  return subjectIsActiveColumnPromise;
+}
+
 // DELETE SUBJECT
 export async function deleteSubject(id) {
-  return query(`UPDATE subjects
-     SET is_active = FALSE
-     WHERE id = ?`, [id]);
+  const hasIsActive = await hasSubjectIsActiveColumn();
+
+  if (hasIsActive) {
+    return query(
+      `UPDATE subjects
+       SET is_active = FALSE
+       WHERE id = ?`,
+      [id],
+    );
+  }
+
+  return query(`DELETE FROM subjects WHERE id = ?`, [id]);
 }
 
 export async function assignSubjects(classId, subjectIds) {
@@ -94,3 +122,5 @@ export async function getSubjectsByTeacher(conn, teacherId) {
 
   return rows;
 }
+
+

@@ -23,7 +23,7 @@ import {
 } from "../../services/feesService";
 import { formatDateLabel } from "../../utils/format";
 
-type ClassItem = { id: number; name: string };
+type ClassItem = { id: number; name: string; class_scope?: "school" | "hs" };
 type SessionItem = { id: number; name: string; is_active?: boolean | number };
 
 export default function FeesTab() {
@@ -32,6 +32,7 @@ export default function FeesTab() {
   const [sessions, setSessions] = useState<SessionItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [search, setSearch] = useState("");
 
   const [expandedId, setExpandedId] = useState<number | null>(null);
 
@@ -55,6 +56,27 @@ export default function FeesTab() {
     [sessions]
   );
 
+  const filteredFees = useMemo(() => {
+    const query = search.trim().toLowerCase();
+    if (!query) return fees;
+    return fees.filter((fee) => {
+      const haystack = `${fee.class_name || ""} ${fee.session_name || ""} ${fee.admission_fee || ""}`.toLowerCase();
+      return haystack.includes(query);
+    });
+  }, [fees, search]);
+
+  const feeSummary = useMemo(() => {
+    return filteredFees.reduce(
+      (acc, fee) => {
+        acc.structures += 1;
+        acc.installments += Array.isArray(fee.installments) ? fee.installments.length : 0;
+        acc.admissionTotal += Number(fee.admission_fee || 0);
+        return acc;
+      },
+      { structures: 0, installments: 0, admissionTotal: 0 }
+    );
+  }, [filteredFees]);
+
   useEffect(() => {
     (async () => {
       setLoading(true);
@@ -64,7 +86,9 @@ export default function FeesTab() {
           getSessions(),
           getAllFeeStructures(),
         ]);
-        setClasses(classRows.map((c) => ({ id: Number(c.id), name: c.name })));
+        setClasses(
+          classRows.map((c) => ({ id: Number(c.id), name: c.name, class_scope: c.class_scope }))
+        );
         setSessions(
           (sessionRows ?? []).map((s) => ({
             id: Number(s.id),
@@ -114,6 +138,10 @@ export default function FeesTab() {
 
   function openEditFeeModal(fee: FeeStructure) {
     setEditingFeeId(Number(fee.id));
+    const matchedClass = classes.find((item) => item.name === fee.class_name);
+    const matchedSession = sessions.find((item) => item.name === fee.session_name);
+    setClassId(matchedClass?.id ?? null);
+    setSessionId(matchedSession?.id ?? activeSession?.id ?? null);
     setAdmissionFee(String(fee.admission_fee ?? ""));
     setFeeModalOpen(true);
   }
@@ -152,6 +180,7 @@ export default function FeesTab() {
       await refreshFees();
       setFeeModalOpen(false);
       resetFeeForm();
+      Alert.alert("Fee saved", editingFeeId ? "Fee structure updated successfully." : "Fee structure created successfully.");
     } catch (err: unknown) {
       Alert.alert("Save failed", getErrorMessage(err, "Could not save fee structure."));
     } finally {
@@ -169,6 +198,7 @@ export default function FeesTab() {
           try {
             await deleteFeeStructure(fee.id);
             await refreshFees();
+            Alert.alert("Fee deleted", "Fee structure deleted successfully.");
           } catch (err: unknown) {
             Alert.alert("Delete failed", getErrorMessage(err, "Could not delete fee structure."));
           }
@@ -227,6 +257,7 @@ export default function FeesTab() {
       await refreshFees();
       setInstallmentModalOpen(false);
       resetInstallmentForm();
+      Alert.alert("Installment saved", editingInstallmentId ? "Installment updated successfully." : "Installment created successfully.");
     } catch (err: unknown) {
       Alert.alert("Save failed", getErrorMessage(err, "Could not save installment."));
     } finally {
@@ -244,6 +275,7 @@ export default function FeesTab() {
           try {
             await deleteInstallment(inst.id);
             await refreshFees();
+            Alert.alert("Installment deleted", "Installment deleted successfully.");
           } catch (err: unknown) {
             Alert.alert("Delete failed", getErrorMessage(err, "Could not delete installment."));
           }
@@ -255,7 +287,10 @@ export default function FeesTab() {
   return (
     <View style={styles.root}>
       <View style={styles.toolbar}>
-        <Text style={styles.title}>Fees</Text>
+        <View style={styles.toolbarCopy}>
+          <Text style={styles.title}>Fees</Text>
+          <Text style={styles.subtitle}>Manage fee structures and installments</Text>
+        </View>
         <View style={styles.toolbarActions}>
           <Pressable style={styles.secondaryBtn} onPress={openCreateInstallmentModal}>
             <Text style={styles.secondaryBtnText}>Add Installment</Text>
@@ -266,15 +301,31 @@ export default function FeesTab() {
         </View>
       </View>
 
+      <View style={styles.filterCard}>
+        <TextInput
+          style={styles.input}
+          value={search}
+          onChangeText={setSearch}
+          placeholder="Search class, session, or amount"
+        />
+      </View>
+
+      <View style={styles.summaryGrid}>
+        <SummaryCard label="Structures" value={feeSummary.structures} />
+        <SummaryCard label="Installments" value={feeSummary.installments} />
+        <SummaryCard label="Admission Total" value={`Rs ${feeSummary.admissionTotal}`} />
+      </View>
+
       {loading ? (
         <View style={styles.centered}>
           <ActivityIndicator size="large" color="#0f172a" />
         </View>
       ) : (
         <ScrollView style={styles.listWrap} contentContainerStyle={styles.listContent}>
-          {fees.length ? (
-            fees.map((fee) => {
+          {filteredFees.length ? (
+            filteredFees.map((fee) => {
               const isExpanded = expandedId === fee.id;
+              const classMeta = classes.find((item) => item.name === fee.class_name);
               return (
                 <View key={fee.id} style={styles.card}>
                   <Pressable
@@ -286,7 +337,10 @@ export default function FeesTab() {
                       <Text style={styles.meta}>{fee.class_name}</Text>
                       <Text style={styles.meta}>{fee.session_name}</Text>
                     </View>
-                    <Text style={styles.expandText}>{isExpanded ? "Hide" : "Show"}</Text>
+                    <View style={styles.headerRight}>
+                      <ScopeBadge scope={classMeta?.class_scope} />
+                      <Text style={styles.expandText}>{isExpanded ? "Hide" : "Show"}</Text>
+                    </View>
                   </Pressable>
 
                   <View style={styles.actionRow}>
@@ -349,6 +403,17 @@ export default function FeesTab() {
           <View style={styles.modalCard}>
             <Text style={styles.modalTitle}>{editingFeeId ? "Edit Fee Structure" : "Create Fee Structure"}</Text>
             <ScrollView style={styles.modalBody}>
+              {editingFeeId ? (
+                <View style={styles.contextCard}>
+                  <Text style={styles.contextTitle}>
+                    {classes.find((item) => item.id === classId)?.name || "Selected Class"}
+                  </Text>
+                  <Text style={styles.contextMeta}>
+                    {sessions.find((item) => item.id === sessionId)?.name || "Selected Session"}
+                  </Text>
+                </View>
+              ) : null}
+
               <Text style={styles.inputLabel}>Admission Fee *</Text>
               <TextInput
                 style={styles.input}
@@ -498,6 +563,34 @@ function getErrorMessage(err: unknown, fallback: string) {
   return fallback;
 }
 
+function formatScope(scope?: string | null) {
+  return scope === "hs" ? "Higher Secondary" : "School";
+}
+
+function ScopeBadge({ scope }: { scope?: string | null }) {
+  return (
+    <View style={[styles.scopeBadge, scope === "hs" ? styles.scopeBadgeHs : styles.scopeBadgeSchool]}>
+      <Text
+        style={[
+          styles.scopeBadgeText,
+          scope === "hs" ? styles.scopeBadgeTextHs : styles.scopeBadgeTextSchool,
+        ]}
+      >
+        {formatScope(scope)}
+      </Text>
+    </View>
+  );
+}
+
+function SummaryCard({ label, value }: { label: string; value: string | number }) {
+  return (
+    <View style={styles.summaryCard}>
+      <Text style={styles.summaryValue}>{value}</Text>
+      <Text style={styles.summaryLabel}>{label}</Text>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   root: {
     gap: 12,
@@ -512,10 +605,51 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: 8,
   },
+  toolbarCopy: {
+    flex: 1,
+  },
   title: {
     color: "#0f172a",
     fontWeight: "700",
     fontSize: 18,
+  },
+  subtitle: {
+    marginTop: 4,
+    color: "#64748b",
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  filterCard: {
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
+    borderRadius: 12,
+    backgroundColor: "#ffffff",
+    padding: 12,
+  },
+  summaryGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  summaryCard: {
+    minWidth: 96,
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
+    borderRadius: 12,
+    backgroundColor: "#ffffff",
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  summaryValue: {
+    color: "#0f172a",
+    fontWeight: "800",
+    fontSize: 16,
+  },
+  summaryLabel: {
+    marginTop: 4,
+    color: "#64748b",
+    fontWeight: "600",
+    fontSize: 12,
   },
   centered: {
     alignItems: "center",
@@ -539,7 +673,12 @@ const styles = StyleSheet.create({
   cardHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
-    alignItems: "center",
+    alignItems: "flex-start",
+    gap: 8,
+  },
+  headerRight: {
+    alignItems: "flex-end",
+    gap: 8,
   },
   cardTitle: {
     color: "#0f172a",
@@ -553,6 +692,30 @@ const styles = StyleSheet.create({
   expandText: {
     color: "#334155",
     fontWeight: "700",
+  },
+  scopeBadge: {
+    borderWidth: 1,
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  scopeBadgeSchool: {
+    borderColor: "#bfdbfe",
+    backgroundColor: "#eff6ff",
+  },
+  scopeBadgeHs: {
+    borderColor: "#fde68a",
+    backgroundColor: "#fffbeb",
+  },
+  scopeBadgeText: {
+    fontWeight: "700",
+    fontSize: 12,
+  },
+  scopeBadgeTextSchool: {
+    color: "#1d4ed8",
+  },
+  scopeBadgeTextHs: {
+    color: "#b45309",
   },
   actionRow: {
     marginTop: 10,
@@ -655,6 +818,22 @@ const styles = StyleSheet.create({
   modalBody: {
     maxHeight: 460,
   },
+  contextCard: {
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
+    borderRadius: 10,
+    backgroundColor: "#f8fafc",
+    padding: 10,
+    marginBottom: 10,
+  },
+  contextTitle: {
+    color: "#0f172a",
+    fontWeight: "700",
+  },
+  contextMeta: {
+    color: "#64748b",
+    marginTop: 3,
+  },
   inputLabel: {
     color: "#334155",
     fontWeight: "600",
@@ -718,6 +897,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     alignItems: "center",
     justifyContent: "center",
+    backgroundColor: "#ffffff",
   },
   secondaryBtnText: {
     color: "#334155",
@@ -741,4 +921,3 @@ const styles = StyleSheet.create({
     marginTop: 10,
   },
 });
-

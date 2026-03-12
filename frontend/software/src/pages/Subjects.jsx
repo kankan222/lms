@@ -23,6 +23,17 @@ import {
   SheetTitle,
   SheetTrigger,
 } from "@/components/ui/sheet";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
 const Subjects = () => {
 
@@ -32,6 +43,7 @@ const Subjects = () => {
   const [createOpen, setCreateOpen] = useState(false);
   const [assignOpen, setAssignOpen] = useState(false);
   const [editingSubject, setEditingSubject] = useState(null);
+  const [deletingSubject, setDeletingSubject] = useState(null);
 
   const [newSubject, setNewSubject] = useState({
     name: "",
@@ -42,11 +54,24 @@ const Subjects = () => {
   const [createError, setCreateError] = useState("");
   const [editError, setEditError] = useState("");
   const [assignError, setAssignError] = useState("");
+  const [notice, setNotice] = useState(null);
 
   useEffect(() => {
     loadSubjects();
     loadClasses();
   }, []);
+
+  useEffect(() => {
+    if (!notice) return undefined;
+    const timeoutId = window.setTimeout(() => {
+      setNotice(null);
+    }, 3500);
+    return () => window.clearTimeout(timeoutId);
+  }, [notice]);
+
+  function showNotice(title, message, variant = "success") {
+    setNotice({ title, message, variant });
+  }
 
   async function loadSubjects() {
     const res = await getSubjects();
@@ -72,6 +97,7 @@ const Subjects = () => {
     try {
       await createSubject(newSubject);
     } catch (err) {
+      showNotice("Create Failed", err?.message || "Failed to create subject.", "error");
       setCreateError(err?.message || "Failed to create subject.");
       return;
     }
@@ -84,6 +110,7 @@ const Subjects = () => {
     });
 
     setCreateOpen(false);
+    showNotice("Subject Created", "Subject record created successfully.");
   }
 
   async function handleUpdate(e) {
@@ -101,6 +128,7 @@ const Subjects = () => {
     try {
       await updateSubject(editingSubject.id, editingSubject);
     } catch (err) {
+      showNotice("Update Failed", err?.message || "Failed to update subject.", "error");
       setEditError(err?.message || "Failed to update subject.");
       return;
     }
@@ -108,15 +136,19 @@ const Subjects = () => {
     await loadSubjects();
 
     setEditingSubject(null);
+    showNotice("Subject Updated", "Subject record updated successfully.");
   }
 
-  async function handleDelete(id) {
-    const confirmDelete = confirm("Delete this subject?");
-    if (!confirmDelete) return;
-
-    await deleteSubject(id);
-
-    setSubjects((prev) => prev.filter((s) => s.id !== id));
+  async function handleDelete() {
+    if (!deletingSubject?.id) return;
+    try {
+      await deleteSubject(deletingSubject.id);
+      setSubjects((prev) => prev.filter((s) => s.id !== deletingSubject.id));
+      setDeletingSubject(null);
+      showNotice("Subject Deleted", "Subject record deleted successfully.");
+    } catch (err) {
+      showNotice("Delete Failed", err?.message || "Failed to delete subject.", "error");
+    }
   }
 async function handleAssign() {
     setAssignError("");
@@ -145,6 +177,26 @@ async function handleAssign() {
   }
   return (
     <>
+      <div className="pointer-events-none fixed top-6 right-6 z-50 w-full max-w-sm">
+        <div
+          className={`transition-all duration-500 ease-out ${
+            notice
+              ? "translate-x-0 scale-100 opacity-100"
+              : "translate-x-12 scale-95 opacity-0"
+          }`}
+        >
+          {notice && (
+            <Alert
+              variant={notice.variant === "error" ? "destructive" : "success"}
+              className="pointer-events-auto overflow-hidden border shadow-xl"
+            >
+              <AlertTitle>{notice.title}</AlertTitle>
+              <AlertDescription>{notice.message}</AlertDescription>
+            </Alert>
+          )}
+        </div>
+      </div>
+
       <TopBar
         title="Subjects"
         subTitle="Find all subjects here"
@@ -315,7 +367,7 @@ async function handleAssign() {
 
               <Button
                 variant="destructive"
-                onClick={() => handleDelete(data.id)}
+                onClick={() => setDeletingSubject(data)}
               >
                 <TrashIcon />
               </Button>
@@ -379,6 +431,30 @@ async function handleAssign() {
 
         </SheetContent>
       </Sheet>
+
+      <AlertDialog
+        open={!!deletingSubject}
+        onOpenChange={(open) => {
+          if (!open) setDeletingSubject(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete subject?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {deletingSubject
+                ? `This will remove ${deletingSubject.name} from the subjects list.`
+                : "This action cannot be undone."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction variant="destructive" onClick={handleDelete}>
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
     </>
   );

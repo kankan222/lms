@@ -5,13 +5,25 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Trash2 } from "lucide-react";
 import {
-  Sheet,
-  SheetContent,
-  SheetFooter,
-  SheetHeader,
-  SheetTitle,
-  SheetTrigger
-} from "@/components/ui/sheet";
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger
+} from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle
+} from "@/components/ui/alert-dialog";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { getClassStructure } from "../api/academic.api";
 import { getSubjects } from "../api/subjects.api";
 import { createExam, deleteExam, getExamById, getExams, updateExam } from "../api/exam.api";
@@ -22,7 +34,9 @@ export default function Exams() {
   const [allSubjects, setAllSubjects] = useState([]);
   const [open, setOpen] = useState(false);
   const [editingId, setEditingId] = useState(null);
+  const [deletingExam, setDeletingExam] = useState(null);
   const [formError, setFormError] = useState("");
+  const [notice, setNotice] = useState(null);
   const [form, setForm] = useState({
     name: "",
     scopes: [{ class_id: "", section_id: "" }],
@@ -49,8 +63,21 @@ export default function Exams() {
     loadInitial();
   }, []);
 
+  useEffect(() => {
+    if (!notice) return undefined;
+    const timeoutId = window.setTimeout(() => {
+      setNotice(null);
+    }, 3500);
+    return () => window.clearTimeout(timeoutId);
+  }, [notice]);
+
+  function showNotice(title, message, variant = "success") {
+    setNotice({ title, message, variant });
+  }
+
   function resetForm() {
     setEditingId(null);
+    setFormError("");
     setForm({
       name: "",
       scopes: [{ class_id: "", section_id: "" }],
@@ -162,6 +189,11 @@ export default function Exams() {
       if (editingId) await updateExam(editingId, payload);
       else await createExam(payload);
     } catch (err) {
+      showNotice(
+        editingId ? "Update Failed" : "Create Failed",
+        err?.message || "Failed to save exam.",
+        "error"
+      );
       setFormError(err?.message || "Failed to save exam.");
       return;
     }
@@ -169,6 +201,10 @@ export default function Exams() {
     await loadInitial();
     setOpen(false);
     resetForm();
+    showNotice(
+      editingId ? "Exam Updated" : "Exam Created",
+      editingId ? "Exam updated successfully." : "Exam created successfully."
+    );
   }
 
   async function onEdit(examId) {
@@ -194,33 +230,61 @@ export default function Exams() {
   }
 
   async function onDelete(examId) {
-    if (!window.confirm("Delete this exam?")) return;
-    await deleteExam(examId);
-    await loadInitial();
+    try {
+      await deleteExam(examId);
+      await loadInitial();
+      setDeletingExam(null);
+      showNotice("Exam Deleted", "Exam deleted successfully.");
+    } catch (err) {
+      showNotice("Delete Failed", err?.message || "Failed to delete exam.", "error");
+    }
   }
 
   return (
     <>
+      <div className="pointer-events-none fixed top-6 right-6 z-50 w-full max-w-sm">
+        <div
+          className={`transition-all duration-500 ease-out ${
+            notice
+              ? "translate-x-0 scale-100 opacity-100"
+              : "translate-x-12 scale-95 opacity-0"
+          }`}
+        >
+          {notice && (
+            <Alert
+              variant={notice.variant === "error" ? "destructive" : "success"}
+              className="pointer-events-auto overflow-hidden border shadow-xl"
+            >
+              <AlertTitle>{notice.title}</AlertTitle>
+              <AlertDescription>{notice.message}</AlertDescription>
+            </Alert>
+          )}
+        </div>
+      </div>
+
       <TopBar
         title="Exams"
         subTitle="Create exams for multiple classes/sections with subject mark allocation"
         action={
-          <Sheet
+          <Dialog
             open={open}
             onOpenChange={(v) => {
               setOpen(v);
               if (!v) resetForm();
             }}
           >
-            <SheetTrigger asChild>
+            <DialogTrigger asChild>
               <Button>{editingId ? "Edit Exam" : "Add Exam"}</Button>
-            </SheetTrigger>
+            </DialogTrigger>
 
-            <SheetContent className="overflow-y-auto">
-              <form onSubmit={onSubmit} className="px-4 space-y-4">
-                <SheetHeader>
-                  <SheetTitle>{editingId ? "Update Exam" : "Create Exam"}</SheetTitle>
-                </SheetHeader>
+            <DialogContent className="max-h-[85vh] overflow-y-auto">
+              <form onSubmit={onSubmit} className="space-y-4">
+                <DialogHeader>
+                  <DialogTitle>{editingId ? "Update Exam" : "Create Exam"}</DialogTitle>
+                  <DialogDescription>
+                    Create exam scopes and assign subjects with marks for each exam.
+                  </DialogDescription>
+                </DialogHeader>
 
                 <div className="grid gap-2">
                   <Label>Exam Name *</Label>
@@ -329,14 +393,14 @@ export default function Exams() {
                 {formError && (
                   <p className="text-sm text-red-600">{formError}</p>
                 )}
-                <SheetFooter>
-                  <Button type="submit" className="w-full">
+                <DialogFooter showCloseButton>
+                  <Button type="submit" className="w-full sm:w-auto">
                     {editingId ? "Update Exam" : "Save Exam"}
                   </Button>
-                </SheetFooter>
+                </DialogFooter>
               </form>
-            </SheetContent>
-          </Sheet>
+            </DialogContent>
+          </Dialog>
         }
       />
 
@@ -347,16 +411,43 @@ export default function Exams() {
             <p className="text-xs text-muted-foreground">Session: {exam.session_name || "-"}</p>
             <p className="text-xs text-muted-foreground">Exam ID: {exam.id}</p>
             <div className="flex gap-2 mt-3">
-              <Button size="sm" onClick={() => onEdit(exam.id)}>
+              <Button variant="secondary" size="sm" onClick={() => onEdit(exam.id)}>
                 Edit
               </Button>
-              <Button size="sm" variant="destructive" onClick={() => onDelete(exam.id)}>
+              <Button size="sm" variant="destructive" onClick={() => setDeletingExam(exam)}>
                 Delete
               </Button>
             </div>
           </div>
         ))}
       </div>
+
+      <AlertDialog
+        open={!!deletingExam}
+        onOpenChange={(open) => {
+          if (!open) setDeletingExam(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete exam?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {deletingExam
+                ? `This will delete the exam '${deletingExam.name}'.`
+                : "This action cannot be undone."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              onClick={() => onDelete(deletingExam.id)}
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   );
 }

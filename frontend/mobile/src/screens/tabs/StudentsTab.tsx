@@ -10,7 +10,7 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { getClassStructure, getSessions } from "../../services/classesService";
+import { getClassStructure, getSessions, type ClassStructureItem } from "../../services/classesService";
 import { getExams } from "../../services/examsService";
 import {
   bulkUploadStudentsCsv,
@@ -22,13 +22,8 @@ import {
 } from "../../services/studentsService";
 import StudentDetailsModule from "./students/StudentDetailsModule";
 
-type ClassItem = {
-  id: number;
-  name: string;
-  medium?: string | null;
-  sections: Array<{ id: number; name: string; medium?: "English" | "Assamese" | null }>;
-};
 type SessionItem = { id: number; name: string; is_active?: number | boolean };
+type StudentScope = "school" | "hs";
 
 type CreateForm = {
   admission_no: string;
@@ -41,6 +36,7 @@ type CreateForm = {
   class_id: number | null;
   section_id: number | null;
   roll_number: string;
+  stream: string;
   father_name: string;
   father_mobile: string;
   mother_name: string;
@@ -54,6 +50,13 @@ type EditForm = {
   mobile: string;
   gender: string;
   dob: string;
+  date_of_admission: string;
+  session_id: number | null;
+  class_id: number | null;
+  section_id: number | null;
+  roll_number: string;
+  stream: string;
+  class_scope: StudentScope;
 };
 
 const EMPTY_CREATE: CreateForm = {
@@ -67,6 +70,7 @@ const EMPTY_CREATE: CreateForm = {
   class_id: null,
   section_id: null,
   roll_number: "",
+  stream: "",
   father_name: "",
   father_mobile: "",
   mother_name: "",
@@ -80,16 +84,33 @@ const EMPTY_EDIT: EditForm = {
   mobile: "",
   gender: "",
   dob: "",
+  date_of_admission: "",
+  session_id: null,
+  class_id: null,
+  section_id: null,
+  roll_number: "",
+  stream: "",
+  class_scope: "school",
 };
 
+const STREAM_OPTIONS = ["Arts", "Commerce", "Science"] as const;
+
 const BULK_TEMPLATE = [
-  "admission_no,name,dob,gender,mobile,date_of_admission,session_id,class_id,section_id,medium,roll_number,father_name,father_mobile,father_email,father_occupation,father_qualification,mother_name,mother_mobile,mother_email,mother_occupation,mother_qualification,photo_url",
-  "ADM-2026-001,Aarav Das,2010-08-12,male,9876543210,2025-04-01,1,1,1,English,12,Rajiv Das,9123456789,rajiv.das@example.com,Business,B.Com,Meera Das,9234567890,meera.das@example.com,Teacher,M.A.,",
+  "admission_no,name,dob,gender,mobile,date_of_admission,session,class,section,medium,stream,roll_number,father_name,father_mobile,father_email,father_occupation,father_qualification,mother_name,mother_mobile,mother_email,mother_occupation,mother_qualification,photo_url",
+  "ADM-2026-001,Rahul Das,2012-05-10,male,9876543210,2026-04-01,2026-2027,Class 8,A,English,,5,Ramesh Das,9876500001,ramesh@example.com,Farmer,Graduate,Sima Das,9876500002,sima@example.com,Homemaker,HS,/uploads/students/sample-school.jpg",
+  "ADM-2026-101,Ankita Sharma,2008-07-12,female,9876543222,2026-04-01,2026-2027,HS 1st Year,A1,English,Science,12,Madan Sharma,9876500011,madan@example.com,Business,Graduate,Mina Sharma,9876500012,mina@example.com,Teacher,Graduate,/uploads/students/sample-hs.jpg",
 ].join("\n");
+
+function formatScope(value?: string | null) {
+  const scope = String(value || "").trim().toLowerCase();
+  if (scope === "hs") return "Higher Secondary";
+  if (scope === "school") return "School";
+  return "-";
+}
 
 export default function StudentsTab() {
   const [students, setStudents] = useState<Student[]>([]);
-  const [classes, setClasses] = useState<ClassItem[]>([]);
+  const [classes, setClasses] = useState<ClassStructureItem[]>([]);
   const [sessions, setSessions] = useState<SessionItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -98,14 +119,8 @@ export default function StudentsTab() {
   const [sectionId, setSectionId] = useState<number | null>(null);
   const [search, setSearch] = useState("");
   const selectedClass = useMemo(() => classes.find((c) => c.id === classId) ?? null, [classes, classId]);
-  const classById = useMemo(
-    () => new Map(classes.map((c) => [String(c.id), c])),
-    [classes]
-  );
-  const classByName = useMemo(
-    () => new Map(classes.map((c) => [String(c.name || "").toLowerCase(), c])),
-    [classes]
-  );
+  const classById = useMemo(() => new Map(classes.map((c) => [String(c.id), c])), [classes]);
+  const classByName = useMemo(() => new Map(classes.map((c) => [String(c.name || "").toLowerCase(), c])), [classes]);
 
   const [createOpen, setCreateOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
@@ -125,7 +140,7 @@ export default function StudentsTab() {
     const q = search.trim().toLowerCase();
     if (!q) return students;
     return students.filter((s) => {
-      const hay = `${s.name || ""} ${s.phone || ""} ${s.class || ""} ${s.section || ""} ${s.roll_number || ""}`.toLowerCase();
+      const hay = `${s.name || ""} ${s.phone || s.mobile || ""} ${s.class || ""} ${s.section || ""} ${s.roll_number || ""} ${s.stream_name || ""} ${s.class_scope || ""}`.toLowerCase();
       return hay.includes(q);
     });
   }, [students, search]);
@@ -134,7 +149,7 @@ export default function StudentsTab() {
     (async () => {
       try {
         const [c, s, e] = await Promise.all([getClassStructure(), getSessions(), getExams()]);
-        setClasses(c as ClassItem[]);
+        setClasses(c as ClassStructureItem[]);
         setSessions((s || []).map((x) => ({ id: Number(x.id), name: x.name, is_active: x.is_active })));
         setExams((e || []).map((x) => ({ id: Number(x.id), name: x.name })));
       } catch {
@@ -176,13 +191,13 @@ export default function StudentsTab() {
     if (!/^\d{10}$/.test(form.mobile.trim())) errs.mobile = "Student phone must be 10 digits.";
     if (!form.gender.trim()) errs.gender = "Gender is required.";
     if (!isDate(form.dob)) errs.dob = "DOB must be YYYY-MM-DD.";
-    if (form.date_of_admission.trim() && !isDate(form.date_of_admission)) {
-      errs.date_of_admission = "Admission date must be YYYY-MM-DD.";
-    }
+    if (form.date_of_admission.trim() && !isDate(form.date_of_admission)) errs.date_of_admission = "Admission date must be YYYY-MM-DD.";
     if (!form.session_id) errs.session_id = "Session is required.";
     if (!form.class_id) errs.class_id = "Class is required.";
     if (!form.section_id) errs.section_id = "Section is required.";
     if (!form.roll_number.trim()) errs.roll_number = "Roll number is required.";
+    const chosenClass = classes.find((c) => c.id === form.class_id);
+    if (chosenClass?.class_scope === "hs" && !form.stream.trim()) errs.stream = "Stream is required for higher secondary classes.";
     if (!form.father_name.trim()) errs.father_name = "Father name is required.";
     if (!/^\d{10}$/.test(form.father_mobile.trim())) errs.father_mobile = "Father phone must be 10 digits.";
     if (!form.mother_name.trim()) errs.mother_name = "Mother name is required.";
@@ -196,6 +211,12 @@ export default function StudentsTab() {
     if (!/^\d{10}$/.test(form.mobile.trim())) errs.mobile = "Phone must be 10 digits.";
     if (!form.gender.trim()) errs.gender = "Gender is required.";
     if (!isDate(form.dob)) errs.dob = "DOB must be YYYY-MM-DD.";
+    if (form.date_of_admission.trim() && !isDate(form.date_of_admission)) errs.date_of_admission = "Admission date must be YYYY-MM-DD.";
+    if (!form.session_id) errs.session_id = "Session is required.";
+    if (!form.class_id) errs.class_id = "Class is required.";
+    if (!form.section_id) errs.section_id = "Section is required.";
+    if (!form.roll_number.trim()) errs.roll_number = "Roll number is required.";
+    if (form.class_scope === "hs" && !form.stream.trim()) errs.stream = "Stream is required for higher secondary classes.";
     return errs;
   }
 
@@ -221,6 +242,7 @@ export default function StudentsTab() {
           section_id: Number(createForm.section_id),
           medium: String((classes.find((c) => c.id === createForm.class_id)?.sections || []).find((s) => s.id === createForm.section_id)?.medium || "").trim() || undefined,
           roll_number: createForm.roll_number.trim(),
+          stream: createForm.stream.trim() || undefined,
         },
         father: { name: createForm.father_name.trim(), mobile: createForm.father_mobile.trim() },
         mother: { name: createForm.mother_name.trim(), mobile: createForm.mother_mobile.trim() },
@@ -257,13 +279,21 @@ export default function StudentsTab() {
   }
 
   function openEdit(s: Student) {
+    const matched = classById.get(String(s.class_id ?? "")) || classByName.get(String(s.class || "").toLowerCase());
     setEditForm({
       id: s.id,
       admission_no: s.admission_no || "",
       name: s.name || "",
-      mobile: s.phone || "",
+      mobile: s.phone || s.mobile || "",
       gender: s.gender || "",
       dob: s.dob || "",
+      date_of_admission: s.date_of_admission || "",
+      session_id: s.session_id || null,
+      class_id: s.class_id || matched?.id || null,
+      section_id: s.section_id || null,
+      roll_number: String(s.roll_number || ""),
+      stream: s.stream_name || "",
+      class_scope: (s.class_scope || matched?.class_scope || "school") as StudentScope,
     });
     setEditErrors({});
     setEditOpen(true);
@@ -283,6 +313,12 @@ export default function StudentsTab() {
         mobile: editForm.mobile.trim(),
         gender: editForm.gender.trim().toLowerCase(),
         dob: editForm.dob.trim(),
+        date_of_admission: editForm.date_of_admission.trim() || undefined,
+        session_id: Number(editForm.session_id),
+        class_id: Number(editForm.class_id),
+        section_id: Number(editForm.section_id),
+        roll_number: editForm.roll_number.trim(),
+        stream: editForm.class_scope === "hs" ? editForm.stream.trim() || undefined : "",
       });
       setEditOpen(false);
       setEditForm(EMPTY_EDIT);
@@ -319,11 +355,16 @@ export default function StudentsTab() {
   }
 
   const activeSession = sessions.find((s) => Number(s.is_active) === 1 || s.is_active === true);
+  const createSelectedClass = classes.find((c) => c.id === createForm.class_id) ?? null;
+  const editSelectedClass = classes.find((c) => c.id === editForm.class_id) ?? null;
 
   return (
     <View style={styles.root}>
       <View style={styles.toolbar}>
-        <Text style={styles.title}>Students</Text>
+        <View>
+          <Text style={styles.title}>Students</Text>
+          <Text style={styles.subtitle}>Find all student details here</Text>
+        </View>
         <View style={styles.row}>
           <Pressable
             style={styles.secondaryBtn}
@@ -350,7 +391,7 @@ export default function StudentsTab() {
       <View style={styles.block}>
         <TextInput
           style={styles.input}
-          placeholder="Search by name, phone, class, section, roll"
+          placeholder="Search by name, phone, class, section, roll, stream"
           value={search}
           onChangeText={setSearch}
         />
@@ -366,7 +407,7 @@ export default function StudentsTab() {
             <Text style={[styles.label, styles.mt]}>Section</Text>
             <ScrollView horizontal contentContainerStyle={styles.row}>
               <Pressable style={[styles.chip, sectionId === null && styles.chipA]} onPress={() => setSectionId(null)}><Text>All</Text></Pressable>
-              {(selectedClass?.sections || []).map((s) => <Pressable key={s.id} style={[styles.chip, sectionId === s.id && styles.chipA]} onPress={() => setSectionId(s.id)}><Text>{s.name}</Text></Pressable>)}
+              {(selectedClass?.sections || []).map((s) => <Pressable key={s.id} style={[styles.chip, sectionId === s.id && styles.chipA]} onPress={() => setSectionId(s.id)}><Text>{s.name}{s.medium ? ` (${s.medium})` : ""}</Text></Pressable>)}
             </ScrollView>
           </>
         ) : null}
@@ -374,33 +415,36 @@ export default function StudentsTab() {
 
       {loading ? <ActivityIndicator /> : (
         <ScrollView contentContainerStyle={styles.list}>
-          {filteredStudents.map((s) => (
-            <Pressable key={s.id} style={styles.card} onPress={() => openDetails(s)}>
-              {(() => {
-                const matched =
-                  classById.get(String(s.class_id ?? "")) ||
-                  classByName.get(String(s.class || "").toLowerCase());
-                const matchedSection = (matched?.sections || []).find((sec) => String(sec.id) === String(s.section_id ?? ""));
-                const medium = s.medium || matchedSection?.medium || "Not set";
-                return <Text style={styles.t2}>Medium: {medium}</Text>;
-              })()}
-              <Text style={styles.t1}>{s.name}</Text>
-              <Text style={styles.t2}>{s.class || "-"} - {s.section || "-"} | Roll {s.roll_number || "-"}</Text>
-              <Text style={styles.t2}>Phone: {s.phone || "-"}</Text>
-              <View style={styles.row}>
-                <Pressable style={styles.btn2} onPress={() => openDetails(s)}><Text>Details</Text></Pressable>
-                <Pressable style={styles.btn2} onPress={() => openEdit(s)}><Text>Edit</Text></Pressable>
-                <Pressable style={styles.btn3} onPress={() => confirmDelete(s)}><Text style={{ color: "#b91c1c" }}>Delete</Text></Pressable>
-              </View>
-            </Pressable>
-          ))}
+          {filteredStudents.map((s) => {
+            const matched = classById.get(String(s.class_id ?? "")) || classByName.get(String(s.class || "").toLowerCase());
+            const matchedSection = (matched?.sections || []).find((sec) => String(sec.id) === String(s.section_id ?? ""));
+            const medium = s.medium || matchedSection?.medium || "Not set";
+            const scopeLabel = formatScope(s.class_scope || matched?.class_scope || "school");
+            return (
+              <Pressable key={s.id} style={styles.card} onPress={() => openDetails(s)}>
+                <Text style={styles.t1}>{s.name}</Text>
+                <Text style={styles.t2}>{s.class || "-"} - {s.section || "-"} | Roll {s.roll_number || "-"}</Text>
+                <Text style={styles.t2}>Scope: {scopeLabel}</Text>
+                <Text style={styles.t2}>Medium: {medium}</Text>
+                {String(s.class_scope || matched?.class_scope || "school").toLowerCase() === "hs" ? (
+                  <Text style={styles.t2}>Stream: {s.stream_name || "-"}</Text>
+                ) : null}
+                <Text style={styles.t2}>Phone: {s.phone || s.mobile || "-"}</Text>
+                <View style={styles.row}>
+                  <Pressable style={styles.btn2} onPress={() => openDetails(s)}><Text>Details</Text></Pressable>
+                  <Pressable style={styles.btn2} onPress={() => openEdit(s)}><Text>Edit</Text></Pressable>
+                  <Pressable style={styles.btn3} onPress={() => confirmDelete(s)}><Text style={{ color: "#b91c1c" }}>Delete</Text></Pressable>
+                </View>
+              </Pressable>
+            );
+          })}
           {!filteredStudents.length ? <Text>No students found.</Text> : null}
         </ScrollView>
       )}
 
       <Modal visible={bulkOpen} transparent animationType="slide" onRequestClose={() => setBulkOpen(false)}>
         <Sheet title="Bulk Upload Students" onClose={() => setBulkOpen(false)}>
-          <Text style={styles.t2}>Use this CSV header format. IDs must match your DB:</Text>
+          <Text style={styles.t2}>Scope is derived from the selected class in each CSV row. Keep stream blank for School classes and fill it only for Higher Secondary rows.</Text>
           <TextInput
             style={[styles.input, styles.textarea]}
             multiline
@@ -472,15 +516,25 @@ export default function StudentsTab() {
 
           <FormLabel label="Class *" />
           <ScrollView horizontal contentContainerStyle={styles.row}>
-            {classes.map((c) => <Pressable key={c.id} style={[styles.chip, createForm.class_id === c.id && styles.chipA]} onPress={() => setCreateForm((p) => ({ ...p, class_id: c.id, section_id: null }))}><Text>{c.name}</Text></Pressable>)}
+            {classes.map((c) => <Pressable key={c.id} style={[styles.chip, createForm.class_id === c.id && styles.chipA]} onPress={() => setCreateForm((p) => ({ ...p, class_id: c.id, section_id: null, stream: "" }))}><Text>{c.name}</Text></Pressable>)}
           </ScrollView>
           <FieldError message={createErrors.class_id} />
 
           <FormLabel label="Section *" />
           <ScrollView horizontal contentContainerStyle={styles.row}>
-            {(classes.find((c) => c.id === createForm.class_id)?.sections || []).map((s) => <Pressable key={s.id} style={[styles.chip, createForm.section_id === s.id && styles.chipA]} onPress={() => setCreateForm((p) => ({ ...p, section_id: s.id }))}><Text>{s.name}{s.medium ? ` (${s.medium})` : ""}</Text></Pressable>)}
+            {(createSelectedClass?.sections || []).map((s) => <Pressable key={s.id} style={[styles.chip, createForm.section_id === s.id && styles.chipA]} onPress={() => setCreateForm((p) => ({ ...p, section_id: s.id }))}><Text>{s.name}{s.medium ? ` (${s.medium})` : ""}</Text></Pressable>)}
           </ScrollView>
           <FieldError message={createErrors.section_id} />
+
+          {createSelectedClass?.class_scope === "hs" ? (
+            <>
+              <FormLabel label="Stream *" />
+              <ScrollView horizontal contentContainerStyle={styles.row}>
+                {STREAM_OPTIONS.map((item) => <Pressable key={item} style={[styles.chip, createForm.stream === item && styles.chipA]} onPress={() => setCreateForm((p) => ({ ...p, stream: item }))}><Text>{item}</Text></Pressable>)}
+              </ScrollView>
+              <FieldError message={createErrors.stream} />
+            </>
+          ) : null}
 
           <View style={styles.row}>
             <Pressable style={styles.btn2} onPress={() => setCreateOpen(false)}><Text>Cancel</Text></Pressable>
@@ -509,6 +563,42 @@ export default function StudentsTab() {
           <FormLabel label="DOB * (YYYY-MM-DD)" />
           <TextInput style={styles.input} value={editForm.dob} onChangeText={(v) => setEditForm((p) => ({ ...p, dob: v }))} />
           <FieldError message={editErrors.dob} />
+
+          <FormLabel label="Admission date (YYYY-MM-DD)" />
+          <TextInput style={styles.input} value={editForm.date_of_admission} onChangeText={(v) => setEditForm((p) => ({ ...p, date_of_admission: v }))} />
+          <FieldError message={editErrors.date_of_admission} />
+
+          <FormLabel label="Session *" />
+          <ScrollView horizontal contentContainerStyle={styles.row}>
+            {sessions.map((s) => <Pressable key={s.id} style={[styles.chip, editForm.session_id === s.id && styles.chipA]} onPress={() => setEditForm((p) => ({ ...p, session_id: s.id }))}><Text>{s.name}</Text></Pressable>)}
+          </ScrollView>
+          <FieldError message={editErrors.session_id} />
+
+          <FormLabel label="Class *" />
+          <ScrollView horizontal contentContainerStyle={styles.row}>
+            {classes.map((c) => <Pressable key={c.id} style={[styles.chip, editForm.class_id === c.id && styles.chipA]} onPress={() => setEditForm((p) => ({ ...p, class_id: c.id, section_id: null, class_scope: (c.class_scope || "school") as StudentScope, stream: (c.class_scope || "school") === "hs" ? p.stream : "" }))}><Text>{c.name}</Text></Pressable>)}
+          </ScrollView>
+          <FieldError message={editErrors.class_id} />
+
+          <FormLabel label="Section *" />
+          <ScrollView horizontal contentContainerStyle={styles.row}>
+            {(editSelectedClass?.sections || []).map((s) => <Pressable key={s.id} style={[styles.chip, editForm.section_id === s.id && styles.chipA]} onPress={() => setEditForm((p) => ({ ...p, section_id: s.id }))}><Text>{s.name}{s.medium ? ` (${s.medium})` : ""}</Text></Pressable>)}
+          </ScrollView>
+          <FieldError message={editErrors.section_id} />
+
+          <FormLabel label="Roll number *" />
+          <TextInput style={styles.input} value={editForm.roll_number} onChangeText={(v) => setEditForm((p) => ({ ...p, roll_number: v }))} />
+          <FieldError message={editErrors.roll_number} />
+
+          {editForm.class_scope === "hs" ? (
+            <>
+              <FormLabel label="Stream *" />
+              <ScrollView horizontal contentContainerStyle={styles.row}>
+                {STREAM_OPTIONS.map((item) => <Pressable key={item} style={[styles.chip, editForm.stream === item && styles.chipA]} onPress={() => setEditForm((p) => ({ ...p, stream: item }))}><Text>{item}</Text></Pressable>)}
+              </ScrollView>
+              <FieldError message={editErrors.stream} />
+            </>
+          ) : null}
 
           <View style={styles.row}>
             <Pressable style={styles.btn2} onPress={() => setEditOpen(false)}><Text>Cancel</Text></Pressable>
@@ -559,13 +649,13 @@ function getErr(err: unknown, fallback: string) {
 
 const styles = StyleSheet.create({
   root: { gap: 12 },
-  toolbar: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
+  toolbar: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 12 },
   title: { fontSize: 18, fontWeight: "700", color: "#0f172a" },
+  subtitle: { color: "#64748b", marginTop: 4 },
   primaryBtn: { backgroundColor: "#0f172a", borderRadius: 8, paddingHorizontal: 12, paddingVertical: 8 },
   secondaryBtn: { borderWidth: 1, borderColor: "#cbd5e1", borderRadius: 8, paddingHorizontal: 12, paddingVertical: 8, backgroundColor: "#fff" },
   primaryBtnText: { color: "#fff", fontWeight: "600" },
   block: { borderWidth: 1, borderColor: "#e2e8f0", borderRadius: 12, backgroundColor: "#fff", padding: 12 },
-  block2: { borderWidth: 1, borderColor: "#e2e8f0", borderRadius: 10, backgroundColor: "#f8fafc", padding: 10 },
   row: { flexDirection: "row", flexWrap: "wrap", gap: 8, alignItems: "center" },
   list: { gap: 10, paddingBottom: 10 },
   card: { borderWidth: 1, borderColor: "#e2e8f0", borderRadius: 12, backgroundColor: "#fff", padding: 12 },
@@ -584,19 +674,3 @@ const styles = StyleSheet.create({
   fieldError: { color: "#b91c1c", marginBottom: 6, fontSize: 12 },
   mt: { marginTop: 10 },
 });
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

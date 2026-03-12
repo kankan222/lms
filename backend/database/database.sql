@@ -22,14 +22,6 @@ CREATE TABLE roles (
     name VARCHAR(50) UNIQUE NOT NULL
 );
 
-INSERT INTO roles(name) VALUES
-('super_admin'),
-('teacher'),
-('student'),
-('parent'),
-('accounts'),
-('staff');
-
 -- USER_ROLES
 CREATE TABLE user_roles (
     user_id BIGINT,
@@ -117,8 +109,6 @@ CREATE TABLE streams (
     name VARCHAR(50) UNIQUE
 );
 
-INSERT INTO streams(name)
-VALUES ('Arts'),('Science'),('Commerce');
 ----------PEOPLE TABLES
 -- STUDENTS 
 CREATE TABLE students (
@@ -372,7 +362,7 @@ CREATE TABLE marks_entries (
     approved_by BIGINT,
     approved_at DATETIME,
     FOREIGN KEY(student_id) REFERENCES students(id),
-    FOREIGN KEY(exam_id) REFERENCES exams(id),
+    FOREIGN KEY(exam_id) REFERENCES exams(id) ON DELETE CASCADE,
     FOREIGN KEY(subject_id) REFERENCES subjects(id),
     UNIQUE KEY uniq_student_exam_subject (student_id, exam_id, subject_id),
     INDEX(student_id, exam_id)
@@ -511,3 +501,12 @@ CREATE TABLE activity_logs (
     INDEX(entity_type, entity_id)
 );
 
+CREATE TABLE IF NOT EXISTS staff (
+      id BIGINT AUTO_INCREMENT PRIMARY KEY,
+      image_url VARCHAR(500),
+      name VARCHAR(150) NOT NULL,
+      title VARCHAR(50) NOT NULL DEFAULT 'HEADSTAFF',
+      type ENUM('school','college') NOT NULL DEFAULT 'school',
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+  );

@@ -64,13 +64,19 @@ export default function DataTable({
   const statusColor = (status) => {
     const value = String(status || "").trim().toLowerCase();
 
-    if (value === "paid" || value === "active") {
+    if (value === "paid" || value === "active" || value === "present") {
       return "bg-green-100 text-green-700";
     }
     if (value === "partial") {
       return "bg-amber-100 text-amber-700";
     }
-    if (value === "pending" || value === "inactive" || value === "deactive" || value === "suspended") {
+    if (
+      value === "pending" ||
+      value === "inactive" ||
+      value === "deactive" ||
+      value === "suspended" ||
+      value === "absent"
+    ) {
       return "bg-red-100 text-red-700";
     }
     if (value === "primary") return "bg-blue-100 text-blue-700";
@@ -135,7 +141,7 @@ export default function DataTable({
                 </td>
 
                 {columns.map((col) => (
-                  <td key={col.accessor} className="p-3 text-base text-primary">
+                  <td key={col.accessor} className="p-3 text-base text-black">
                     {col.accessor === "status" || col.accessor === "display_status" ? (
                       <span
                         className={`px-3 py-1 text-xs rounded-full font-medium ${statusColor(

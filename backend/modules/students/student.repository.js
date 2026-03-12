@@ -106,6 +106,42 @@ export async function insertEnrollment(conn, enrollment) {
   return result.insertId;
 }
 
+export async function getClassById(classId) {
+  const [rows] = await pool.execute(
+    `SELECT id, name, class_scope
+     FROM classes
+     WHERE id = ?
+     LIMIT 1`,
+    [classId]
+  );
+
+  return rows[0] || null;
+}
+
+export async function getStreamById(streamId) {
+  const [rows] = await pool.execute(
+    `SELECT id, name
+     FROM streams
+     WHERE id = ?
+     LIMIT 1`,
+    [streamId]
+  );
+
+  return rows[0] || null;
+}
+
+export async function getStreamByName(name) {
+  const [rows] = await pool.execute(
+    `SELECT id, name
+     FROM streams
+     WHERE LOWER(name) = LOWER(?)
+     LIMIT 1`,
+    [name]
+  );
+
+  return rows[0] || null;
+}
+
 export async function getStudents(filters = {}) {
   const classId = filters.class_id ?? filters.classId;
   const sectionId = filters.section_id ?? filters.sectionId;
@@ -136,9 +172,12 @@ export async function getStudents(filters = {}) {
       se.roll_number,
       se.class_id,
       se.section_id,
+      se.stream_id,
       c.name AS class,
+      c.class_scope,
       sec.name AS section,
-      sec.medium AS medium
+      sec.medium AS medium,
+      str.name AS stream_name
      FROM students s
      LEFT JOIN student_enrollments se
        ON s.id = se.student_id AND se.status='active'
@@ -146,6 +185,8 @@ export async function getStudents(filters = {}) {
        ON se.class_id = c.id
      LEFT JOIN sections sec
        ON se.section_id = sec.id
+     LEFT JOIN streams str
+       ON se.stream_id = str.id
      ${whereClause}
      ORDER BY s.id DESC`,
     params
@@ -161,10 +202,13 @@ export async function getStudentById(id) {
       se.roll_number,
       se.class_id,
       se.section_id,
+      se.stream_id,
       se.session_id,
       c.name AS class,
+      c.class_scope,
       sec.name AS section,
       sec.medium AS medium,
+      str.name AS stream_name,
       sess.name AS session
      FROM students s
      LEFT JOIN student_enrollments se
@@ -173,6 +217,8 @@ export async function getStudentById(id) {
        ON se.class_id = c.id
      LEFT JOIN sections sec
        ON se.section_id = sec.id
+     LEFT JOIN streams str
+       ON se.stream_id = str.id
      LEFT JOIN academic_sessions sess
        ON se.session_id = sess.id
      WHERE s.id=?`,
@@ -229,6 +275,30 @@ export async function updateStudent(id, data) {
   );
 
   return { message: "updated" };
+}
+
+export async function updateActiveEnrollment(studentId, data) {
+  await pool.execute(
+    `UPDATE student_enrollments
+     SET
+       session_id = ?,
+       class_id = ?,
+       section_id = ?,
+       stream_id = ?,
+       roll_number = ?
+     WHERE student_id = ?
+       AND status = 'active'`,
+    [
+      data.session_id ?? null,
+      data.class_id ?? null,
+      data.section_id ?? null,
+      data.stream_id ?? null,
+      data.roll_number ?? null,
+      studentId
+    ]
+  );
+
+  return { message: "enrollment updated" };
 }
 
 export async function deleteStudent(id) {

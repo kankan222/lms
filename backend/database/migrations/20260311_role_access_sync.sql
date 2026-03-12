@@ -1,7 +1,7 @@
 -- Sync role access model on server
 -- Intended result:
 --   super_admin -> all permissions
---   teacher     -> marks + teacher listing + attendance only
+--   teacher     -> marks/report access + teacher profile + attendance only
 --   accounts    -> payments only
 
 INSERT IGNORE INTO permissions(name) VALUES
@@ -64,7 +64,7 @@ INSERT IGNORE INTO role_permissions (role_id, permission_id)
 SELECT r.id, p.id
 FROM roles r
 JOIN permissions p
-  ON p.name IN ('marks.enter', 'marks.view', 'teacher.view', 'attendance.take')
+  ON p.name IN ('marks.enter', 'marks.view', 'teacher.view', 'attendance.take', 'subjects.view', 'exams.view')
 WHERE r.name = 'teacher';
 
 -- accounts gets only payments access

@@ -71,6 +71,9 @@ const Home = () => {
               <h1 className="text-xl font-bold text-gray-900">{card.title}</h1>
               <p className="text-gray-900 text-base">{card.desc}</p>
               <p className="text-gray-600 text-sm">{card.address}</p>
+              <Button variant="" className="bg-punch-600 rounded-2xl hover:bg-punch-800 mt-5"> 
+                Click Here
+              </Button>
             </div>
           </div>
         ))}

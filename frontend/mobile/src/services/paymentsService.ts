@@ -18,6 +18,7 @@ export type PaymentItem = {
   status: string;
   fee_status?: string | null;
   created_at: string;
+  payment_date?: string | null;
   fee_type: string;
   fee_amount: number;
   student_id: number;
@@ -25,6 +26,7 @@ export type PaymentItem = {
   class_name: string;
   section_name: string;
   medium?: string | null;
+  class_scope?: "school" | "hs" | string | null;
 };
 
 export type StudentFeeOption = {
@@ -42,11 +44,57 @@ export type PaymentFilters = {
   class_id?: number | string;
   section_id?: number | string;
   student_id?: number | string;
+  scope?: string;
+  payment_date?: string;
+  date_from?: string;
+  date_to?: string;
 };
 
 export async function getPayments(filters: PaymentFilters = {}) {
   const response = await api.get<ApiEnvelope<PaymentItem[]>>("/fees/payments", { params: filters });
   return response.data?.data ?? [];
+}
+
+export async function downloadAndSharePaymentsCsv(filters: PaymentFilters = {}) {
+  const accessToken = useAuthStore.getState().accessToken;
+  if (!accessToken) {
+    throw new Error("Not authenticated");
+  }
+
+  if (!FileSystem.cacheDirectory) {
+    throw new Error("File cache is not available on this device");
+  }
+
+  const query = new URLSearchParams();
+  if (filters.class_id) query.set("class_id", String(filters.class_id));
+  if (filters.section_id) query.set("section_id", String(filters.section_id));
+  if (filters.student_id) query.set("student_id", String(filters.student_id));
+  if (filters.scope) query.set("scope", filters.scope);
+  if (filters.payment_date) query.set("payment_date", filters.payment_date);
+  if (filters.date_from) query.set("date_from", filters.date_from);
+  if (filters.date_to) query.set("date_to", filters.date_to);
+
+  const suffix = query.toString() ? `?${query.toString()}` : "";
+  const fileDate = filters.payment_date || new Date().toISOString().slice(0, 10);
+  const url = `${ENV.API_BASE_URL}/fees/payments/export${suffix}`;
+  const target = `${FileSystem.cacheDirectory}payments-${fileDate}.csv`;
+
+  const download = await FileSystem.downloadAsync(url, target, {
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+    },
+  });
+
+  const canShare = await Sharing.isAvailableAsync();
+  if (canShare) {
+    await Sharing.shareAsync(download.uri, {
+      mimeType: "text/csv",
+      dialogTitle: "Payments Export",
+      UTI: "public.comma-separated-values-text",
+    });
+  }
+
+  return download.uri;
 }
 
 export async function getStudentFeeOptions(studentId: number | string) {

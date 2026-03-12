@@ -75,12 +75,46 @@ export async function getTeachers() {
   return repo.getTeachers();
 }
 
+async function resolveActorTeacher(actorUserId) {
+  const teacher = await repo.getTeacherByUserId(actorUserId);
+  if (!teacher) {
+    throw new AppError("Teacher profile not found", 404);
+  }
+  return teacher;
+}
+
+function canManageTeachers(actorPermissions = []) {
+  return actorPermissions.includes("teacher.update");
+}
+
+export async function getTeachersForActor({ actorUserId, actorPermissions = [] }) {
+  if (canManageTeachers(actorPermissions)) {
+    return repo.getTeachers();
+  }
+
+  const teacher = await resolveActorTeacher(actorUserId);
+  return [teacher];
+}
+
 export async function getTeacherById(id) {
 
   const teacher = await repo.getTeacherById(id);
 
   if (!teacher)
     throw new AppError("Teacher not found", 404);
+
+  return teacher;
+}
+
+export async function getTeacherForActor({ teacherId, actorUserId, actorPermissions = [] }) {
+  if (canManageTeachers(actorPermissions)) {
+    return getTeacherById(teacherId);
+  }
+
+  const teacher = await resolveActorTeacher(actorUserId);
+  if (Number(teacher.id) !== Number(teacherId)) {
+    throw new AppError("Forbidden", 403);
+  }
 
   return teacher;
 }
@@ -185,6 +219,22 @@ export async function getTeacherAssignments(teacherId) {
   return repo.getTeacherAssignments(teacherId);
 }
 
+export async function getTeacherAssignmentsForActor({ teacherId, actorUserId, actorPermissions = [] }) {
+  const teacher = canManageTeachers(actorPermissions)
+    ? await repo.getTeacherById(teacherId)
+    : await resolveActorTeacher(actorUserId);
+
+  if (!teacher) {
+    throw new AppError("Teacher not found", 404);
+  }
+
+  if (!canManageTeachers(actorPermissions) && Number(teacher.id) !== Number(teacherId)) {
+    throw new AppError("Forbidden", 403);
+  }
+
+  return repo.getTeacherAssignments(teacher.id);
+}
+
 /* ------------------ ATTENDANCE DEVICES ------------------ */
 
 export async function createAttendanceDevice(data) {
@@ -263,10 +313,54 @@ export async function getTeacherAttendance({
     endDate
   });
 }
+
+export async function getTeacherAttendanceForActor({
+  teacherId,
+  actorUserId,
+  actorPermissions = [],
+  startDate,
+  endDate,
+}) {
+  const teacher = canManageTeachers(actorPermissions)
+    ? await repo.getTeacherById(teacherId)
+    : await resolveActorTeacher(actorUserId);
+
+  if (!teacher) {
+    throw new AppError("Teacher not found", 404);
+  }
+
+  if (!canManageTeachers(actorPermissions) && Number(teacher.id) !== Number(teacherId)) {
+    throw new AppError("Forbidden", 403);
+  }
+
+  return repo.getTeacherAttendance({
+    teacherId: teacher.id,
+    startDate,
+    endDate,
+  });
+}
 export async function getAllTeacherAttendance(params) {
 
   return repo.getAllTeacherAttendance(params);
 
+}
+
+export async function getAllTeacherAttendanceForActor({
+  actorUserId,
+  actorPermissions = [],
+  startDate,
+  endDate,
+}) {
+  if (canManageTeachers(actorPermissions)) {
+    return repo.getAllTeacherAttendance({ startDate, endDate });
+  }
+
+  const teacher = await resolveActorTeacher(actorUserId);
+  return repo.getTeacherAttendance({
+    teacherId: teacher.id,
+    startDate,
+    endDate,
+  });
 }
 export async function generateDailyAttendance(data) {
 

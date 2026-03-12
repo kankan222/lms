@@ -73,6 +73,11 @@ router.get(
   feeController.getPayments,
 );
 router.get(
+  "/payments/export",
+  requirePermission("payment.view"),
+  feeController.exportPaymentsCsv,
+);
+router.get(
   "/student-fees/:studentId",
   requirePermission("payment.view"),
   feeController.getStudentFeeOptions,

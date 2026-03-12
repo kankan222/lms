@@ -3,6 +3,12 @@ import { apiRequest } from "../../../shared/api/client.js";
 export async function getSessions() {
   return apiRequest("/academic/sessions");
 }
+export async function createSession(data) {
+  return apiRequest("/academic/sessions", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
 export async function getClasses() {
   return apiRequest("/academic/classes");
 }

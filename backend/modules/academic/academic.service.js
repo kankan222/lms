@@ -1,6 +1,16 @@
 import * as repo from "./academic.repository.js";
 
 const ALLOWED_CLASS_MEDIA = new Set(["English", "Assamese"]);
+const ALLOWED_CLASS_SCOPES = new Set(["school", "hs"]);
+
+function normalizeClassScope(value) {
+  const scope = String(value || "school").trim().toLowerCase();
+  if (!ALLOWED_CLASS_SCOPES.has(scope)) {
+    throw new Error("Invalid class scope. Allowed values: school, hs");
+  }
+  return scope;
+}
+
 function normalizeSections(input, fallbackMediums = []) {
   const fallbackMedium = Array.isArray(fallbackMediums) && fallbackMediums.length
     ? String(fallbackMediums[0] || "").trim()
@@ -82,6 +92,7 @@ export async function getClassStructure() {
       map[r.class_id] = {
         id: r.class_id,
         name: r.class_name,
+        class_scope: r.class_scope || "school",
         medium: r.class_medium || null,
         mediums,
         _mediumSet: new Set(mediums),
@@ -139,6 +150,7 @@ export async function getClassStructure() {
 }
 export function createClass(data) {
   if (!data.name) throw new Error("Class name required");
+  const classScope = normalizeClassScope(data.class_scope);
   const legacyMediums = normalizeMediums(data.mediums ?? data.medium);
   const sections = normalizeSections(data.sections || [], legacyMediums);
   if (!sections.length) {
@@ -150,13 +162,14 @@ export function createClass(data) {
   if (sections.some((s) => !ALLOWED_CLASS_MEDIA.has(s.medium))) {
     throw new Error("Invalid section medium. Allowed values: English, Assamese");
   }
-  return repo.createClass(data.name, sections);
+  return repo.createClass(data.name, classScope, sections);
 }
 export function updateClass(id, data) {
 
   if (!data.name)
     throw new Error("Class name required");
 
+  const classScope = normalizeClassScope(data.class_scope);
   const legacyMediums = normalizeMediums(data.mediums ?? data.medium);
   const sections = normalizeSections(data.sections || [], legacyMediums);
   if (!sections.length) {
@@ -169,7 +182,7 @@ export function updateClass(id, data) {
     throw new Error("Invalid section medium. Allowed values: English, Assamese");
   }
 
-  return repo.updateClass(id, data.name , sections);
+  return repo.updateClass(id, data.name, classScope, sections);
 }
 
 export async function deleteClass(id) {

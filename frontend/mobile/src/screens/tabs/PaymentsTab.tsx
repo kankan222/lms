@@ -15,17 +15,20 @@ import { getStudents } from "../../services/studentsService";
 import {
   createPayment,
   deletePayment,
+  downloadAndSharePaymentsCsv,
   downloadAndShareReceipt,
   getPayments,
   getStudentFeeOptions,
-  PaymentItem,
-  StudentFeeOption,
+  type PaymentItem,
+  type StudentFeeOption,
   updatePayment,
 } from "../../services/paymentsService";
+import { formatDateLabel } from "../../utils/format";
 
 type ClassStructureItem = {
   id: number;
   name: string;
+  class_scope?: "school" | "hs";
   sections: Array<{ id: number; name: string; medium?: string | null }>;
 };
 
@@ -70,6 +73,8 @@ export default function PaymentsTab() {
 
   const [filterClassId, setFilterClassId] = useState<number | null>(null);
   const [filterSectionId, setFilterSectionId] = useState<number | null>(null);
+  const [filterScope, setFilterScope] = useState<"" | "school" | "hs">("");
+  const [paymentDate, setPaymentDate] = useState("");
 
   const [createOpen, setCreateOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
@@ -77,6 +82,7 @@ export default function PaymentsTab() {
   const [saving, setSaving] = useState(false);
 
   const [students, setStudents] = useState<StudentItem[]>([]);
+  const [studentSearch, setStudentSearch] = useState("");
   const [feeOptions, setFeeOptions] = useState<StudentFeeOption[]>([]);
   const [createForm, setCreateForm] = useState<CreateForm>(EMPTY_CREATE_FORM);
   const [editForm, setEditForm] = useState<EditForm>(EMPTY_EDIT_FORM);
@@ -96,6 +102,26 @@ export default function PaymentsTab() {
     [feeOptions, createForm.student_fee_id]
   );
 
+  const filteredStudents = useMemo(() => {
+    const query = studentSearch.trim().toLowerCase();
+    if (!query) return students;
+    return students.filter((student) => String(student.name || "").toLowerCase().includes(query));
+  }, [studentSearch, students]);
+
+  const summary = useMemo(() => {
+    return payments.reduce(
+      (acc, payment) => {
+        const status = getPaymentStatus(payment);
+        acc.total += 1;
+        acc.amount += Number(payment.amount_paid || 0);
+        if (status === "paid") acc.paid += 1;
+        if (status === "partial") acc.partial += 1;
+        return acc;
+      },
+      { total: 0, paid: 0, partial: 0, amount: 0 }
+    );
+  }, [payments]);
+
   useEffect(() => {
     (async () => {
       setLoading(true);
@@ -112,11 +138,12 @@ export default function PaymentsTab() {
 
   useEffect(() => {
     loadPayments();
-  }, [filterClassId, filterSectionId]);
+  }, [filterClassId, filterSectionId, filterScope, paymentDate]);
 
   useEffect(() => {
     if (!createForm.class_id || !createForm.section_id) {
       setStudents([]);
+      setStudentSearch("");
       setCreateForm((prev) => ({ ...prev, student_id: null, student_fee_id: null }));
       return;
     }
@@ -138,6 +165,8 @@ export default function PaymentsTab() {
       const rows = await getPayments({
         class_id: filterClassId ?? undefined,
         section_id: filterSectionId ?? undefined,
+        scope: filterScope || undefined,
+        payment_date: paymentDate || undefined,
       });
       setPayments(rows);
     } catch (err: unknown) {
@@ -169,7 +198,7 @@ export default function PaymentsTab() {
       setFeeOptions([]);
       Alert.alert(
         "No due items",
-        getErrorMessage(err, "Fee ledger not available for this student.")
+        getErrorMessage(err, "Fee ledger is not available for this student.")
       );
     }
   }
@@ -179,11 +208,13 @@ export default function PaymentsTab() {
       Alert.alert("Validation", "Select due fee item.");
       return;
     }
+
     const amount = Number(createForm.amount_paid);
     if (!amount || amount <= 0) {
       Alert.alert("Validation", "Enter valid payment amount.");
       return;
     }
+
     if (selectedFee && amount > Number(selectedFee.remaining)) {
       Alert.alert("Validation", "Amount cannot exceed remaining fee.");
       return;
@@ -199,6 +230,7 @@ export default function PaymentsTab() {
       setCreateOpen(false);
       setCreateForm(EMPTY_CREATE_FORM);
       setStudents([]);
+      setStudentSearch("");
       setFeeOptions([]);
       await loadPayments();
     } catch (err: unknown) {
@@ -219,6 +251,7 @@ export default function PaymentsTab() {
 
   async function handleUpdatePayment() {
     if (!editForm.id) return;
+
     const amount = Number(editForm.amount_paid);
     if (!amount || amount <= 0) {
       Alert.alert("Validation", "Enter valid payment amount.");
@@ -270,17 +303,74 @@ export default function PaymentsTab() {
     }
   }
 
+  async function handleExport() {
+    try {
+      await downloadAndSharePaymentsCsv({
+        class_id: filterClassId ?? undefined,
+        section_id: filterSectionId ?? undefined,
+        scope: filterScope || undefined,
+        payment_date: paymentDate || undefined,
+      });
+    } catch (err: unknown) {
+      Alert.alert("Export failed", getErrorMessage(err, "Failed to export payments."));
+    }
+  }
+
+  function resetFilters() {
+    setFilterScope("");
+    setFilterClassId(null);
+    setFilterSectionId(null);
+    setPaymentDate("");
+  }
+
   return (
     <View style={styles.root}>
       <View style={styles.toolbar}>
-        <Text style={styles.title}>Payments</Text>
-        <Pressable style={styles.primaryBtn} onPress={() => setCreateOpen(true)}>
-          <Text style={styles.primaryBtnText}>Record Payment</Text>
-        </Pressable>
+        <View style={styles.toolbarCopy}>
+          <Text style={styles.title}>Payments</Text>
+          <Text style={styles.subtitle}>Record and manage fee payments</Text>
+        </View>
+        <View style={styles.toolbarActions}>
+          <Pressable style={styles.secondaryBtn} onPress={handleExport}>
+            <Text style={styles.secondaryBtnText}>Export CSV</Text>
+          </Pressable>
+          <Pressable style={styles.primaryBtn} onPress={() => setCreateOpen(true)}>
+            <Text style={styles.primaryBtnText}>Record Payment</Text>
+          </Pressable>
+        </View>
       </View>
 
       <View style={styles.filterBlock}>
         <Text style={styles.filterTitle}>Filters</Text>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipWrap}>
+          {[
+            { label: "All Scope", value: "" },
+            { label: "School", value: "school" },
+            { label: "Higher Secondary", value: "hs" },
+          ].map((item) => {
+            const active = filterScope === item.value;
+            return (
+              <Pressable
+                key={`scope-${item.label}`}
+                style={[styles.chip, active && styles.chipActive]}
+                onPress={() => setFilterScope(item.value as "" | "school" | "hs")}
+              >
+                <Text style={[styles.chipText, active && styles.chipTextActive]}>{item.label}</Text>
+              </Pressable>
+            );
+          })}
+        </ScrollView>
+
+        <Text style={[styles.filterTitle, styles.spaceTop]}>Payment Date</Text>
+        <TextInput
+          style={styles.input}
+          value={paymentDate}
+          onChangeText={setPaymentDate}
+          placeholder="YYYY-MM-DD"
+          autoCapitalize="none"
+        />
+
+        <Text style={[styles.filterTitle, styles.spaceTop]}>Classes</Text>
         <View style={styles.chipWrap}>
           <Pressable
             style={[styles.chip, filterClassId === null && styles.chipActive]}
@@ -331,7 +421,8 @@ export default function PaymentsTab() {
                     onPress={() => setFilterSectionId(section.id)}
                   >
                     <Text style={[styles.chipText, active && styles.chipTextActive]}>
-                      {section.name}{section.medium ? ` (${section.medium})` : ""}
+                      {section.name}
+                      {section.medium ? ` (${section.medium})` : ""}
                     </Text>
                   </Pressable>
                 );
@@ -339,6 +430,17 @@ export default function PaymentsTab() {
             </View>
           </>
         ) : null}
+
+        <Pressable style={[styles.secondaryBtn, styles.resetBtn]} onPress={resetFilters}>
+          <Text style={styles.secondaryBtnText}>Reset Filters</Text>
+        </Pressable>
+      </View>
+
+      <View style={styles.summaryGrid}>
+        <SummaryCard label="Records" value={summary.total} />
+        <SummaryCard label="Paid" value={summary.paid} />
+        <SummaryCard label="Partial" value={summary.partial} />
+        <SummaryCard label="Collected" value={`Rs ${summary.amount}`} />
       </View>
 
       {loading ? (
@@ -352,17 +454,26 @@ export default function PaymentsTab() {
               const status = getPaymentStatus(row);
               return (
                 <View key={row.id} style={styles.card}>
-                  <Text style={styles.cardTitle}>{row.student_name}</Text>
+                  <View style={styles.cardHeader}>
+                    <View style={styles.cardHeaderCopy}>
+                      <Text style={styles.cardTitle}>{row.student_name}</Text>
+                      <Text style={styles.meta}>{formatScope(row.class_scope)}</Text>
+                    </View>
+                    <View style={[styles.statusBadge, statusStyle(status)]}>
+                      <Text style={[styles.statusBadgeText, statusTextStyle(status)]}>
+                        {toTitle(status)}
+                      </Text>
+                    </View>
+                  </View>
+                  <Text style={styles.meta}>Date: {formatDateLabel(row.payment_date || row.created_at)}</Text>
                   <Text style={styles.meta}>
-                    {row.class_name} - {row.section_name}
+                    Class: {row.class_name || "-"} | Section: {row.section_name || "-"}
                   </Text>
                   <Text style={styles.meta}>Medium: {row.medium || "-"}</Text>
                   <Text style={styles.meta}>
-                    {row.fee_type} | Paid: Rs {row.amount_paid}
+                    {row.fee_type || "-"} | Paid: Rs {Number(row.amount_paid || 0)}
                   </Text>
-                  <View style={[styles.statusBadge, statusStyle(status)]}>
-                    <Text style={[styles.statusBadgeText, statusTextStyle(status)]}>{toTitle(status)}</Text>
-                  </View>
+                  <Text style={styles.meta}>Remarks: {row.remarks || "-"}</Text>
                   <View style={styles.rowActions}>
                     <Pressable style={styles.secondaryBtn} onPress={() => openEditPayment(row)}>
                       <Text style={styles.secondaryBtnText}>Edit</Text>
@@ -389,6 +500,10 @@ export default function PaymentsTab() {
           <View style={styles.modalCard}>
             <Text style={styles.modalTitle}>Record Payment</Text>
             <ScrollView style={styles.modalBody}>
+              <Text style={styles.modalSubtitle}>
+                Select the student due item and enter the payment details.
+              </Text>
+
               <Text style={styles.inputLabel}>Class *</Text>
               <View style={styles.chipWrap}>
                 {classes.map((item) => {
@@ -431,16 +546,25 @@ export default function PaymentsTab() {
                       }
                     >
                       <Text style={[styles.chipText, active && styles.chipTextActive]}>
-                        {section.name}{section.medium ? ` (${section.medium})` : ""}
-                    </Text>
+                        {section.name}
+                        {section.medium ? ` (${section.medium})` : ""}
+                      </Text>
                     </Pressable>
                   );
                 })}
               </View>
 
+              <Text style={[styles.inputLabel, styles.spaceTop]}>Student Search</Text>
+              <TextInput
+                style={styles.input}
+                value={studentSearch}
+                onChangeText={setStudentSearch}
+                placeholder="Search student"
+              />
+
               <Text style={[styles.inputLabel, styles.spaceTop]}>Student *</Text>
               <View style={styles.chipWrap}>
-                {students.map((student) => {
+                {filteredStudents.map((student) => {
                   const active = createForm.student_id === student.id;
                   return (
                     <Pressable
@@ -461,6 +585,9 @@ export default function PaymentsTab() {
                   );
                 })}
               </View>
+              {createForm.section_id && filteredStudents.length === 0 ? (
+                <Text style={styles.helperText}>No students match this search.</Text>
+              ) : null}
 
               <Text style={[styles.inputLabel, styles.spaceTop]}>Due Fee Item *</Text>
               <View style={styles.dueItemWrap}>
@@ -481,7 +608,7 @@ export default function PaymentsTab() {
                         {f.installment_name || f.fee_type}
                       </Text>
                       <Text style={[styles.dueSubText, active && styles.dueTextActive]}>
-                        Remaining: {f.remaining}
+                        Remaining: {Number(f.remaining || 0)}
                       </Text>
                     </Pressable>
                   );
@@ -498,7 +625,7 @@ export default function PaymentsTab() {
               />
               {selectedFee ? (
                 <Text style={styles.helperText}>
-                  Due: {selectedFee.amount} | Paid: {selectedFee.paid} | Remaining: {selectedFee.remaining}
+                  Due: {Number(selectedFee.amount || 0)} | Paid: {Number(selectedFee.paid || 0)} | Remaining: {Number(selectedFee.remaining || 0)}
                 </Text>
               ) : null}
 
@@ -528,6 +655,8 @@ export default function PaymentsTab() {
           <View style={styles.modalCard}>
             <Text style={styles.modalTitle}>Edit Payment</Text>
             <ScrollView style={styles.modalBody}>
+              <Text style={styles.modalSubtitle}>Update the amount or remarks for this payment.</Text>
+
               <Text style={styles.inputLabel}>Amount Paid *</Text>
               <TextInput
                 style={styles.input}
@@ -565,6 +694,13 @@ function getPaymentStatus(row: PaymentItem) {
   return raw || "-";
 }
 
+function formatScope(value?: string | null) {
+  const scope = String(value || "").trim().toLowerCase();
+  if (scope === "hs") return "Higher Secondary";
+  if (scope === "school") return "School";
+  return "-";
+}
+
 function statusStyle(status: string) {
   if (status === "paid") return { borderColor: "#86efac", backgroundColor: "#dcfce7" };
   if (status === "partial") return { borderColor: "#fde68a", backgroundColor: "#fef3c7" };
@@ -597,6 +733,15 @@ function getErrorMessage(err: unknown, fallback: string) {
   return fallback;
 }
 
+function SummaryCard({ label, value }: { label: string; value: string | number }) {
+  return (
+    <View style={styles.summaryCard}>
+      <Text style={styles.summaryValue}>{value}</Text>
+      <Text style={styles.summaryLabel}>{label}</Text>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   root: {
     gap: 12,
@@ -605,11 +750,25 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
+    gap: 8,
+  },
+  toolbarCopy: {
+    flex: 1,
+  },
+  toolbarActions: {
+    flexDirection: "row",
+    gap: 8,
   },
   title: {
     color: "#0f172a",
     fontWeight: "700",
     fontSize: 18,
+  },
+  subtitle: {
+    marginTop: 4,
+    color: "#64748b",
+    fontSize: 12,
+    fontWeight: "600",
   },
   filterBlock: {
     borderWidth: 1,
@@ -648,6 +807,35 @@ const styles = StyleSheet.create({
   chipTextActive: {
     color: "#0f172a",
   },
+  resetBtn: {
+    alignSelf: "flex-start",
+    marginTop: 12,
+  },
+  summaryGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  summaryCard: {
+    minWidth: 96,
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
+    borderRadius: 12,
+    backgroundColor: "#ffffff",
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  summaryValue: {
+    color: "#0f172a",
+    fontWeight: "800",
+    fontSize: 16,
+  },
+  summaryLabel: {
+    marginTop: 4,
+    color: "#64748b",
+    fontWeight: "600",
+    fontSize: 12,
+  },
   spaceTop: {
     marginTop: 10,
   },
@@ -670,6 +858,15 @@ const styles = StyleSheet.create({
     backgroundColor: "#ffffff",
     padding: 12,
   },
+  cardHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    gap: 8,
+  },
+  cardHeaderCopy: {
+    flex: 1,
+  },
   cardTitle: {
     color: "#0f172a",
     fontWeight: "700",
@@ -680,7 +877,7 @@ const styles = StyleSheet.create({
     color: "#475569",
   },
   statusBadge: {
-    marginTop: 6,
+    marginTop: 2,
     alignSelf: "flex-start",
     borderWidth: 1,
     borderRadius: 999,
@@ -718,6 +915,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     alignItems: "center",
     justifyContent: "center",
+    backgroundColor: "#fff",
   },
   secondaryBtnText: {
     color: "#334155",
@@ -760,6 +958,11 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     fontSize: 18,
     marginBottom: 10,
+  },
+  modalSubtitle: {
+    marginBottom: 10,
+    color: "#64748b",
+    fontSize: 13,
   },
   modalBody: {
     maxHeight: 470,
@@ -815,7 +1018,3 @@ const styles = StyleSheet.create({
     gap: 8,
   },
 });
-
-
-
-
