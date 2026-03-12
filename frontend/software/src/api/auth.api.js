@@ -1,5 +1,7 @@
 import { apiRequest } from "../../../shared/api/client.js";
 
+const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000/api/v1";
+
 export async function loginApi(identifier, password) {
   const credential = identifier?.trim();
   const isEmail = credential?.includes("@");
@@ -20,7 +22,7 @@ export async function refreshToken() {
 
   if (!refreshToken) return false;
 
-  const res = await fetch("http://localhost:5000/api/v1/auth/refresh", {
+  const res = await fetch(`${API_URL}/auth/refresh`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ refreshToken })

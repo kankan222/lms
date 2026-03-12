@@ -56,6 +56,8 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
+const API_ORIGIN = (import.meta.env.VITE_API_URL || "http://localhost:5000/api/v1").replace(/\/api\/v1\/?$/, "");
+
 export default function TeacherDetails() {
   const { id } = useParams();
   const { can } = usePermissions();
@@ -213,7 +215,7 @@ export default function TeacherDetails() {
         <div className="w-24 h-24 rounded-lg overflow-hidden bg-pink-200 shrink-0">
           {teacher.photo_url && (
             <img
-              src={`http://localhost:5000${teacher.photo_url}`}
+              src={`${API_ORIGIN}${teacher.photo_url}`}
               alt={teacher.name}
               className="w-full h-full object-cover"
             />

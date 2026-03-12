@@ -30,7 +30,7 @@ import {
   updateStaff,
 } from "../api/staff.api";
 
-const API_ROOT = "http://localhost:5000";
+const API_ROOT = (import.meta.env.VITE_API_URL || "http://localhost:5000/api/v1").replace(/\/api\/v1\/?$/, "");
 const SECTION_OPTIONS = [
   { value: "head", label: "Head Staff" },
   { value: "teaching", label: "Teaching Staff" },
