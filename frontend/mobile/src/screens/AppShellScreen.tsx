@@ -238,16 +238,6 @@ export default function AppShellScreen() {
         )}
       </ScrollView>
 
-      <View
-        style={[
-          styles.footerHint,
-          { backgroundColor: theme.card, borderTopColor: theme.border },
-        ]}
-      >
-        <Text style={[styles.footerText, { color: theme.subText }]}>
-          {user?.name ?? "Admin"} | {user?.roles?.join(", ") || "user"}
-        </Text>
-      </View>
     </SafeAreaView>
   );
 }
@@ -335,14 +325,5 @@ const styles = StyleSheet.create({
     minHeight: 240,
     alignItems: "center",
     justifyContent: "center",
-  },
-  footerHint: {
-    borderTopWidth: StyleSheet.hairlineWidth,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-  },
-  footerText: {
-    fontSize: 12,
-    textAlign: "center",
   },
 });

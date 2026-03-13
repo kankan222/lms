@@ -2,8 +2,12 @@ import { useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Image,
+  KeyboardAvoidingView,
+  Platform,
   Pressable,
   SafeAreaView,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -78,53 +82,69 @@ export default function LoginScreen() {
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <View style={styles.container}>
-        <Text style={styles.title}>School Management</Text>
-        <Text style={styles.subtitle}>Sign in with email or phone</Text>
+      <KeyboardAvoidingView
+        style={styles.keyboardAvoid}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+      >
+        <ScrollView
+          contentContainerStyle={styles.scrollContent}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
+          <View style={styles.container}>
+            <View style={styles.hero}>
+              <Image source={require("../../assets/logo.png")} style={styles.logo} resizeMode="contain" />
+              <Text style={styles.title}>Welcome to KKV Group Of Institutions</Text>
+              <Text style={styles.subtitle}>Sign in with email or phone</Text>
+            </View>
 
-        <View style={styles.form}>
-          <TextInput
-            value={identifier}
-            onChangeText={setIdentifier}
-            autoCapitalize="none"
-            placeholder="Email / Phone"
-            style={styles.input}
-            editable={!submitting}
-          />
-          <TextInput
-            value={password}
-            onChangeText={setPassword}
-            secureTextEntry={!showPassword}
-            placeholder="Password"
-            style={styles.input}
-            editable={!submitting}
-          />
-          <Pressable
-            onPress={() => setShowPassword((prev) => !prev)}
-            disabled={submitting}
-            style={styles.passwordToggle}
-          >
-            <Text style={styles.passwordToggleText}>
-              {showPassword ? "Hide password" : "Show password"}
-            </Text>
-          </Pressable>
+            <View style={styles.form}>
+              <TextInput
+                value={identifier}
+                onChangeText={setIdentifier}
+                autoCapitalize="none"
+                placeholder="Email / Phone"
+                placeholderTextColor="#64748b"
+                style={styles.input}
+                editable={!submitting}
+              />
+              <TextInput
+                value={password}
+                onChangeText={setPassword}
+                secureTextEntry={!showPassword}
+                placeholder="Password"
+                placeholderTextColor="#64748b"
+                style={styles.input}
+                editable={!submitting}
+              />
+              <Pressable
+                onPress={() => setShowPassword((prev) => !prev)}
+                disabled={submitting}
+                style={styles.passwordToggle}
+              >
+                <Text style={styles.passwordToggleText}>
+                  {showPassword ? "Hide password" : "Show password"}
+                </Text>
+              </Pressable>
 
-          <Pressable
-            onPress={handleLogin}
-            disabled={submitting}
-            style={({ pressed }) => [
-              styles.button,
-              (pressed || submitting) && styles.buttonPressed,
-            ]}
-          >
-            {submitting ? (
-              <ActivityIndicator color="#fff" />
-            ) : (
-              <Text style={styles.buttonText}>Login</Text>
-            )}
-          </Pressable>
-        </View>
-      </View>
+              <Pressable
+                onPress={handleLogin}
+                disabled={submitting}
+                style={({ pressed }) => [
+                  styles.button,
+                  (pressed || submitting) && styles.buttonPressed,
+                ]}
+              >
+                {submitting ? (
+                  <ActivityIndicator color="#fff" />
+                ) : (
+                  <Text style={styles.buttonText}>Login</Text>
+                )}
+              </Pressable>
+            </View>
+          </View>
+        </ScrollView>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
@@ -134,23 +154,40 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: "#f8fafc",
   },
+  keyboardAvoid: {
+    flex: 1,
+  },
+  scrollContent: {
+    flexGrow: 1,
+  },
   container: {
     flex: 1,
     justifyContent: "center",
     paddingHorizontal: 24,
+    paddingVertical: 24,
+  },
+  hero: {
+    alignItems: "center",
+    marginBottom: 28,
+  },
+  logo: {
+    width: 88,
+    height: 88,
+    marginBottom: 18,
   },
   title: {
     fontSize: 28,
     fontWeight: "700",
     color: "#0f172a",
+    textAlign: "center",
   },
   subtitle: {
     marginTop: 8,
     fontSize: 14,
     color: "#64748b",
+    textAlign: "center",
   },
   form: {
-    marginTop: 28,
     gap: 12,
   },
   input: {
@@ -160,6 +197,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 12,
     backgroundColor: "#fff",
+    color: "#0f172a",
   },
   button: {
     marginTop: 8,

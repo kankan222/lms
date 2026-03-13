@@ -32,6 +32,22 @@ npm install
 npx expo start
 ```
 
+## Production Android Build
+
+The Android release config is defined in `app.config.ts` and `eas.json`.
+
+For production builds, the app uses:
+
+```env
+EXPO_PUBLIC_API_BASE_URL=https://kalongkapilividyapith.com/api/v1
+```
+
+Build an Android App Bundle for Play Store submission with:
+
+```bash
+npx eas build --profile production --platform android
+```
+
 Shortcuts from terminal:
 
 - `a`: Android emulator
@@ -76,4 +92,3 @@ src/
     auth.ts
   utils/
 ```
-
