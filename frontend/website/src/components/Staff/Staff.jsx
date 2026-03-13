@@ -39,6 +39,8 @@ const Staff = ({
   title = "Staff",
   showHeader = true,
   maxSections,
+  sectionFilter,
+  showSectionHeading = true,
   className = "",
 }) => {
   const [staffRows, setStaffRows] = useState([]);
@@ -80,7 +82,13 @@ const Staff = ({
   }, [type]);
 
   const sections = useMemo(() => {
-    const grouped = DISPLAY_SECTIONS.map((heading) => {
+    const visibleSections = Array.isArray(sectionFilter)
+      ? DISPLAY_SECTIONS.filter((item) => sectionFilter.includes(item))
+      : typeof sectionFilter === "string" && sectionFilter
+        ? DISPLAY_SECTIONS.filter((item) => item === sectionFilter)
+        : DISPLAY_SECTIONS;
+
+    const grouped = visibleSections.map((heading) => {
       const staff = staffRows
         .filter((row) => String(row.type || "").toLowerCase() === String(type || "").toLowerCase())
         .filter((row) => normalizeSection(row.section || row.title) === heading)
@@ -99,7 +107,7 @@ const Staff = ({
     }).filter((section) => section.staff.length > 0);
 
     return typeof maxSections === "number" ? grouped.slice(0, maxSections) : grouped;
-  }, [maxSections, staffRows, type]);
+  }, [maxSections, sectionFilter, staffRows, type]);
 
   return (
     <div className={`flex flex-col items-center justify-center px-5 lg:px-15 2xl:px-30 ${className}`}>
@@ -121,7 +129,9 @@ const Staff = ({
       <div className="w-full space-y-8">
         {sections.map((section) => (
           <div key={section.key}>
-            <h2 className="mb-5 text-center text-2xl font-bold md:text-3xl">{section.heading}</h2>
+            {showSectionHeading ? (
+              <h2 className="mb-5 text-center text-2xl font-bold md:text-3xl">{section.heading}</h2>
+            ) : null}
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
               {section.staff.map((person) => (
                 <StaffCard key={person.id || `${person.name}-${person.role}`} {...person} />

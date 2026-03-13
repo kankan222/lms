@@ -1,8 +1,8 @@
 -- Sync role access model on server
 -- Intended result:
 --   super_admin -> all permissions
---   teacher     -> marks/report access + teacher profile + attendance only
---   accounts    -> payments only
+--   teacher     -> marks/report access + teacher profile + attendance + messaging
+--   accounts    -> payments + messaging
 
 INSERT IGNORE INTO permissions(name) VALUES
 ('dashboard.view'),
@@ -64,7 +64,7 @@ INSERT IGNORE INTO role_permissions (role_id, permission_id)
 SELECT r.id, p.id
 FROM roles r
 JOIN permissions p
-  ON p.name IN ('marks.enter', 'marks.view', 'teacher.view', 'attendance.take', 'subjects.view', 'exams.view')
+  ON p.name IN ('marks.enter', 'marks.view', 'teacher.view', 'attendance.take', 'subjects.view', 'exams.view', 'messages.view', 'messages.send')
 WHERE r.name = 'teacher';
 
 -- accounts gets only payments access
@@ -77,5 +77,5 @@ INSERT IGNORE INTO role_permissions (role_id, permission_id)
 SELECT r.id, p.id
 FROM roles r
 JOIN permissions p
-  ON p.name IN ('payment.view', 'payment.create', 'payment.update', 'payment.delete')
+  ON p.name IN ('payment.view', 'payment.create', 'payment.update', 'payment.delete', 'messages.view', 'messages.send')
 WHERE r.name = 'accounts';

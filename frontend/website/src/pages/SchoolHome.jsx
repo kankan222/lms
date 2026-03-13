@@ -14,7 +14,7 @@ const SchoolHome = () => {
       <Header Text="school"/>
       <Hero Text="school" />
       <About Text="school"/>
-      <Staff type="school"/>
+      <Staff type="school" sectionFilter="head" showSectionHeading={false} />
       <Stream Text="school"/>
       <Utilities/>
       <Gallery Text="school"/>

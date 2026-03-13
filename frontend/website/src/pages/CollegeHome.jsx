@@ -13,7 +13,7 @@ const CollegeHome = () => {
       <Header />
       <Hero />
       <About/>
-      <Staff />
+      <Staff sectionFilter="head" showSectionHeading={false} />
       <Stream/>
       <Utilities/>
       <Gallery/>

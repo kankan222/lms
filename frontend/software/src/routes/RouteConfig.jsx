@@ -137,7 +137,6 @@ export const appRoutes = [
       element: <Messaging />,
       protected : true,
       permission: "messages.view",
-      hideForRoles: ["teacher"],
     },
     // {
     //   title: "Question Paper",
