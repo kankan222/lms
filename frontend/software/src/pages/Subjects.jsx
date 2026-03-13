@@ -24,6 +24,14 @@ import {
   SheetTrigger,
 } from "@/components/ui/sheet";
 import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -250,18 +258,18 @@ async function handleAssign() {
               </form>
             </SheetContent>
           </Sheet>
-                      <Sheet open={assignOpen} onOpenChange={setAssignOpen}>
-              <SheetTrigger asChild>
+                      <Dialog open={assignOpen} onOpenChange={setAssignOpen}>
+              <DialogTrigger asChild>
                 <Button variant="secondary">
                   Assign Subjects
                 </Button>
-              </SheetTrigger>
+              </DialogTrigger>
 
-              <SheetContent>
+              <DialogContent className="max-h-[85vh] overflow-y-auto">
 
-                <SheetHeader>
-                  <SheetTitle>Assign Subjects to Class</SheetTitle>
-                </SheetHeader>
+                <DialogHeader>
+                  <DialogTitle>Assign Subjects to Class</DialogTitle>
+                </DialogHeader>
 
                 <div className="grid gap-4 py-4">
 
@@ -321,14 +329,14 @@ async function handleAssign() {
                 </div>
                 {assignError && <p className="text-sm text-red-600">{assignError}</p>}
 
-                <SheetFooter>
+                <DialogFooter>
                   <Button onClick={handleAssign}>
                     Assign
                   </Button>
-                </SheetFooter>
+                </DialogFooter>
 
-              </SheetContent>
-            </Sheet>
+              </DialogContent>
+            </Dialog>
 
           </div>
         }
