@@ -1,8 +1,10 @@
 import axios from "axios";
 import { refreshToken } from "./auth.api";
 
+const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000/api/v1";
+
 const dashboardClient = axios.create({
-  baseURL: "http://localhost:5000/api/v1"
+  baseURL: API_URL
 });
 
 dashboardClient.interceptors.request.use((config) => {

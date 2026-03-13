@@ -9,7 +9,7 @@ import AuthProvider from "./auth/AuthProvider.jsx";
 
 createRoot(document.getElementById("root")).render(
   <AuthProvider>
-    <BrowserRouter>
+    <BrowserRouter basename="/software">
       <App />
     </BrowserRouter>
   </AuthProvider>,

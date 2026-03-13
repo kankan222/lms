@@ -2,17 +2,25 @@ import express from "express"
 import cors from "cors"
 const app = express()
 
+const corsOrigins = String(process.env.CORS_ORIGINS || "")
+  .split(",")
+  .map((item) => item.trim())
+  .filter(Boolean);
+
+const allowedOrigins = corsOrigins.length
+  ? corsOrigins
+  : [
+      "http://localhost:5173",
+      "http://localhost:5174",
+    ];
+
 // app.use((req, res, next) => {
 //   console.log(req.method, req.url);
 //   next();
 // });
 
 app.use(cors({
-    origin: [
-        "http://localhost:5173",
-        "http://localhost:5174",
-        ""
-    ],
+    origin: allowedOrigins,
     credentials: true
 }))
 app.use(express.json())
