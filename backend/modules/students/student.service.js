@@ -78,10 +78,7 @@ function validateCreatePayload(payload) {
   if (!payload?.student?.name) {
     throw new AppError("Student name is required", 400);
   }
-  if (!payload?.student?.mobile) {
-    throw new AppError("Student phone is required", 400);
-  }
-  if (!/^\d{10}$/.test(String(payload.student.mobile))) {
+  if (payload?.student?.mobile && !/^\d{10}$/.test(String(payload.student.mobile))) {
     throw new AppError("Student phone must be 10 digits", 400);
   }
   if (!payload?.student?.gender) {
@@ -104,6 +101,29 @@ function validateCreatePayload(payload) {
   }
   if (!payload?.enrollment?.roll_number) {
     throw new AppError("Roll number is required", 400);
+  }
+
+  const fatherMobile = String(payload?.father?.mobile || "").trim();
+  const motherMobile = String(payload?.mother?.mobile || "").trim();
+
+  if (!fatherMobile && !motherMobile) {
+    throw new AppError("At least one parent phone is required", 400);
+  }
+
+  if (fatherMobile && !/^\d{10}$/.test(fatherMobile)) {
+    throw new AppError("Father phone must be 10 digits", 400);
+  }
+
+  if (motherMobile && !/^\d{10}$/.test(motherMobile)) {
+    throw new AppError("Mother phone must be 10 digits", 400);
+  }
+
+  if (fatherMobile && !String(payload?.father?.name || "").trim()) {
+    throw new AppError("Father name is required when father phone is provided", 400);
+  }
+
+  if (motherMobile && !String(payload?.mother?.name || "").trim()) {
+    throw new AppError("Mother name is required when mother phone is provided", 400);
   }
 }
 
@@ -280,6 +300,5 @@ export async function bulkCreateStudents(rows = []) {
     studentIds: createdIds
   };
 }
-
 
 

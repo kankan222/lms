@@ -43,6 +43,8 @@ type CreateForm = {
   mother_mobile: string;
 };
 
+type CreateErrorKey = keyof CreateForm | "parent_mobile";
+
 type EditForm = {
   id: number | null;
   admission_no: string;
@@ -129,7 +131,7 @@ export default function StudentsTab() {
   const [bulkOpen, setBulkOpen] = useState(false);
   const [createForm, setCreateForm] = useState<CreateForm>(EMPTY_CREATE);
   const [editForm, setEditForm] = useState<EditForm>(EMPTY_EDIT);
-  const [createErrors, setCreateErrors] = useState<Partial<Record<keyof CreateForm, string>>>({});
+  const [createErrors, setCreateErrors] = useState<Partial<Record<CreateErrorKey, string>>>({});
   const [editErrors, setEditErrors] = useState<Partial<Record<keyof EditForm, string>>>({});
   const [bulkCsv, setBulkCsv] = useState("");
   const [bulkSaving, setBulkSaving] = useState(false);
@@ -186,9 +188,9 @@ export default function StudentsTab() {
   }
 
   function validateCreate(form: CreateForm) {
-    const errs: Partial<Record<keyof CreateForm, string>> = {};
+    const errs: Partial<Record<CreateErrorKey, string>> = {};
     if (!form.name.trim()) errs.name = "Student name is required.";
-    if (!/^\d{10}$/.test(form.mobile.trim())) errs.mobile = "Student phone must be 10 digits.";
+    if (form.mobile.trim() && !/^\d{10}$/.test(form.mobile.trim())) errs.mobile = "Student phone must be 10 digits.";
     if (!form.gender.trim()) errs.gender = "Gender is required.";
     if (!isDate(form.dob)) errs.dob = "DOB must be YYYY-MM-DD.";
     if (form.date_of_admission.trim() && !isDate(form.date_of_admission)) errs.date_of_admission = "Admission date must be YYYY-MM-DD.";
@@ -198,17 +200,18 @@ export default function StudentsTab() {
     if (!form.roll_number.trim()) errs.roll_number = "Roll number is required.";
     const chosenClass = classes.find((c) => c.id === form.class_id);
     if (chosenClass?.class_scope === "hs" && !form.stream.trim()) errs.stream = "Stream is required for higher secondary classes.";
-    if (!form.father_name.trim()) errs.father_name = "Father name is required.";
-    if (!/^\d{10}$/.test(form.father_mobile.trim())) errs.father_mobile = "Father phone must be 10 digits.";
-    if (!form.mother_name.trim()) errs.mother_name = "Mother name is required.";
-    if (!/^\d{10}$/.test(form.mother_mobile.trim())) errs.mother_mobile = "Mother phone must be 10 digits.";
+    if (!form.father_mobile.trim() && !form.mother_mobile.trim()) errs.parent_mobile = "Enter at least one parent phone number.";
+    if (form.father_mobile.trim() && !form.father_name.trim()) errs.father_name = "Father name is required when father phone is entered.";
+    if (form.father_mobile.trim() && !/^\d{10}$/.test(form.father_mobile.trim())) errs.father_mobile = "Father phone must be 10 digits.";
+    if (form.mother_mobile.trim() && !form.mother_name.trim()) errs.mother_name = "Mother name is required when mother phone is entered.";
+    if (form.mother_mobile.trim() && !/^\d{10}$/.test(form.mother_mobile.trim())) errs.mother_mobile = "Mother phone must be 10 digits.";
     return errs;
   }
 
   function validateEdit(form: EditForm) {
     const errs: Partial<Record<keyof EditForm, string>> = {};
     if (!form.name.trim()) errs.name = "Name is required.";
-    if (!/^\d{10}$/.test(form.mobile.trim())) errs.mobile = "Phone must be 10 digits.";
+    if (form.mobile.trim() && !/^\d{10}$/.test(form.mobile.trim())) errs.mobile = "Phone must be 10 digits.";
     if (!form.gender.trim()) errs.gender = "Gender is required.";
     if (!isDate(form.dob)) errs.dob = "DOB must be YYYY-MM-DD.";
     if (form.date_of_admission.trim() && !isDate(form.date_of_admission)) errs.date_of_admission = "Admission date must be YYYY-MM-DD.";
@@ -231,7 +234,7 @@ export default function StudentsTab() {
         student: {
           admission_no: createForm.admission_no.trim() || undefined,
           name: createForm.name.trim(),
-          mobile: createForm.mobile.trim(),
+          mobile: createForm.mobile.trim() || undefined,
           gender: createForm.gender.trim().toLowerCase(),
           dob: createForm.dob.trim(),
           date_of_admission: createForm.date_of_admission.trim() || new Date().toISOString().slice(0, 10),
@@ -244,8 +247,14 @@ export default function StudentsTab() {
           roll_number: createForm.roll_number.trim(),
           stream: createForm.stream.trim() || undefined,
         },
-        father: { name: createForm.father_name.trim(), mobile: createForm.father_mobile.trim() },
-        mother: { name: createForm.mother_name.trim(), mobile: createForm.mother_mobile.trim() },
+        father: {
+          name: createForm.father_name.trim() || undefined,
+          mobile: createForm.father_mobile.trim() || undefined,
+        },
+        mother: {
+          name: createForm.mother_name.trim() || undefined,
+          mobile: createForm.mother_mobile.trim() || undefined,
+        },
       });
       setCreateOpen(false);
       setCreateForm(EMPTY_CREATE);
@@ -472,7 +481,7 @@ export default function StudentsTab() {
           <FormLabel label="Admission No" />
           <TextInput style={styles.input} value={createForm.admission_no} onChangeText={(v) => setCreateForm((p) => ({ ...p, admission_no: v }))} />
 
-          <FormLabel label="Student phone *" />
+          <FormLabel label="Student phone" />
           <TextInput style={styles.input} value={createForm.mobile} onChangeText={(v) => setCreateForm((p) => ({ ...p, mobile: v }))} keyboardType="phone-pad" />
           <FieldError message={createErrors.mobile} />
 
@@ -492,21 +501,22 @@ export default function StudentsTab() {
           <TextInput style={styles.input} value={createForm.roll_number} onChangeText={(v) => setCreateForm((p) => ({ ...p, roll_number: v }))} />
           <FieldError message={createErrors.roll_number} />
 
-          <FormLabel label="Father name *" />
+          <FormLabel label="Father name" />
           <TextInput style={styles.input} value={createForm.father_name} onChangeText={(v) => setCreateForm((p) => ({ ...p, father_name: v }))} />
           <FieldError message={createErrors.father_name} />
 
-          <FormLabel label="Father phone *" />
+          <FormLabel label="Father phone" />
           <TextInput style={styles.input} value={createForm.father_mobile} onChangeText={(v) => setCreateForm((p) => ({ ...p, father_mobile: v }))} keyboardType="phone-pad" />
           <FieldError message={createErrors.father_mobile} />
 
-          <FormLabel label="Mother name *" />
+          <FormLabel label="Mother name" />
           <TextInput style={styles.input} value={createForm.mother_name} onChangeText={(v) => setCreateForm((p) => ({ ...p, mother_name: v }))} />
           <FieldError message={createErrors.mother_name} />
 
-          <FormLabel label="Mother phone *" />
+          <FormLabel label="Mother phone" />
           <TextInput style={styles.input} value={createForm.mother_mobile} onChangeText={(v) => setCreateForm((p) => ({ ...p, mother_mobile: v }))} keyboardType="phone-pad" />
           <FieldError message={createErrors.mother_mobile} />
+          <FieldError message={createErrors.parent_mobile} />
 
           <FormLabel label="Session *" />
           <ScrollView horizontal contentContainerStyle={styles.row}>
@@ -552,7 +562,7 @@ export default function StudentsTab() {
           <FormLabel label="Admission No" />
           <TextInput style={styles.input} value={editForm.admission_no} onChangeText={(v) => setEditForm((p) => ({ ...p, admission_no: v }))} />
 
-          <FormLabel label="Phone *" />
+          <FormLabel label="Phone" />
           <TextInput style={styles.input} value={editForm.mobile} onChangeText={(v) => setEditForm((p) => ({ ...p, mobile: v }))} keyboardType="phone-pad" />
           <FieldError message={editErrors.mobile} />
 

@@ -19,14 +19,13 @@ const ParentForm = ({ type, update, errors = {} }) => {
       </h3>
       <FieldGroup className="grid grid-cols-2 gap-3">
         <Field>
-          <Label>Name *</Label>
-          <Input required onChange={(e) => update(section, "name", e.target.value)} />
+          <Label>Name</Label>
+          <Input onChange={(e) => update(section, "name", e.target.value)} />
           {errors[`${prefix}_name`] && <p className="text-xs text-red-500">{errors[`${prefix}_name`]}</p>}
         </Field>
         <Field>
-          <Label>Phone *</Label>
+          <Label>Phone</Label>
           <Input
-            required
             maxLength={10}
             onChange={(e) => update(section, "mobile", e.target.value)}
           />
@@ -50,6 +49,9 @@ const ParentForm = ({ type, update, errors = {} }) => {
           />
         </Field>
       </FieldGroup>
+      {prefix === "mother" && errors.parent_mobile ? (
+        <p className="mt-2 text-xs text-red-500">{errors.parent_mobile}</p>
+      ) : null}
     </div>
   );
 };

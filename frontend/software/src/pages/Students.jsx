@@ -139,7 +139,9 @@ export default function Student() {
     const next = {};
 
     if (!payload?.student?.name?.trim()) next.student_name = "Student name is required";
-    if (!/^\d{10}$/.test(String(payload?.student?.mobile || ""))) next.student_mobile = "Student phone must be 10 digits";
+    if (String(payload?.student?.mobile || "").trim() && !/^\d{10}$/.test(String(payload?.student?.mobile || "").trim())) {
+      next.student_mobile = "Student phone must be 10 digits";
+    }
     if (!payload?.student?.gender) next.student_gender = "Gender is required";
     if (!payload?.student?.dob) next.student_dob = "DOB is required";
     if (!payload?.student?.date_of_admission) next.student_date_of_admission = "Date of admission is required";
@@ -154,14 +156,19 @@ export default function Student() {
       next.stream = "Stream is required for higher secondary classes";
     }
 
-    if (!payload?.father?.name?.trim()) next.father_name = "Father name is required";
-    if (!/^\d{10}$/.test(String(payload?.father?.mobile || ""))) next.father_mobile = "Father phone must be 10 digits";
+    const fatherMobile = String(payload?.father?.mobile || "").trim();
+    const motherMobile = String(payload?.mother?.mobile || "").trim();
+
+    if (!fatherMobile && !motherMobile) next.parent_mobile = "Enter at least one parent phone number";
+
+    if (fatherMobile && !payload?.father?.name?.trim()) next.father_name = "Father name is required when father phone is entered";
+    if (fatherMobile && !/^\d{10}$/.test(fatherMobile)) next.father_mobile = "Father phone must be 10 digits";
     if (payload?.father?.email && !/^\S+@\S+\.\S+$/.test(payload.father.email)) {
       next.father_email = "Invalid father email";
     }
 
-    if (!payload?.mother?.name?.trim()) next.mother_name = "Mother name is required";
-    if (!/^\d{10}$/.test(String(payload?.mother?.mobile || ""))) next.mother_mobile = "Mother phone must be 10 digits";
+    if (motherMobile && !payload?.mother?.name?.trim()) next.mother_name = "Mother name is required when mother phone is entered";
+    if (motherMobile && !/^\d{10}$/.test(motherMobile)) next.mother_mobile = "Mother phone must be 10 digits";
     if (payload?.mother?.email && !/^\S+@\S+\.\S+$/.test(payload.mother.email)) {
       next.mother_email = "Invalid mother email";
     }
@@ -203,7 +210,9 @@ export default function Student() {
 
     const localErrors = {};
     if (!editingStudent.name?.trim()) localErrors.name = "Name is required";
-    if (!/^\d{10}$/.test(String(editingStudent.phone || ""))) localErrors.phone = "Phone must be 10 digits";
+    if (String(editingStudent.phone || "").trim() && !/^\d{10}$/.test(String(editingStudent.phone || "").trim())) {
+      localErrors.phone = "Phone must be 10 digits";
+    }
     if (!editingStudent.gender) localErrors.gender = "Gender is required";
     if (!editingStudent.dob) localErrors.dob = "DOB is required";
     if (!editingStudent.session_id) localErrors.session_id = "Session is required";

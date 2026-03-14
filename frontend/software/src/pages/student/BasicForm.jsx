@@ -14,9 +14,8 @@ export default function StudentBasicForm({ update, errors = {} }) {
         </Field>
 
         <Field>
-          <Label>Phone *</Label>
+          <Label>Phone</Label>
           <Input
-            required
             maxLength={10}
             onChange={(e) => update("student", "mobile", e.target.value)}
           />

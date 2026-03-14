@@ -59,7 +59,7 @@ export type CreateStudentPayload = {
     name: string;
     dob: string;
     gender: string;
-    mobile: string;
+    mobile?: string;
     date_of_admission: string;
     photo_url?: string | null;
   };
@@ -110,7 +110,7 @@ export async function updateStudent(
   payload: {
     admission_no?: string | null;
     name: string;
-    mobile: string;
+    mobile?: string;
     gender: string;
     dob: string;
     date_of_admission?: string;
