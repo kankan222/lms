@@ -141,7 +141,7 @@ export default function DataTable({
                 </td>
 
                 {columns.map((col) => (
-                  <td key={col.accessor} className="p-3 text-base text-black">
+                  <td key={col.accessor} className="p-3 text-base text-black align-top">
                     {col.accessor === "status" || col.accessor === "display_status" ? (
                       <span
                         className={`px-3 py-1 text-xs rounded-full font-medium ${statusColor(
@@ -157,18 +157,20 @@ export default function DataTable({
                 ))}
 
                 {showActions && (
-                  <td className="p-3 flex gap-2">
-                    {onEdit && (
-                      <Button onClick={(e) => { e.stopPropagation(); onEdit(row); }} variant="secondary">
-                        Edit
-                      </Button>
-                    )}
-                    {onDelete && (
-                      <Button onClick={(e) => { e.stopPropagation(); onDelete(row); }} variant="destructive">
-                        Delete
-                      </Button>
-                    )}
-                    {renderActions?.(row)}
+                  <td className="p-3 align-top">
+                    <div className="flex flex-wrap gap-2">
+                      {onEdit && (
+                        <Button onClick={(e) => { e.stopPropagation(); onEdit(row); }} variant="secondary">
+                          Edit
+                        </Button>
+                      )}
+                      {onDelete && (
+                        <Button onClick={(e) => { e.stopPropagation(); onDelete(row); }} variant="destructive">
+                          Delete
+                        </Button>
+                      )}
+                      {renderActions?.(row)}
+                    </div>
                   </td>
                 )}
               </tr>
@@ -189,17 +191,17 @@ export default function DataTable({
       </div>
 
       {/* Pagination */}
-      <div className="flex justify-between px-4 py-2">
-        <div className="flex justify-between items-center mt-4">
+      <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-2">
+        <div className="flex items-center mt-4">
           <p className="text-sm text-muted-foreground">
             {selectedRows.length} of {totalRowsCount} row(s) selected
           </p>
         </div>
-        <div className="flex items-center gap-3">
-          <div className="flex gap-2">
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="flex flex-wrap items-center gap-2">
             <p>Rows per page</p>
             <select
-              className=" border rounded-lg"
+              className="border rounded-lg"
               value={effectiveRowsPerPage}
               onChange={(e) => {
                 const nextValue = Number(e.target.value);

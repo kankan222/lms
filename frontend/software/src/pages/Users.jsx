@@ -416,8 +416,8 @@ export default function Users() {
             </Button>
           </div>
 
-          <div className="flex flex-wrap items-end gap-3">
-            <div className="min-w-[180px] flex-1">
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-[repeat(4,minmax(0,1fr))]">
+            <div className="min-w-0">
               <Label>User Category</Label>
               <select
                 className="mt-1 w-full rounded-md border bg-background px-3 py-2"
@@ -437,7 +437,7 @@ export default function Users() {
               </select>
             </div>
 
-            <div className="min-w-[180px] flex-1">
+            <div className="min-w-0">
               <Label>Status</Label>
               <select
                 className="mt-1 w-full rounded-md border bg-background px-3 py-2"
@@ -455,9 +455,7 @@ export default function Users() {
               </select>
             </div>
 
-            <div className="h-10 w-px bg-border hidden xl:block" />
-
-            <div className="min-w-[180px] flex-1">
+            <div className="min-w-0">
               <Label>Parent Class</Label>
               <select
                 className="mt-1 w-full rounded-md border bg-background px-3 py-2"
@@ -479,7 +477,7 @@ export default function Users() {
               </select>
             </div>
 
-            <div className="min-w-[180px] flex-1">
+            <div className="min-w-0">
               <Label>Parent Section</Label>
               <select
                 className="mt-1 w-full rounded-md border bg-background px-3 py-2"
