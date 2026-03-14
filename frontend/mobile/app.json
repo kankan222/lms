@@ -20,13 +20,12 @@
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/logo.png",
-        "backgroundImage": "./assets/logo.png",
-        "monochromeImage": "./assets/logo.png"
+        "backgroundImage": "./assets/logo.png"
       },
       "predictiveBackGestureEnabled": false
     },
     "web": {
-      "favicon": "./assets/favicon.png"
+      "favicon": "./assets/logo.png"
     }
   }
 }

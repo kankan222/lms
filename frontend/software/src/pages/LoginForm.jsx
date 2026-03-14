@@ -121,7 +121,7 @@ export default function LoginForm({ className, ...props }) {
 
           <div className="relative hidden bg-muted md:block">
             <img
-              src="/assets/collegeHero.png"
+              src={`${import.meta.env.BASE_URL}assets/collegeHero.png`}
               alt="Image"
               className="absolute inset-0 h-full w-full object-cover dark:brightness-[0.2] dark:grayscale"
             />

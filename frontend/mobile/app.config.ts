@@ -19,11 +19,8 @@ const config: ExpoConfig = {
   },
   android: {
     package: "com.kalongkapilividyapith.mobile",
-    versionCode: 1,
     adaptiveIcon: {
-      foregroundImage: "./assets/android-icon-foreground.png",
-      backgroundImage: "./assets/android-icon-background.png",
-      monochromeImage: "./assets/android-icon-monochrome.png",
+      foregroundImage: "./assets/logo.png",
       backgroundColor: "#E6F4FE",
     },
   },
