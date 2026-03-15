@@ -1,4 +1,4 @@
-import { apiRequest } from "../../../shared/api/client.js";
+﻿import { apiRequest } from "../../../shared/api/client.js";
 
 export function getWebsiteStaff(type, filters = {}) {
   const query = new URLSearchParams();
@@ -6,6 +6,12 @@ export function getWebsiteStaff(type, filters = {}) {
   const suffix = query.toString() ? `?${query.toString()}` : "";
 
   return apiRequest(`/website/${type || "school"}/staff${suffix}`);
+}
+
+export function getWebsiteContactSubmissions(limit = 100) {
+  const query = new URLSearchParams();
+  query.set("limit", String(limit));
+  return apiRequest(`/website/contact/submissions?${query.toString()}`);
 }
 
 export function addWebsiteStaff(type, data) {

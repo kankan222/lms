@@ -12,6 +12,8 @@ import Staff from "../pages/layout/StaffPage";
 import FeeStructure from "../pages/layout/FeeStructure";
 import Rules from "../pages/layout/Rules";
 import PrivacyPolicy from "../pages/layout/PrivacyPolicy";
+import Error402 from "../pages/layout/Error402";
+import ContactPage from "../pages/layout/ContactPage";
 import Facilities from "../pages/layout/Facilities";
 import Gallery from "./../pages/layout/GalleryPage";
 
@@ -26,6 +28,7 @@ const AppRoutes = () => {
       <BrowserRouter>
         <Routes>
           <Route path="/" element={<Home />} />
+          <Route path="/contact-us" element={<ContactPage />} />
           <Route path="/privacy-policy" element={<PrivacyPolicy />} />
 
           {/* College  */}
@@ -51,6 +54,8 @@ const AppRoutes = () => {
           {/* Computer Section */}
           <Route path='/computer' element={<ComputerLayout />} >
           </Route>
+
+          <Route path="*" element={<Error402 />} />
           
         </Routes>
       </BrowserRouter>
@@ -58,3 +63,4 @@ const AppRoutes = () => {
 }
 
 export default AppRoutes
+

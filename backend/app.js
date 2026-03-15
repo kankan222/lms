@@ -1,4 +1,4 @@
-import express from "express"
+﻿import express from "express"
 import cors from "cors"
 const app = express()
 
@@ -44,6 +44,7 @@ import messageRoutes from "./modules/messaging/messaging.routes.js"
 import staffRoutes from "./modules/staff/staff.routes.js"
 import staffPublicRoutes from "./modules/staff/staff.public.routes.js"
 import staffWebsiteRoutes from "./modules/staff/staff.website.routes.js"
+import contactPublicRoutes from "./modules/contact/contact.public.routes.js"
 
 import notificationRoutes from "./modules/notifications/notification.routes.js"
 
@@ -57,6 +58,7 @@ import { errorHandler } from "./middleware/error.middleware.js"
 
 app.use("/api/v1/auth", authRoutes);
 app.use("/api/v1/public/staff", staffPublicRoutes);
+app.use("/api/v1/public/contact", contactPublicRoutes);
 
 
 app.use(authenticate);

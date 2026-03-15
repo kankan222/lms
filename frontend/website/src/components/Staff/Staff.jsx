@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+﻿import { useEffect, useMemo, useState } from "react";
 import StaffCard from "./StaffCard";
 
 const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:5000/api/v1";
@@ -95,7 +95,7 @@ const Staff = ({
         .map((row) => ({
           id: row.id,
           src: resolveImageUrl(row.image_url),
-          role: displayTitle(normalizeSection(row.section || row.title)),
+          role: normalizeSection(row.section || row.title) === "teaching" ? "Teacher" : "",
           name: row.name || "",
         }));
 

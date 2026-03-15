@@ -1,9 +1,12 @@
-import express from "express";
+﻿import express from "express";
 import * as controller from "./staff.controller.js";
+import * as contactController from "../contact/contact.controller.js";
 import { requirePermission } from "../../core/rbac/rbac.middleware.js";
 import { uploadBulkStaffPhotos, uploadSingleStaffPhoto } from "./staff.middleware.js";
 
 const router = express.Router();
+
+router.get("/contact/submissions", requirePermission("dashboard.view"), contactController.listContactSubmissions);
 
 router.get("/school/staff", requirePermission("dashboard.view"), (req, res, next) => {
   req.params.campus = "school";

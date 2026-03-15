@@ -9,7 +9,7 @@ const About = ({Text}) => {
     
       <div
       className="
-      items-center justify-center sm:text-center bg-radial from-punch-400 via-transparent to-transparent flex flex-col w-full h-full px-5 lg:px-15 2xl:px-30" 
+      items-center justify-center sm:text-center bg-radial flex flex-col w-full h-full px-5 lg:px-15 2xl:px-30" 
     >
       <p className="text-3xl md:text-5xl font-extrabold mt-8 sm:mt-12 relative">
         About <span className="text-gradient-bg bg-clip-text">Us</span>

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+﻿import { useEffect, useMemo, useState } from "react";
 import TopBar from "../components/TopBar";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
@@ -24,6 +24,7 @@ import {
   AlertDialogTitle,
 } from "../components/ui/alert-dialog";
 import { Alert, AlertDescription, AlertTitle } from "../components/ui/alert";
+import ContactSubmissionsSection from "../components/website/ContactSubmissionsSection";
 import {
   addWebsiteStaff,
   bulkUploadWebsiteStaff,
@@ -32,7 +33,7 @@ import {
   updateWebsiteStaff,
 } from "../api/website.api";
 
-const TAB_OPTIONS = ["school", "college"];
+const TAB_OPTIONS = ["school", "college", "contact"];
 const API_ROOT = (import.meta.env.VITE_API_URL || "http://localhost:5000/api/v1").replace(/\/api\/v1\/?$/, "");
 const SECTION_OPTIONS = [
   { value: "head", label: "Head Staff" },
@@ -67,6 +68,12 @@ function getCampusLabel(value) {
   return value === "college" ? "College" : "School";
 }
 
+function getTabLabel(value) {
+  if (value === "college") return "College";
+  if (value === "contact") return "Contact Submissions";
+  return "School";
+}
+
 export default function WebsiteModule() {
   const [tab, setTab] = useState("school");
   const [rows, setRows] = useState([]);
@@ -95,7 +102,9 @@ export default function WebsiteModule() {
   }, [rows]);
 
   useEffect(() => {
-    loadCampusStaff(tab);
+    if (tab !== "contact") {
+      loadCampusStaff(tab);
+    }
   }, [tab]);
 
   useEffect(() => {
@@ -106,13 +115,17 @@ export default function WebsiteModule() {
     setSingleError("");
     setBulkError("");
     setEditError("");
-    setSingleForm({ ...EMPTY_SINGLE_FORM, type: tab });
-    setBulkForm({ ...EMPTY_BULK_FORM, type: tab });
+    if (tab !== "contact") {
+      setSingleForm({ ...EMPTY_SINGLE_FORM, type: tab });
+      setBulkForm({ ...EMPTY_BULK_FORM, type: tab });
+    }
   }, [tab]);
 
   useEffect(() => {
-    setSingleForm((prev) => ({ ...prev, type: tab }));
-    setBulkForm((prev) => ({ ...prev, type: tab }));
+    if (tab !== "contact") {
+      setSingleForm((prev) => ({ ...prev, type: tab }));
+      setBulkForm((prev) => ({ ...prev, type: tab }));
+    }
   }, [tab]);
 
   useEffect(() => {
@@ -272,183 +285,185 @@ export default function WebsiteModule() {
 
       <TopBar
         title="Website Module"
-        subTitle="Manage school and college staff cards displayed on the website"
+        subTitle="Manage school, college, and contact submissions shown in the website module"
         action={
-          <div className="flex gap-2">
-            <Dialog
-              open={bulkOpen}
-              onOpenChange={(open) => {
-                setBulkOpen(open);
-                if (!open) {
-                  setBulkError("");
-                  setBulkForm({ ...EMPTY_BULK_FORM, type: tab });
-                }
-              }}
-            >
-              <DialogTrigger asChild>
-                <Button variant="outline">Bulk Upload</Button>
-              </DialogTrigger>
-              <DialogContent className="max-h-[85vh] overflow-y-auto">
-                <form onSubmit={handleBulkCreate} className="space-y-4">
-                  <DialogHeader>
-                    <DialogTitle>Bulk Upload Staff</DialogTitle>
-                    <DialogDescription>
-                      Upload multiple images for the {getCampusLabel(tab).toLowerCase()} website. Staff names are generated from file names automatically.
-                    </DialogDescription>
-                  </DialogHeader>
+          tab !== "contact" ? (
+            <div className="flex gap-2">
+              <Dialog
+                open={bulkOpen}
+                onOpenChange={(open) => {
+                  setBulkOpen(open);
+                  if (!open) {
+                    setBulkError("");
+                    setBulkForm({ ...EMPTY_BULK_FORM, type: tab });
+                  }
+                }}
+              >
+                <DialogTrigger asChild>
+                  <Button variant="outline">Bulk Upload</Button>
+                </DialogTrigger>
+                <DialogContent className="max-h-[85vh] overflow-y-auto">
+                  <form onSubmit={handleBulkCreate} className="space-y-4">
+                    <DialogHeader>
+                      <DialogTitle>Bulk Upload Staff</DialogTitle>
+                      <DialogDescription>
+                        Upload multiple images for the {getCampusLabel(tab).toLowerCase()} website. Staff names are generated from file names automatically.
+                      </DialogDescription>
+                    </DialogHeader>
 
-                  <div className="grid gap-2">
-                    <Label>Type *</Label>
-                    <select
-                      className="w-full rounded-md border px-3 py-2"
-                      value={bulkForm.type}
-                      onChange={(e) =>
-                        setBulkForm((prev) => ({ ...prev, type: e.target.value }))
-                      }
-                    >
-                      <option value="school">School</option>
-                      <option value="college">College</option>
-                    </select>
-                  </div>
-
-                  <div className="grid gap-2">
-                    <Label>Section *</Label>
-                    <select
-                      className="w-full rounded-md border px-3 py-2"
-                      value={bulkForm.section}
-                      onChange={(e) =>
-                        setBulkForm((prev) => ({ ...prev, section: e.target.value }))
-                      }
-                    >
-                      {SECTION_OPTIONS.map((option) => (
-                        <option key={option.value} value={option.value}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div className="grid gap-2">
-                    <Label>Images *</Label>
-                    <Input
-                      type="file"
-                      accept="image/*"
-                      multiple
-                      onChange={(e) =>
-                        setBulkForm((prev) => ({
-                          ...prev,
-                          images: Array.from(e.target.files || []),
-                        }))
-                      }
-                    />
-                  </div>
-
-                  {bulkForm.images.length > 0 && (
-                    <div className="rounded-lg border p-3">
-                      <p className="mb-2 text-sm font-medium">Selected Files</p>
-                      <div className="grid gap-1 text-sm text-muted-foreground">
-                        {bulkForm.images.map((file) => (
-                          <span key={`${file.name}-${file.size}`}>{file.name}</span>
-                        ))}
-                      </div>
+                    <div className="grid gap-2">
+                      <Label>Type *</Label>
+                      <select
+                        className="w-full rounded-md border px-3 py-2"
+                        value={bulkForm.type}
+                        onChange={(e) =>
+                          setBulkForm((prev) => ({ ...prev, type: e.target.value }))
+                        }
+                      >
+                        <option value="school">School</option>
+                        <option value="college">College</option>
+                      </select>
                     </div>
-                  )}
 
-                  {bulkError ? <p className="text-sm text-red-600">{bulkError}</p> : null}
+                    <div className="grid gap-2">
+                      <Label>Section *</Label>
+                      <select
+                        className="w-full rounded-md border px-3 py-2"
+                        value={bulkForm.section}
+                        onChange={(e) =>
+                          setBulkForm((prev) => ({ ...prev, section: e.target.value }))
+                        }
+                      >
+                        {SECTION_OPTIONS.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
 
-                  <DialogFooter showCloseButton>
-                    <Button type="submit">Upload</Button>
-                  </DialogFooter>
-                </form>
-              </DialogContent>
-            </Dialog>
+                    <div className="grid gap-2">
+                      <Label>Images *</Label>
+                      <Input
+                        type="file"
+                        accept="image/*"
+                        multiple
+                        onChange={(e) =>
+                          setBulkForm((prev) => ({
+                            ...prev,
+                            images: Array.from(e.target.files || []),
+                          }))
+                        }
+                      />
+                    </div>
 
-            <Dialog
-              open={singleOpen}
-              onOpenChange={(open) => {
-                setSingleOpen(open);
-                if (!open) {
-                  setSingleError("");
-                  setSingleForm({ ...EMPTY_SINGLE_FORM, type: tab });
-                }
-              }}
-            >
-              <DialogTrigger asChild>
-                <Button>Add Staff</Button>
-              </DialogTrigger>
-              <DialogContent className="max-h-[85vh] overflow-y-auto">
-                <form onSubmit={handleSingleCreate} className="space-y-4">
-                  <DialogHeader>
-                    <DialogTitle>Add Staff</DialogTitle>
-                    <DialogDescription>
-                      Add a single staff card for the {getCampusLabel(tab).toLowerCase()} website.
-                    </DialogDescription>
-                  </DialogHeader>
+                    {bulkForm.images.length > 0 && (
+                      <div className="rounded-lg border p-3">
+                        <p className="mb-2 text-sm font-medium">Selected Files</p>
+                        <div className="grid gap-1 text-sm text-muted-foreground">
+                          {bulkForm.images.map((file) => (
+                            <span key={`${file.name}-${file.size}`}>{file.name}</span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
 
-                  <div className="grid gap-2">
-                    <Label>Name *</Label>
-                    <Input
-                      value={singleForm.name}
-                      onChange={(e) =>
-                        setSingleForm((prev) => ({ ...prev, name: e.target.value }))
-                      }
-                    />
-                  </div>
+                    {bulkError ? <p className="text-sm text-red-600">{bulkError}</p> : null}
 
-                  <div className="grid gap-2">
-                    <Label>Type *</Label>
-                    <select
-                      className="w-full rounded-md border px-3 py-2"
-                      value={singleForm.type}
-                      onChange={(e) =>
-                        setSingleForm((prev) => ({ ...prev, type: e.target.value }))
-                      }
-                    >
-                      <option value="school">School</option>
-                      <option value="college">College</option>
-                    </select>
-                  </div>
+                    <DialogFooter showCloseButton>
+                      <Button type="submit">Upload</Button>
+                    </DialogFooter>
+                  </form>
+                </DialogContent>
+              </Dialog>
 
-                  <div className="grid gap-2">
-                    <Label>Section *</Label>
-                    <select
-                      className="w-full rounded-md border px-3 py-2"
-                      value={singleForm.section}
-                      onChange={(e) =>
-                        setSingleForm((prev) => ({ ...prev, section: e.target.value }))
-                      }
-                    >
-                      {SECTION_OPTIONS.map((option) => (
-                        <option key={option.value} value={option.value}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
+              <Dialog
+                open={singleOpen}
+                onOpenChange={(open) => {
+                  setSingleOpen(open);
+                  if (!open) {
+                    setSingleError("");
+                    setSingleForm({ ...EMPTY_SINGLE_FORM, type: tab });
+                  }
+                }}
+              >
+                <DialogTrigger asChild>
+                  <Button>Add Staff</Button>
+                </DialogTrigger>
+                <DialogContent className="max-h-[85vh] overflow-y-auto">
+                  <form onSubmit={handleSingleCreate} className="space-y-4">
+                    <DialogHeader>
+                      <DialogTitle>Add Staff</DialogTitle>
+                      <DialogDescription>
+                        Add a single staff card for the {getCampusLabel(tab).toLowerCase()} website.
+                      </DialogDescription>
+                    </DialogHeader>
 
-                  <div className="grid gap-2">
-                    <Label>Photo *</Label>
-                    <Input
-                      type="file"
-                      accept="image/*"
-                      onChange={(e) =>
-                        setSingleForm((prev) => ({
-                          ...prev,
-                          image: e.target.files?.[0] || null,
-                        }))
-                      }
-                    />
-                  </div>
+                    <div className="grid gap-2">
+                      <Label>Name *</Label>
+                      <Input
+                        value={singleForm.name}
+                        onChange={(e) =>
+                          setSingleForm((prev) => ({ ...prev, name: e.target.value }))
+                        }
+                      />
+                    </div>
 
-                  {singleError ? <p className="text-sm text-red-600">{singleError}</p> : null}
+                    <div className="grid gap-2">
+                      <Label>Type *</Label>
+                      <select
+                        className="w-full rounded-md border px-3 py-2"
+                        value={singleForm.type}
+                        onChange={(e) =>
+                          setSingleForm((prev) => ({ ...prev, type: e.target.value }))
+                        }
+                      >
+                        <option value="school">School</option>
+                        <option value="college">College</option>
+                      </select>
+                    </div>
 
-                  <DialogFooter showCloseButton>
-                    <Button type="submit">Save</Button>
-                  </DialogFooter>
-                </form>
-              </DialogContent>
-            </Dialog>
-          </div>
+                    <div className="grid gap-2">
+                      <Label>Section *</Label>
+                      <select
+                        className="w-full rounded-md border px-3 py-2"
+                        value={singleForm.section}
+                        onChange={(e) =>
+                          setSingleForm((prev) => ({ ...prev, section: e.target.value }))
+                        }
+                      >
+                        {SECTION_OPTIONS.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div className="grid gap-2">
+                      <Label>Photo *</Label>
+                      <Input
+                        type="file"
+                        accept="image/*"
+                        onChange={(e) =>
+                          setSingleForm((prev) => ({
+                            ...prev,
+                            image: e.target.files?.[0] || null,
+                          }))
+                        }
+                      />
+                    </div>
+
+                    {singleError ? <p className="text-sm text-red-600">{singleError}</p> : null}
+
+                    <DialogFooter showCloseButton>
+                      <Button type="submit">Save</Button>
+                    </DialogFooter>
+                  </form>
+                </DialogContent>
+              </Dialog>
+            </div>
+          ) : null
         }
       />
 
@@ -456,82 +471,86 @@ export default function WebsiteModule() {
         <TabsList variant="line" className="min-w-[220px] items-stretch border-r pr-4">
           {TAB_OPTIONS.map((item) => (
             <TabsTrigger key={item} value={item}>
-              {item === "college" ? "College" : "School"}
+              {getTabLabel(item)}
             </TabsTrigger>
           ))}
         </TabsList>
 
         {TAB_OPTIONS.map((item) => (
           <TabsContent key={item} value={item}>
-            <div className="grid gap-4">
-              <div className="rounded-xl border bg-card p-4">
-                <p className="text-base font-semibold">
-                  {getCampusLabel(item)} Website Staff
-                </p>
-                <p className="text-sm text-muted-foreground">
-                  Manage staff cards, bulk uploads, and image updates for this campus.
-                </p>
-              </div>
+            {item === "contact" ? (
+              <ContactSubmissionsSection />
+            ) : (
+              <div className="grid gap-4">
+                <div className="rounded-xl border bg-card p-4">
+                  <p className="text-base font-semibold">
+                    {getCampusLabel(item)} Website Staff
+                  </p>
+                  <p className="text-sm text-muted-foreground">
+                    Manage staff cards, bulk uploads, and image updates for this campus.
+                  </p>
+                </div>
 
-              {loading ? <p>Loading...</p> : null}
-              {error ? <p className="text-sm text-red-600">{error}</p> : null}
+                {loading ? <p>Loading...</p> : null}
+                {error ? <p className="text-sm text-red-600">{error}</p> : null}
 
-              <div className="grid gap-3 sm:grid-cols-3">
+                <div className="grid gap-3 sm:grid-cols-3">
+                  {SECTION_OPTIONS.map((option) => (
+                    <div key={option.value} className="rounded-lg border bg-card p-4">
+                      <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                        {option.label}
+                      </p>
+                      <p className="mt-1 text-2xl font-semibold">
+                        {grouped[option.value]?.length || 0}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+
                 {SECTION_OPTIONS.map((option) => (
-                  <div key={option.value} className="rounded-lg border bg-card p-4">
-                    <p className="text-xs uppercase tracking-wide text-muted-foreground">
-                      {option.label}
-                    </p>
-                    <p className="mt-1 text-2xl font-semibold">
-                      {grouped[option.value]?.length || 0}
-                    </p>
+                  <div key={option.value} className="mb-2">
+                    <h3 className="mb-3 text-xl font-semibold">{option.label}</h3>
+                    <div className="grid grid-cols-1 gap-4 md:grid-cols-3 xl:grid-cols-4">
+                      {(grouped[option.value] || []).map((row) => (
+                        <div key={row.id} className="overflow-hidden rounded-md border bg-white">
+                          <div className="aspect-[3/4] bg-muted">
+                            <img
+                              src={resolveImageUrl(row.image_url)}
+                              alt={row.name}
+                              className="h-full w-full object-cover"
+                            />
+                          </div>
+                          <div className="space-y-1 p-3">
+                            <p className="font-semibold">{row.name}</p>
+                            <p className="text-xs text-muted-foreground">{sectionLabel(row.section)}</p>
+                            <p className="text-xs uppercase text-muted-foreground">{row.type}</p>
+                            <div className="flex gap-2 pt-2">
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => setEditRow({ ...row, image: null })}
+                              >
+                                Edit
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="destructive"
+                                onClick={() => setDeletingRow(row)}
+                              >
+                                Delete
+                              </Button>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                      {!grouped[option.value]?.length ? (
+                        <p className="text-sm text-muted-foreground">No records.</p>
+                      ) : null}
+                    </div>
                   </div>
                 ))}
               </div>
-
-              {SECTION_OPTIONS.map((option) => (
-                <div key={option.value} className="mb-2">
-                  <h3 className="mb-3 text-xl font-semibold">{option.label}</h3>
-                  <div className="grid grid-cols-1 gap-4 md:grid-cols-3 xl:grid-cols-4">
-                    {(grouped[option.value] || []).map((row) => (
-                      <div key={row.id} className="overflow-hidden rounded-md border bg-white">
-                        <div className="aspect-[3/4] bg-muted">
-                          <img
-                            src={resolveImageUrl(row.image_url)}
-                            alt={row.name}
-                            className="h-full w-full object-cover"
-                          />
-                        </div>
-                        <div className="space-y-1 p-3">
-                          <p className="font-semibold">{row.name}</p>
-                          <p className="text-xs text-muted-foreground">{sectionLabel(row.section)}</p>
-                          <p className="text-xs uppercase text-muted-foreground">{row.type}</p>
-                          <div className="flex gap-2 pt-2">
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => setEditRow({ ...row, image: null })}
-                            >
-                              Edit
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="destructive"
-                              onClick={() => setDeletingRow(row)}
-                            >
-                              Delete
-                            </Button>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                    {!grouped[option.value]?.length ? (
-                      <p className="text-sm text-muted-foreground">No records.</p>
-                    ) : null}
-                  </div>
-                </div>
-              ))}
-            </div>
+            )}
           </TabsContent>
         ))}
       </Tabs>
@@ -655,4 +674,3 @@ export default function WebsiteModule() {
     </>
   );
 }
-

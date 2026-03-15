@@ -1,20 +1,17 @@
-import { Link } from "react-router-dom";
-import CollegeHero from "/assets/site/collegeHero.png";
+﻿import CollegeHero from "/assets/site/collegeHero.png";
 import SchoolHero from "/assets/site/schoolHero.png";
-import { Button } from "@/components/ui/button";
-import { ArrowUpRight } from "lucide-react";
+import AdmissionDialog from "./Form/AdmissionDialog";
 
 function Hero({ Text }) {
+  const section = Text === "school" ? "school" : "college";
+
   return (
     <section className="flex w-full">
       <div className="grid grid-cols-1 md:grid-cols-2 w-full overflow-hidden ">
-        {/* LEFT SIDE */}
-
         <div className="flex justify-center w-full text-center md:text-left flex-col p-5 xl:px-28 lg:pb-15">
           <div className="">
             <h1 className="text-4xl md:text-6xl font-bold leading-tight">
-              Empowering{" "}
-              <span className="text-gradient-bg bg-clip-text">Students</span>{" "}
+              Empowering <span className="text-gradient-bg bg-clip-text">Students</span>{" "}
               for a Brighter Future
             </h1>
 
@@ -24,15 +21,11 @@ function Hero({ Text }) {
             </p>
           </div>
 
-          <div className="flex gap-4 mt-4 flex-col md:flex-row">
-            <Button>
-              Apply for Admission
-              <ArrowUpRight />
-            </Button>
+          <div className="mt-4 flex flex-col gap-4 md:flex-row">
+            <AdmissionDialog section={section} label="Apply for Admission" />
           </div>
         </div>
 
-        {/* RIGHT SIDE */}
         <div className="relative flex justify-center border border-stone-100 overflow-hidden rounded-bl-10px w-full">
           <img
             src={Text === "school" ? SchoolHero : CollegeHero}
