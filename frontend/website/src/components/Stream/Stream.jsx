@@ -62,9 +62,9 @@ export default function Stream({ Text }) {
           >
             <div className="flex items-center justify-between border-b border-stone-200 px-6 py-4">
               <div>
-                <p className="text-sm font-semibold uppercase tracking-[0.2em] text-punch-700">
+                {/* <p className="text-sm font-semibold uppercase tracking-[0.2em] text-punch-700">
                   {sectionKey === "school" ? "Class Details" : "Stream Details"}
-                </p>
+                </p> */}
                 <h3 className="text-2xl font-bold text-stone-900">{activeCourse.title}</h3>
               </div>
               <button
