@@ -1,4 +1,4 @@
-﻿import { useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { ArrowUpRight, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -22,31 +22,33 @@ export default function AdmissionDialog({
 
   const dialogMarkup = open ? (
     <div
-      className="fixed inset-0 z-[60] flex items-center justify-center overflow-y-auto bg-black/60 px-4 py-6"
+      className="fixed inset-0 z-[60] overflow-y-auto bg-black/60 px-3 py-4 sm:px-4 sm:py-6"
       onClick={() => setOpen(false)}
     >
-      <div
-        className="flex max-h-[90vh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl"
-        onClick={(event) => event.stopPropagation()}
-      >
-        <div className="flex items-center justify-between border-b border-stone-200 px-6 py-4">
-          <div>
-            <p className="text-sm font-semibold uppercase tracking-[0.2em] text-punch-700">
-              {isSchool ? "School Section" : "Higher Secondary Section"}
-            </p>
-            <h2 className="text-2xl font-bold text-stone-900">{label}</h2>
+      <div className="flex min-h-full items-center justify-center">
+        <div
+          className="flex w-full max-w-6xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl"
+          onClick={(event) => event.stopPropagation()}
+        >
+          <div className="flex items-start justify-between gap-4 border-b border-stone-200 px-4 py-4 sm:px-6">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-punch-700 sm:text-sm">
+                {isSchool ? "School Section" : "Higher Secondary Section"}
+              </p>
+              <h2 className="mt-1 text-xl font-bold text-stone-900 sm:text-2xl">{label}</h2>
+            </div>
+            <button
+              type="button"
+              onClick={() => setOpen(false)}
+              className="rounded-full p-2 text-stone-500 transition-colors hover:bg-stone-100 hover:text-stone-900"
+              aria-label="Close admission dialog"
+            >
+              <X size={20} />
+            </button>
           </div>
-          <button
-            type="button"
-            onClick={() => setOpen(false)}
-            className="rounded-full p-2 text-stone-500 transition-colors hover:bg-stone-100 hover:text-stone-900"
-            aria-label="Close admission dialog"
-          >
-            <X size={20} />
-          </button>
-        </div>
-        <div className="overflow-y-auto bg-stone-50 p-4 md:p-6">
-          <FormComponent />
+          <div className="max-h-[calc(100vh-6rem)] overflow-y-auto bg-stone-50 p-3 sm:p-4 md:p-6">
+            <FormComponent />
+          </div>
         </div>
       </div>
     </div>

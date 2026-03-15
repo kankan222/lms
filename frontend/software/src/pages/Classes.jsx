@@ -12,14 +12,6 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
-  Sheet,
-  SheetContent,
-  SheetFooter,
-  SheetHeader,
-  SheetTitle,
-  SheetTrigger,
-} from "@/components/ui/sheet";
-import {
   Dialog,
   DialogContent,
   DialogFooter,
@@ -143,7 +135,7 @@ const Classes = () => {
       return;
     }
 
-    await loadClasses(); // wait for refresh first
+    await loadClasses();
 
     setNewClass({
       name: "",
@@ -151,9 +143,10 @@ const Classes = () => {
       sections: [{ name: "", medium: "" }],
     });
 
-    setCreateOpen(false); // close sheet last
+    setCreateOpen(false);
     showNotice("Class Created", "Class record created successfully.");
   }
+
   async function handleUpdate(e) {
     e.preventDefault();
     setEditError("");
@@ -327,7 +320,7 @@ const Classes = () => {
                   </Button>
 
                   <DialogFooter>
-                    <Button className={`flex-1`} type="submit">Save</Button>
+                    <Button className="flex-1" type="submit">Save</Button>
                   </DialogFooter>
                 </div>
               </form>
@@ -350,21 +343,22 @@ const Classes = () => {
             <div className="flex-1">
               <p className="text-xl font-bold">Class : {data.name}</p>
               <p className="text-sm">
-          <span className="font-medium">Scope: </span>{data.class_scope === "hs" ? "Higher Secondary" : "School"}
+                <span className="font-medium">Scope: </span>
+                {data.class_scope === "hs" ? "Higher Secondary" : "School"}
               </p>
               <div className="text-sm flex-1">
                 <p className="font-medium">Sections:</p>
                 <ul className="mt-1 list-disc pl-5 space-y-1">
                   {data.sections.map((sec, i) => (
                     <li key={i}>
-                      {sec.name}{sec.medium ? ` (${sec.medium})` : ""}
+                      {sec.name}
+                      {sec.medium ? ` (${sec.medium})` : ""}
                     </li>
                   ))}
                 </ul>
               </div>
-              {/* <p className="text-sm">{data.total_students} students</p> */}
               <p className="text-sm">
-               <span className="font-medium">Subjects: </span> 
+                <span className="font-medium">Subjects: </span>
                 {data.subjects.length === 0 && " None"}
                 {data.subjects.map((sub, i) => (
                   <span key={i}>
@@ -389,17 +383,23 @@ const Classes = () => {
         ))}
       </div>
 
-      {/* SINGLE GLOBAL SHEET */}
-      <Sheet open={!!editingClass} onOpenChange={() => setEditingClass(null)}>
-        <SheetContent>
-          <form onSubmit={handleUpdate}>
-            <SheetHeader>
-              <SheetTitle>Edit Class</SheetTitle>
-            </SheetHeader>
+      <Dialog
+        open={!!editingClass}
+        onOpenChange={(open) => {
+          if (!open) {
+            setEditError("");
+            setEditingClass(null);
+          }
+        }}
+      >
+        <DialogContent className="max-h-[85vh] overflow-y-auto">
+          <form onSubmit={handleUpdate} className="space-y-4 px-1">
+            <DialogHeader>
+              <DialogTitle>Edit Class</DialogTitle>
+            </DialogHeader>
 
-            <div className="grid gap-4 py-4">
+            <div className="grid gap-2">
               <Label>Name *</Label>
-
               <Input
                 required
                 value={editingClass?.name || ""}
@@ -410,7 +410,9 @@ const Classes = () => {
                   })
                 }
               />
+            </div>
 
+            <div className="grid gap-2">
               <Label>Class Scope *</Label>
               <select
                 className="border rounded p-2 w-full bg-background"
@@ -425,9 +427,10 @@ const Classes = () => {
                 <option value="school">School</option>
                 <option value="hs">Higher Secondary</option>
               </select>
+            </div>
 
+            <div className="grid gap-2">
               <Label>Sections *</Label>
-
               {editingClass?.sections?.map((sec, i) => (
                 <div key={i} className="grid grid-cols-2 gap-2">
                   <Input
@@ -462,30 +465,29 @@ const Classes = () => {
                   </select>
                 </div>
               ))}
-
-              <Button
-                type="button"
-                variant="secondary"
-                onClick={() =>
-                  setEditingClass({
-                    ...editingClass,
-                    sections: [...editingClass.sections, { name: "", medium: "" }],
-                  })
-                }
-                >
-                Add a New Section
-              </Button>
-              {editError && (
-                <p className="text-sm text-red-600">{editError}</p>
-              )}
             </div>
 
-            <SheetFooter>
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() =>
+                setEditingClass({
+                  ...editingClass,
+                  sections: [...editingClass.sections, { name: "", medium: "" }],
+                })
+              }
+            >
+              Add a New Section
+            </Button>
+
+            {editError && <p className="text-sm text-red-600">{editError}</p>}
+
+            <DialogFooter showCloseButton>
               <Button type="submit">Save</Button>
-            </SheetFooter>
+            </DialogFooter>
           </form>
-        </SheetContent>
-      </Sheet>
+        </DialogContent>
+      </Dialog>
 
       <AlertDialog
         open={!!deletingClass}

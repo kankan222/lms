@@ -1,170 +1,164 @@
-﻿export default function CollegeAdmissionForm() {
+function Field({ label, children, className = "" }) {
+  return (
+    <div className={`grid gap-2 ${className}`.trim()}>
+      <label className="text-xs font-semibold uppercase tracking-[0.16em] text-stone-600">
+        {label}
+      </label>
+      {children}
+    </div>
+  );
+}
+
+function TextInput({ type = "text" }) {
+  return (
+    <input
+      type={type}
+      className="w-full rounded-xl border border-stone-300 bg-white px-4 py-3 text-sm text-stone-900 outline-none transition focus:border-punch-500"
+    />
+  );
+}
+
+const inputClass =
+  "w-full rounded-xl border border-stone-300 bg-white px-4 py-3 text-sm text-stone-900 outline-none transition focus:border-punch-500";
+
+export default function CollegeAdmissionForm() {
   const streams = ["Arts", "Science", "Commerce"];
 
   return (
-    <div className="mx-auto max-w-4xl border bg-white p-8 text-sm shadow-sm">
-      <div className="mb-6 text-center">
-        <h1 className="text-2xl font-bold tracking-wide">KALONG KAPILI VIDYAPITH</h1>
-        <h2 className="text-lg font-semibold">(HIGHER SECONDARY SECTION)</h2>
-        <p className="mt-2 font-semibold">ARTS, SCIENCE & COMMERCE</p>
-        <h3 className="mt-1 text-lg font-bold underline">ADMISSION FORM</h3>
+    <div className="mx-auto w-full max-w-5xl rounded-[28px] border border-stone-200 bg-white p-4 shadow-sm sm:p-6 lg:p-8">
+      <div className="mb-8 text-center">
+        <h1 className="text-xl font-bold tracking-[0.2em] text-stone-900 sm:text-2xl">
+          KALONG KAPILI VIDYAPITH
+        </h1>
+        <h2 className="mt-2 text-base font-semibold text-stone-700 sm:text-lg">
+          (HIGHER SECONDARY SECTION)
+        </h2>
+        <p className="mt-2 text-sm font-semibold text-stone-600">ARTS, SCIENCE &amp; COMMERCE</p>
+        <h3 className="mt-3 text-lg font-bold text-stone-900 underline underline-offset-4 sm:text-xl">
+          ADMISSION FORM
+        </h3>
       </div>
 
-      <div className="mb-6 flex flex-wrap justify-between gap-4">
-        <div className="flex items-center gap-2">
-          <span>Form No.</span>
-          <input className="w-40 border-b border-black outline-none" />
-        </div>
-        <div className="flex items-center gap-2">
-          <span>Date of Issue</span>
-          <input className="w-40 border-b border-black outline-none" />
-        </div>
-        <div className="flex items-center gap-2">
-          <span>Registration No.</span>
-          <input className="w-40 border-b border-black outline-none" />
-        </div>
+      <div className="mb-8 grid gap-4 md:grid-cols-3">
+        <Field label="Form No.">
+          <TextInput />
+        </Field>
+        <Field label="Date of Issue">
+          <TextInput type="date" />
+        </Field>
+        <Field label="Registration No.">
+          <TextInput />
+        </Field>
       </div>
 
-      <div className="mb-6">
-        <p className="mb-2 font-semibold">Stream for Which Admission is Sought</p>
-        <div className="grid grid-cols-3 gap-3 text-center text-sm">
+      <section className="mb-8 rounded-2xl border border-stone-200 bg-stone-50 p-4 sm:p-5">
+        <p className="mb-4 text-sm font-semibold text-stone-800">
+          Stream for Which Admission is Sought
+        </p>
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {streams.map((stream) => (
-            <label key={stream} className="flex items-center justify-center gap-2 rounded border p-3">
-              <input type="checkbox" />
+            <label
+              key={stream}
+              className="flex cursor-pointer items-center justify-center gap-2 rounded-xl border border-stone-300 bg-white px-4 py-3 text-sm font-medium text-stone-700 transition hover:border-punch-500 hover:text-punch-700"
+            >
+              <input type="checkbox" className="h-4 w-4 accent-punch-700" />
               <span>{stream}</span>
             </label>
           ))}
         </div>
-      </div>
+      </section>
 
-      <h3 className="mb-3 font-semibold underline">Particulars of Student (In Block Letters)</h3>
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-        <div className="md:col-span-2">
-          <label>Name of the Student</label>
-          <input className="w-full border-b border-black outline-none" />
+      <section className="mb-8">
+        <h3 className="mb-4 text-base font-semibold text-stone-900 underline underline-offset-4">
+          Particulars of Student (In Block Letters)
+        </h3>
+        <div className="grid gap-4 md:grid-cols-2">
+          <Field label="Name of the Student" className="md:col-span-2"><TextInput /></Field>
+          <Field label="Father's Name" className="md:col-span-2"><TextInput /></Field>
+          <Field label="Mother's Name" className="md:col-span-2"><TextInput /></Field>
+          <Field label="Date of Birth"><TextInput type="date" /></Field>
+          <Field label="Gender"><TextInput /></Field>
+          <Field label="Religion"><TextInput /></Field>
+          <Field label="Caste / Category"><TextInput /></Field>
+          <Field label="Aadhaar Card No."><TextInput /></Field>
+          <Field label="Student PEN No."><TextInput /></Field>
+          <Field label="Apaar ID No."><TextInput /></Field>
+          <Field label="Mobile No."><TextInput /></Field>
+          <Field label="Email"><TextInput type="email" /></Field>
+          <Field label="Present Address" className="md:col-span-2">
+            <textarea rows={3} className={inputClass} />
+          </Field>
+          <Field label="Permanent Address" className="md:col-span-2">
+            <textarea rows={3} className={inputClass} />
+          </Field>
         </div>
-        <div className="md:col-span-2">
-          <label>Father's Name</label>
-          <input className="w-full border-b border-black outline-none" />
-        </div>
-        <div className="md:col-span-2">
-          <label>Mother's Name</label>
-          <input className="w-full border-b border-black outline-none" />
-        </div>
-        <div>
-          <label>Date of Birth (DD/MM/YYYY)</label>
-          <input type="date" className="w-full border-b border-black outline-none" />
-        </div>
-        <div>
-          <label>Gender</label>
-          <input className="w-full border-b border-black outline-none" />
-        </div>
-        <div>
-          <label>Religion</label>
-          <input className="w-full border-b border-black outline-none" />
-        </div>
-        <div>
-          <label>Caste / Category</label>
-          <input className="w-full border-b border-black outline-none" />
-        </div>
-        <div>
-          <label>Aadhaar Card No.</label>
-          <input className="w-full border-b border-black outline-none" />
-        </div>
-        <div>
-          <label>Student PEN No.</label>
-          <input className="w-full border-b border-black outline-none" />
-        </div>
-        <div>
-          <label>Apaar ID No.</label>
-          <input className="w-full border-b border-black outline-none" />
-        </div>
-        <div>
-          <label>Mobile No.</label>
-          <input className="w-full border-b border-black outline-none" />
-        </div>
-        <div>
-          <label>Email</label>
-          <input className="w-full border-b border-black outline-none" />
-        </div>
-        <div className="md:col-span-2">
-          <label>Present Address</label>
-          <textarea className="w-full border p-1 outline-none" rows={2} />
-        </div>
-        <div className="md:col-span-2">
-          <label>Permanent Address</label>
-          <textarea className="w-full border p-1 outline-none" rows={2} />
-        </div>
-      </div>
+      </section>
 
-      <h3 className="mb-4 mt-10 font-semibold underline">Previous Academic Record</h3>
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-        <div className="md:col-span-2">
-          <label>Name of the School Last Attended</label>
-          <input className="w-full border-b border-black outline-none" />
+      <section className="mb-8">
+        <h3 className="mb-4 text-base font-semibold text-stone-900 underline underline-offset-4">
+          Previous Academic Record
+        </h3>
+        <div className="grid gap-4 md:grid-cols-2">
+          <Field label="Name of the School Last Attended" className="md:col-span-2"><TextInput /></Field>
+          <Field label="Board / Council"><TextInput /></Field>
+          <Field label="Year of Passing"><TextInput /></Field>
+          <Field label="Roll No."><TextInput /></Field>
+          <Field label="Registration No."><TextInput /></Field>
+          <Field label="Total Marks"><TextInput /></Field>
+          <Field label="Percentage / Division"><TextInput /></Field>
         </div>
-        <div>
-          <label>Board / Council</label>
-          <input className="w-full border-b border-black outline-none" />
-        </div>
-        <div>
-          <label>Year of Passing</label>
-          <input className="w-full border-b border-black outline-none" />
-        </div>
-        <div>
-          <label>Roll No.</label>
-          <input className="w-full border-b border-black outline-none" />
-        </div>
-        <div>
-          <label>Registration No.</label>
-          <input className="w-full border-b border-black outline-none" />
-        </div>
-        <div>
-          <label>Total Marks</label>
-          <input className="w-full border-b border-black outline-none" />
-        </div>
-        <div>
-          <label>Percentage / Division</label>
-          <input className="w-full border-b border-black outline-none" />
-        </div>
-      </div>
+      </section>
 
-      <h3 className="mb-4 mt-10 font-semibold underline">Parent / Guardian Details</h3>
-      <div className="grid grid-cols-1 gap-8 md:grid-cols-2">
-        <div className="space-y-3">
-          <h4 className="font-semibold">Father / Guardian</h4>
-          <input placeholder="Name" className="w-full border-b outline-none" />
-          <input placeholder="Qualification" className="w-full border-b outline-none" />
-          <input placeholder="Occupation" className="w-full border-b outline-none" />
-          <input placeholder="Mobile No." className="w-full border-b outline-none" />
-          <input placeholder="Email" className="w-full border-b outline-none" />
+      <section className="mb-8">
+        <h3 className="mb-4 text-base font-semibold text-stone-900 underline underline-offset-4">
+          Parent / Guardian Details
+        </h3>
+        <div className="grid gap-6 lg:grid-cols-2">
+          <div className="rounded-2xl border border-stone-200 p-4 sm:p-5">
+            <h4 className="mb-4 text-sm font-semibold uppercase tracking-[0.16em] text-stone-700">
+              Father / Guardian
+            </h4>
+            <div className="grid gap-4">
+              <Field label="Name"><TextInput /></Field>
+              <Field label="Qualification"><TextInput /></Field>
+              <Field label="Occupation"><TextInput /></Field>
+              <Field label="Mobile No."><TextInput /></Field>
+              <Field label="Email"><TextInput type="email" /></Field>
+            </div>
+          </div>
+          <div className="rounded-2xl border border-stone-200 p-4 sm:p-5">
+            <h4 className="mb-4 text-sm font-semibold uppercase tracking-[0.16em] text-stone-700">
+              Mother
+            </h4>
+            <div className="grid gap-4">
+              <Field label="Name"><TextInput /></Field>
+              <Field label="Qualification"><TextInput /></Field>
+              <Field label="Occupation"><TextInput /></Field>
+              <Field label="Mobile No."><TextInput /></Field>
+              <Field label="Email"><TextInput type="email" /></Field>
+            </div>
+          </div>
         </div>
-        <div className="space-y-3">
-          <h4 className="font-semibold">Mother</h4>
-          <input placeholder="Name" className="w-full border-b outline-none" />
-          <input placeholder="Qualification" className="w-full border-b outline-none" />
-          <input placeholder="Occupation" className="w-full border-b outline-none" />
-          <input placeholder="Mobile No." className="w-full border-b outline-none" />
-          <input placeholder="Email" className="w-full border-b outline-none" />
-        </div>
-      </div>
+      </section>
 
-      <div className="mt-10">
-        <h3 className="mb-2 font-semibold underline">Declaration</h3>
-        <p className="leading-relaxed text-sm">
-          I do hereby declare that the particulars furnished above are true, and I will
-          abide by all the rules and regulations of the institution.
+      <section className="mb-8 rounded-2xl border border-stone-200 bg-stone-50 p-4 sm:p-5">
+        <h3 className="mb-2 text-base font-semibold text-stone-900 underline underline-offset-4">
+          Declaration
+        </h3>
+        <p className="text-sm leading-7 text-stone-700">
+          I do hereby declare that the particulars furnished above are true, and I will abide by
+          all the rules and regulations of the institution.
         </p>
-      </div>
+      </section>
 
-      <div className="mt-16 flex justify-between gap-6">
+      <div className="grid gap-6 border-t border-stone-200 pt-6 text-sm text-stone-700 md:grid-cols-2">
         <div>
-          <p>Signature of Parent / Guardian</p>
-          <p className="mt-2">Date: __________</p>
+          <p className="font-semibold">Signature of Parent / Guardian</p>
+          <p className="mt-3">Date: __________</p>
         </div>
         <div>
-          <p>Signature of the Applicant</p>
-          <p className="mt-2">Date: __________</p>
+          <p className="font-semibold">Signature of the Applicant</p>
+          <p className="mt-3">Date: __________</p>
         </div>
       </div>
     </div>
