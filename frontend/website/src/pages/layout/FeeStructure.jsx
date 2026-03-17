@@ -2,6 +2,11 @@ import Header from "../../components/Header";
 import Footer from "../../components/Footer";
 
 const FeeStructure = ({ type }) => {
+  const separateFees = (fees) => ({
+    admissionFee: fees.find((fee) => fee.type === "Admission Fee"),
+    installmentFees: fees.filter((fee) => fee.type !== "Admission Fee"),
+  });
+
   const SchoolItems = [
     {
       title: "Nursery, LKG & UKG",
@@ -82,12 +87,15 @@ const FeeStructure = ({ type }) => {
       <Header />
 
       <div className="flex flex-col items-center px-5 lg:px-15 2xl:px-30">
-        <p className="text-3xl md:text-5xl font-extrabold mt-10">
+        <p className="text-3xl md:text-5xl font-extrabold mt-10 border border-border p-5 rounded-xl shadow-md">
           Fee <span className="text-gradient-bg bg-clip-text">Structure</span>
         </p>
 
-        <hr className="w-20 my-5 border-t-2 border-stone-900" />
-
+        {/* <hr className="w-20 my-5 border-t-2 border-stone-900" /> */}
+<p className="text-xl md:text-3xl font-extrabold my-3">
+          <span className="">Admission Fee </span>
+        </p>
+        <hr className="w-20 my-1 border-t-2 border-stone-900" />
         <div
           className={`grid grid-cols-1 md:grid-cols-2  gap-6 w-full ${type === "school" ? "2xl:grid-cols-4" : "2xl:grid-cols-3"}`}
         >
@@ -96,22 +104,71 @@ const FeeStructure = ({ type }) => {
               key={index}
               className="border border-stone-200 rounded-xl shadow-md p-6"
             >
-              <p className="font-bold text-lg mb-4">{group.title}</p>
+              <p className="font-bold text-lg mb-4 text-center">{group.title}</p>
 
-              <table className="w-full">
-                <tbody>
-                  {group.fees.map((fee, i) => (
-                    <tr key={i} className="flex justify-between py-1 border-b">
-                      <td>{fee.type}</td>
-                      <td>{fee.amount}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              
-                <p className="font-bold mt-5">
-                  {group.text}
-                </p>
+              {(() => {
+                const { admissionFee, installmentFees } = separateFees(group.fees);
+
+                return (
+                  <>
+                    {admissionFee ? (
+                      <div className="border border-stone-200 rounded-lg bg-stone-50 p-4 mb-5">
+                        {/* <p className="font-semibold mb-2">{admissionFee.type}</p> */}
+                        <div className="flex justify-between">
+                          <span>{admissionFee.type}</span>
+                          <span>{admissionFee.amount}</span>
+                        </div>
+                      </div>
+                    ) : null}
+                  </>
+                );
+              })()}
+            </div>
+          ))}
+        </div>
+
+        <p className="text-xl md:text-3xl font-extrabold my-6">
+          <span className="">Monthly Fee </span>
+        </p>
+        <hr className="w-20 my-1 border-t-2 border-stone-900" />
+        <p className="text-xl md:text-3xl font-extrabold my-6">
+          <span className="">বছৰৰ Monthly Fee সমূহ তিনিটা installment ত ভগাই দিয়া হৈছে ।</span>
+        </p>
+        <div
+          className={`grid grid-cols-1 md:grid-cols-2  gap-6 w-full ${type === "school" ? "2xl:grid-cols-4" : "2xl:grid-cols-3"}`}
+        >
+          {Items.map((group, index) => (
+            <div
+              key={index}
+              className="border border-stone-200 rounded-xl shadow-md p-6"
+            >
+              <p className="font-bold text-lg mb-4 text-center">{group.title}</p>
+
+              {(() => {
+                const { admissionFee, installmentFees } = separateFees(group.fees);
+
+                return (
+                  <>
+                    <div className="border border-stone-200 rounded-lg p-4">
+                      {/* <p className="font-semibold mb-2">Installment Fee</p> */}
+                      <table className="w-full">
+                        <tbody>
+                          {installmentFees.map((fee, i) => (
+                            <tr key={i} className="flex justify-between py-1 border-b last:border-b-0">
+                              <td>{fee.type}</td>
+                              <td>{fee.amount}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </>
+                );
+              })()}
+
+              <p className="font-bold mt-5">
+                {group.text}
+              </p>
             </div>
           ))}
         </div>
