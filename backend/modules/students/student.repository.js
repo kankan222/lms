@@ -145,6 +145,7 @@ export async function getStreamByName(name) {
 export async function getStudents(filters = {}) {
   const classId = filters.class_id ?? filters.classId;
   const sectionId = filters.section_id ?? filters.sectionId;
+  const studentIds = Array.isArray(filters.student_ids) ? filters.student_ids : [];
 
   const where = [];
   const params = [];
@@ -157,6 +158,11 @@ export async function getStudents(filters = {}) {
   if (sectionId) {
     where.push("se.section_id = ?");
     params.push(sectionId);
+  }
+
+  if (studentIds.length) {
+    where.push(`s.id IN (${studentIds.map(() => "?").join(",")})`);
+    params.push(...studentIds);
   }
 
   const whereClause = where.length ? `WHERE ${where.join(" AND ")}` : "";
@@ -193,6 +199,18 @@ export async function getStudents(filters = {}) {
   );
 
   return rows;
+}
+
+export async function getParentStudentIdsByUser(userId) {
+  const [rows] = await pool.execute(
+    `SELECT DISTINCT sp.student_id
+     FROM parents p
+     JOIN student_parents sp ON sp.parent_id = p.id
+     WHERE p.user_id = ?`,
+    [userId]
+  );
+
+  return rows.map((row) => Number(row.student_id));
 }
 
 export async function getStudentById(id) {

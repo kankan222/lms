@@ -9,6 +9,24 @@ export async function getMarksGrid(req, res, next) {
   }
 }
 
+export async function getAccessibleExams(req, res, next) {
+  try {
+    const result = await service.getAccessibleExams(req.user.userId);
+    res.json({ success: true, data: result });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function getAccessibleExamById(req, res, next) {
+  try {
+    const result = await service.getAccessibleExamById(req.params.examId, req.user.userId);
+    res.json({ success: true, data: result });
+  } catch (err) {
+    next(err);
+  }
+}
+
 export async function saveMarks(req, res, next) {
   try {
     const result = await service.saveMarks(req.body || {}, req.user.userId);

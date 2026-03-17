@@ -34,6 +34,7 @@ const PERMISSIONS = [
   "teacher.update",
   "teacher.delete",
   "teacher.assign",
+  "staff.view",
   "fee.view",
   "fee.create",
   "fee.update",
@@ -60,7 +61,7 @@ const ROLE_PERMISSION_MAP = {
   student: [],
   parent: ["student.view", "fee.view", "marks.view", "messages.view", "messages.send"],
   accounts: ["payment.view", "payment.create", "payment.update", "payment.delete", "messages.view", "messages.send"],
-  staff: ["exams.create", "exams.view", "exams.update", "exams.delete", "marks.view", "marks.approve", "messages.view", "messages.send"],
+  staff: ["staff.view", "exams.create", "exams.view", "exams.update", "exams.delete", "marks.view", "marks.approve", "messages.view", "messages.send"],
 };
 
 const USERS = [

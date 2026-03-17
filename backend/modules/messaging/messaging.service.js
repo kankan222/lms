@@ -48,6 +48,20 @@ function uniqueUserIds(rows) {
   return [...new Set((rows || []).map((row) => Number(row.user_id)).filter(Boolean))];
 }
 
+async function syncTeacherMemberships(userId) {
+  const teacher = await repo.getTeacherByUserId(userId);
+  if (!teacher?.id) return;
+
+  const conversationIds = await repo.getTeacherVisibleConversationIds({
+    teacherId: teacher.id,
+    classScope: teacher.class_scope || "school"
+  });
+
+  for (const conversationId of conversationIds) {
+    await repo.addConversationMember(conversationId, userId);
+  }
+}
+
 export async function sendMessage(data, senderUserId) {
   if (!data?.message || !String(data.message).trim()) {
     throw new Error("Message is required");
@@ -176,6 +190,7 @@ export async function fetchMessages(conversationId, page = 1, limit = 30) {
 }
 
 export async function fetchUserConversations(userId) {
+  await syncTeacherMemberships(userId);
   return repo.getUserConversations(userId);
 }
 

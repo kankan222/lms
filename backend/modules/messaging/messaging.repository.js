@@ -409,3 +409,59 @@ export async function getAllSectionRecipientUsers() {
     WHERE recipient_user_id IS NOT NULL`
   );
 }
+
+export async function getTeacherByUserId(userId) {
+  const hasClassScope = await hasTeacherClassScopeColumn();
+  const rows = await query(
+    `SELECT
+      id,
+      user_id,
+      ${hasClassScope ? "class_scope" : "'school'"} AS class_scope
+     FROM teachers
+     WHERE user_id = ?
+     LIMIT 1`,
+    [userId]
+  );
+  return rows[0] || null;
+}
+
+export async function getTeacherVisibleConversationIds({ teacherId, classScope = "school" }) {
+  const broadcastNames = ["All Users", "All Teachers"];
+  if (classScope === "hs") {
+    broadcastNames.push("All College Teachers");
+  } else {
+    broadcastNames.push("All School Teachers");
+  }
+
+  const placeholders = broadcastNames.map(() => "?").join(", ");
+  const rows = await query(
+    `SELECT DISTINCT conversation_id
+     FROM (
+       SELECT c.id AS conversation_id
+       FROM conversations c
+       WHERE c.type = 'broadcast'
+         AND c.name IN (${placeholders})
+
+       UNION
+
+       SELECT c.id AS conversation_id
+       FROM conversations c
+       JOIN teacher_class_assignments tca
+         ON tca.teacher_id = ?
+        AND c.type = 'class'
+        AND c.class_id = tca.class_id
+
+       UNION
+
+       SELECT c.id AS conversation_id
+       FROM conversations c
+       JOIN teacher_class_assignments tca
+         ON tca.teacher_id = ?
+        AND c.type = 'section'
+        AND c.section_id = tca.section_id
+     ) visible`,
+    [...broadcastNames, teacherId, teacherId]
+  );
+
+  return rows.map((row) => Number(row.conversation_id)).filter(Boolean);
+}

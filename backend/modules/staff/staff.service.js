@@ -95,6 +95,27 @@ export async function listStaff(filters = {}) {
   return rows.map(toPublicRow);
 }
 
+function canManageStaff(actorPermissions = []) {
+  return actorPermissions.includes("dashboard.view");
+}
+
+async function resolveActorStaff(actorUserId) {
+  const item = await repo.getStaffByUserId(actorUserId);
+  if (!item) {
+    throw new AppError("Staff profile not found", 404);
+  }
+  return item;
+}
+
+export async function listStaffForActor({ actorUserId, actorPermissions = [], filters = {} }) {
+  if (canManageStaff(actorPermissions)) {
+    return listStaff(filters);
+  }
+
+  const item = await resolveActorStaff(actorUserId);
+  return [toPublicRow(item)];
+}
+
 export async function listStaffByCampus(type) {
   const campusType = normalizeCampusType(type);
   const rows = await repo.listStaffByCampus(campusType);
@@ -109,8 +130,30 @@ export async function getStaffById(id) {
   return toPublicRow(item);
 }
 
+export async function getStaffForActor({ staffId, actorUserId, actorPermissions = [] }) {
+  if (canManageStaff(actorPermissions)) {
+    return getStaffById(staffId);
+  }
+
+  const item = await resolveActorStaff(actorUserId);
+  if (Number(item.id) !== Number(staffId)) {
+    throw new AppError("Forbidden", 403);
+  }
+
+  return toPublicRow(item);
+}
+
 export async function createStaff(data) {
+  const userId = data.user_id ? Number(data.user_id) : null;
+  if (userId) {
+    const existingLinkedStaff = await repo.getStaffByUserId(userId);
+    if (existingLinkedStaff) {
+      throw new AppError("Selected user is already linked to another staff record", 400);
+    }
+  }
+
   const result = await repo.createStaff({
+    user_id: userId,
     image_url: ensureImagePath(data.image_url, { required: true }),
     name: ensureName(data.name),
     title: normalizeSection(data.section || data.title),
@@ -130,6 +173,7 @@ export async function bulkCreateStaff(data) {
 
   try {
     const records = files.map((file) => ({
+      user_id: null,
       name: cleanNameFromFilename(file.originalname),
       image_url: ensureImagePath(file.path ? `/${String(file.path).replace(/\\/g, "/")}` : null, { required: true }),
       type,
@@ -155,8 +199,17 @@ export async function updateStaff(id, data) {
     throw new AppError("Staff not found", 404);
   }
 
+  const userId = data.user_id ? Number(data.user_id) : null;
+  if (userId) {
+    const existingLinkedStaff = await repo.getStaffByUserId(userId);
+    if (existingLinkedStaff && Number(existingLinkedStaff.id) !== Number(id)) {
+      throw new AppError("Selected user is already linked to another staff record", 400);
+    }
+  }
+
   const nextImageUrl = ensureImagePath(data.image_url, { required: false }) || existing.image_url || null;
   const result = await repo.updateStaff(id, {
+    user_id: userId,
     image_url: nextImageUrl,
     name: ensureName(data.name),
     title: normalizeSection(data.section || data.title),

@@ -2,11 +2,19 @@ import { useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
 import TopBar from "../../components/TopBar";
 import { getStudent } from "../../api/students.api";
-import { getStudentFeeOptions, getPayments } from "../../api/fee.api";
+import {
+  getMyPayments,
+  getMyStudentFeeOptions,
+  getStudentFeeOptions,
+  getPayments
+} from "../../api/fee.api";
 import {
   getExams,
 } from "../../api/exam.api";
 import {
+  downloadMyMarksheet,
+  getAccessibleExams,
+  getMyResults,
   downloadStudentMarksheet,
   getStudentReport,
 } from "../../api/marks.api";
@@ -23,6 +31,7 @@ import {
   TableHeader,
   TableRow
 } from "@/components/ui/table";
+import { usePermissions } from "../../hooks/usePermissions";
 
 function feeStatusColor(status) {
   const value = String(status || "").trim().toLowerCase();
@@ -46,6 +55,8 @@ function formatClassScope(value) {
 
 const StudentDetails = () => {
   const { id } = useParams();
+  const { hasRole } = usePermissions();
+  const isParent = hasRole("parent");
   const [student, setStudent] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -97,10 +108,17 @@ const StudentDetails = () => {
   async function loadFinance(studentId) {
     setFinanceError("");
     try {
-      const [feeRes, paymentRes] = await Promise.all([
-        getStudentFeeOptions(studentId),
-        getPayments({ student_id: studentId })
-      ]);
+      const [feeRes, paymentRes] = await Promise.all(
+        isParent
+          ? [
+              getMyStudentFeeOptions(studentId),
+              getMyPayments({ student_id: studentId })
+            ]
+          : [
+              getStudentFeeOptions(studentId),
+              getPayments({ student_id: studentId })
+            ]
+      );
       setFeeItems(feeRes?.data || []);
       setPayments(paymentRes?.data || []);
     } catch (err) {
@@ -110,7 +128,7 @@ const StudentDetails = () => {
 
   async function loadExams() {
     try {
-      const res = await getExams();
+      const res = await (isParent ? getAccessibleExams() : getExams());
       const examList = res?.data || [];
       setExams(examList);
     } catch {
@@ -123,7 +141,9 @@ const StudentDetails = () => {
     setReportError("");
     setReport(null);
     try {
-      const res = await getStudentReport(examId, studentId);
+      const res = await (isParent
+        ? getMyResults({ exam_id: examId, student_id: studentId })
+        : getStudentReport(examId, studentId));
       setReport(res?.data || null);
     } catch (err) {
       setReportError(err?.message || "Report not available for this exam.");
@@ -134,13 +154,22 @@ const StudentDetails = () => {
 
   async function handleDownloadMarksheet() {
     if (!selectedExamId || !student?.id) return;
-    const blob = await downloadStudentMarksheet(selectedExamId, student.id);
+    const blob = await (isParent
+      ? downloadMyMarksheet({ exam_id: selectedExamId, student_id: student.id })
+      : downloadStudentMarksheet(selectedExamId, student.id));
+    if (!blob || blob.size === 0) {
+      throw new Error("Downloaded file is empty");
+    }
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
     a.download = `marksheet-exam-${selectedExamId}-student-${student.id}.pdf`;
+    document.body.appendChild(a);
     a.click();
-    window.URL.revokeObjectURL(url);
+    a.remove();
+    window.setTimeout(() => {
+      window.URL.revokeObjectURL(url);
+    }, 5000);
   }
 
   function formatDate(value) {
@@ -179,7 +208,7 @@ const StudentDetails = () => {
 
   return (
     <div>
-      <TopBar title="Student Information" />
+      <TopBar title={isParent ? "Child Information" : "Student Information"} />
 
       <div className="w-full bg-card rounded-xl border shadow-sm p-6 flex gap-6 items-start">
         <div className="w-24 h-24 rounded-lg overflow-hidden bg-muted shrink-0">

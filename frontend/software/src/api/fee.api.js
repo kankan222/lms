@@ -117,6 +117,29 @@ export function getStudentFeeOptions(studentId) {
   return apiRequest(`/fees/student-fees/${studentId}`);
 }
 
+export function getMyStudentsForFees() {
+  return apiRequest("/fees/my-students");
+}
+
+export function getMyStudentFeeOptions(studentId) {
+  return apiRequest(`/fees/my-student-fees/${studentId}`);
+}
+
+export function getMyPayments(params = {}) {
+  const query = new URLSearchParams();
+  if (params.student_id) query.set("student_id", params.student_id);
+  const suffix = query.toString() ? `?${query.toString()}` : "";
+  return apiRequest(`/fees/my-payments${suffix}`);
+}
+
+export function getStudentsForPayment(params = {}) {
+  const query = new URLSearchParams();
+  if (params.class_id) query.set("class_id", params.class_id);
+  if (params.section_id) query.set("section_id", params.section_id);
+  const suffix = query.toString() ? `?${query.toString()}` : "";
+  return apiRequest(`/fees/students${suffix}`);
+}
+
 export function updatePayment(paymentId, data) {
   return apiRequest(`/fees/payment/${paymentId}`, {
     method: "PUT",

@@ -78,6 +78,85 @@ export async function getExamById(examId) {
   return rows[0] || null;
 }
 
+export async function getExamSubjects(examId) {
+  return query(
+    `SELECT
+      es.subject_id,
+      sub.name AS subject_name,
+      es.max_marks,
+      es.pass_marks
+     FROM exam_subjects es
+     JOIN subjects sub ON sub.id = es.subject_id
+     WHERE es.exam_id = ?
+     ORDER BY sub.name ASC`,
+    [examId]
+  );
+}
+
+export async function getExamScopes(examId) {
+  return query(
+    `SELECT
+      es.class_id,
+      es.section_id,
+      c.name AS class_name,
+      s.name AS section_name
+     FROM exam_scopes es
+     JOIN classes c ON c.id = es.class_id
+     JOIN sections s ON s.id = es.section_id
+     WHERE es.exam_id = ?
+     ORDER BY c.name, s.name`,
+    [examId]
+  );
+}
+
+export async function getTeacherAccessibleExams(userId) {
+  return query(
+    `SELECT DISTINCT
+      e.id,
+      e.name,
+      e.session_id,
+      ses.name AS session_name
+     FROM teachers t
+     JOIN teacher_class_assignments tca
+       ON tca.teacher_id = t.id
+     JOIN exams e
+       ON e.session_id = tca.session_id
+     JOIN exam_scopes sc
+       ON sc.exam_id = e.id
+      AND sc.class_id = tca.class_id
+      AND sc.section_id = tca.section_id
+     LEFT JOIN academic_sessions ses ON ses.id = e.session_id
+     WHERE t.user_id = ?
+     ORDER BY e.id DESC`,
+    [userId]
+  );
+}
+
+export async function getOwnedStudentAccessibleExams(studentIds) {
+  if (!studentIds.length) return [];
+
+  const placeholders = studentIds.map(() => "?").join(",");
+  return query(
+    `SELECT DISTINCT
+      e.id,
+      e.name,
+      e.session_id,
+      ses.name AS session_name
+     FROM exams e
+     JOIN student_enrollments se
+       ON se.session_id = e.session_id
+      AND se.status = 'active'
+     JOIN exam_scopes sc
+       ON sc.exam_id = e.id
+      AND sc.class_id = se.class_id
+      AND sc.section_id = se.section_id
+     LEFT JOIN academic_sessions ses ON ses.id = e.session_id
+     WHERE se.student_id IN (${placeholders})
+     ORDER BY e.id DESC`,
+    studentIds
+  );
+}
+
 export async function getExamSubject(examId, subjectId) {
   const rows = await query(
     `SELECT

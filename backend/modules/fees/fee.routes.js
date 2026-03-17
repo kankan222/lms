@@ -61,6 +61,21 @@ router.get(
   requirePermission("fee.view"),
   feeController.getStudentLedger,
 );
+router.get(
+  "/my-students",
+  requirePermission("fee.view"),
+  feeController.getMyStudents,
+);
+router.get(
+  "/my-student-fees/:studentId",
+  requirePermission("fee.view"),
+  feeController.getMyStudentFeeOptions,
+);
+router.get(
+  "/my-payments",
+  requirePermission("fee.view"),
+  feeController.getMyPayments,
+);
 
 router.post(
   "/payment",
@@ -81,6 +96,11 @@ router.get(
   "/student-fees/:studentId",
   requirePermission("payment.view"),
   feeController.getStudentFeeOptions,
+);
+router.get(
+  "/students",
+  requirePermission("payment.view"),
+  feeController.getStudentsForPayment,
 );
 router.put(
   "/payment/:id",

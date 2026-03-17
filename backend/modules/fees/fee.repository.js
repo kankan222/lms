@@ -208,6 +208,17 @@ export async function getActiveEnrollmentByStudent(studentId) {
   return rows[0];
 }
 
+export async function getParentStudentIdsByUser(userId) {
+  const rows = await query(
+    `SELECT DISTINCT sp.student_id
+     FROM parents p
+     JOIN student_parents sp ON sp.parent_id = p.id
+     WHERE p.user_id = ?`,
+    [userId]
+  );
+  return rows.map((row) => Number(row.student_id));
+}
+
 export async function getFeeStructureById(id) {
   const rows = await query(
     `SELECT id, class_id, session_id, admission_fee
@@ -252,6 +263,81 @@ export async function getStudentFeeOptions(enrollmentId) {
   `;
   return query(sql, [enrollmentId]);
 }
+
+export async function getStudentsByIds(studentIds) {
+  if (!studentIds.length) return [];
+
+  return query(
+    `SELECT
+      s.id,
+      s.name,
+      se.roll_number,
+      c.name AS class_name,
+      sec.name AS section_name
+     FROM students s
+     LEFT JOIN student_enrollments se
+       ON se.student_id = s.id
+      AND se.status = 'active'
+     LEFT JOIN classes c ON c.id = se.class_id
+     LEFT JOIN sections sec ON sec.id = se.section_id
+     WHERE s.id IN (${studentIds.map(() => "?").join(",")})
+     ORDER BY s.name ASC`,
+    studentIds
+  );
+}
+
+export async function getStudentsForPayment(filters = {}) {
+  const where = ["se.status = 'active'"];
+  const params = [];
+
+  if (filters.class_id) {
+    where.push("se.class_id = ?");
+    params.push(filters.class_id);
+  }
+
+  if (filters.section_id) {
+    where.push("se.section_id = ?");
+    params.push(filters.section_id);
+  }
+
+  if (filters.teacher_user_id) {
+    where.push(`EXISTS (
+      SELECT 1
+      FROM teachers t
+      JOIN teacher_class_assignments tca ON tca.teacher_id = t.id
+      WHERE t.user_id = ?
+        AND tca.class_id = se.class_id
+        AND tca.section_id = se.section_id
+        AND tca.session_id = se.session_id
+    )`);
+    params.push(filters.teacher_user_id);
+  }
+
+  const sql = `
+    SELECT
+      s.id,
+      s.name,
+      s.admission_no,
+      se.roll_number,
+      se.class_id,
+      se.section_id,
+      c.name AS class_name,
+      sec.name AS section_name,
+      sec.medium
+    FROM students s
+    JOIN student_enrollments se
+      ON se.student_id = s.id
+    JOIN classes c
+      ON c.id = se.class_id
+    JOIN sections sec
+      ON sec.id = se.section_id
+    WHERE ${where.join(" AND ")}
+    ORDER BY s.name ASC, s.id ASC
+  `;
+
+  return query(sql, params);
+}
+
 export async function getStructureByEnrollment(enrollmentId) {
   const sql = `
     SELECT

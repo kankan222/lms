@@ -4,6 +4,8 @@ import { requirePermission } from "../../core/rbac/rbac.middleware.js";
 
 const router = express.Router();
 
+router.get("/exams", requirePermission("marks.view"), controller.getAccessibleExams);
+router.get("/exams/:examId", requirePermission("marks.view"), controller.getAccessibleExamById);
 router.get("/grid", requirePermission("marks.view"), controller.getMarksGrid);
 router.post("/save", requirePermission("marks.enter"), controller.saveMarks);
 router.post("/submit", requirePermission("marks.enter"), controller.submitMarksForApproval);

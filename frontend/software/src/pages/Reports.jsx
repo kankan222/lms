@@ -18,6 +18,8 @@ import { getClassStructure } from "../api/academic.api";
 import { getExams, getExamById } from "../api/exam.api";
 import { getSubjects } from "../api/subjects.api";
 import {
+  getAccessibleExamById,
+  getAccessibleExams,
   approveMarks,
   downloadMyMarksheet,
   downloadStudentMarksheet,
@@ -64,6 +66,10 @@ function uniqueMediums(sections) {
 }
 
 function downloadBlob(blob, fileName) {
+  if (!blob || blob.size === 0) {
+    throw new Error("Downloaded file is empty");
+  }
+
   const url = window.URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
@@ -71,19 +77,24 @@ function downloadBlob(blob, fileName) {
   document.body.appendChild(a);
   a.click();
   a.remove();
-  window.URL.revokeObjectURL(url);
+
+  window.setTimeout(() => {
+    window.URL.revokeObjectURL(url);
+  }, 5000);
 }
 
 export default function Reports() {
   const { can } = usePermissions();
   const isAdmin = can("marks.approve");
   const canEnterMarks = can("marks.enter");
+  const canViewExamCatalog = can("exams.view");
   const selfViewOnly = !isAdmin && !canEnterMarks;
 
   const [classes, setClasses] = useState([]);
   const [subjects, setSubjects] = useState([]);
   const [exams, setExams] = useState([]);
   const [examSubjects, setExamSubjects] = useState([]);
+  const [examScopes, setExamScopes] = useState([]);
   const [myStudents, setMyStudents] = useState([]);
 
   const [filters, setFilters] = useState(EMPTY_FILTERS);
@@ -100,12 +111,35 @@ export default function Reports() {
   const [selfLoading, setSelfLoading] = useState(false);
   const [banner, setBanner] = useState(null);
 
+  const scopedClassIds = useMemo(
+    () => [...new Set((examScopes || []).map((item) => String(item.class_id)))],
+    [examScopes]
+  );
+  const availableClasses = useMemo(
+    () =>
+      !filters.exam_id
+        ? classes
+        : classes.filter((item) => scopedClassIds.includes(String(item.id))),
+    [classes, filters.exam_id, scopedClassIds]
+  );
   const selectedClass = useMemo(
-    () => classes.find((item) => String(item.id) === String(filters.class_id)) || null,
-    [classes, filters.class_id]
+    () => availableClasses.find((item) => String(item.id) === String(filters.class_id)) || null,
+    [availableClasses, filters.class_id]
   );
   const sections = selectedClass?.sections || [];
-  const mediums = uniqueMediums(sections);
+  const availableSections = useMemo(() => {
+    if (!selectedClass) return [];
+    if (!filters.exam_id) return sections;
+
+    const allowedSectionIds = new Set(
+      (examScopes || [])
+        .filter((item) => String(item.class_id) === String(selectedClass.id))
+        .map((item) => String(item.section_id))
+    );
+
+    return sections.filter((item) => allowedSectionIds.has(String(item.id)));
+  }, [selectedClass, filters.exam_id, examScopes, sections]);
+  const mediums = uniqueMediums(availableSections);
   const filteredSubjects = examSubjects.length
     ? subjects.filter((subject) =>
         examSubjects.some((item) => String(item.subject_id) === String(subject.id))
@@ -127,6 +161,7 @@ export default function Reports() {
   useEffect(() => {
     if (!filters.exam_id) {
       setExamSubjects([]);
+      setExamScopes([]);
       setFilters((prev) => ({ ...prev, subject_id: "" }));
       return;
     }
@@ -134,13 +169,16 @@ export default function Reports() {
     let ignore = false;
     (async () => {
       try {
-        const res = await getExamById(filters.exam_id);
+        const examLoader = canViewExamCatalog ? getExamById : getAccessibleExamById;
+        const res = await examLoader(filters.exam_id);
         if (!ignore) {
           setExamSubjects(Array.isArray(res?.data?.subjects) ? res.data.subjects : []);
+          setExamScopes(Array.isArray(res?.data?.scopes) ? res.data.scopes : []);
         }
       } catch (err) {
         if (!ignore) {
           setExamSubjects([]);
+          setExamScopes([]);
           setBanner({
             type: "destructive",
             title: "Exam load failed",
@@ -153,7 +191,29 @@ export default function Reports() {
     return () => {
       ignore = true;
     };
-  }, [filters.exam_id]);
+  }, [filters.exam_id, canViewExamCatalog]);
+
+  useEffect(() => {
+    if (!filters.exam_id) return;
+
+    if (filters.class_id && !availableClasses.some((item) => String(item.id) === String(filters.class_id))) {
+      setFilters((prev) => ({
+        ...prev,
+        class_id: "",
+        section_id: "",
+        medium: "",
+      }));
+      return;
+    }
+
+    if (filters.section_id && !availableSections.some((item) => String(item.id) === String(filters.section_id))) {
+      setFilters((prev) => ({
+        ...prev,
+        section_id: "",
+        medium: "",
+      }));
+    }
+  }, [filters.exam_id, filters.class_id, filters.section_id, availableClasses, availableSections]);
 
   async function loadBootstrap() {
     setLoading(true);
@@ -161,7 +221,7 @@ export default function Reports() {
       const [classRes, subjectRes, examRes] = await Promise.all([
         getClassStructure(),
         getSubjects(),
-        getExams(),
+        canViewExamCatalog ? getExams() : getAccessibleExams(),
       ]);
 
       setClasses(Array.isArray(classRes?.data) ? classRes.data : []);
@@ -555,7 +615,7 @@ export default function Reports() {
                   }
                 >
                   <option value="">Select class</option>
-                  {classes.map((item) => (
+                  {availableClasses.map((item) => (
                     <option key={item.id} value={item.id}>
                       {item.name}
                     </option>
@@ -573,7 +633,7 @@ export default function Reports() {
                   }
                 >
                   <option value="">Select section</option>
-                  {sections.map((section) => (
+                  {availableSections.map((section) => (
                     <option key={section.id} value={section.id}>
                       {section.name}
                     </option>

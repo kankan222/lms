@@ -42,6 +42,14 @@ export function getMarksGrid(params = {}) {
   return apiRequest(`/marks/grid${buildQuery(params)}`);
 }
 
+export function getAccessibleExams() {
+  return apiRequest("/marks/exams");
+}
+
+export function getAccessibleExamById(examId) {
+  return apiRequest(`/marks/exams/${examId}`);
+}
+
 export function saveMarks(data) {
   return apiRequest("/marks/save", {
     method: "POST",

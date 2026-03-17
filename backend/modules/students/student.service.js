@@ -226,6 +226,34 @@ export async function getStudentById(id) {
   return repo.getStudentById(id);
 }
 
+export async function getStudentsForActor(filters = {}, actorUserId) {
+  const parentStudentIds = actorUserId
+    ? await repo.getParentStudentIdsByUser(actorUserId)
+    : [];
+
+  if (!parentStudentIds.length) {
+    return getStudents(filters);
+  }
+
+  return repo.getStudents({
+    ...filters,
+    student_ids: parentStudentIds,
+  });
+}
+
+export async function getStudentByIdForActor(id, actorUserId) {
+  const studentId = Number(id);
+  const parentStudentIds = actorUserId
+    ? await repo.getParentStudentIdsByUser(actorUserId)
+    : [];
+
+  if (parentStudentIds.length && !parentStudentIds.includes(studentId)) {
+    throw new AppError("Not authorized to view this student", 403);
+  }
+
+  return getStudentById(studentId);
+}
+
 export async function updateStudent(id, data) {
   const existing = await repo.getStudentById(id);
   if (!existing) {
@@ -300,5 +328,4 @@ export async function bulkCreateStudents(rows = []) {
     studentIds: createdIds
   };
 }
-
 

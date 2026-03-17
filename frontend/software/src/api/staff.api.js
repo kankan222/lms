@@ -17,6 +17,7 @@ export function createStaff(data) {
   body.append("name", data.name || "");
   body.append("section", data.section || "");
   body.append("type", data.type || "school");
+  body.append("user_id", data.user_id || "");
   if (data.image instanceof File) {
     body.append("image", data.image);
   }
@@ -32,6 +33,7 @@ export function updateStaff(id, data) {
   body.append("name", data.name || "");
   body.append("section", data.section || "");
   body.append("type", data.type || "school");
+  body.append("user_id", data.user_id || "");
   if (data.image instanceof File) {
     body.append("image", data.image);
   } else if (data.image_url) {

@@ -35,7 +35,10 @@ export async function createStudent(req, res, next) {
 
 export async function getStudents(req, res, next) {
   try {
-    const students = await studentService.getStudents(req.query);
+    const students = await studentService.getStudentsForActor(
+      req.query,
+      req.user?.userId
+    );
     res.json(students);
   } catch (err) {
     next(err);
@@ -44,7 +47,10 @@ export async function getStudents(req, res, next) {
 
 export async function getStudentById(req, res, next) {
   try {
-    const student = await studentService.getStudentById(req.params.id);
+    const student = await studentService.getStudentByIdForActor(
+      req.params.id,
+      req.user?.userId
+    );
     res.json(student);
   } catch (err) {
     next(err);

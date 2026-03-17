@@ -36,6 +36,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { usePermissions } from "../hooks/usePermissions";
 
 const columns = [
   { header: "Id", accessor: "display_id" },
@@ -59,6 +60,8 @@ function formatClassScope(value) {
 }
 
 export default function Student() {
+  const { hasRole } = usePermissions();
+  const isParent = hasRole("parent");
   const navigate = useNavigate();
   const [students, setStudents] = useState([]);
   const [classes, setClasses] = useState([]);
@@ -582,9 +585,9 @@ export default function Student() {
       </div>
 
       <TopBar
-        title="Students"
-        subTitle="Find all student details here"
-        action={
+        title={isParent ? "My Children" : "Students"}
+        subTitle={isParent ? "View your linked children" : "Find all student details here"}
+        action={!isParent ? (
           <div className="flex gap-2">
             <Button variant="outline" onClick={downloadCsvTemplate}>
               Download CSV Format
@@ -644,7 +647,7 @@ export default function Student() {
               </DialogContent>
             </Dialog>
           </div>
-        }
+        ) : null}
       />
 
       <div className="mb-4 grid gap-3 rounded-xl border bg-card p-4 md:grid-cols-2">
@@ -689,11 +692,11 @@ export default function Student() {
         columns={columns}
         data={students}
         onRowClick={handleRowClick}
-        onEdit={handleEdit}
-        onDelete={setDeletingStudent}
+        onEdit={isParent ? undefined : handleEdit}
+        onDelete={isParent ? undefined : setDeletingStudent}
       />
 
-      <Dialog open={!!editingStudent} onOpenChange={() => setEditingStudent(null)}>
+      <Dialog open={!isParent && !!editingStudent} onOpenChange={() => setEditingStudent(null)}>
         <DialogContent className="max-h-[90vh] overflow-y-auto">
           <form onSubmit={handleUpdate} className="space-y-3">
             <DialogHeader>
@@ -870,7 +873,7 @@ export default function Student() {
       </Dialog>
 
       <AlertDialog
-        open={!!deletingStudent}
+        open={!isParent && !!deletingStudent}
         onOpenChange={(open) => {
           if (!open) setDeletingStudent(null);
         }}

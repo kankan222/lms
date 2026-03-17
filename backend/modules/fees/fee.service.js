@@ -56,7 +56,8 @@ async function getUserFlags(userId) {
   const roles = await repo.getUserRoleNames(userId);
   return {
     isAdmin: roles.includes("super_admin"),
-    isTeacher: roles.includes("teacher")
+    isTeacher: roles.includes("teacher"),
+    isParent: roles.includes("parent"),
   };
 }
 
@@ -288,6 +289,81 @@ export async function getStudentFeeOptions(studentId, user) {
   }
 
   return repo.getStudentFeeOptions(enrollment.id);
+}
+
+async function assertParentOwnsStudent(userId, studentId) {
+  const studentIds = await repo.getParentStudentIdsByUser(userId);
+  if (!studentIds.includes(Number(studentId))) {
+    throw new AppError("Not authorized to view this student's fee data", 403);
+  }
+}
+
+export async function getMyStudents(user) {
+  const flags = await getUserFlags(user?.userId);
+  if (!flags.isParent) {
+    throw new AppError("Only parents can use this endpoint", 403);
+  }
+
+  const studentIds = await repo.getParentStudentIdsByUser(user.userId);
+  return repo.getStudentsByIds(studentIds);
+}
+
+export async function getMyStudentFeeOptions(studentId, user) {
+  const flags = await getUserFlags(user?.userId);
+  if (!flags.isParent) {
+    throw new AppError("Only parents can use this endpoint", 403);
+  }
+
+  await assertParentOwnsStudent(user.userId, studentId);
+  const enrollment = await repo.getActiveEnrollmentByStudent(studentId);
+  if (!enrollment) {
+    throw new AppError("Active enrollment not found for student", 404);
+  }
+
+  const existingCount = await repo.countStudentFees(enrollment.id);
+  if (existingCount === 0) {
+    await generateStudentLedger(enrollment.id);
+  }
+
+  return repo.getStudentFeeOptions(enrollment.id);
+}
+
+export async function getMyPayments(filters = {}, user) {
+  const flags = await getUserFlags(user?.userId);
+  if (!flags.isParent) {
+    throw new AppError("Only parents can use this endpoint", 403);
+  }
+
+  const studentId = Number(filters.student_id);
+  if (!studentId) {
+    throw new AppError("student_id is required", 400);
+  }
+
+  await assertParentOwnsStudent(user.userId, studentId);
+  return repo.getPayments({ student_id: studentId });
+}
+
+export async function getStudentsForPayment(filters = {}, user) {
+  const classId = Number(filters.class_id);
+  const sectionId = Number(filters.section_id);
+
+  if (!classId || !sectionId) {
+    throw new AppError("class_id and section_id are required", 400);
+  }
+
+  const queryFilters = {
+    class_id: classId,
+    section_id: sectionId,
+  };
+
+  if (user?.userId) {
+    const flags = await getUserFlags(user.userId);
+    if (flags.isTeacher && !flags.isAdmin) {
+      queryFilters.teacher_user_id = user.userId;
+    }
+  }
+
+  return repo.getStudentsForPayment(queryFilters);
 }
 
 export async function updatePayment(paymentId, data, user) {

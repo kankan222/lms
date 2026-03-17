@@ -40,7 +40,7 @@ function buildListFilters(filters = {}) {
 export function listStaff(filters = {}) {
   const { whereSql, params } = buildListFilters(filters);
   return query(
-    `SELECT id, image_url, name, title, type, created_at, updated_at
+    `SELECT id, user_id, image_url, name, title, type, created_at, updated_at
      FROM staff
      ${whereSql}
      ORDER BY type ASC, title ASC, name ASC, id DESC`,
@@ -50,7 +50,7 @@ export function listStaff(filters = {}) {
 
 export function listStaffByCampus(type) {
   return query(
-    `SELECT id, image_url, name, title, type, created_at, updated_at
+    `SELECT id, user_id, image_url, name, title, type, created_at, updated_at
      FROM staff
      WHERE type = ?
      ORDER BY title ASC, name ASC, id DESC`,
@@ -60,7 +60,7 @@ export function listStaffByCampus(type) {
 
 export async function getStaffById(id) {
   const rows = await query(
-    `SELECT id, image_url, name, title, type, created_at, updated_at
+    `SELECT id, user_id, image_url, name, title, type, created_at, updated_at
      FROM staff
      WHERE id = ?
      LIMIT 1`,
@@ -69,11 +69,22 @@ export async function getStaffById(id) {
   return rows[0] || null;
 }
 
+export async function getStaffByUserId(userId) {
+  const rows = await query(
+    `SELECT id, user_id, image_url, name, title, type, created_at, updated_at
+     FROM staff
+     WHERE user_id = ?
+     LIMIT 1`,
+    [userId]
+  );
+  return rows[0] || null;
+}
+
 export function createStaff(data) {
   return execute(
-    `INSERT INTO staff (image_url, name, title, type)
-     VALUES (?, ?, ?, ?)`,
-    [data.image_url ?? null, data.name, data.title, data.type]
+    `INSERT INTO staff (user_id, image_url, name, title, type)
+     VALUES (?, ?, ?, ?, ?)`,
+    [data.user_id ?? null, data.image_url ?? null, data.name, data.title, data.type]
   );
 }
 
@@ -85,9 +96,9 @@ export async function bulkCreateStaff(records = []) {
 
     for (const record of records) {
       const [result] = await conn.execute(
-        `INSERT INTO staff (image_url, name, title, type)
-         VALUES (?, ?, ?, ?)`,
-        [record.image_url ?? null, record.name, record.title, record.type]
+        `INSERT INTO staff (user_id, image_url, name, title, type)
+         VALUES (?, ?, ?, ?, ?)`,
+        [record.user_id ?? null, record.image_url ?? null, record.name, record.title, record.type]
       );
       inserted.push({ id: result.insertId, ...record });
     }
@@ -105,12 +116,13 @@ export async function bulkCreateStaff(records = []) {
 export function updateStaff(id, data) {
   return execute(
     `UPDATE staff
-     SET image_url = ?,
+     SET user_id = ?,
+         image_url = ?,
          name = ?,
          title = ?,
          type = ?
      WHERE id = ?`,
-    [data.image_url ?? null, data.name, data.title, data.type, id]
+    [data.user_id ?? null, data.image_url ?? null, data.name, data.title, data.type, id]
   );
 }
 

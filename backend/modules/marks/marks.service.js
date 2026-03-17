@@ -21,6 +21,10 @@ async function getUserContext(userId) {
   };
 }
 
+function canManageExamCatalog(userCtx) {
+  return !userCtx.isTeacher && !userCtx.isParent && !userCtx.isStudent;
+}
+
 function normalizeNumber(value, fieldName) {
   const parsed = Number(value);
   if (!parsed) throw new AppError(`${fieldName} is required`, 400);
@@ -156,6 +160,63 @@ export async function getMarksGrid(filters, userId) {
       pass_marks: Number(examSubject.pass_marks || 0),
     },
     rows,
+  };
+}
+
+export async function getAccessibleExams(userId) {
+  const userCtx = await getUserContext(userId);
+
+  if (userCtx.isTeacher) {
+    return repo.getTeacherAccessibleExams(userId);
+  }
+
+  if (userCtx.isParent) {
+    return repo.getOwnedStudentAccessibleExams(userCtx.parentStudentIds);
+  }
+
+  if (userCtx.isStudent && userCtx.studentId) {
+    return repo.getOwnedStudentAccessibleExams([userCtx.studentId]);
+  }
+
+  return repo.getOwnedStudentAccessibleExams([]);
+}
+
+export async function getAccessibleExamById(examIdValue, userId) {
+  const examId = normalizeNumber(examIdValue, "exam_id");
+  const userCtx = await getUserContext(userId);
+  const exam = await repo.getExamById(examId);
+
+  if (!exam) {
+    throw new AppError("Exam not found", 404);
+  }
+
+  if (userCtx.isTeacher) {
+    const exams = await repo.getTeacherAccessibleExams(userId);
+    if (!exams.some((item) => Number(item.id) === examId)) {
+      throw new AppError("Forbidden", 403);
+    }
+  } else if (userCtx.isParent) {
+    const exams = await repo.getOwnedStudentAccessibleExams(userCtx.parentStudentIds);
+    if (!exams.some((item) => Number(item.id) === examId)) {
+      throw new AppError("Forbidden", 403);
+    }
+  } else if (userCtx.isStudent && userCtx.studentId) {
+    const exams = await repo.getOwnedStudentAccessibleExams([userCtx.studentId]);
+    if (!exams.some((item) => Number(item.id) === examId)) {
+      throw new AppError("Forbidden", 403);
+    }
+  } else if (!canManageExamCatalog(userCtx)) {
+    throw new AppError("Forbidden", 403);
+  }
+
+  const [subjects, scopes] = await Promise.all([
+    repo.getExamSubjects(examId),
+    repo.getExamScopes(examId),
+  ]);
+  return {
+    ...exam,
+    subjects,
+    scopes,
   };
 }
 

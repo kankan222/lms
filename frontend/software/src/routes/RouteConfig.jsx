@@ -35,6 +35,7 @@ import Reports from "../pages/Reports";
 import SettingsPage from "../pages/Settings";
 import UsersPage from "../pages/Users";
 import WebsiteModule from "../pages/WebsiteModule";
+import StaffPage from "../pages/Staff";
 
 
 import StudentDetails from "../pages/modules/StudentDetails";
@@ -109,7 +110,7 @@ export const appRoutes = [
       element: <Fees/>,
       protected : true,
       permission: "fee.view",
-      hideForRoles: ["teacher"],
+      hideForRoles: ["teacher", "parent"],
     },
     {
       title: "Payments",
@@ -150,6 +151,7 @@ export const appRoutes = [
       element: <Exams/>,
       protected : true,
       permission: "exams.view",
+      hideForRoles: ["teacher"],
     },
     // {
     //   title: "Class Tests",
@@ -171,6 +173,15 @@ export const appRoutes = [
       element: <UsersPage />,
       protected: true,
       permission: "teacher.update",
+      hideForRoles: ["teacher"],
+    },
+    {
+      title: "Staff",
+      icon: BriefcaseBusinessIcon,
+      path: "/staff",
+      element: <StaffPage />,
+      protected: true,
+      permission: "staff.view",
       hideForRoles: ["teacher"],
     },
     {

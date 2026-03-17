@@ -29,6 +29,8 @@ import {
   listStaff,
   updateStaff,
 } from "../api/staff.api";
+import { getUsers } from "../api/users.api";
+import { usePermissions } from "../hooks/usePermissions";
 
 const API_ROOT = (import.meta.env.VITE_API_URL || "http://localhost:5000/api/v1").replace(/\/api\/v1\/?$/, "");
 const SECTION_OPTIONS = [
@@ -42,6 +44,7 @@ const TYPE_OPTIONS = [
 ];
 
 const EMPTY_FORM = {
+  user_id: "",
   image: null,
   image_url: "",
   name: "",
@@ -80,8 +83,16 @@ function titleToSection(value) {
   return "head";
 }
 
+function userOptionLabel(user) {
+  return `#${user.id} ${user.username || user.email || user.phone || "Staff User"}`;
+}
+
 export default function StaffPage() {
+  const { can } = usePermissions();
+  const canManageStaff = can("dashboard.view");
+
   const [rows, setRows] = useState([]);
+  const [staffUsers, setStaffUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -108,19 +119,31 @@ export default function StaffPage() {
 
   useEffect(() => {
     loadRows();
-  }, []);
+    if (canManageStaff) {
+      loadStaffUsers();
+    }
+  }, [canManageStaff]);
 
   async function loadRows() {
     setLoading(true);
     setError("");
     try {
       const res = await listStaff();
-      setRows(res?.data || []);
+      setRows(Array.isArray(res?.data) ? res.data : []);
     } catch (err) {
       setError(err?.message || "Failed to load staff.");
       setRows([]);
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function loadStaffUsers() {
+    try {
+      const res = await getUsers({ role: "staff", limit: 50 });
+      setStaffUsers(Array.isArray(res?.data) ? res.data : []);
+    } catch {
+      setStaffUsers([]);
     }
   }
 
@@ -144,6 +167,7 @@ export default function StaffPage() {
 
     try {
       await createStaff({
+        user_id: createForm.user_id || "",
         image: createForm.image,
         name: createForm.name.trim(),
         section: createForm.section,
@@ -188,6 +212,7 @@ export default function StaffPage() {
 
     try {
       await updateStaff(editRow.id, {
+        user_id: editRow.user_id || "",
         image: editRow.image || null,
         image_url: String(editRow.image_url || "").trim(),
         name: String(editRow.name || "").trim(),
@@ -215,9 +240,13 @@ export default function StaffPage() {
   return (
     <>
       <TopBar
-        title="Staff Module"
-        subTitle="Manage website staff records with single and bulk upload"
-        action={
+        title={canManageStaff ? "Staff Module" : "My Profile"}
+        subTitle={
+          canManageStaff
+            ? "Manage staff records and linked staff accounts"
+            : "View your staff profile details"
+        }
+        action={canManageStaff ? (
           <div className="flex gap-2">
             <Dialog open={bulkOpen} onOpenChange={setBulkOpen}>
               <DialogTrigger asChild>
@@ -315,7 +344,7 @@ export default function StaffPage() {
                   <DialogHeader>
                     <DialogTitle>Add Staff</DialogTitle>
                     <DialogDescription>
-                      Add a single staff record with section, campus, and photo.
+                      Add a single staff record with section, campus, photo, and optional linked user.
                     </DialogDescription>
                   </DialogHeader>
 
@@ -328,6 +357,24 @@ export default function StaffPage() {
                       }
                       required
                     />
+                  </div>
+
+                  <div className="grid gap-2">
+                    <Label>Linked User</Label>
+                    <select
+                      className="w-full rounded-md border px-3 py-2"
+                      value={createForm.user_id}
+                      onChange={(e) =>
+                        setCreateForm((prev) => ({ ...prev, user_id: e.target.value }))
+                      }
+                    >
+                      <option value="">No linked user</option>
+                      {staffUsers.map((user) => (
+                        <option key={user.id} value={user.id}>
+                          {userOptionLabel(user)}
+                        </option>
+                      ))}
+                    </select>
                   </div>
 
                   <div className="grid gap-4 sm:grid-cols-2">
@@ -390,90 +437,125 @@ export default function StaffPage() {
               </DialogContent>
             </Dialog>
           </div>
-        }
+        ) : null}
       />
 
       {loading ? <p>Loading...</p> : null}
       {error ? <p className="mb-3 text-sm text-red-600">{error}</p> : null}
 
-      <div className="mb-4 grid gap-3 sm:grid-cols-3">
-        <div className="rounded-lg border bg-card p-4">
-          <p className="text-xs uppercase tracking-wide text-muted-foreground">Head Staff</p>
-          <p className="mt-1 text-2xl font-semibold">{grouped.head.length}</p>
-        </div>
-        <div className="rounded-lg border bg-card p-4">
-          <p className="text-xs uppercase tracking-wide text-muted-foreground">Teaching Staff</p>
-          <p className="mt-1 text-2xl font-semibold">{grouped.teaching.length}</p>
-        </div>
-        <div className="rounded-lg border bg-card p-4">
-          <p className="text-xs uppercase tracking-wide text-muted-foreground">Non Teaching Staff</p>
-          <p className="mt-1 text-2xl font-semibold">{grouped.non_teaching.length}</p>
-        </div>
-      </div>
-
-      {SECTION_OPTIONS.map((section) => (
-        <div key={section.value} className="mb-6">
-          <h3 className="mb-2 text-lg font-semibold">{section.label}</h3>
-          <div className="overflow-x-auto rounded-md border bg-card">
-            <table className="w-full text-sm">
-              <thead className="bg-muted">
-                <tr>
-                  <th className="p-2 text-left">Photo</th>
-                  <th className="p-2 text-left">Name</th>
-                  <th className="p-2 text-left">Type</th>
-                  <th className="p-2 text-left">Section</th>
-                  <th className="p-2 text-left">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {(grouped[section.value] || []).map((row) => (
-                  <tr key={row.id} className="border-t">
-                    <td className="p-2">
-                      {row.image_url ? (
-                        <img
-                          src={resolveImageUrl(row.image_url)}
-                          alt={row.name}
-                          className="h-12 w-12 rounded object-cover"
-                        />
-                      ) : (
-                        "-"
-                      )}
-                    </td>
-                    <td className="p-2">{row.name}</td>
-                    <td className="p-2 capitalize">{row.type}</td>
-                    <td className="p-2">{sectionLabel(row.section || titleToSection(row.title))}</td>
-                    <td className="flex gap-2 p-2">
-                      <Button
-                        variant="outline"
-                        onClick={() => {
-                          setEditErr("");
-                          setEditRow({
-                            ...row,
-                            image: null,
-                            section: row.section || titleToSection(row.title),
-                          });
-                        }}
-                      >
-                        Edit
-                      </Button>
-                      <Button variant="destructive" onClick={() => setDeletingRow(row)}>
-                        Delete
-                      </Button>
-                    </td>
-                  </tr>
-                ))}
-                {!grouped[section.value]?.length ? (
-                  <tr>
-                    <td className="p-3 text-muted-foreground" colSpan={5}>
-                      No records.
-                    </td>
-                  </tr>
-                ) : null}
-              </tbody>
-            </table>
+      {canManageStaff ? (
+        <>
+          <div className="mb-4 grid gap-3 sm:grid-cols-3">
+            <div className="rounded-lg border bg-card p-4">
+              <p className="text-xs uppercase tracking-wide text-muted-foreground">Head Staff</p>
+              <p className="mt-1 text-2xl font-semibold">{grouped.head.length}</p>
+            </div>
+            <div className="rounded-lg border bg-card p-4">
+              <p className="text-xs uppercase tracking-wide text-muted-foreground">Teaching Staff</p>
+              <p className="mt-1 text-2xl font-semibold">{grouped.teaching.length}</p>
+            </div>
+            <div className="rounded-lg border bg-card p-4">
+              <p className="text-xs uppercase tracking-wide text-muted-foreground">Non Teaching Staff</p>
+              <p className="mt-1 text-2xl font-semibold">{grouped.non_teaching.length}</p>
+            </div>
           </div>
+
+          {SECTION_OPTIONS.map((section) => (
+            <div key={section.value} className="mb-6">
+              <h3 className="mb-2 text-lg font-semibold">{section.label}</h3>
+              <div className="overflow-x-auto rounded-md border bg-card">
+                <table className="w-full text-sm">
+                  <thead className="bg-muted">
+                    <tr>
+                      <th className="p-2 text-left">Photo</th>
+                      <th className="p-2 text-left">Name</th>
+                      <th className="p-2 text-left">Type</th>
+                      <th className="p-2 text-left">Section</th>
+                      <th className="p-2 text-left">Linked User</th>
+                      <th className="p-2 text-left">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(grouped[section.value] || []).map((row) => (
+                      <tr key={row.id} className="border-t">
+                        <td className="p-2">
+                          {row.image_url ? (
+                            <img
+                              src={resolveImageUrl(row.image_url)}
+                              alt={row.name}
+                              className="h-12 w-12 rounded object-cover"
+                            />
+                          ) : (
+                            "-"
+                          )}
+                        </td>
+                        <td className="p-2">{row.name}</td>
+                        <td className="p-2 capitalize">{row.type}</td>
+                        <td className="p-2">{sectionLabel(row.section || titleToSection(row.title))}</td>
+                        <td className="p-2">{row.user_id || "-"}</td>
+                        <td className="flex gap-2 p-2">
+                          <Button
+                            variant="outline"
+                            onClick={() => {
+                              setEditErr("");
+                              setEditRow({
+                                ...row,
+                                image: null,
+                                user_id: row.user_id ? String(row.user_id) : "",
+                                section: row.section || titleToSection(row.title),
+                              });
+                            }}
+                          >
+                            Edit
+                          </Button>
+                          <Button variant="destructive" onClick={() => setDeletingRow(row)}>
+                            Delete
+                          </Button>
+                        </td>
+                      </tr>
+                    ))}
+                    {!grouped[section.value]?.length ? (
+                      <tr>
+                        <td className="p-3 text-muted-foreground" colSpan={6}>
+                          No records.
+                        </td>
+                      </tr>
+                    ) : null}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          ))}
+        </>
+      ) : (
+        <div className="rounded-xl border bg-card p-6 shadow-sm">
+          {rows[0] ? (
+            <div className="flex flex-col gap-4 md:flex-row md:items-center">
+              <div className="h-24 w-24 overflow-hidden rounded-lg bg-muted">
+                {rows[0].image_url ? (
+                  <img
+                    src={resolveImageUrl(rows[0].image_url)}
+                    alt={rows[0].name}
+                    className="h-full w-full object-cover"
+                  />
+                ) : null}
+              </div>
+              <div className="space-y-2">
+                <h2 className="text-xl font-semibold text-foreground">{rows[0].name}</h2>
+                <div className="grid gap-1 text-sm text-muted-foreground">
+                  <p>Type: {String(rows[0].type || "-").replace(/^./, (char) => char.toUpperCase())}</p>
+                  <p>Section: {sectionLabel(rows[0].section || titleToSection(rows[0].title))}</p>
+                  <p>Linked User ID: {rows[0].user_id || "-"}</p>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              Staff profile not found. Link this staff account to a staff record first.
+            </p>
+          )}
         </div>
-      ))}
+      )}
 
       <Dialog open={!!editRow} onOpenChange={() => setEditRow(null)}>
         <DialogContent className="max-h-[85vh] overflow-y-auto">
@@ -481,7 +563,7 @@ export default function StaffPage() {
             <DialogHeader>
               <DialogTitle>Edit Staff</DialogTitle>
               <DialogDescription>
-                Update the staff record, section, campus, or replace the photo.
+                Update the staff record, linked user, section, campus, or replace the photo.
               </DialogDescription>
             </DialogHeader>
 
@@ -494,6 +576,24 @@ export default function StaffPage() {
                 }
                 required
               />
+            </div>
+
+            <div className="grid gap-2">
+              <Label>Linked User</Label>
+              <select
+                className="w-full rounded-md border px-3 py-2"
+                value={editRow?.user_id || ""}
+                onChange={(e) =>
+                  setEditRow((prev) => ({ ...prev, user_id: e.target.value }))
+                }
+              >
+                <option value="">No linked user</option>
+                {staffUsers.map((user) => (
+                  <option key={user.id} value={user.id}>
+                    {userOptionLabel(user)}
+                  </option>
+                ))}
+              </select>
             </div>
 
             <div className="grid gap-4 sm:grid-cols-2">

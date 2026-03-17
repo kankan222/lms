@@ -9,7 +9,11 @@ function getStoredImagePath(file, fallbackPath) {
 
 export async function listStaff(req, res, next) {
   try {
-    const data = await service.listStaff(req.query || {});
+    const data = await service.listStaffForActor({
+      actorUserId: req.user?.userId,
+      actorPermissions: req.user?.permissions || [],
+      filters: req.query || {},
+    });
     res.json({ success: true, data });
   } catch (err) {
     next(err);
@@ -39,7 +43,11 @@ export async function listWebsiteStaff(req, res, next) {
 
 export async function getStaffById(req, res, next) {
   try {
-    const data = await service.getStaffById(req.params.id);
+    const data = await service.getStaffForActor({
+      staffId: req.params.id,
+      actorUserId: req.user?.userId,
+      actorPermissions: req.user?.permissions || [],
+    });
     res.json({ success: true, data });
   } catch (err) {
     next(err);

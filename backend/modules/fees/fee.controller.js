@@ -187,6 +187,26 @@ export async function getStudentFeeOptions(req, res) {
   res.json({ data: result });
 }
 
+export async function getStudentsForPayment(req, res) {
+  const result = await feeService.getStudentsForPayment(req.query || {}, req.user);
+  res.json({ data: result });
+}
+
+export async function getMyStudents(req, res) {
+  const result = await feeService.getMyStudents(req.user);
+  res.json({ data: result });
+}
+
+export async function getMyStudentFeeOptions(req, res) {
+  const result = await feeService.getMyStudentFeeOptions(req.params.studentId, req.user);
+  res.json({ data: result });
+}
+
+export async function getMyPayments(req, res) {
+  const result = await feeService.getMyPayments(req.query || {}, req.user);
+  res.json({ data: result });
+}
+
 export async function updatePayment(req, res) {
   const result = await feeService.updatePayment(req.params.id, req.body, req.user);
   res.json(result);

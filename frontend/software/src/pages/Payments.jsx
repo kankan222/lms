@@ -33,12 +33,12 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { getClassStructure } from "../api/academic.api";
-import { getStudents } from "../api/students.api";
 import {
   createPayment,
   deletePayment,
   exportPaymentsCsv,
   getPayments,
+  getStudentsForPayment,
   getStudentFeeOptions,
   updatePayment,
 } from "../api/fee.api";
@@ -182,12 +182,18 @@ export default function Payments() {
   }
 
   async function loadStudentsForCreate() {
-    const res = await getStudents({
-      class_id: createForm.class_id,
-      section_id: createForm.section_id,
-    });
-    const list = Array.isArray(res) ? res : (res?.data || []);
-    setStudents(list);
+    try {
+      const res = await getStudentsForPayment({
+        class_id: createForm.class_id,
+        section_id: createForm.section_id,
+      });
+      const list = Array.isArray(res) ? res : (res?.data || []);
+      setStudents(list);
+      setCreateError("");
+    } catch (err) {
+      setStudents([]);
+      setCreateError(err?.message || "Failed to load students for the selected class and section.");
+    }
   }
 
   async function loadStudentFeesForCreate() {
