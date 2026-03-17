@@ -1,17 +1,21 @@
-import puppeteer from "puppeteer";
 import fs from "node:fs/promises";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
+import puppeteer from "puppeteer";
 import * as repo from "./fee.repository.js";
 
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
 function money(value) {
-  return `₹${Number(value || 0).toFixed(2)}`;
+  return `Rs ${Number(value || 0).toFixed(2)}`;
 }
 
 export async function generateReceiptPdf(paymentId) {
   const payment = await repo.getPaymentReceipt(paymentId);
   if (!payment) throw new Error("Payment not found");
 
-  const templatePath = path.resolve("modules/fees/templates/receipt.html");
+  const templatePath = path.join(__dirname, "templates", "receipt.html");
   let html = await fs.readFile(templatePath, "utf8");
 
   const feeItem =
@@ -33,21 +37,26 @@ export async function generateReceiptPdf(paymentId) {
     .replace("{{remainingAmount}}", money(payment.remaining_amount))
     .replace("{{remarks}}", payment.remarks || "-");
 
-  const browser = await puppeteer.launch({ headless: "new" });
-  const page = await browser.newPage();
-  await page.setContent(html, { waitUntil: "networkidle0" });
-
-  const pdfBuffer = await page.pdf({
-    format: "A4",
-    printBackground: true,
-    margin: {
-      top: "12mm",
-      right: "10mm",
-      bottom: "12mm",
-      left: "10mm",
-    },
+  const browser = await puppeteer.launch({
+    headless: "new",
+    args: ["--no-sandbox", "--disable-setuid-sandbox"],
   });
 
-  await browser.close();
-  return pdfBuffer;
+  try {
+    const page = await browser.newPage();
+    await page.setContent(html, { waitUntil: "networkidle0" });
+
+    return await page.pdf({
+      format: "A4",
+      printBackground: true,
+      margin: {
+        top: "12mm",
+        right: "10mm",
+        bottom: "12mm",
+        left: "10mm",
+      },
+    });
+  } finally {
+    await browser.close();
+  }
 }
