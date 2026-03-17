@@ -16,7 +16,7 @@ function getScopeMeta(scope) {
     return {
       sectionTitle: "Higher Secondary Section",
       sectionAddress: "ADP Road, Christian Patty, Nagaon",
-      signatureLabel: "Rector Sign",
+      signatureLabel: "Rector",
       signatureFile: "rector.jpg",
       scopeLabel: "Higher Secondary",
     };
@@ -25,7 +25,7 @@ function getScopeMeta(scope) {
   return {
     sectionTitle: "School Section",
     sectionAddress: "Backside of Nowgong College, G.M Road",
-    signatureLabel: "Principal Sign",
+    signatureLabel: "Principal",
     signatureFile: "principal.jpg",
     scopeLabel: "School",
   };
