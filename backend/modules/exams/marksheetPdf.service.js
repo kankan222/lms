@@ -73,7 +73,7 @@ export async function generateMarksheetPdf(report) {
     .replace("{{total}}", escapeHtml(report?.summary?.total ?? report?.total ?? 0))
     .replace("{{maxTotal}}", escapeHtml(report?.summary?.max_total ?? 0))
     .replace("{{percentage}}", escapeHtml(report?.summary?.percentage ?? report?.percentage ?? 0))
-    .replace("{{signatureLabel}}", escapeHtml(scopeMeta.signatureLabel))
+    .replaceAll("{{signatureLabel}}", escapeHtml(scopeMeta.signatureLabel))
     .replace("{{signatureImage}}", signatureImage);
 
   const browser = await puppeteer.launch({
