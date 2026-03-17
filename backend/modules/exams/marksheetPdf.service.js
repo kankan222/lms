@@ -1,6 +1,10 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import puppeteer from "puppeteer";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 function escapeHtml(value) {
   return String(value ?? "")
@@ -32,13 +36,13 @@ function getScopeMeta(scope) {
 }
 
 async function readSignatureBase64(fileName) {
-  const filePath = path.resolve("modules/reports/templates", fileName);
+  const filePath = path.join(__dirname, "..", "reports", "templates", fileName);
   const file = await fs.readFile(filePath);
   return `data:image/jpeg;base64,${file.toString("base64")}`;
 }
 
 export async function generateMarksheetPdf(report) {
-  const templatePath = path.resolve("modules/reports/templates/reportCard.html");
+  const templatePath = path.join(__dirname, "..", "reports", "templates", "reportCard.html");
   let html = await fs.readFile(templatePath, "utf8");
 
   const scopeMeta = getScopeMeta(report?.exam?.class_scope);
