@@ -49,6 +49,25 @@ export type TeacherAssignment = {
   session: string;
 };
 
+export type TeacherAttendanceRow = {
+  id: number;
+  teacher_id: number;
+  teacher?: string;
+  attendance_date: string;
+  status: string;
+  check_in?: string | null;
+  check_out?: string | null;
+  worked_hours?: string | number | null;
+};
+
+export type AttendanceDevice = {
+  id: number;
+  name?: string;
+  device_name?: string;
+  device_code: string;
+  location?: string | null;
+};
+
 export type AssignTeacherPayload = {
   class_id: number;
   section_id: number;
@@ -59,6 +78,11 @@ export type AssignTeacherPayload = {
 export async function getTeachers() {
   const response = await api.get<ApiEnvelope<TeacherItem[]>>("/teachers");
   return response.data.data ?? [];
+}
+
+export async function getTeacher(id: number) {
+  const response = await api.get<ApiEnvelope<TeacherItem>>(`/teachers/${id}`);
+  return response.data.data;
 }
 
 export async function createTeacher(payload: CreateTeacherPayload) {
@@ -106,6 +130,48 @@ export async function assignTeacher(id: number, payload: AssignTeacherPayload) {
 
 export async function removeAssignment(assignmentId: number) {
   const response = await api.delete<ApiEnvelope<unknown>>(`/teachers/assignments/${assignmentId}`);
+  return response.data;
+}
+
+export async function getTeacherAttendance(
+  id: number,
+  params: { startDate?: string; endDate?: string } = {},
+) {
+  const response = await api.get<ApiEnvelope<TeacherAttendanceRow[]>>(`/teachers/${id}/attendance`, {
+    params,
+  });
+  return response.data.data ?? [];
+}
+
+export async function getAllTeacherAttendance(params: { startDate?: string; endDate?: string } = {}) {
+  const response = await api.get<ApiEnvelope<TeacherAttendanceRow[]>>("/teachers/attendance/all", {
+    params,
+  });
+  return response.data.data ?? [];
+}
+
+export async function getAttendanceDevices() {
+  const response = await api.get<ApiEnvelope<AttendanceDevice[]>>("/teachers/attendance/devices");
+  return response.data.data ?? [];
+}
+
+export async function createAttendanceDevice(payload: {
+  name: string;
+  deviceCode: string;
+  location?: string;
+}) {
+  const response = await api.post<ApiEnvelope<unknown>>("/teachers/attendance/devices", payload);
+  return response.data;
+}
+
+export async function generateDailyAttendance(payload: {
+  teacherId: number;
+  date: string;
+  status: string;
+  checkIn?: string | null;
+  checkOut?: string | null;
+}) {
+  const response = await api.post<ApiEnvelope<unknown>>("/teachers/attendance/generate", payload);
   return response.data;
 }
 

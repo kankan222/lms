@@ -72,10 +72,16 @@ export async function generateMarksheetPdf(report) {
     .replace("{{signatureLabel}}", escapeHtml(scopeMeta.signatureLabel))
     .replace("{{signatureImage}}", signatureImage);
 
-  const browser = await puppeteer.launch({ headless: "new" });
-  const page = await browser.newPage();
-  await page.setContent(html, { waitUntil: "networkidle0" });
-  const pdf = await page.pdf({ format: "A4", printBackground: true });
-  await browser.close();
-  return pdf;
+  const browser = await puppeteer.launch({
+    headless: "new",
+    args: ["--no-sandbox", "--disable-setuid-sandbox"],
+  });
+
+  try {
+    const page = await browser.newPage();
+    await page.setContent(html, { waitUntil: "networkidle0" });
+    return await page.pdf({ format: "A4", printBackground: true });
+  } finally {
+    await browser.close();
+  }
 }

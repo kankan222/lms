@@ -10,6 +10,7 @@ import {
   TextInput,
   View,
 } from "react-native";
+import { useAuthStore } from "../../store/authStore";
 import {
   assignTeacher,
   createTeacher,
@@ -77,6 +78,9 @@ const EMPTY_ASSIGNMENT: AssignmentForm = {
 };
 
 export default function TeachersTab() {
+  const user = useAuthStore((state) => state.user);
+  const permissions = user?.permissions || [];
+  const canManageTeachers = permissions.includes("teacher.update");
   const [teachers, setTeachers] = useState<TeacherItem[]>([]);
   const [classStructure, setClassStructure] = useState<ClassStructureItem[]>([]);
   const [sessions, setSessions] = useState<SessionItem[]>([]);
@@ -120,6 +124,7 @@ export default function TeachersTab() {
       return matchesQuery && matchesScope;
     });
   }, [scopeFilter, search, teachers]);
+  const selfTeacher = !canManageTeachers ? filteredTeachers[0] ?? null : null;
   const selectedClass = useMemo(
     () => filteredAssignmentClasses.find((item) => item.id === assignmentForm.class_id) ?? null,
     [assignmentForm.class_id, filteredAssignmentClasses]
@@ -324,12 +329,14 @@ export default function TeachersTab() {
     <View style={styles.root}>
       <View style={styles.toolbar}>
         <View style={styles.toolbarCopy}>
-          <Text style={styles.title}>Teachers</Text>
+          <Text style={styles.title}>{canManageTeachers ? "Teachers" : "My Profile"}</Text>
           <Text style={styles.subtitle}>{filteredTeachers.length} of {teachers.length} teachers</Text>
         </View>
-        <Pressable style={styles.primaryBtn} onPress={() => setCreateOpen(true)}>
-          <Text style={styles.primaryBtnText}>Add Teacher</Text>
-        </Pressable>
+        {canManageTeachers ? (
+          <Pressable style={styles.primaryBtn} onPress={() => setCreateOpen(true)}>
+            <Text style={styles.primaryBtnText}>Add Teacher</Text>
+          </Pressable>
+        ) : null}
       </View>
 
       {loading ? (
@@ -339,29 +346,80 @@ export default function TeachersTab() {
       ) : (
         <>
           {error && <Text style={styles.errorText}>{error}</Text>}
-          <View style={styles.grid}>
-            {teachers.map((teacher) => (
-              <View key={teacher.id} style={styles.card}>
-                <Text style={styles.teacherName}>{teacher.name}</Text>
-                <Text style={styles.meta}>Employee ID: {teacher.employee_id || "-"}</Text>
-                <Text style={styles.meta}>Phone: {teacher.phone || "-"}</Text>
-                <Text style={styles.meta}>Email: {teacher.email || "-"}</Text>
-                <Text style={styles.meta}>Scope: {formatScope(teacher.class_scope)}</Text>
-
-                <View style={styles.rowActions}>
-                  <Pressable style={styles.secondaryBtn} onPress={() => openAssignments(teacher)}>
-                    <Text style={styles.secondaryBtnText}>Assignments</Text>
+          <View style={styles.filterCard}>
+            <FormInput
+              label="Search"
+              value={search}
+              onChangeText={setSearch}
+              placeholder="Name, employee ID, phone or email"
+              autoCapitalize="none"
+            />
+            <Text style={styles.inputLabel}>Scope</Text>
+            <View style={styles.chipWrap}>
+              {(["all", "school", "hs"] as ScopeFilter[]).map((scope) => {
+                const active = scopeFilter === scope;
+                return (
+                  <Pressable
+                    key={scope}
+                    style={[styles.chip, active && styles.chipActive]}
+                    onPress={() => setScopeFilter(scope)}
+                  >
+                    <Text style={[styles.chipText, active && styles.chipTextActive]}>
+                      {scope === "all" ? "All" : formatScope(scope)}
+                    </Text>
                   </Pressable>
-                  <Pressable style={styles.secondaryBtn} onPress={() => openEdit(teacher)}>
-                    <Text style={styles.secondaryBtnText}>Edit</Text>
-                  </Pressable>
-                  <Pressable style={styles.deleteBtn} onPress={() => confirmDelete(teacher.id)}>
-                    <Text style={styles.deleteBtnText}>Delete</Text>
-                  </Pressable>
-                </View>
-              </View>
-            ))}
+                );
+              })}
+            </View>
           </View>
+          {selfTeacher ? (
+            <View style={styles.card}>
+              <Text style={styles.teacherName}>{selfTeacher.name}</Text>
+              <Text style={styles.meta}>Employee ID: {selfTeacher.employee_id || "-"}</Text>
+              <Text style={styles.meta}>Phone: {selfTeacher.phone || "-"}</Text>
+              <Text style={styles.meta}>Email: {selfTeacher.email || "-"}</Text>
+              <Text style={styles.meta}>Scope: {formatScope(selfTeacher.class_scope)}</Text>
+              <View style={styles.rowActions}>
+                <Pressable style={styles.secondaryBtn} onPress={() => openAssignments(selfTeacher)}>
+                  <Text style={styles.secondaryBtnText}>Assignments</Text>
+                </Pressable>
+              </View>
+            </View>
+          ) : (
+            <View style={styles.grid}>
+              {filteredTeachers.map((teacher) => (
+                <View key={teacher.id} style={styles.card}>
+                  <Text style={styles.teacherName}>{teacher.name}</Text>
+                  <Text style={styles.meta}>Employee ID: {teacher.employee_id || "-"}</Text>
+                  <Text style={styles.meta}>Phone: {teacher.phone || "-"}</Text>
+                  <Text style={styles.meta}>Email: {teacher.email || "-"}</Text>
+                  <Text style={styles.meta}>Scope: {formatScope(teacher.class_scope)}</Text>
+
+                  <View style={styles.rowActions}>
+                    <Pressable style={styles.secondaryBtn} onPress={() => openAssignments(teacher)}>
+                      <Text style={styles.secondaryBtnText}>Assignments</Text>
+                    </Pressable>
+                    {canManageTeachers ? (
+                      <>
+                        <Pressable style={styles.secondaryBtn} onPress={() => openEdit(teacher)}>
+                          <Text style={styles.secondaryBtnText}>Edit</Text>
+                        </Pressable>
+                        <Pressable style={styles.deleteBtn} onPress={() => confirmDelete(teacher.id)}>
+                          <Text style={styles.deleteBtnText}>Delete</Text>
+                        </Pressable>
+                      </>
+                    ) : null}
+                  </View>
+                </View>
+              ))}
+              {!filteredTeachers.length ? (
+                <View style={styles.emptyCard}>
+                  <Text style={styles.emptyTitle}>No teachers found</Text>
+                  <Text style={styles.emptyText}>Adjust the search or scope filter.</Text>
+                </View>
+              ) : null}
+            </View>
+          )}
         </>
       )}
 
@@ -428,7 +486,7 @@ export default function TeachersTab() {
       </TeacherFormModal>
 
       <TeacherFormModal
-        visible={editOpen}
+        visible={canManageTeachers && editOpen}
         title="Edit Teacher"
         submitText="Update"
         saving={saving}
@@ -579,9 +637,11 @@ export default function TeachersTab() {
                 })}
               </View>
 
-              <Pressable style={[styles.primaryBtn, styles.spaceTop]} onPress={submitAssignment} disabled={saving}>
-                <Text style={styles.primaryBtnText}>{saving ? "Saving..." : "Assign to Teacher"}</Text>
-              </Pressable>
+              {canManageTeachers ? (
+                <Pressable style={[styles.primaryBtn, styles.spaceTop]} onPress={submitAssignment} disabled={saving}>
+                  <Text style={styles.primaryBtnText}>{saving ? "Saving..." : "Assign to Teacher"}</Text>
+                </Pressable>
+              ) : null}
 
               <Text style={[styles.inputLabel, styles.spaceTop]}>Current Assignments</Text>
               {loadingAssignments ? (
@@ -593,9 +653,11 @@ export default function TeachersTab() {
                       {assignment.class} - {assignment.section} - {assignment.subject}
                     </Text>
                     <Text style={styles.assignmentSubText}>Session: {assignment.session}</Text>
-                    <Pressable onPress={() => deleteAssignment(assignment.id)} style={styles.assignmentDelete}>
-                      <Text style={styles.assignmentDeleteText}>Remove</Text>
-                    </Pressable>
+                    {canManageTeachers ? (
+                      <Pressable onPress={() => deleteAssignment(assignment.id)} style={styles.assignmentDelete}>
+                        <Text style={styles.assignmentDeleteText}>Remove</Text>
+                      </Pressable>
+                    ) : null}
                   </View>
                 ))
               ) : (
