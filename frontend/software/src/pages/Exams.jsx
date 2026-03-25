@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useEffectEvent, useMemo, useState } from "react";
 import TopBar from "../components/TopBar";
 import { Button } from "../components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -59,8 +59,12 @@ export default function Exams() {
     setAllSubjects(subjectsRes?.data || []);
   }
 
-  useEffect(() => {
+  const loadInitialExamData = useEffectEvent(() => {
     loadInitial();
+  });
+
+  useEffect(() => {
+    loadInitialExamData();
   }, []);
 
   useEffect(() => {
@@ -338,7 +342,7 @@ export default function Exams() {
 
                         <button
                           type="button"
-                          className="col-span-2 inline-flex items-center justify-center rounded border border-red-200 bg-red-50 text-red-600 hover:bg-red-100 disabled:opacity-50"
+                          className="col-span-2 inline-flex items-center justify-center rounded border border-red-200/70 bg-red-50 text-red-600 transition-colors hover:bg-red-100 disabled:opacity-50 dark:border-red-500/40 dark:bg-red-500/10 dark:text-red-200 dark:hover:bg-red-500/20"
                           onClick={() => removeScopeRow(idx)}
                           disabled={form.scopes.length === 1}
                           aria-label="Delete scope"

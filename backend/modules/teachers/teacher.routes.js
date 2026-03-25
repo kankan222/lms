@@ -90,6 +90,7 @@ router.get(
 router.put(
   "/:id",
   requirePermission("teacher.update"),
+  uploadTeacherPhoto.single("photo"),
   controller.updateTeacher
 );
 

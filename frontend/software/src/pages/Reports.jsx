@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useEffectEvent, useMemo, useState } from "react";
 import TopBar from "../components/TopBar";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
@@ -6,6 +6,7 @@ import { Label } from "../components/ui/label";
 import { Checkbox } from "../components/ui/checkbox";
 import { Badge } from "../components/ui/badge";
 import { Alert, AlertDescription, AlertTitle } from "../components/ui/alert";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs";
 import {
   Table,
   TableBody,
@@ -23,7 +24,9 @@ import {
   approveMarks,
   downloadMyMarksheet,
   downloadStudentMarksheet,
+  getMarksApprovalSummary,
   getMarksGrid,
+  getPendingApprovalQueue,
   getMyResults,
   getMyStudents,
   rejectMarks,
@@ -65,6 +68,16 @@ function uniqueMediums(sections) {
   return [...new Set((sections || []).map((item) => item.medium).filter(Boolean))];
 }
 
+function uniqueById(items = []) {
+  const seen = new Set();
+  return items.filter((item) => {
+    const key = String(item?.id ?? "");
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 function downloadBlob(blob, fileName) {
   if (!blob || blob.size === 0) {
     throw new Error("Downloaded file is empty");
@@ -83,12 +96,37 @@ function downloadBlob(blob, fileName) {
   }, 5000);
 }
 
+function FilterSection({ title, children }) {
+  return (
+    <div className="space-y-3">
+      <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
+        {title}
+      </p>
+      {children}
+    </div>
+  );
+}
+
+function SurfaceCard({ className = "", accent = false, children }) {
+  return (
+    <div className={`relative overflow-hidden rounded-2xl border border-border/70 bg-card shadow-sm ${className}`}>
+      {accent ? (
+        <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-primary/40 to-transparent" />
+      ) : null}
+      {children}
+    </div>
+  );
+}
+
 export default function Reports() {
   const { can } = usePermissions();
   const isAdmin = can("marks.approve");
   const canEnterMarks = can("marks.enter");
   const canViewExamCatalog = can("exams.view");
   const selfViewOnly = !isAdmin && !canEnterMarks;
+  const [activeTab, setActiveTab] = useState(
+    selfViewOnly ? "results" : isAdmin ? "pending" : "entry"
+  );
 
   const [classes, setClasses] = useState([]);
   const [subjects, setSubjects] = useState([]);
@@ -105,10 +143,14 @@ export default function Reports() {
   const [selectedStudentIds, setSelectedStudentIds] = useState([]);
   const [editedMarks, setEditedMarks] = useState({});
   const [editMode, setEditMode] = useState(false);
+  const [pendingQueue, setPendingQueue] = useState({ total_pending: 0, groups: [] });
+  const [approvalSummary, setApprovalSummary] = useState({ pending: 0, draft: 0, approved: 0 });
+  const [reviewQueueSnapshot, setReviewQueueSnapshot] = useState(null);
 
   const [loading, setLoading] = useState(true);
   const [gridLoading, setGridLoading] = useState(false);
   const [selfLoading, setSelfLoading] = useState(false);
+  const [examMetaLoading, setExamMetaLoading] = useState(false);
   const [banner, setBanner] = useState(null);
 
   const scopedClassIds = useMemo(
@@ -126,9 +168,9 @@ export default function Reports() {
     () => availableClasses.find((item) => String(item.id) === String(filters.class_id)) || null,
     [availableClasses, filters.class_id]
   );
-  const sections = selectedClass?.sections || [];
   const availableSections = useMemo(() => {
     if (!selectedClass) return [];
+    const sections = selectedClass.sections || [];
     if (!filters.exam_id) return sections;
 
     const allowedSectionIds = new Set(
@@ -138,16 +180,73 @@ export default function Reports() {
     );
 
     return sections.filter((item) => allowedSectionIds.has(String(item.id)));
-  }, [selectedClass, filters.exam_id, examScopes, sections]);
+  }, [selectedClass, filters.exam_id, examScopes]);
   const mediums = uniqueMediums(availableSections);
   const filteredSubjects = examSubjects.length
     ? subjects.filter((subject) =>
         examSubjects.some((item) => String(item.subject_id) === String(subject.id))
       )
     : subjects;
+  const selectedExam = useMemo(
+    () => exams.find((item) => String(item.id) === String(filters.exam_id)) || null,
+    [exams, filters.exam_id]
+  );
+  const selectedSection = useMemo(
+    () => availableSections.find((item) => String(item.id) === String(filters.section_id)) || null,
+    [availableSections, filters.section_id]
+  );
+  const selectedSubject = useMemo(
+    () => filteredSubjects.find((item) => String(item.id) === String(filters.subject_id)) || null,
+    [filteredSubjects, filters.subject_id]
+  );
+  const displayedPendingQueue = editMode && reviewQueueSnapshot ? reviewQueueSnapshot : pendingQueue;
+  const pendingReviewMeta = displayedPendingQueue.groups?.[0] || null;
+  const classOptions = useMemo(() => {
+    if (
+      !isAdmin ||
+      activeTab !== "pending" ||
+      !pendingReviewMeta ||
+      availableClasses.some((item) => String(item.id) === String(filters.class_id))
+    ) {
+      return uniqueById(availableClasses);
+    }
+
+    return uniqueById([
+      ...availableClasses,
+      {
+        id: pendingReviewMeta.class_id,
+        name: pendingReviewMeta.class_name,
+        class_scope: null,
+        sections: [],
+      },
+    ]);
+  }, [availableClasses, activeTab, filters.class_id, isAdmin, pendingReviewMeta]);
+  const sectionOptions = useMemo(() => {
+    if (
+      !isAdmin ||
+      activeTab !== "pending" ||
+      !pendingReviewMeta ||
+      availableSections.some((item) => String(item.id) === String(filters.section_id))
+    ) {
+      return uniqueById(availableSections);
+    }
+
+    return uniqueById([
+      ...availableSections,
+      {
+        id: pendingReviewMeta.section_id,
+        name: pendingReviewMeta.section_name,
+        medium: pendingReviewMeta.medium || null,
+      },
+    ]);
+  }, [availableSections, activeTab, filters.section_id, isAdmin, pendingReviewMeta]);
+
+  const loadBootstrapEvent = useEffectEvent(() => {
+    loadBootstrap();
+  });
 
   useEffect(() => {
-    loadBootstrap();
+    loadBootstrapEvent();
   }, []);
 
   useEffect(() => {
@@ -159,15 +258,29 @@ export default function Reports() {
   }, [banner]);
 
   useEffect(() => {
+    if (editMode) {
+      setReviewQueueSnapshot({
+        total_pending: pendingQueue.total_pending || 0,
+        groups: Array.isArray(pendingQueue.groups) ? [...pendingQueue.groups] : [],
+      });
+      return;
+    }
+
+    setReviewQueueSnapshot(null);
+  }, [editMode, pendingQueue]);
+
+  useEffect(() => {
     if (!filters.exam_id) {
       setExamSubjects([]);
       setExamScopes([]);
+      setExamMetaLoading(false);
       setFilters((prev) => ({ ...prev, subject_id: "" }));
       return;
     }
 
     let ignore = false;
     (async () => {
+      if (!ignore) setExamMetaLoading(true);
       try {
         const examLoader = canViewExamCatalog ? getExamById : getAccessibleExamById;
         const res = await examLoader(filters.exam_id);
@@ -185,6 +298,10 @@ export default function Reports() {
             message: err?.message || "Failed to load exam subjects.",
           });
         }
+      } finally {
+        if (!ignore) {
+          setExamMetaLoading(false);
+        }
       }
     })();
 
@@ -195,6 +312,7 @@ export default function Reports() {
 
   useEffect(() => {
     if (!filters.exam_id) return;
+    if (examMetaLoading) return;
 
     if (filters.class_id && !availableClasses.some((item) => String(item.id) === String(filters.class_id))) {
       setFilters((prev) => ({
@@ -213,20 +331,168 @@ export default function Reports() {
         medium: "",
       }));
     }
-  }, [filters.exam_id, filters.class_id, filters.section_id, availableClasses, availableSections]);
+  }, [
+    filters.exam_id,
+    filters.class_id,
+    filters.section_id,
+    availableClasses,
+    availableSections,
+    examMetaLoading,
+  ]);
+
+  const clearGridForScopeChangeEvent = useEffectEvent(() => {
+    if (loading || selfViewOnly || !grid) return;
+    if (editMode || gridLoading) return;
+
+    const nextStatus =
+      activeTab === "pending" ? "pending" : activeTab === "approved" ? "approved" : "";
+    const currentStatus = String(filters.approval_status || "");
+    const activeStatus = currentStatus || nextStatus;
+    const gridHasRows = Array.isArray(grid?.rows) && grid.rows.length > 0;
+
+    const scopeMismatch =
+      String(grid.exam_id || "") !== String(filters.exam_id || "") ||
+      String(grid.class_id || "") !== String(filters.class_id || "") ||
+      String(grid.section_id || "") !== String(filters.section_id || "") ||
+      String(grid.subject?.id || "") !== String(filters.subject_id || "");
+
+    const statusMismatch =
+      gridHasRows &&
+      Boolean(activeStatus) &&
+      grid.rows.some((row) => String(row.approval_status || "") !== activeStatus);
+
+    if (scopeMismatch || statusMismatch || !filters.exam_id || !filters.class_id || !filters.section_id || !filters.subject_id) {
+      resetGridState({ rows: [] });
+    }
+  });
+
+  useEffect(() => {
+    clearGridForScopeChangeEvent();
+  }, [
+    activeTab,
+    loading,
+    selfViewOnly,
+    editMode,
+    gridLoading,
+    grid,
+    filters.exam_id,
+    filters.class_id,
+    filters.section_id,
+    filters.subject_id,
+    filters.approval_status,
+  ]);
+
+  const autoLoadScopedGridEvent = useEffectEvent(() => {
+    if (loading || selfViewOnly) return;
+    if (!filters.exam_id || !filters.class_id || !filters.section_id || !filters.subject_id) return;
+    if (isAdmin && activeTab === "pending" && editMode) return;
+    handleLoadGrid();
+  });
+
+  useEffect(() => {
+    autoLoadScopedGridEvent();
+  }, [
+    activeTab,
+    loading,
+    selfViewOnly,
+    isAdmin,
+    editMode,
+    filters.exam_id,
+    filters.class_id,
+    filters.section_id,
+    filters.subject_id,
+    filters.medium,
+    filters.name,
+    filters.approval_status,
+  ]);
+
+  const autoLoadPendingReviewEvent = useEffectEvent(() => {
+    if (!isAdmin || loading || activeTab !== "pending") return;
+    if (editMode) return;
+    const nextScope = pendingQueue.groups?.[0];
+    if (!nextScope) return;
+
+    const needsScopeUpdate =
+      String(filters.exam_id || "") !== String(nextScope.exam_id) ||
+      String(filters.class_id || "") !== String(nextScope.class_id) ||
+      String(filters.section_id || "") !== String(nextScope.section_id) ||
+      String(filters.subject_id || "") !== String(nextScope.subject_id) ||
+      String(filters.approval_status || "") !== "pending";
+
+    if (needsScopeUpdate) {
+      setFilters((prev) => ({
+        ...prev,
+        exam_id: String(nextScope.exam_id),
+        class_id: String(nextScope.class_id),
+        section_id: String(nextScope.section_id),
+        medium: nextScope.medium || "",
+        subject_id: String(nextScope.subject_id),
+        approval_status: "pending",
+      }));
+    }
+  });
+
+  useEffect(() => {
+    autoLoadPendingReviewEvent();
+  }, [activeTab, pendingQueue, loading, editMode]);
+
+  const refreshPendingReviewEvent = useEffectEvent(async () => {
+    if (!isAdmin || loading || activeTab !== "pending" || gridLoading) return;
+
+    try {
+      const queueRes = await getPendingApprovalQueue();
+      setPendingQueue(queueRes?.data || { total_pending: 0, groups: [] });
+      const summaryRes = await getMarksApprovalSummary();
+      setApprovalSummary(summaryRes?.data || { pending: 0, draft: 0, approved: 0 });
+
+      if (
+        !editMode &&
+        !selectedStudentIds.length &&
+        filters.exam_id &&
+        filters.class_id &&
+        filters.section_id &&
+        filters.subject_id
+      ) {
+        const res = await getMarksGrid(filters);
+        resetGridState(res?.data || { rows: [] });
+      }
+    } catch {
+      // Silent background refresh failure; keep the current review state intact.
+    }
+  });
+
+  useEffect(() => {
+    if (!isAdmin || activeTab !== "pending" || loading) return undefined;
+
+    const intervalId = window.setInterval(() => {
+      refreshPendingReviewEvent();
+    }, 8000);
+
+    return () => window.clearInterval(intervalId);
+  }, [activeTab, isAdmin, loading]);
 
   async function loadBootstrap() {
     setLoading(true);
     try {
-      const [classRes, subjectRes, examRes] = await Promise.all([
+      const requests = [
         getClassStructure(),
         getSubjects(),
         canViewExamCatalog ? getExams() : getAccessibleExams(),
-      ]);
+      ];
+      if (isAdmin) {
+        requests.push(getPendingApprovalQueue());
+        requests.push(getMarksApprovalSummary());
+      }
+
+      const [classRes, subjectRes, examRes, pendingRes, summaryRes] = await Promise.all(requests);
 
       setClasses(Array.isArray(classRes?.data) ? classRes.data : []);
       setSubjects(Array.isArray(subjectRes?.data) ? subjectRes.data : []);
       setExams(Array.isArray(examRes?.data) ? examRes.data : []);
+      if (isAdmin) {
+        setPendingQueue(pendingRes?.data || { total_pending: 0, groups: [] });
+        setApprovalSummary(summaryRes?.data || { pending: 0, draft: 0, approved: 0 });
+      }
 
       if (selfViewOnly) {
         const studentRes = await getMyStudents();
@@ -278,6 +544,7 @@ export default function Reports() {
       resetGridState(res?.data || { rows: [] });
       setBanner(null);
     } catch (err) {
+      resetGridState({ rows: [] });
       setError(err?.message || "Failed to load marks grid.");
     } finally {
       setGridLoading(false);
@@ -312,11 +579,11 @@ export default function Reports() {
 
   function buildMutationPayload(extra = {}) {
     return {
-      exam_id: filters.exam_id,
-      class_id: filters.class_id,
-      section_id: filters.section_id,
+      exam_id: filters.exam_id || grid?.exam_id || "",
+      class_id: filters.class_id || grid?.class_id || "",
+      section_id: filters.section_id || grid?.section_id || "",
       medium: filters.medium,
-      subject_id: filters.subject_id,
+      subject_id: filters.subject_id || grid?.subject?.id || "",
       ...extra,
     };
   }
@@ -343,7 +610,8 @@ export default function Reports() {
     try {
       await saveMarks(buildMutationPayload({ marks }));
       await handleLoadGrid();
-      setSuccess("Marks saved as draft.");
+      setEditMode(false);
+      setSuccess("Marks saved.");
     } catch (err) {
       setError(err?.message || "Failed to save marks.");
       setGridLoading(false);
@@ -378,6 +646,12 @@ export default function Reports() {
             : { student_ids: selectedStudentIds }
         )
       );
+      if (isAdmin) {
+        const queueRes = await getPendingApprovalQueue();
+        setPendingQueue(queueRes?.data || { total_pending: 0, groups: [] });
+        const summaryRes = await getMarksApprovalSummary();
+        setApprovalSummary(summaryRes?.data || { pending: 0, draft: 0, approved: 0 });
+      }
       await handleLoadGrid();
       setSuccess(applyAll ? "All pending marks approved." : "Selected marks approved.");
     } catch (err) {
@@ -390,6 +664,12 @@ export default function Reports() {
     setGridLoading(true);
     try {
       await rejectMarks(buildMutationPayload({ student_ids: selectedStudentIds }));
+      if (isAdmin) {
+        const queueRes = await getPendingApprovalQueue();
+        setPendingQueue(queueRes?.data || { total_pending: 0, groups: [] });
+        const summaryRes = await getMarksApprovalSummary();
+        setApprovalSummary(summaryRes?.data || { pending: 0, draft: 0, approved: 0 });
+      }
       await handleLoadGrid();
       setSuccess("Selected marks moved back to draft.");
     } catch (err) {
@@ -438,6 +718,411 @@ export default function Reports() {
   const allSelected =
     grid?.rows?.length > 0 &&
     selectedStudentIds.length === grid.rows.length;
+
+  function handleTabChange(nextTab) {
+    setActiveTab(nextTab);
+    setFilters((prev) => ({
+      ...prev,
+      approval_status:
+        nextTab === "pending"
+          ? "pending"
+          : nextTab === "approved"
+            ? "approved"
+            : "",
+    }));
+  }
+
+  function renderFilterPanel() {
+    return (
+      <SurfaceCard>
+        <div className="space-y-4 p-4">
+        {isAdmin && activeTab === "pending" && pendingReviewMeta ? (
+          <div className="rounded-xl border border-amber-200/70 bg-amber-50/70 px-3 py-2 text-sm text-amber-900">
+            Reviewing latest submission:{" "}
+            <span className="font-medium">
+              {pendingReviewMeta.exam_name} / {pendingReviewMeta.class_name} / {pendingReviewMeta.section_name} / {pendingReviewMeta.subject_name}
+            </span>
+            {" "}with {pendingReviewMeta.pending_count} pending entr{pendingReviewMeta.pending_count === 1 ? "y" : "ies"}.
+          </div>
+        ) : null}
+        <div className="grid gap-3 lg:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]">
+          <FilterSection title="Choose Scope">
+            <div className="grid gap-3 md:grid-cols-3">
+              <div className="grid gap-2">
+                <Label>Exam</Label>
+                <select
+                  className="w-full rounded-md border px-3 py-2"
+                  value={filters.exam_id}
+                  onChange={(e) =>
+                    setFilters((prev) => ({ ...prev, exam_id: e.target.value }))
+                  }
+                >
+                  <option value="">Select exam</option>
+                  {exams.map((exam) => (
+                    <option key={exam.id} value={exam.id}>
+                      {exam.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="grid gap-2">
+                <Label>Class</Label>
+                <select
+                  className="w-full rounded-md border px-3 py-2"
+                  value={filters.class_id}
+                  onChange={(e) =>
+                    setFilters((prev) => ({
+                      ...prev,
+                      class_id: e.target.value,
+                      section_id: "",
+                      medium: "",
+                    }))
+                  }
+                >
+                  <option value="">Select class</option>
+                  {classOptions.map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {item.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="grid gap-2">
+                <Label>Section</Label>
+                <select
+                  className="w-full rounded-md border px-3 py-2"
+                  value={filters.section_id}
+                  onChange={(e) =>
+                    setFilters((prev) => ({ ...prev, section_id: e.target.value }))
+                  }
+                >
+                  <option value="">Select section</option>
+                  {sectionOptions.map((section) => (
+                    <option key={section.id} value={section.id}>
+                      {section.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="grid gap-2">
+                <Label>Medium</Label>
+                <select
+                  className="w-full rounded-md border px-3 py-2"
+                  value={filters.medium}
+                  onChange={(e) =>
+                    setFilters((prev) => ({ ...prev, medium: e.target.value }))
+                  }
+                >
+                  <option value="">All mediums</option>
+                  {mediums.map((medium) => (
+                    <option key={medium} value={medium}>
+                      {medium}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="grid gap-2">
+                <Label>Subject</Label>
+                <select
+                  className="w-full rounded-md border px-3 py-2"
+                  value={filters.subject_id}
+                  onChange={(e) =>
+                    setFilters((prev) => ({ ...prev, subject_id: e.target.value }))
+                  }
+                >
+                  <option value="">Select subject</option>
+                  {filteredSubjects.map((subject) => (
+                    <option key={subject.id} value={subject.id}>
+                      {subject.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          </FilterSection>
+
+          <FilterSection title="Refine And Load">
+            <div className="grid gap-3 md:grid-cols-2">
+              <div className="grid gap-2 md:col-span-2">
+                <Label>Student Search</Label>
+                <Input
+                  placeholder="Search name"
+                  value={filters.name}
+                  onChange={(e) =>
+                    setFilters((prev) => ({ ...prev, name: e.target.value }))
+                  }
+                />
+              </div>
+              {isAdmin ? (
+                <div className="grid gap-2">
+                  <Label>Status</Label>
+                  <select
+                    className="min-w-[180px] rounded-md border px-3 py-2"
+                    value={filters.approval_status}
+                    onChange={(e) =>
+                      setFilters((prev) => ({ ...prev, approval_status: e.target.value }))
+                    }
+                  >
+                    <option value="">All statuses</option>
+                    <option value="draft">Draft</option>
+                    <option value="pending">Pending</option>
+                    <option value="approved">Approved</option>
+                  </select>
+                </div>
+              ) : null}
+              <div className="flex items-end justify-start md:justify-end">
+                <Button onClick={handleLoadGrid} disabled={gridLoading} className="min-w-[160px]">
+                  {gridLoading ? "Loading..." : "Load Students"}
+                </Button>
+              </div>
+            </div>
+          </FilterSection>
+        </div>
+
+        <div className="text-xs text-muted-foreground">
+          Tip: keep the filters narrow before loading to reduce clutter in the marks grid.
+        </div>
+        </div>
+      </SurfaceCard>
+    );
+  }
+
+  function renderAdminSummary() {
+    return (
+      <div className="grid gap-3 md:grid-cols-3">
+        <SurfaceCard accent className="bg-gradient-to-br from-amber-500/15 via-background to-transparent">
+          <div className="p-4">
+          <p className="text-sm text-muted-foreground">Pending Approval</p>
+          <p className="mt-2 text-2xl font-semibold">{approvalSummary.pending}</p>
+          </div>
+        </SurfaceCard>
+        <SurfaceCard accent className="bg-gradient-to-br from-violet-500/15 via-background to-transparent">
+          <div className="p-4">
+          <p className="text-sm text-muted-foreground">Draft Entries</p>
+          <p className="mt-2 text-2xl font-semibold">{approvalSummary.draft}</p>
+          </div>
+        </SurfaceCard>
+        <SurfaceCard accent className="bg-gradient-to-br from-emerald-500/15 via-background to-transparent">
+          <div className="p-4">
+          <p className="text-sm text-muted-foreground">Approved Records</p>
+          <p className="mt-2 text-2xl font-semibold">{approvalSummary.approved}</p>
+          </div>
+        </SurfaceCard>
+      </div>
+    );
+  }
+
+  function renderGridPanel({ mode = "entry" } = {}) {
+    const isPendingMode = mode === "pending";
+    const isApprovedMode = mode === "approved";
+    const showTeacherActions = canEnterMarks && !isPendingMode && !isApprovedMode;
+    const showAdminEditActions = isAdmin && !isApprovedMode;
+    const showAdminApprovalActions = isAdmin && isPendingMode;
+    const emptyMessage = isPendingMode
+      ? "Load a pending approval grid to review submitted marks."
+      : isApprovedMode
+        ? "Load approved records to download marksheets."
+        : "Select the filters above and load a marks grid.";
+
+    return (
+      <SurfaceCard>
+        <div className="p-4">
+        <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <p className="text-base font-semibold">
+              {grid?.subject?.name || "Marks Grid"}
+            </p>
+            <p className="text-sm text-muted-foreground">
+              {grid?.rows?.length || 0} student{grid?.rows?.length === 1 ? "" : "s"} loaded
+            </p>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            {showTeacherActions ? (
+              <>
+                <Button onClick={handleSaveMarks} disabled={gridLoading || !grid?.rows?.length}>
+                  Save
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => handleSubmitMarks(false)}
+                  disabled={gridLoading || !selectedStudentIds.length}
+                >
+                  Submit Selected
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => handleSubmitMarks(true)}
+                  disabled={gridLoading || !grid?.rows?.length}
+                >
+                  Submit All
+                </Button>
+              </>
+            ) : null}
+
+            {showAdminEditActions ? (
+              <>
+                <Button
+                  variant="outline"
+                  onClick={() => setEditMode((prev) => !prev)}
+                  disabled={!grid?.rows?.length}
+                >
+                  {editMode ? "Cancel Edit" : "Edit"}
+                </Button>
+                {editMode ? (
+                  <Button onClick={handleSaveMarks} disabled={gridLoading || !grid?.rows?.length}>
+                    Save Changes
+                  </Button>
+                ) : null}
+              </>
+            ) : null}
+
+            {showAdminApprovalActions ? (
+              <>
+                {isAdmin ? (
+                  <Button
+                    onClick={() => handleApprove(false)}
+                    disabled={gridLoading || !selectedStudentIds.length}
+                  >
+                    Approve Selected
+                  </Button>
+                ) : null}
+                {isAdmin && isPendingMode ? (
+                  <Button
+                    onClick={() => handleApprove(true)}
+                    disabled={gridLoading || !grid?.rows?.length}
+                  >
+                    Approve All
+                  </Button>
+                ) : null}
+                {isAdmin && isPendingMode ? (
+                  <Button
+                    variant="destructive"
+                    onClick={handleReject}
+                    disabled={gridLoading || !selectedStudentIds.length}
+                  >
+                    Reject
+                  </Button>
+                ) : null}
+              </>
+            ) : null}
+          </div>
+        </div>
+
+        <div className="mb-4 flex flex-wrap gap-2 rounded-xl border border-border/70 bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
+          <span className="font-medium text-foreground">
+            Current Scope
+          </span>
+          <span>Exam: {selectedExam?.name || "-"}</span>
+          <span>Class: {selectedClass?.name || "-"}</span>
+          <span>
+            Section: {selectedSection ? `${selectedSection.name}${selectedSection.medium ? ` (${selectedSection.medium})` : ""}` : "-"}
+          </span>
+          <span>Subject: {selectedSubject?.name || grid?.subject?.name || "-"}</span>
+        </div>
+
+        <Table>
+          <TableHeader>
+            <TableRow className="bg-muted/40">
+              <TableHead className="w-12 text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
+                <Checkbox
+                  checked={allSelected}
+                  onCheckedChange={(checked) => toggleAllRows(Boolean(checked))}
+                />
+              </TableHead>
+              <TableHead className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Roll Number</TableHead>
+              <TableHead className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Student Name</TableHead>
+              <TableHead className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Class</TableHead>
+              <TableHead className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Section</TableHead>
+              <TableHead className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Subject</TableHead>
+              <TableHead className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Marks</TableHead>
+              <TableHead className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Status</TableHead>
+              {isAdmin ? <TableHead className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Download</TableHead> : null}
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {(grid?.rows || []).map((row) => (
+              <TableRow key={row.student_id} className="transition-colors hover:bg-muted/35">
+                <TableCell>
+                  <Checkbox
+                    checked={selectedStudentIds.includes(Number(row.student_id))}
+                    onCheckedChange={(checked) =>
+                      toggleRow(Number(row.student_id), Boolean(checked))
+                    }
+                  />
+                </TableCell>
+                <TableCell>{row.roll_number || "-"}</TableCell>
+                <TableCell>
+                  <div className="font-medium">{row.student_name}</div>
+                  {row.medium ? (
+                    <div className="text-xs text-muted-foreground">{row.medium}</div>
+                  ) : null}
+                </TableCell>
+                <TableCell>{selectedClass?.name || grid?.exam?.class_name || "-"}</TableCell>
+                <TableCell>
+                  {selectedSection
+                    ? `${selectedSection.name}${selectedSection.medium ? ` (${selectedSection.medium})` : ""}`
+                    : grid?.exam?.section_name || "-"}
+                </TableCell>
+                <TableCell>{selectedSubject?.name || grid?.subject?.name || "-"}</TableCell>
+                <TableCell>
+                  {canEnterMarks || editMode ? (
+                    <Input
+                      type="number"
+                      min="0"
+                      max={grid?.subject?.max_marks || 100}
+                      className="w-24"
+                      value={editedMarks[row.student_id] ?? ""}
+                      onChange={(e) => updateMarksValue(row.student_id, e.target.value)}
+                      onWheel={(e) => e.currentTarget.blur()}
+                    />
+                  ) : (
+                    row.marks ?? "-"
+                  )}
+                </TableCell>
+                <TableCell>
+                  <Badge
+                    variant={statusVariant(row.approval_status)}
+                    className={statusClassName(row.approval_status)}
+                  >
+                    {row.approval_status}
+                  </Badge>
+                </TableCell>
+                {isAdmin ? (
+                  <TableCell>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={row.approval_status !== "approved"}
+                      onClick={() => handleDownloadStudent(row.student_id)}
+                    >
+                      Download
+                    </Button>
+                  </TableCell>
+                ) : null}
+              </TableRow>
+            ))}
+
+            {!grid?.rows?.length ? (
+              <TableRow>
+                <TableCell
+                  colSpan={isAdmin ? 9 : 8}
+                  className="py-8 text-center text-muted-foreground"
+                >
+                  {emptyMessage}
+                </TableCell>
+              </TableRow>
+            ) : null}
+          </TableBody>
+        </Table>
+        </div>
+      </SurfaceCard>
+    );
+  }
 
   return (
     <>
@@ -559,7 +1244,6 @@ export default function Reports() {
                     <TableHead>Subject</TableHead>
                     <TableHead>Marks</TableHead>
                     <TableHead>Max</TableHead>
-                    <TableHead>Pass</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -568,7 +1252,6 @@ export default function Reports() {
                       <TableCell>{row.subject}</TableCell>
                       <TableCell>{row.marks}</TableCell>
                       <TableCell>{row.max_marks}</TableCell>
-                      <TableCell>{row.pass_marks}</TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
@@ -580,296 +1263,43 @@ export default function Reports() {
 
       {!loading && !selfViewOnly ? (
         <div className="grid gap-4">
-          <div className="rounded-xl border bg-card p-4">
-            <div className="grid gap-4 md:grid-cols-6">
-              <div className="grid gap-2">
-                <Label>Exam</Label>
-                <select
-                  className="w-full rounded-md border px-3 py-2"
-                  value={filters.exam_id}
-                  onChange={(e) =>
-                    setFilters((prev) => ({ ...prev, exam_id: e.target.value }))
-                  }
-                >
-                  <option value="">Select exam</option>
-                  {exams.map((exam) => (
-                    <option key={exam.id} value={exam.id}>
-                      {exam.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
+          {isAdmin ? renderAdminSummary() : null}
 
-              <div className="grid gap-2">
-                <Label>Class</Label>
-                <select
-                  className="w-full rounded-md border px-3 py-2"
-                  value={filters.class_id}
-                  onChange={(e) =>
-                    setFilters((prev) => ({
-                      ...prev,
-                      class_id: e.target.value,
-                      section_id: "",
-                      medium: "",
-                    }))
-                  }
-                >
-                  <option value="">Select class</option>
-                  {availableClasses.map((item) => (
-                    <option key={item.id} value={item.id}>
-                      {item.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="grid gap-2">
-                <Label>Section</Label>
-                <select
-                  className="w-full rounded-md border px-3 py-2"
-                  value={filters.section_id}
-                  onChange={(e) =>
-                    setFilters((prev) => ({ ...prev, section_id: e.target.value }))
-                  }
-                >
-                  <option value="">Select section</option>
-                  {availableSections.map((section) => (
-                    <option key={section.id} value={section.id}>
-                      {section.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="grid gap-2">
-                <Label>Medium</Label>
-                <select
-                  className="w-full rounded-md border px-3 py-2"
-                  value={filters.medium}
-                  onChange={(e) =>
-                    setFilters((prev) => ({ ...prev, medium: e.target.value }))
-                  }
-                >
-                  <option value="">All mediums</option>
-                  {mediums.map((medium) => (
-                    <option key={medium} value={medium}>
-                      {medium}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="grid gap-2">
-                <Label>Subject</Label>
-                <select
-                  className="w-full rounded-md border px-3 py-2"
-                  value={filters.subject_id}
-                  onChange={(e) =>
-                    setFilters((prev) => ({ ...prev, subject_id: e.target.value }))
-                  }
-                >
-                  <option value="">Select subject</option>
-                  {filteredSubjects.map((subject) => (
-                    <option key={subject.id} value={subject.id}>
-                      {subject.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="grid gap-2">
-                <Label>Student Search</Label>
-                <Input
-                  placeholder="Search name"
-                  value={filters.name}
-                  onChange={(e) =>
-                    setFilters((prev) => ({ ...prev, name: e.target.value }))
-                  }
-                />
-              </div>
-            </div>
-
-            <div className="mt-4 flex flex-wrap items-end gap-3">
+          <Tabs value={activeTab} onValueChange={handleTabChange} className="gap-4">
+            <TabsList variant="line" className="w-full justify-start overflow-x-auto">
               {isAdmin ? (
-                <div className="grid gap-2">
-                  <Label>Status</Label>
-                  <select
-                    className="min-w-[180px] rounded-md border px-3 py-2"
-                    value={filters.approval_status}
-                    onChange={(e) =>
-                      setFilters((prev) => ({ ...prev, approval_status: e.target.value }))
-                    }
-                  >
-                    <option value="">All statuses</option>
-                    <option value="draft">Draft</option>
-                    <option value="pending">Pending</option>
-                    <option value="approved">Approved</option>
-                  </select>
-                </div>
+                <TabsTrigger value="pending">
+                  <span className="inline-flex items-center gap-2">
+                    <span>Review</span>
+                    {displayedPendingQueue.total_pending > 0 ? (
+                      <span className="inline-flex min-w-5 items-center justify-center rounded-full bg-amber-500 px-1.5 py-0.5 text-[10px] font-semibold leading-none text-white">
+                        {displayedPendingQueue.total_pending}
+                      </span>
+                    ) : null}
+                  </span>
+                </TabsTrigger>
               ) : null}
+              <TabsTrigger value="entry">Entry</TabsTrigger>
+              <TabsTrigger value="approved">Published</TabsTrigger>
+            </TabsList>
 
-              <Button onClick={handleLoadGrid} disabled={gridLoading}>
-                {gridLoading ? "Loading..." : "Load Students"}
-              </Button>
-            </div>
-          </div>
+            {isAdmin ? (
+              <TabsContent value="pending" className="grid gap-4">
+                {renderFilterPanel()}
+                {renderGridPanel({ mode: "pending" })}
+              </TabsContent>
+            ) : null}
 
-          <div className="rounded-xl border bg-card p-4">
-            <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <p className="text-base font-semibold">
-                  {grid?.subject?.name || "Marks Grid"}
-                </p>
-                <p className="text-sm text-muted-foreground">
-                  {grid?.rows?.length || 0} student{grid?.rows?.length === 1 ? "" : "s"} loaded
-                </p>
-              </div>
+            <TabsContent value="entry" className="grid gap-4">
+              {renderFilterPanel()}
+              {renderGridPanel({ mode: "entry" })}
+            </TabsContent>
 
-              <div className="flex flex-wrap gap-2">
-                {canEnterMarks ? (
-                  <>
-                    <Button onClick={handleSaveMarks} disabled={gridLoading || !grid?.rows?.length}>
-                      Save
-                    </Button>
-                    <Button
-                      variant="outline"
-                      onClick={() => handleSubmitMarks(false)}
-                      disabled={gridLoading || !selectedStudentIds.length}
-                    >
-                      Submit Selected
-                    </Button>
-                    <Button
-                      variant="outline"
-                      onClick={() => handleSubmitMarks(true)}
-                      disabled={gridLoading || !grid?.rows?.length}
-                    >
-                      Submit All
-                    </Button>
-                  </>
-                ) : null}
-
-                {isAdmin ? (
-                  <>
-                    <Button
-                      variant="outline"
-                      onClick={() => setEditMode((prev) => !prev)}
-                      disabled={!grid?.rows?.length}
-                    >
-                      {editMode ? "Cancel Edit" : "Edit"}
-                    </Button>
-                    {editMode ? (
-                      <Button onClick={handleSaveMarks} disabled={gridLoading || !grid?.rows?.length}>
-                        Save Changes
-                      </Button>
-                    ) : null}
-                    <Button
-                      onClick={() => handleApprove(false)}
-                      disabled={gridLoading || !selectedStudentIds.length}
-                    >
-                      Approve Selected
-                    </Button>
-                    <Button
-                      onClick={() => handleApprove(true)}
-                      disabled={gridLoading || !grid?.rows?.length}
-                    >
-                      Approve All
-                    </Button>
-                    <Button
-                      variant="destructive"
-                      onClick={handleReject}
-                      disabled={gridLoading || !selectedStudentIds.length}
-                    >
-                      Reject
-                    </Button>
-                  </>
-                ) : null}
-              </div>
-            </div>
-
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="w-12">
-                    <Checkbox
-                      checked={allSelected}
-                      onCheckedChange={(checked) => toggleAllRows(Boolean(checked))}
-                    />
-                  </TableHead>
-                  <TableHead>Roll Number</TableHead>
-                  <TableHead>Student Name</TableHead>
-                  <TableHead>Marks</TableHead>
-                  <TableHead>Status</TableHead>
-                  {isAdmin ? <TableHead>Download</TableHead> : null}
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {(grid?.rows || []).map((row) => (
-                  <TableRow key={row.student_id}>
-                    <TableCell>
-                      <Checkbox
-                        checked={selectedStudentIds.includes(Number(row.student_id))}
-                        onCheckedChange={(checked) =>
-                          toggleRow(Number(row.student_id), Boolean(checked))
-                        }
-                      />
-                    </TableCell>
-                    <TableCell>{row.roll_number || "-"}</TableCell>
-                    <TableCell>
-                      <div className="font-medium">{row.student_name}</div>
-                      {row.medium ? (
-                        <div className="text-xs text-muted-foreground">{row.medium}</div>
-                      ) : null}
-                    </TableCell>
-                    <TableCell>
-                      {canEnterMarks || editMode ? (
-                        <Input
-                          type="number"
-                          min="0"
-                          max={grid?.subject?.max_marks || 100}
-                          className="w-24"
-                          value={editedMarks[row.student_id] ?? ""}
-                          onChange={(e) => updateMarksValue(row.student_id, e.target.value)}
-                        />
-                      ) : (
-                        row.marks ?? "-"
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      <Badge
-                        variant={statusVariant(row.approval_status)}
-                        className={statusClassName(row.approval_status)}
-                      >
-                        {row.approval_status}
-                      </Badge>
-                    </TableCell>
-                    {isAdmin ? (
-                      <TableCell>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          disabled={row.approval_status !== "approved"}
-                          onClick={() => handleDownloadStudent(row.student_id)}
-                        >
-                          Download
-                        </Button>
-                      </TableCell>
-                    ) : null}
-                  </TableRow>
-                ))}
-
-                {!grid?.rows?.length ? (
-                  <TableRow>
-                    <TableCell
-                      colSpan={isAdmin ? 6 : 5}
-                      className="py-8 text-center text-muted-foreground"
-                    >
-                      Select the filters above and load a marks grid.
-                    </TableCell>
-                  </TableRow>
-                ) : null}
-              </TableBody>
-            </Table>
-          </div>
+            <TabsContent value="approved" className="grid gap-4">
+              {renderFilterPanel()}
+              {renderGridPanel({ mode: "approved" })}
+            </TabsContent>
+          </Tabs>
         </div>
       ) : null}
     </>

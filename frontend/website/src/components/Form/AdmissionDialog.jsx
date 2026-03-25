@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { createPortal } from "react-dom";
 import { ArrowUpRight, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -12,13 +12,9 @@ export default function AdmissionDialog({
   variant,
 }) {
   const [open, setOpen] = useState(false);
-  const [mounted, setMounted] = useState(false);
   const isSchool = section === "school";
   const FormComponent = isSchool ? SchoolAdmissionForm : CollegeAdmissionForm;
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
+  const canPortal = typeof document !== "undefined";
 
   const dialogMarkup = open ? (
     <div
@@ -61,7 +57,7 @@ export default function AdmissionDialog({
         <ArrowUpRight className="transition hover:-translate-x-1" />
       </Button>
 
-      {mounted && dialogMarkup ? createPortal(dialogMarkup, document.body) : null}
+      {canPortal && dialogMarkup ? createPortal(dialogMarkup, document.body) : null}
     </>
   );
 }

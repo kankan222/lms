@@ -4,10 +4,14 @@ export function authenticate(req, res, next) {
   try {
 
     const header = req.headers.authorization;
-    if (!header)
-      return res.status(401).json({message:"No token"});
+    const tokenFromHeader =
+      header && header.startsWith("Bearer ")
+        ? header.split(" ")[1]
+        : null;
+    const token = tokenFromHeader || req.query?.access_token;
 
-    const token = header.split(" ")[1];
+    if (!token)
+      return res.status(401).json({message:"No token"});
 
     const decoded = verifyAccessToken(token);
 

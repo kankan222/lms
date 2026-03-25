@@ -34,6 +34,27 @@ export type DashboardClassOverview = {
   present_today: number;
 };
 
+export type DashboardTrendPoint = {
+  bucket?: string;
+  date?: string;
+  label: string;
+  value?: number;
+  admissions?: number;
+  collections?: number;
+  present?: number;
+  absent?: number;
+  late?: number;
+  half_day?: number;
+};
+
+export type DashboardFeeStatus = {
+  status: string;
+  total_items: number;
+  total_amount: number;
+  paid_amount: number;
+  outstanding_amount: number;
+};
+
 export type DashboardSummary = {
   stats: {
     totalStudents: number;
@@ -46,6 +67,13 @@ export type DashboardSummary = {
   attendance: {
     student: { present: number; absent: number; late: number };
     teacher: { present: number; absent: number };
+  };
+  analytics: {
+    admissionsTrend: DashboardTrendPoint[];
+    feeCollectionTrend: DashboardTrendPoint[];
+    studentAttendanceTrend: DashboardTrendPoint[];
+    teacherAttendanceTrend: DashboardTrendPoint[];
+    feeStatusBreakdown: DashboardFeeStatus[];
   };
   upcomingExams: DashboardExam[];
   recentActivities: DashboardActivity[];

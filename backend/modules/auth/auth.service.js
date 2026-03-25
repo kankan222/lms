@@ -41,7 +41,7 @@ export async function login(data, meta) {
   );
 
   if (!match)
-    throw new AppError("Invalid credentials");
+    throw new AppError("Invalid credentials", 401);
 
   const [permissionsRows, roleRows] = await Promise.all([
     getUserPermissions(user.id),
@@ -99,13 +99,13 @@ export async function refresh(refreshToken) {
   try {
     payload = verifyRefreshToken(refreshToken);
   } catch {
-    throw new AppError("Invalid refresh token");
+    throw new AppError("Invalid refresh token", 401);
   }
 
   const session = await findSession(payload.sessionId);
 
   if (!session)
-    throw new Error("Session expired");
+    throw new AppError("Session expired", 401);
 
   const match = await bcrypt.compare(
     refreshToken,
@@ -113,7 +113,7 @@ export async function refresh(refreshToken) {
   );
 
   if (!match)
-    throw new Error("Token mismatch");
+    throw new AppError("Token mismatch", 401);
 
   const newAccessToken = generateAccessToken({
     userId: payload.userId,

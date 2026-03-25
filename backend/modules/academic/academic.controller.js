@@ -12,11 +12,73 @@ export async function createSession(req, res, next) {
   }
 }
 
+export async function updateSession(req, res, next) {
+  try {
+    await service.updateSession(req.params.id, req.body);
+
+    res.json({
+      success: true,
+      message: "Session updated",
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function deleteSession(req, res, next) {
+  try {
+    await service.deleteSession(req.params.id);
+
+    res.json({
+      success: true,
+      message: "Session deleted",
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
 export async function getSessions(req, res, next) {
   try {
     const data = await service.getSessions();
 
     res.json({ success: true, data });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function getStreams(req, res, next) {
+  try {
+    const data = await service.getStreams();
+    res.json({ success: true, data });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function createStream(req, res, next) {
+  try {
+    await service.createStream(req.body);
+    res.json({ success: true, message: "Stream created" });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function updateStream(req, res, next) {
+  try {
+    await service.updateStream(req.params.id, req.body);
+    res.json({ success: true, message: "Stream updated" });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function deleteStream(req, res, next) {
+  try {
+    await service.deleteStream(req.params.id);
+    res.json({ success: true, message: "Stream deleted" });
   } catch (err) {
     next(err);
   }

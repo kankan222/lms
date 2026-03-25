@@ -49,7 +49,7 @@ router.get(
   "/class/:classId",
   authenticate,
   attachPermissions,
-  requirePermission("classSubjects.view"),
+  requirePermission("subjects.view"),
   controller.getClassSubjects,
 );
 

@@ -148,7 +148,7 @@ export async function getPendingPayments(req, res) {
 export async function downloadReceipt(req,res){
   const { paymentId } = req.params;
 
-  const pdfBuffer = await feeService.generateReceipt(paymentId);
+  const pdfBuffer = await feeService.generateReceipt(paymentId, req.user);
 
   res.setHeader("Content-Type","application/pdf");
   res.setHeader(

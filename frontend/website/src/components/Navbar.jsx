@@ -1,4 +1,4 @@
-import { Link, NavLink } from "react-router-dom";
+import { NavLink, useLocation } from "react-router-dom";
 const NavItem = [
   
   {
@@ -19,6 +19,7 @@ const NavItem = [
   },
 ];
 const Navbar = () => {
+  const location = useLocation();
   const section = location.pathname.split("/")[1];
 
   return (

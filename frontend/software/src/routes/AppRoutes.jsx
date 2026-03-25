@@ -1,3 +1,4 @@
+import { Suspense, lazy } from "react";
 import { Routes, Route } from "react-router-dom";
 
 import Layout from "../layout/layout";
@@ -8,10 +9,19 @@ import PublicRoute from "./PublicRoute";
 import PermissionRoute from "./PermissionRoute";
 import RoleLandingRoute from "./RoleLandingRoute";
 
-import Login from "../pages/LoginForm";
-import Unauthorized from "../pages/Unauthorized";
 import { useAuth } from "../hooks/useAuth";
 import { isRouteAllowedForUser } from "./RouteConfig";
+
+const Login = lazy(() => import("../pages/LoginForm"));
+const Unauthorized = lazy(() => import("../pages/Unauthorized"));
+
+function RouteFallback() {
+  return (
+    <div className="flex min-h-[40vh] items-center justify-center text-sm text-muted-foreground">
+      Loading...
+    </div>
+  );
+}
 
 const AppRoutes = () => {
   const { user } = useAuth();
@@ -22,7 +32,9 @@ const AppRoutes = () => {
         path="/login"
         element={
           <PublicRoute>
-            <Login />
+            <Suspense fallback={<RouteFallback />}>
+              <Login />
+            </Suspense>
           </PublicRoute>
         }
       />
@@ -30,7 +42,9 @@ const AppRoutes = () => {
         path="/unauthorized"
         element={
           <ProtectedRoute>
-            <Unauthorized />
+            <Suspense fallback={<RouteFallback />}>
+              <Unauthorized />
+            </Suspense>
           </ProtectedRoute>
         }
       />
@@ -50,7 +64,13 @@ const AppRoutes = () => {
           let element = route.element;
 
           if (!isRouteAllowedForUser(route, user)) {
-            element = <Unauthorized />;
+            element = (
+              <Suspense fallback={<RouteFallback />}>
+                <Unauthorized />
+              </Suspense>
+            );
+          } else {
+            element = <Suspense fallback={<RouteFallback />}>{element}</Suspense>;
           }
 
           if (route.permission) {
@@ -70,7 +90,7 @@ const AppRoutes = () => {
           );
         })}
         {hiddenRoutes.map((route, i) => {
-          let element = route.element;
+          let element = <Suspense fallback={<RouteFallback />}>{route.element}</Suspense>;
 
           if (route.permission) {
             element = (

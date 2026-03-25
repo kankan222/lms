@@ -1,9 +1,9 @@
 import * as service from "./messaging.service.js";
+import { registerMessagingClient } from "./messaging.realtime.js";
 
 export async function sendMessage(req, res) {
   try {
-    const senderId = req.user.userId;
-    const result = await service.sendMessage(req.body, senderId);
+    const result = await service.sendMessage(req.body, req.user);
     res.json({ success: true, ...result });
   } catch (err) {
     res.status(400).json({ success: false, error: err.message });
@@ -61,4 +61,22 @@ export async function getTargets(req, res) {
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
+}
+
+export function streamMessages(req, res) {
+  if (!req.user?.permissions?.includes("messages.view")) {
+    return res.status(403).json({ success: false, error: "Forbidden" });
+  }
+
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache, no-transform");
+  res.setHeader("Connection", "keep-alive");
+  res.flushHeaders?.();
+
+  const unregister = registerMessagingClient(req.user.userId, res);
+
+  req.on("close", () => {
+    unregister();
+    res.end();
+  });
 }

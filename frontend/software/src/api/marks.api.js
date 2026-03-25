@@ -42,6 +42,14 @@ export function getMarksGrid(params = {}) {
   return apiRequest(`/marks/grid${buildQuery(params)}`);
 }
 
+export function getPendingApprovalQueue() {
+  return apiRequest("/marks/pending-queue");
+}
+
+export function getMarksApprovalSummary() {
+  return apiRequest("/marks/summary");
+}
+
 export function getAccessibleExams() {
   return apiRequest("/marks/exams");
 }

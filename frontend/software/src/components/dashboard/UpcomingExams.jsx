@@ -1,9 +1,4 @@
-function formatDate(value) {
-  if (!value) return "TBD";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "TBD";
-  return date.toLocaleDateString();
-}
+import { formatReadableDate } from "../../lib/dateTime";
 
 export default function UpcomingExams({ exams = [] }) {
   return (
@@ -23,7 +18,7 @@ export default function UpcomingExams({ exams = [] }) {
             <p className="text-sm text-muted-foreground">
               {exam.class_name || "-"} {exam.section_name ? `- ${exam.section_name}` : ""}
             </p>
-            <p className="text-xs text-muted-foreground mt-1">{formatDate(exam.exam_date)}</p>
+            <p className="text-xs text-muted-foreground mt-1">{formatReadableDate(exam.exam_date, "TBD")}</p>
           </div>
         ))}
       </div>

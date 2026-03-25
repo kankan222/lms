@@ -9,6 +9,24 @@ export async function getMarksGrid(req, res, next) {
   }
 }
 
+export async function getPendingApprovalQueue(req, res, next) {
+  try {
+    const result = await service.getPendingApprovalQueue();
+    res.json({ success: true, data: result });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function getApprovalStatusSummary(req, res, next) {
+  try {
+    const result = await service.getApprovalStatusSummary();
+    res.json({ success: true, data: result });
+  } catch (err) {
+    next(err);
+  }
+}
+
 export async function getAccessibleExams(req, res, next) {
   try {
     const result = await service.getAccessibleExams(req.user.userId);

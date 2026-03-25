@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useEffectEvent, useState } from "react";
 import { NotebookPen, TrashIcon } from "lucide-react";
 import { Button } from "../components/ui/button";
 import TopBar from "../components/TopBar";
@@ -44,17 +44,6 @@ const Classes = () => {
   const [createError, setCreateError] = useState("");
   const [editError, setEditError] = useState("");
   const [notice, setNotice] = useState(null);
-  useEffect(() => {
-    loadClasses();
-  }, []);
-
-  useEffect(() => {
-    if (!notice) return undefined;
-    const timeoutId = window.setTimeout(() => {
-      setNotice(null);
-    }, 3500);
-    return () => window.clearTimeout(timeoutId);
-  }, [notice]);
 
   function showNotice(title, message, variant = "success") {
     setNotice({ title, message, variant });
@@ -93,6 +82,22 @@ const Classes = () => {
 
     setClasses(normalized);
   }
+
+  const loadInitialClasses = useEffectEvent(() => {
+    loadClasses();
+  });
+
+  useEffect(() => {
+    loadInitialClasses();
+  }, []);
+
+  useEffect(() => {
+    if (!notice) return undefined;
+    const timeoutId = window.setTimeout(() => {
+      setNotice(null);
+    }, 3500);
+    return () => window.clearTimeout(timeoutId);
+  }, [notice]);
 
   async function handleCreate(e) {
     e.preventDefault();

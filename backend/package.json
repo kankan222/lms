@@ -6,7 +6,9 @@
   "type": "module",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
+    "dev:local": "node scripts/run-backend-dev.js",
     "dev": "node scripts/run-backend-dev.js",
+    "start:server": "node server.js",
     "start": "node server.js",
     "seed:admin": "node database/seeds/admin.seeds.js"
   },

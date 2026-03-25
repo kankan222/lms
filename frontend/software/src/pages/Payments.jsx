@@ -1,17 +1,11 @@
-import { useEffect, useState } from "react";
+import { useEffect, useEffectEvent, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import TopBar from "../components/TopBar";
 import DataTable from "../components/DataTable";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Sheet,
-  SheetContent,
-  SheetFooter,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet";
+import { Separator } from "@/components/ui/separator";
 import {
   Dialog,
   DialogContent,
@@ -21,6 +15,14 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import {
+  Popover,
+  PopoverContent,
+  PopoverDescription,
+  PopoverHeader,
+  PopoverTitle,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -42,9 +44,14 @@ import {
   getStudentFeeOptions,
   updatePayment,
 } from "../api/fee.api";
+import { formatReadableDate } from "../lib/dateTime";
 
 const columns = [
-  { header: "Date", accessor: "payment_date" },
+  {
+    header: "Date",
+    accessor: "payment_date",
+    cell: (row) => formatReadableDate(row.payment_date),
+  },
   { header: "Student", accessor: "student_name" },
   { header: "Scope", accessor: "scope_label" },
   { header: "Class", accessor: "class_name" },
@@ -69,6 +76,10 @@ function formatScope(scope) {
 }
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:5000/api/v1";
+
+function preventWheelNumberChange(event) {
+  event.currentTarget.blur();
+}
 
 export default function Payments() {
   const navigate = useNavigate();
@@ -100,59 +111,6 @@ export default function Payments() {
     remarks: "",
   });
 
-  useEffect(() => {
-    loadClasses();
-  }, []);
-
-  useEffect(() => {
-    loadPayments();
-  }, [classId, sectionId, scope, paymentDate]);
-
-  useEffect(() => {
-    if (!createForm.class_id || !createForm.section_id) {
-      setStudents([]);
-      setStudentSearch("");
-      return;
-    }
-
-    loadStudentsForCreate();
-  }, [createForm.class_id, createForm.section_id]);
-
-  useEffect(() => {
-    if (!createForm.student_id) {
-      setFeeOptions([]); 
-      return;
-    }
-
-    loadStudentFeesForCreate();
-  }, [createForm.student_id]);
-
-  useEffect(() => {
-    const query = studentSearch.trim().toLowerCase();
-    if (!query) return;
-
-    const matchingStudent = students.find((student) =>
-      String(student.name || "").toLowerCase().includes(query)
-    );
-
-    if (!matchingStudent) return;
-    if (String(createForm.student_id) === String(matchingStudent.id)) return;
-
-    setCreateForm((prev) => ({
-      ...prev,
-      student_id: String(matchingStudent.id),
-      student_fee_id: "",
-    }));
-  }, [studentSearch, students, createForm.student_id]);
-
-  useEffect(() => {
-    if (!notice) return undefined;
-    const timeoutId = window.setTimeout(() => {
-      setNotice(null);
-    }, 3500);
-    return () => window.clearTimeout(timeoutId);
-  }, [notice]);
-
   function showNotice(title, message, variant = "success") {
     setNotice({ title, message, variant });
   }
@@ -174,7 +132,7 @@ export default function Payments() {
       rows.map((row) => ({
         ...row,
         medium: row.medium || "-",
-        payment_date: row.payment_date || (row.created_at ? String(row.created_at).slice(0, 10) : "-"),
+        payment_date: row.payment_date || row.created_at || "-",
         scope_label: formatScope(row.class_scope),
         display_status: formatStatus(row.fee_status || row.status),
       }))
@@ -201,11 +159,84 @@ export default function Payments() {
       const res = await getStudentFeeOptions(createForm.student_id);
       setFeeOptions(res?.data || []);
       setCreateError("");
-    } catch (err) {
+    } catch {
       setFeeOptions([]);
       setCreateError("Fee ledger is not available for this student. Check class fee structure.");
     }
   }
+
+  const loadInitialPayments = useEffectEvent(() => {
+    loadClasses();
+  });
+
+  const loadFilteredPayments = useEffectEvent(() => {
+    loadPayments();
+  });
+
+  const loadScopedStudents = useEffectEvent(() => {
+    if (!createForm.class_id || !createForm.section_id) {
+      setStudents([]);
+      setStudentSearch("");
+      return;
+    }
+
+    loadStudentsForCreate();
+  });
+
+  const loadSelectedStudentFees = useEffectEvent(() => {
+    if (!createForm.student_id) {
+      setFeeOptions([]);
+      return;
+    }
+
+    loadStudentFeesForCreate();
+  });
+
+  const syncStudentSearchSelection = useEffectEvent(() => {
+    const query = studentSearch.trim().toLowerCase();
+    if (!query) return;
+
+    const matchingStudent = students.find((student) =>
+      String(student.name || "").toLowerCase().includes(query)
+    );
+
+    if (!matchingStudent) return;
+    if (String(createForm.student_id) === String(matchingStudent.id)) return;
+
+    setCreateForm((prev) => ({
+      ...prev,
+      student_id: String(matchingStudent.id),
+      student_fee_id: "",
+    }));
+  });
+
+  useEffect(() => {
+    loadInitialPayments();
+  }, []);
+
+  useEffect(() => {
+    loadFilteredPayments();
+  }, [classId, sectionId, scope, paymentDate]);
+
+  useEffect(() => {
+    loadScopedStudents();
+  }, [createForm.class_id, createForm.section_id]);
+
+  useEffect(() => {
+    loadSelectedStudentFees();
+  }, [createForm.student_id]);
+
+  useEffect(() => {
+    syncStudentSearchSelection();
+  }, [studentSearch, students, createForm.student_id]);
+
+  useEffect(() => {
+    if (!notice) return undefined;
+    const timeoutId = window.setTimeout(() => {
+      setNotice(null);
+    }, 3500);
+    return () => window.clearTimeout(timeoutId);
+  }, [notice]);
 
   async function handleCreatePayment(e) {
     e.preventDefault();
@@ -351,6 +382,7 @@ export default function Payments() {
 
   const selectedClass = classes.find((c) => String(c.id) === String(classId));
   const sections = selectedClass?.sections || [];
+  const activeFilterCount = [scope, classId, sectionId, paymentDate].filter(Boolean).length;
 
   const createSelectedClass = classes.find(
     (c) => String(c.id) === String(createForm.class_id)
@@ -372,6 +404,102 @@ export default function Payments() {
         subTitle="Record and manage fee payments"
         action={
           <div className="flex gap-2">
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button variant="outline">
+                  {activeFilterCount > 0 ? `Filters (${activeFilterCount})` : "Filters"}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent align="end" className="w-80 space-y-4">
+                <PopoverHeader className="space-y-1">
+                  <PopoverTitle>Filters</PopoverTitle>
+                  <PopoverDescription>
+                    Narrow the payments list by scope, class, section, or date.
+                  </PopoverDescription>
+                </PopoverHeader>
+
+                <Separator />
+
+                <div className="grid gap-4">
+                  <div className="grid gap-2">
+                    <Label htmlFor="payments-filter-scope">Scope</Label>
+                    <select
+                      id="payments-filter-scope"
+                      className="border rounded p-2"
+                      value={scope}
+                      onChange={(e) => setScope(e.target.value)}
+                    >
+                      <option value="">All Scope</option>
+                      <option value="school">School</option>
+                      <option value="hs">Higher Secondary</option>
+                    </select>
+                  </div>
+
+                  <div className="grid gap-2">
+                    <Label htmlFor="payments-filter-class">Class</Label>
+                    <select
+                      id="payments-filter-class"
+                      className="border rounded p-2"
+                      value={classId}
+                      onChange={(e) => {
+                        setClassId(e.target.value);
+                        setSectionId("");
+                      }}
+                    >
+                      <option value="">All Classes</option>
+                      {classes.map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="grid gap-2">
+                    <Label htmlFor="payments-filter-section">Section</Label>
+                    <select
+                      id="payments-filter-section"
+                      className="border rounded p-2"
+                      value={sectionId}
+                      onChange={(e) => setSectionId(e.target.value)}
+                      disabled={!classId}
+                    >
+                      <option value="">All Sections</option>
+                      {sections.map((s) => (
+                        <option key={s.id} value={s.id}>
+                          {s.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="grid gap-2">
+                    <Label htmlFor="payments-filter-date">Payment Date</Label>
+                    <Input
+                      id="payments-filter-date"
+                      type="date"
+                      value={paymentDate}
+                      onChange={(e) => setPaymentDate(e.target.value)}
+                    />
+                  </div>
+                </div>
+
+                <Separator />
+
+                <Button
+                  variant="outline"
+                  className="w-full"
+                  onClick={() => {
+                    setScope("");
+                    setClassId("");
+                    setSectionId("");
+                    setPaymentDate("");
+                  }}
+                >
+                  Reset Filters
+                </Button>
+              </PopoverContent>
+            </Popover>
             <Button variant="outline" onClick={handleExportCsv}>
               Download CSV
             </Button>
@@ -503,6 +631,7 @@ export default function Payments() {
                           amount_paid: e.target.value,
                         }))
                       }
+                      onWheel={preventWheelNumberChange}
                       type="number"
                       min="1"
                       max={selectedFee ? Number(selectedFee.remaining) : undefined}
@@ -561,70 +690,6 @@ export default function Payments() {
         </div>
       </div>
 
-      <div className="mb-4 flex flex-wrap gap-3">
-        <select
-          className="border rounded p-2"
-          value={scope}
-          onChange={(e) => setScope(e.target.value)}
-        >
-          <option value="">All Scope</option>
-          <option value="school">School</option>
-          <option value="hs">Higher Secondary</option>
-        </select>
-
-        <select
-          className="border rounded p-2"
-          value={classId}
-          onChange={(e) => {
-            setClassId(e.target.value);
-            setSectionId("");
-          }}
-        >
-          <option value="">All Classes</option>
-          {classes.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.name}
-            </option>
-          ))}
-        </select>
-
-        <select
-          className="border rounded p-2"
-          value={sectionId}
-          onChange={(e) => setSectionId(e.target.value)}
-          disabled={!classId}
-        >
-          <option value="">All Sections</option>
-          {sections.map((s) => (
-            <option key={s.id} value={s.id}>
-              {s.name}
-            </option>
-          ))}
-        </select>
-
-        <div className="grid gap-1">
-          <Label className="text-xs">Payment Date</Label>
-          <Input
-            type="date"
-            value={paymentDate}
-            onChange={(e) => setPaymentDate(e.target.value)}
-            className="min-w-[170px]"
-          />
-        </div>
-
-        <Button
-          variant="outline"
-          onClick={() => {
-            setScope("");
-            setClassId("");
-            setSectionId("");
-            setPaymentDate("");
-          }}
-        >
-          Reset Filters
-        </Button>
-      </div>
-
       <DataTable
         columns={columns}
         data={payments}
@@ -647,12 +712,15 @@ export default function Payments() {
         )}
       />
 
-      <Sheet open={!!editingPayment} onOpenChange={() => setEditingPayment(null)}>
-        <SheetContent>
+      <Dialog open={!!editingPayment} onOpenChange={() => setEditingPayment(null)}>
+        <DialogContent>
           <form onSubmit={handleUpdatePayment} className="space-y-4">
-            <SheetHeader>
-              <SheetTitle>Edit Payment</SheetTitle>
-            </SheetHeader>
+            <DialogHeader>
+              <DialogTitle>Edit Payment</DialogTitle>
+              <DialogDescription>
+                Update the paid amount or remarks for this payment record.
+              </DialogDescription>
+            </DialogHeader>
 
             <div className="grid gap-2">
               <Label>Amount Paid *</Label>
@@ -660,6 +728,7 @@ export default function Payments() {
                 type="number"
                 min="1"
                 value={editingPayment?.amount_paid || ""}
+                onWheel={preventWheelNumberChange}
                 onChange={(e) =>
                   setEditingPayment((prev) => ({
                     ...prev,
@@ -683,12 +752,12 @@ export default function Payments() {
             </div>
             {editError && <p className="text-sm text-red-600">{editError}</p>}
 
-            <SheetFooter>
+            <DialogFooter>
               <Button type="submit">Update</Button>
-            </SheetFooter>
+            </DialogFooter>
           </form>
-        </SheetContent>
-      </Sheet>
+        </DialogContent>
+      </Dialog>
 
       <AlertDialog
         open={!!deletingPayment}

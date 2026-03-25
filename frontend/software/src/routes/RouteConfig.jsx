@@ -9,6 +9,7 @@ import {
   Calendar,
   MessageCircleMore,
   Mail,
+  Bell,
   FileQuestionMark,
   FileSpreadsheet,
   FileStack,
@@ -18,27 +19,26 @@ import {
   Users,
   Globe,
 } from "lucide-react";
+import { lazy } from "react";
 
-
-import DashBoard from "../pages/Dashboard"
-import Classes from "../pages/Classes";
-import Subjects from "../pages/Subjects";
-import Students from "../pages/Students"
-import Teachers from "../pages/teacher/Teachers";
-import TeacherDetails from "../pages/teacher/TeacherDetails"
-import Fees from "../pages/Fees";
-import Payments from "../pages/Payments";
-import Attendance from "../pages/Attendance";
-import Messaging from "../pages/Messaging";
-import Exams from "../pages/Exams";
-import Reports from "../pages/Reports";
-import SettingsPage from "../pages/Settings";
-import UsersPage from "../pages/Users";
-import WebsiteModule from "../pages/WebsiteModule";
-import StaffPage from "../pages/Staff";
-
-
-import StudentDetails from "../pages/modules/StudentDetails";
+const DashBoard = lazy(() => import("../pages/Dashboard"));
+const Classes = lazy(() => import("../pages/Classes"));
+const Subjects = lazy(() => import("../pages/Subjects"));
+const Students = lazy(() => import("../pages/Students"));
+const Teachers = lazy(() => import("../pages/teacher/Teachers"));
+const TeacherDetails = lazy(() => import("../pages/teacher/TeacherDetails"));
+const Fees = lazy(() => import("../pages/Fees"));
+const Payments = lazy(() => import("../pages/Payments"));
+const Attendance = lazy(() => import("../pages/Attendance"));
+const Messaging = lazy(() => import("../pages/Messaging"));
+const Exams = lazy(() => import("../pages/Exams"));
+const Reports = lazy(() => import("../pages/Reports"));
+const SettingsPage = lazy(() => import("../pages/Settings"));
+const UsersPage = lazy(() => import("../pages/Users"));
+const WebsiteModule = lazy(() => import("../pages/WebsiteModule"));
+const StaffPage = lazy(() => import("../pages/Staff"));
+const StudentDetails = lazy(() => import("../pages/modules/StudentDetails"));
+const NotificationsPage = lazy(() => import("../pages/Notifications"));
 
 export function isRouteAllowedForUser(route, user) {
   const roles = Array.isArray(user?.roles) ? user.roles : [];
@@ -165,6 +165,7 @@ export const appRoutes = [
       element: <Reports/>,
       protected : true,
       permission: "marks.view",
+      hideForRoles: ["parent"],
     },
     {
       title: "Users",
@@ -218,5 +219,12 @@ export const appRoutes = [
       protected: true,
       permission: "student.view",
       hideForRoles: ["teacher"],
+    },
+    {
+      path: "/notifications",
+      element: <NotificationsPage />,
+      protected: true,
+      permission: "notifications.view",
+      icon: Bell,
     },
   ]

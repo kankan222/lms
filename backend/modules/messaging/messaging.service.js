@@ -1,4 +1,24 @@
 import * as repo from "./messaging.repository.js";
+import { getUserPresence, publishConversationEvent } from "./messaging.realtime.js";
+
+function normalizeActor(actor) {
+  if (typeof actor === "number") {
+    return { userId: actor, roles: [] };
+  }
+
+  return {
+    userId: Number(actor?.userId || actor?.id),
+    roles: Array.isArray(actor?.roles) ? actor.roles : [],
+  };
+}
+
+async function canInitiateConversation(actor) {
+  if (actor.roles.includes("super_admin")) {
+    return true;
+  }
+
+  return repo.isSuperAdminUser(actor.userId);
+}
 
 async function getOrCreateDirectConversation(senderId, recipientUserId) {
   const existing = await repo.getDirectConversation(senderId, recipientUserId);
@@ -62,7 +82,14 @@ async function syncTeacherMemberships(userId) {
   }
 }
 
-export async function sendMessage(data, senderUserId) {
+export async function sendMessage(data, actorInput) {
+  const actor = normalizeActor(actorInput);
+  const senderUserId = actor.userId;
+
+  if (!senderUserId) {
+    throw new Error("Sender is required");
+  }
+
   if (!data?.message || !String(data.message).trim()) {
     throw new Error("Message is required");
   }
@@ -70,6 +97,11 @@ export async function sendMessage(data, senderUserId) {
   let conversationId = data.conversation_id ? Number(data.conversation_id) : null;
 
   if (!conversationId) {
+    const allowInitiation = await canInitiateConversation(actor);
+    if (!allowInitiation) {
+      throw new Error("Only super admin can start new conversations");
+    }
+
     const targetType = data.target_type;
 
     if (!targetType) {
@@ -166,7 +198,20 @@ export async function sendMessage(data, senderUserId) {
 
   const isMember = await repo.findMember(conversationId, senderUserId);
   if (!isMember) {
-    await repo.addConversationMember(conversationId, senderUserId);
+    throw new Error("You are not allowed to reply in this conversation");
+  }
+
+  const allowInitiation = await canInitiateConversation(actor);
+  if (!allowInitiation) {
+    const conversation = await repo.getConversationById(conversationId);
+    if (!conversation?.id) {
+      throw new Error("Conversation not found");
+    }
+
+    const adminOwned = await repo.isSuperAdminUser(conversation.created_by);
+    if (!adminOwned) {
+      throw new Error("You can only reply to conversations started by super admin");
+    }
   }
 
   const messageId = await repo.insertMessage({
@@ -177,6 +222,13 @@ export async function sendMessage(data, senderUserId) {
   });
 
   await repo.updateConversationLastMessage(conversationId);
+
+  const memberUserIds = await repo.getConversationMemberUserIds(conversationId);
+  publishConversationEvent(memberUserIds, {
+    conversation_id: conversationId,
+    message_id: messageId,
+    sender_id: senderUserId,
+  });
 
   return {
     conversation_id: conversationId,
@@ -191,7 +243,21 @@ export async function fetchMessages(conversationId, page = 1, limit = 30) {
 
 export async function fetchUserConversations(userId) {
   await syncTeacherMemberships(userId);
-  return repo.getUserConversations(userId);
+  const rows = await repo.getUserConversations(userId);
+
+  return rows.map((row) => {
+    if (row.type !== "direct" || !row.other_user_id) {
+      return row;
+    }
+
+    const presence = getUserPresence(row.other_user_id);
+    return {
+      ...row,
+      other_user_id: Number(row.other_user_id),
+      online: presence.online,
+      last_seen_at: presence.last_seen_at,
+    };
+  });
 }
 
 export async function markRead(conversationId, userId) {

@@ -211,7 +211,26 @@ export async function getPendingPayments() {
   return [];
 }
 
-export async function generateReceipt(paymentId) {
+export async function generateReceipt(paymentId, user) {
+  const receipt = await repo.getPaymentReceipt(paymentId);
+  if (!receipt) {
+    throw new AppError("Payment not found", 404);
+  }
+
+  if (user?.userId) {
+    const flags = await getUserFlags(user.userId);
+
+    if (flags.isParent) {
+      await assertParentOwnsStudent(user.userId, receipt.student_id);
+    } else if (flags.isTeacher && !flags.isAdmin) {
+      const enrollment = await repo.getEnrollmentByPaymentId(paymentId);
+      if (!enrollment) {
+        throw new AppError("Payment enrollment not found", 404);
+      }
+      await assertTeacherScopeAccess(user.userId, enrollment);
+    }
+  }
+
   return generateReceiptPdf(paymentId);
 }
 
@@ -285,7 +304,17 @@ export async function getStudentFeeOptions(studentId, user) {
 
   const existingCount = await repo.countStudentFees(enrollment.id);
   if (existingCount === 0) {
-    await generateStudentLedger(enrollment.id);
+    try {
+      await generateStudentLedger(enrollment.id);
+    } catch (err) {
+      if (
+        err?.statusCode === 404 &&
+        String(err?.message || "").toLowerCase().includes("fee structure not found")
+      ) {
+        return [];
+      }
+      throw err;
+    }
   }
 
   return repo.getStudentFeeOptions(enrollment.id);
@@ -322,7 +351,17 @@ export async function getMyStudentFeeOptions(studentId, user) {
 
   const existingCount = await repo.countStudentFees(enrollment.id);
   if (existingCount === 0) {
-    await generateStudentLedger(enrollment.id);
+    try {
+      await generateStudentLedger(enrollment.id);
+    } catch (err) {
+      if (
+        err?.statusCode === 404 &&
+        String(err?.message || "").toLowerCase().includes("fee structure not found")
+      ) {
+        return [];
+      }
+      throw err;
+    }
   }
 
   return repo.getStudentFeeOptions(enrollment.id);

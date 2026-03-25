@@ -18,9 +18,10 @@ export function createTeacher(formData) {
 }
 
 export function updateTeacher(id, data) {
+  const isFormData = typeof FormData !== "undefined" && data instanceof FormData;
   return apiRequest(`/teachers/${id}`, {
     method: "PUT",
-    body: JSON.stringify(data)
+    body: isFormData ? data : JSON.stringify(data)
   });
 }
 

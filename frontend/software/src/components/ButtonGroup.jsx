@@ -12,7 +12,7 @@ export default function ButtonGroup({
   };
 
   return (
-    <div className="inline-flex rounded-xl border bg-gray-100 p-1">
+    <div className="inline-flex rounded-xl border bg-muted p-1">
       {options.map((option) => {
         const isActive = active === option.value;
 
@@ -23,8 +23,8 @@ export default function ButtonGroup({
             className={`
               px-4 py-2 text-sm font-medium rounded-lg transition-all
               ${isActive
-                ? "bg-white shadow text-blue-600"
-                : "text-gray-600 hover:text-gray-900"}
+                ? "bg-background text-primary shadow-sm"
+                : "text-muted-foreground hover:text-foreground"}
             `}
           >
             {option.label}

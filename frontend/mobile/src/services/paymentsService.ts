@@ -40,6 +40,18 @@ export type StudentFeeOption = {
   remaining: number;
 };
 
+export type PaymentStudentItem = {
+  id: number;
+  name: string;
+  admission_no?: string | null;
+  roll_number?: string | number | null;
+  class_id?: number;
+  section_id?: number;
+  class_name?: string | null;
+  section_name?: string | null;
+  medium?: string | null;
+};
+
 export type PaymentFilters = {
   class_id?: number | string;
   section_id?: number | string;
@@ -85,6 +97,11 @@ export async function downloadAndSharePaymentsCsv(filters: PaymentFilters = {}) 
     },
   });
 
+  if (download.status !== 200) {
+    await FileSystem.deleteAsync(download.uri, { idempotent: true });
+    throw new Error("Receipt download failed");
+  }
+
   const canShare = await Sharing.isAvailableAsync();
   if (canShare) {
     await Sharing.shareAsync(download.uri, {
@@ -99,6 +116,26 @@ export async function downloadAndSharePaymentsCsv(filters: PaymentFilters = {}) 
 
 export async function getStudentFeeOptions(studentId: number | string) {
   const response = await api.get<ApiEnvelope<StudentFeeOption[]>>(`/fees/student-fees/${studentId}`);
+  return response.data?.data ?? [];
+}
+
+export async function getStudentsForPayment(params: { class_id: number | string; section_id: number | string }) {
+  const response = await api.get<ApiEnvelope<PaymentStudentItem[]>>("/fees/students", { params });
+  return response.data?.data ?? [];
+}
+
+export async function getMyStudentsForFees() {
+  const response = await api.get<ApiEnvelope<PaymentStudentItem[]>>("/fees/my-students");
+  return response.data?.data ?? [];
+}
+
+export async function getMyStudentFeeOptions(studentId: number | string) {
+  const response = await api.get<ApiEnvelope<StudentFeeOption[]>>(`/fees/my-student-fees/${studentId}`);
+  return response.data?.data ?? [];
+}
+
+export async function getMyPayments(params: { student_id: number | string }) {
+  const response = await api.get<ApiEnvelope<PaymentItem[]>>("/fees/my-payments", { params });
   return response.data?.data ?? [];
 }
 

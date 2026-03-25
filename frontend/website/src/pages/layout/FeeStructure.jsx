@@ -87,15 +87,15 @@ const FeeStructure = ({ type }) => {
       <Header />
 
       <div className="flex flex-col items-center px-5 lg:px-15 2xl:px-30">
-        <p className="text-3xl md:text-5xl font-extrabold mt-10 border border-border p-5 rounded-xl shadow-md">
+        <p className="text-3xl md:text-5xl font-extrabold mt-10">
           Fee <span className="text-gradient-bg bg-clip-text">Structure</span>
         </p>
 
         {/* <hr className="w-20 my-5 border-t-2 border-stone-900" /> */}
-<p className="text-xl md:text-3xl font-extrabold my-3">
+<p className="text-xl md:text-3xl font-extrabold mt-5">
           <span className="">Admission Fee </span>
         </p>
-        <hr className="w-20 my-1 border-t-2 border-stone-900" />
+        <hr className="w-20 my-5 border-t-2 border-stone-900" />
         <div
           className={`grid grid-cols-1 md:grid-cols-2  gap-6 w-full ${type === "school" ? "2xl:grid-cols-4" : "2xl:grid-cols-3"}`}
         >
@@ -107,7 +107,7 @@ const FeeStructure = ({ type }) => {
               <p className="font-bold text-lg mb-4 text-center">{group.title}</p>
 
               {(() => {
-                const { admissionFee, installmentFees } = separateFees(group.fees);
+                const { admissionFee } = separateFees(group.fees);
 
                 return (
                   <>
@@ -145,7 +145,7 @@ const FeeStructure = ({ type }) => {
               <p className="font-bold text-lg mb-4 text-center">{group.title}</p>
 
               {(() => {
-                const { admissionFee, installmentFees } = separateFees(group.fees);
+                const { installmentFees } = separateFees(group.fees);
 
                 return (
                   <>

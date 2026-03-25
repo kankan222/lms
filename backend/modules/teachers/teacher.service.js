@@ -32,19 +32,23 @@ export async function createTeacher(data) {
   const conn = await pool.getConnection();
 
   try {
-    if (!data.employee_id) throw new AppError("Employee ID required", 400);
-    if (!data.name) throw new AppError("Name required", 400);
-    if (!data.phone) throw new AppError("Phone required", 400);
-    if (!data.email) throw new AppError("Email required", 400);
-    if (!data.password) throw new AppError("Password required", 400);
+    const employeeId = String(data.employee_id || "").trim() || null;
+    const name = String(data.name || "").trim();
+    const phone = String(data.phone || "").trim() || null;
+    const email = String(data.email || "").trim() || null;
+    const password = String(data.password || "");
+
+    if (!name) throw new AppError("Name required", 400);
+    if (!phone && !email) throw new AppError("Email or phone required", 400);
+    if (!password) throw new AppError("Password required", 400);
     const classScope = normalizeClassScope(data.class_scope);
     await conn.beginTransaction();
 
-    const passwordHash = await bcrypt.hash(data.password, 10);
+    const passwordHash = await bcrypt.hash(password, 10);
     // 1️⃣ create user
     const userId = await repo.createUser({
-      email: data.email,
-      phone: data.phone,
+      email,
+      phone,
       password_hash: passwordHash
     }, conn);
     // 2️⃣ assign teacher role
@@ -53,6 +57,10 @@ export async function createTeacher(data) {
      // 3️⃣ create teacher profile
     const teacherId = await repo.createTeacher({
       ...data,
+      employee_id: employeeId,
+      name,
+      phone,
+      email,
       class_scope: classScope,
       user_id: userId
     }, conn);
@@ -120,6 +128,11 @@ export async function getTeacherForActor({ teacherId, actorUserId, actorPermissi
 }
 
 export async function updateTeacher(id, data) {
+  const existing = await repo.getTeacherById(id);
+  if (!existing) {
+    throw new AppError("Teacher not found", 404);
+  }
+
   const classScope =
     data.class_scope === undefined
       ? undefined
@@ -128,6 +141,7 @@ export async function updateTeacher(id, data) {
   const affected =
     await repo.updateTeacher(id, {
       ...data,
+      photo_url: data.photo_url === undefined ? existing.photo_url ?? null : data.photo_url,
       class_scope: classScope,
     });
 

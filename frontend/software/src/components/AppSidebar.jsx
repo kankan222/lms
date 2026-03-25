@@ -52,9 +52,15 @@ const AppSidebar = () => {
     );
   }
 
-  const roleLabel = Array.isArray(user?.roles) && user.roles.length
-    ? user.roles.join(", ")
-    : "User";
+  const displayName =
+    user?.name ||
+    user?.teacher_name ||
+    user?.parent_name ||
+    user?.staff_name ||
+    user?.username ||
+    user?.email ||
+    user?.phone ||
+    "User";
 
 const handleLogout = async () => {
     await logout();
@@ -94,7 +100,7 @@ const handleLogout = async () => {
                       <SidebarMenuButton
                         asChild
                         isActive={active}
-                        className={active ? "font-medium bg-white border border-border" : ""}
+                        className={active ? "border border-border bg-accent font-medium text-accent-foreground shadow-sm" : ""}
                       >
 
                         <NavLink to={item.path}>
@@ -123,7 +129,7 @@ const handleLogout = async () => {
           <DropdownMenuTrigger asChild>
             <SidebarMenuButton>
               <CircleUserRound />
-              <span className="truncate">{roleLabel}</span>
+              <span className="truncate">{displayName}</span>
               <ChevronUp className="ml-auto" />
             </SidebarMenuButton>
           </DropdownMenuTrigger>

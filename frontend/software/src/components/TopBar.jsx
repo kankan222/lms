@@ -5,7 +5,7 @@ const TopBar = ({title, subTitle, action}) => {
     <div className="flex items-center justify-between mb-3">
           <div>
             <p className="text-3xl font-bold">{title}</p>
-            <p className="text-xs text-gray-500">{subTitle}</p>
+            <p className="text-xs text-muted-foreground">{subTitle}</p>
           </div>
         {action}
     </div>

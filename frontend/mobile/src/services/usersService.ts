@@ -115,6 +115,14 @@ export async function createUser(payload: {
   return response.data;
 }
 
+export async function adminResetPassword(payload: {
+  user_id: number | string;
+  new_password: string;
+}) {
+  const response = await api.post("/users/admin-reset-password", payload);
+  return response.data;
+}
+
 export async function getUserPermissions(userId: number | string) {
   const response = await api.get<ApiEnvelope<Array<{ id?: number; name: string }>>>(`/users/${userId}/permissions`);
   return response.data.data ?? [];

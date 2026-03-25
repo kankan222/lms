@@ -1,5 +1,19 @@
 import { query } from "../../core/db/query.js";
 
+export async function supportsMarksDraftStatus() {
+  const rows = await query(
+    `SELECT COLUMN_TYPE
+     FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE()
+       AND TABLE_NAME = 'marks_entries'
+       AND COLUMN_NAME = 'approval_status'
+     LIMIT 1`
+  );
+
+  const columnType = String(rows[0]?.COLUMN_TYPE || "").toLowerCase();
+  return columnType.includes("'draft'");
+}
+
 export async function getUserRoleNames(userId) {
   const rows = await query(
     `SELECT r.name
@@ -265,6 +279,61 @@ export async function getMarksByExamSubjectStudentIds(examId, subjectId, student
   );
 }
 
+export async function getPendingApprovalScopes() {
+  return query(
+    `SELECT
+      me.exam_id,
+      e.name AS exam_name,
+      e.session_id,
+      sess.name AS session_name,
+      se.class_id,
+      c.name AS class_name,
+      se.section_id,
+      sec.name AS section_name,
+      sec.medium,
+      me.subject_id,
+      sub.name AS subject_name,
+      COUNT(*) AS pending_count,
+      MAX(me.id) AS latest_entry_id
+     FROM marks_entries me
+     JOIN exams e ON e.id = me.exam_id
+     LEFT JOIN academic_sessions sess ON sess.id = e.session_id
+     JOIN student_enrollments se
+       ON se.student_id = me.student_id
+      AND se.session_id = e.session_id
+      AND se.status = 'active'
+     JOIN classes c ON c.id = se.class_id
+     JOIN sections sec ON sec.id = se.section_id
+     JOIN subjects sub ON sub.id = me.subject_id
+     WHERE me.approval_status = 'pending'
+     GROUP BY
+      me.exam_id,
+      e.name,
+      e.session_id,
+      sess.name,
+      se.class_id,
+      c.name,
+      se.section_id,
+      sec.name,
+      sec.medium,
+      me.subject_id,
+      sub.name
+     ORDER BY latest_entry_id DESC`
+  );
+}
+
+export async function getApprovalStatusSummary() {
+  const rows = await query(
+    `SELECT
+      SUM(CASE WHEN approval_status = 'pending' THEN 1 ELSE 0 END) AS pending_count,
+      SUM(CASE WHEN approval_status = 'draft' THEN 1 ELSE 0 END) AS draft_count,
+      SUM(CASE WHEN approval_status = 'approved' THEN 1 ELSE 0 END) AS approved_count
+     FROM marks_entries`
+  );
+
+  return rows[0] || { pending_count: 0, draft_count: 0, approved_count: 0 };
+}
+
 export async function upsertMarksDraft(conn, rows) {
   if (!rows.length) return;
 
@@ -283,9 +352,19 @@ export async function upsertMarksDraft(conn, rows) {
      ON DUPLICATE KEY UPDATE
        marks = VALUES(marks),
        entered_by = VALUES(entered_by),
-       approval_status = 'draft',
-       approved_by = NULL,
-       approved_at = NULL`,
+       approval_status = CASE
+         WHEN approval_status = 'pending' THEN 'pending'
+         WHEN approval_status = 'approved' AND marks = VALUES(marks) THEN 'approved'
+         ELSE 'draft'
+       END,
+       approved_by = CASE
+         WHEN approval_status = 'approved' AND marks = VALUES(marks) THEN approved_by
+         ELSE NULL
+       END,
+       approved_at = CASE
+         WHEN approval_status = 'approved' AND marks = VALUES(marks) THEN approved_at
+         ELSE NULL
+       END`,
     [values]
   );
 }

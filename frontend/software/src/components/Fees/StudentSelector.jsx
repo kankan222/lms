@@ -1,33 +1,46 @@
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
-import { useState, useEffect } from "react";
+import { useEffect, useEffectEvent, useMemo, useState } from "react";
 
 import { getClasses } from "../../api/academic.api";
 export default function StudentSelector({ onSelect }) {
 
   const [classes, setClasses] = useState([]);
-  const [sections, setSections] = useState([]);
   const [students, setStudents] = useState([]);
 
   const [classId, setClassId] = useState(null);
   const [section, setSection] = useState(null);
 
-  useEffect(() => {
+  async function loadClasses() {
+    const res = await getClasses();
+    setClasses(res.data);
+  }
+
+  const selectedClass = useMemo(
+    () => classes.find((item) => String(item.id) === String(classId)),
+    [classes, classId]
+  );
+  const sections = selectedClass?.section_details || [];
+
+  const loadInitialClasses = useEffectEvent(() => {
     loadClasses();
+  });
+
+  const loadScopedStudents = useEffectEvent(() => {
+    if (!classId || !section) return;
+
+    fetch(`/api/v1/students?class_id=${classId}&section_id=${section}`)
+      .then((r) => r.json())
+      .then((payload) => setStudents(Array.isArray(payload?.data) ? payload.data : payload));
+  });
+
+  useEffect(() => {
+    loadInitialClasses();
   }, []);
 
   useEffect(() => {
-    if (!classId || !section) return;
-
-    fetch(`/api/v1/students?class_id=${classId}&section=${section}`)
-      .then(r => r.json())
-      .then(setStudents);
-
+    loadScopedStudents();
   }, [classId, section]);
- async function loadClasses() {
-    const res = await getClasses();
-    console.log("Classes Api", res.data)
-    setClasses(res.data);
-  }
+
   return (
     <div className="grid grid-cols-3 gap-4">
 
@@ -51,9 +64,11 @@ export default function StudentSelector({ onSelect }) {
         </SelectTrigger>
 
         <SelectContent>
-          <SelectItem value="A">A</SelectItem>
-          <SelectItem value="B">B</SelectItem>
-          <SelectItem value="C">C</SelectItem>
+          {sections.map((item) => (
+            <SelectItem key={item.name} value={String(item.id || item.name)}>
+              {item.name}{item.medium ? ` (${item.medium})` : ""}
+            </SelectItem>
+          ))}
         </SelectContent>
       </Select>
 
@@ -65,7 +80,7 @@ export default function StudentSelector({ onSelect }) {
         <SelectContent>
           {students.map(s => (
             <SelectItem key={s.id} value={String(s.id)}>
-              {s.first_name} {s.last_name}
+              {s.name || `${s.first_name || ""} ${s.last_name || ""}`.trim()}
             </SelectItem>
           ))}
         </SelectContent>

@@ -1,51 +1,95 @@
-function ProgressRow({ label, value, total, colorClass }) {
-  const safeTotal = Number(total || 0);
-  const safeValue = Number(value || 0);
-  const percentage = safeTotal > 0 ? Math.round((safeValue / safeTotal) * 100) : 0;
+import { Area, AreaChart, CartesianGrid, XAxis, YAxis } from "recharts";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  ChartContainer,
+  ChartLegend,
+  ChartLegendContent,
+  ChartTooltip,
+  ChartTooltipContent,
+} from "@/components/ui/chart";
 
+const studentConfig = {
+  present: { label: "Present", color: "hsl(145 63% 42%)" },
+  absent: { label: "Absent", color: "hsl(0 72% 51%)" },
+  late: { label: "Late", color: "hsl(38 92% 50%)" },
+};
+
+const teacherConfig = {
+  present: { label: "Present", color: "hsl(215 70% 52%)" },
+  absent: { label: "Absent", color: "hsl(0 72% 51%)" },
+  late: { label: "Late", color: "hsl(271 81% 56%)" },
+  half_day: { label: "Half Day", color: "hsl(193 89% 42%)" },
+};
+
+function TrendCard({ title, description, rows, config, areas }) {
   return (
-    <div className="space-y-1">
-      <div className="flex items-center justify-between text-sm">
-        <span className="text-muted-foreground">{label}</span>
-        <span className="font-medium">
-          {safeValue} ({percentage}%)
-        </span>
-      </div>
-      <div className="h-2 rounded-full bg-muted">
-        <div
-          className={`h-2 rounded-full ${colorClass}`}
-          style={{ width: `${percentage}%` }}
-        />
-      </div>
-    </div>
+    <Card className="border-border/70">
+      <CardHeader>
+        <CardTitle>{title}</CardTitle>
+        <CardDescription>{description}</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <ChartContainer config={config} className="h-[280px] w-full">
+          <AreaChart
+            data={rows}
+            margin={{
+              left: 8,
+              right: 8,
+            }}
+          >
+            <CartesianGrid vertical={false} />
+            <XAxis dataKey="label" tickLine={false} axisLine={false} />
+            <YAxis tickLine={false} axisLine={false} allowDecimals={false} />
+            <ChartTooltip content={<ChartTooltipContent indicator="line" />} />
+            <ChartLegend content={<ChartLegendContent />} />
+            {areas.map((area) => (
+              <Area
+                key={area.dataKey}
+                dataKey={area.dataKey}
+                type="monotone"
+                fill={`var(--color-${area.dataKey})`}
+                stroke={`var(--color-${area.dataKey})`}
+                fillOpacity={0.16}
+                strokeWidth={2}
+                stackId={area.stackId}
+              />
+            ))}
+          </AreaChart>
+        </ChartContainer>
+      </CardContent>
+    </Card>
   );
 }
 
-export default function AttendanceChart({ attendance }) {
-  const student = attendance?.student || { present: 0, absent: 0, late: 0 };
-  const teacher = attendance?.teacher || { present: 0, absent: 0 };
-
-  const studentTotal = Number(student.present || 0) + Number(student.absent || 0) + Number(student.late || 0);
-  const teacherTotal = Number(teacher.present || 0) + Number(teacher.absent || 0);
+export default function AttendanceChart({ analytics = {} }) {
+  const studentRows = analytics.studentAttendanceTrend || [];
+  const teacherRows = analytics.teacherAttendanceTrend || [];
 
   return (
-    <section className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-      <article className="rounded-xl border bg-card p-4 shadow-sm">
-        <h3 className="font-semibold">Student Attendance Today</h3>
-        <div className="mt-4 space-y-3">
-          <ProgressRow label="Present" value={student.present} total={studentTotal} colorClass="bg-green-500" />
-          <ProgressRow label="Absent" value={student.absent} total={studentTotal} colorClass="bg-red-500" />
-          <ProgressRow label="Late" value={student.late} total={studentTotal} colorClass="bg-amber-500" />
-        </div>
-      </article>
-
-      <article className="rounded-xl border bg-card p-4 shadow-sm">
-        <h3 className="font-semibold">Teacher Attendance Today</h3>
-        <div className="mt-4 space-y-3">
-          <ProgressRow label="Present" value={teacher.present} total={teacherTotal} colorClass="bg-green-500" />
-          <ProgressRow label="Absent" value={teacher.absent} total={teacherTotal} colorClass="bg-red-500" />
-        </div>
-      </article>
+    <section className="grid grid-cols-1 gap-4 2xl:grid-cols-2">
+      <TrendCard
+        title="Student Attendance Trend"
+        description="Seven-day movement across present, absent, and late marks."
+        rows={studentRows}
+        config={studentConfig}
+        areas={[
+          { dataKey: "present", stackId: "student" },
+          { dataKey: "late", stackId: "student" },
+          { dataKey: "absent", stackId: "student" },
+        ]}
+      />
+      <TrendCard
+        title="Teacher Attendance Trend"
+        description="Daily staffing coverage across present, late, half-day, and absent records."
+        rows={teacherRows}
+        config={teacherConfig}
+        areas={[
+          { dataKey: "present", stackId: "teacher" },
+          { dataKey: "late", stackId: "teacher" },
+          { dataKey: "half_day", stackId: "teacher" },
+          { dataKey: "absent", stackId: "teacher" },
+        ]}
+      />
     </section>
   );
 }

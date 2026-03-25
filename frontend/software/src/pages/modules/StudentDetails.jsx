@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useEffectEvent, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
 import TopBar from "../../components/TopBar";
 import { getStudent } from "../../api/students.api";
+import { getStudentAttendanceSessions } from "../../api/attendance.api";
 import {
   getMyPayments,
   getMyStudentFeeOptions,
@@ -21,6 +22,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import { BookOpen, CalendarDays, CreditCard, IdCard, Phone, UserRound } from "lucide-react";
 import {
@@ -32,13 +34,15 @@ import {
   TableRow
 } from "@/components/ui/table";
 import { usePermissions } from "../../hooks/usePermissions";
+import { resolveServerImageUrl } from "../../lib/serverImage";
+import { formatReadableDate } from "../../lib/dateTime";
 
 function feeStatusColor(status) {
   const value = String(status || "").trim().toLowerCase();
-  if (value === "paid") return "bg-green-100 text-green-700";
-  if (value === "partial") return "bg-amber-100 text-amber-700";
-  if (value === "pending") return "bg-red-100 text-red-700";
-  return "bg-gray-100 text-gray-700";
+  if (value === "paid") return "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-200";
+  if (value === "partial") return "bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-200";
+  if (value === "pending") return "bg-red-100 text-red-700 dark:bg-red-500/15 dark:text-red-200";
+  return "bg-muted text-muted-foreground";
 }
 
 function normalizeFeeStatus(value, fallback = "-") {
@@ -51,6 +55,21 @@ function formatClassScope(value) {
   if (scope === "hs") return "Higher Secondary";
   if (scope === "school") return "School";
   return value || "-";
+}
+
+function attendanceStatusColor(status) {
+  const value = String(status || "").trim().toLowerCase();
+  if (value === "present") return "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-200";
+  if (value === "absent") return "bg-red-100 text-red-700 dark:bg-red-500/15 dark:text-red-200";
+  return "bg-muted text-muted-foreground";
+}
+
+function approvalStatusColor(status) {
+  const value = String(status || "").trim().toLowerCase();
+  if (value === "approved") return "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-200";
+  if (value === "pending") return "bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-200";
+  if (value === "rejected") return "bg-red-100 text-red-700 dark:bg-red-500/15 dark:text-red-200";
+  return "bg-muted text-muted-foreground";
 }
 
 const StudentDetails = () => {
@@ -70,7 +89,78 @@ const StudentDetails = () => {
   const [report, setReport] = useState(null);
   const [reportError, setReportError] = useState("");
   const [reportLoading, setReportLoading] = useState(false);
-  const API_ORIGIN = (import.meta.env.VITE_API_URL || "http://localhost:5000/api/v1").replace(/\/api\/v1\/?$/, "");
+  const [attendanceRows, setAttendanceRows] = useState([]);
+  const [attendanceLoading, setAttendanceLoading] = useState(false);
+  const [attendanceError, setAttendanceError] = useState("");
+  const [attendanceFilters, setAttendanceFilters] = useState({
+    status: "",
+    approval_status: "",
+    date_from: "",
+    date_to: "",
+  });
+
+  const loadStudent = useEffectEvent(async () => {
+    setLoading(true);
+    setError("");
+    try {
+      const res = await getStudent(id);
+      const payload = res?.data ?? res ?? null;
+      setStudent(payload);
+      if (payload?.id) {
+        await loadFinance(payload.id);
+      }
+    } catch (err) {
+      setError(err?.message || "Failed to load student details.");
+    } finally {
+      setLoading(false);
+    }
+  });
+
+  const loadExams = useEffectEvent(async () => {
+    try {
+      const res = await (isParent ? getAccessibleExams() : getExams());
+      const examList = res?.data || [];
+      setExams(examList);
+    } catch {
+      setExams([]);
+    }
+  });
+
+  const loadReport = useEffectEvent(async (examId, studentId) => {
+    setReportLoading(true);
+    setReportError("");
+    setReport(null);
+    try {
+      const res = await (isParent
+        ? getMyResults({ exam_id: examId, student_id: studentId })
+        : getStudentReport(examId, studentId));
+      setReport(res?.data || null);
+    } catch (err) {
+      setReportError(err?.message || "Report not available for this exam.");
+    } finally {
+      setReportLoading(false);
+    }
+  });
+
+  const loadAttendance = useEffectEvent(async (studentId) => {
+    setAttendanceLoading(true);
+    setAttendanceError("");
+    try {
+      const res = await getStudentAttendanceSessions({
+        student_id: studentId,
+        status: attendanceFilters.status || undefined,
+        approval_status: attendanceFilters.approval_status || undefined,
+        date_from: attendanceFilters.date_from || undefined,
+        date_to: attendanceFilters.date_to || undefined,
+      });
+      setAttendanceRows(res?.data || []);
+    } catch (err) {
+      setAttendanceRows([]);
+      setAttendanceError(err?.message || "Failed to load attendance records.");
+    } finally {
+      setAttendanceLoading(false);
+    }
+  });
 
   useEffect(() => {
     loadStudent();
@@ -88,22 +178,10 @@ const StudentDetails = () => {
     loadReport(selectedExamId, student.id);
   }, [selectedExamId, student?.id]);
 
-  async function loadStudent() {
-    setLoading(true);
-    setError("");
-    try {
-      const res = await getStudent(id);
-      const payload = res?.data ?? res ?? null;
-      setStudent(payload);
-      if (payload?.id) {
-        await loadFinance(payload.id);
-      }
-    } catch (err) {
-      setError(err?.message || "Failed to load student details.");
-    } finally {
-      setLoading(false);
-    }
-  }
+  useEffect(() => {
+    if (!student?.id) return;
+    loadAttendance(student.id);
+  }, [student?.id, attendanceFilters.status, attendanceFilters.approval_status, attendanceFilters.date_from, attendanceFilters.date_to]);
 
   async function loadFinance(studentId) {
     setFinanceError("");
@@ -122,35 +200,18 @@ const StudentDetails = () => {
       setFeeItems(feeRes?.data || []);
       setPayments(paymentRes?.data || []);
     } catch (err) {
+      const message = String(err?.message || "");
+      if (message.toLowerCase().includes("fee structure not found")) {
+        setFeeItems([]);
+        setPayments([]);
+        setFinanceError("No fee structure is configured for this student's class and session yet.");
+        return;
+      }
+
       setFinanceError(err?.message || "Failed to load fees and payments.");
     }
   }
 
-  async function loadExams() {
-    try {
-      const res = await (isParent ? getAccessibleExams() : getExams());
-      const examList = res?.data || [];
-      setExams(examList);
-    } catch {
-      setExams([]);
-    }
-  }
-
-  async function loadReport(examId, studentId) {
-    setReportLoading(true);
-    setReportError("");
-    setReport(null);
-    try {
-      const res = await (isParent
-        ? getMyResults({ exam_id: examId, student_id: studentId })
-        : getStudentReport(examId, studentId));
-      setReport(res?.data || null);
-    } catch (err) {
-      setReportError(err?.message || "Report not available for this exam.");
-    } finally {
-      setReportLoading(false);
-    }
-  }
 
   async function handleDownloadMarksheet() {
     if (!selectedExamId || !student?.id) return;
@@ -170,11 +231,6 @@ const StudentDetails = () => {
     window.setTimeout(() => {
       window.URL.revokeObjectURL(url);
     }, 5000);
-  }
-
-  function formatDate(value) {
-    if (!value) return "-";
-    return new Date(value).toLocaleDateString();
   }
 
   function formatCurrency(value) {
@@ -199,7 +255,7 @@ const StudentDetails = () => {
   }
 
   if (error) {
-    return <div className="text-sm text-red-600">{error}</div>;
+    return <div className="text-sm text-red-700 dark:text-red-200">{error}</div>;
   }
 
   if (!student) {
@@ -214,7 +270,7 @@ const StudentDetails = () => {
         <div className="w-24 h-24 rounded-lg overflow-hidden bg-muted shrink-0">
           {student.photo_url ? (
             <img
-              src={`${API_ORIGIN}${student.photo_url}`}
+              src={resolveServerImageUrl(student.photo_url)}
               alt={student.name}
               className="w-full h-full object-cover"
             />
@@ -237,7 +293,7 @@ const StudentDetails = () => {
                   <Phone size={15} /> {student.mobile || "-"}
                 </span>
                 <span className="flex items-center gap-1">
-                  <CalendarDays size={15} /> DOB {formatDate(student.dob)}
+                  <CalendarDays size={15} /> DOB {formatReadableDate(student.dob)}
                 </span>
               </div>
             </div>
@@ -274,7 +330,7 @@ const StudentDetails = () => {
             </div>
             <div className="rounded-md border p-3">
               <p className="text-muted-foreground">Admission Date</p>
-              <p className="font-medium">{formatDate(student.date_of_admission)}</p>
+              <p className="font-medium">{formatReadableDate(student.date_of_admission)}</p>
             </div>
             <div className="rounded-md border p-3">
               <p className="text-muted-foreground">Student ID</p>
@@ -285,9 +341,10 @@ const StudentDetails = () => {
       </div>
 
       <Tabs defaultValue="overview" className="mt-5">
-        <TabsList className="grid w-full grid-cols-2 md:grid-cols-4">
+        <TabsList className="grid w-full grid-cols-2 md:grid-cols-5">
           <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="parents">Parents</TabsTrigger>
+          <TabsTrigger value="attendance">Attendance</TabsTrigger>
           <TabsTrigger value="fees">Fees & Payments</TabsTrigger>
           <TabsTrigger value="reports">Reports</TabsTrigger>
         </TabsList>
@@ -343,8 +400,130 @@ const StudentDetails = () => {
           </div>
         </TabsContent>
 
+        <TabsContent value="attendance" className="mt-4 space-y-4">
+          <div className="rounded-xl border bg-card p-4 space-y-4">
+            <div className="flex flex-col gap-3 md:flex-row md:items-end md:flex-wrap">
+              <div className="grid gap-2">
+                <label className="text-sm font-medium">Attendance Status</label>
+                <select
+                  value={attendanceFilters.status}
+                  onChange={(e) =>
+                    setAttendanceFilters((prev) => ({ ...prev, status: e.target.value }))
+                  }
+                  className="min-w-40 rounded-md border bg-background px-3 py-2"
+                >
+                  <option value="">All Statuses</option>
+                  <option value="present">Present</option>
+                  <option value="absent">Absent</option>
+                </select>
+              </div>
+
+              <div className="grid gap-2">
+                <label className="text-sm font-medium">Approval Status</label>
+                <select
+                  value={attendanceFilters.approval_status}
+                  onChange={(e) =>
+                    setAttendanceFilters((prev) => ({ ...prev, approval_status: e.target.value }))
+                  }
+                  className="min-w-40 rounded-md border bg-background px-3 py-2"
+                >
+                  <option value="">All Reviews</option>
+                  <option value="approved">Approved</option>
+                  <option value="pending">Pending</option>
+                  <option value="rejected">Rejected</option>
+                </select>
+              </div>
+
+              <div className="grid gap-2">
+                <label className="text-sm font-medium">From Date</label>
+                <Input
+                  type="date"
+                  value={attendanceFilters.date_from}
+                  onChange={(e) =>
+                    setAttendanceFilters((prev) => ({ ...prev, date_from: e.target.value }))
+                  }
+                />
+              </div>
+
+              <div className="grid gap-2">
+                <label className="text-sm font-medium">To Date</label>
+                <Input
+                  type="date"
+                  value={attendanceFilters.date_to}
+                  onChange={(e) =>
+                    setAttendanceFilters((prev) => ({ ...prev, date_to: e.target.value }))
+                  }
+                />
+              </div>
+
+              <Button
+                variant="outline"
+                onClick={() =>
+                  setAttendanceFilters({
+                    status: "",
+                    approval_status: "",
+                    date_from: "",
+                    date_to: "",
+                  })
+                }
+              >
+                Reset Filters
+              </Button>
+            </div>
+
+            {attendanceError && <p className="text-sm text-red-700 dark:text-red-200">{attendanceError}</p>}
+            {attendanceLoading && (
+              <p className="text-sm text-muted-foreground">Loading attendance...</p>
+            )}
+
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Date</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Approval</TableHead>
+                  <TableHead>Session</TableHead>
+                  <TableHead>Class</TableHead>
+                  <TableHead>Section</TableHead>
+                  <TableHead>Marked By</TableHead>
+                  <TableHead>Reviewed By</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {attendanceRows.map((row) => (
+                  <TableRow key={row.id}>
+                    <TableCell>{formatReadableDate(row.date)}</TableCell>
+                    <TableCell>
+                      <span className={`px-3 py-1 text-xs rounded-full font-medium capitalize ${attendanceStatusColor(row.student_status)}`}>
+                        {row.student_status || "-"}
+                      </span>
+                    </TableCell>
+                    <TableCell>
+                      <span className={`px-3 py-1 text-xs rounded-full font-medium capitalize ${approvalStatusColor(row.approval_status)}`}>
+                        {row.approval_status || "-"}
+                      </span>
+                    </TableCell>
+                    <TableCell>{row.session_name || "-"}</TableCell>
+                    <TableCell>{row.class_name || "-"}</TableCell>
+                    <TableCell>{row.section_name || "-"}</TableCell>
+                    <TableCell>{row.submitted_by_username || "-"}</TableCell>
+                    <TableCell>{row.reviewed_by_username || "-"}</TableCell>
+                  </TableRow>
+                ))}
+                {!attendanceLoading && attendanceRows.length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={8} className="text-center text-muted-foreground">
+                      No attendance records found for this student.
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </div>
+        </TabsContent>
+
         <TabsContent value="fees" className="mt-4 space-y-4">
-          {financeError && <p className="text-sm text-red-600">{financeError}</p>}
+          {financeError && <p className="text-sm text-red-700 dark:text-red-200">{financeError}</p>}
 
           <div className="rounded-xl border bg-card p-4">
             <h3 className="font-semibold mb-2 flex items-center gap-2">
@@ -367,7 +546,7 @@ const StudentDetails = () => {
                   <TableRow key={item.id}>
                     <TableCell className="capitalize">{item.fee_type || "-"}</TableCell>
                     <TableCell>{item.installment_name || "-"}</TableCell>
-                    <TableCell>{formatDate(item.due_date)}</TableCell>
+                    <TableCell>{formatReadableDate(item.due_date)}</TableCell>
                     <TableCell>{formatCurrency(item.amount)}</TableCell>
                     <TableCell>{formatCurrency(item.paid)}</TableCell>
                     <TableCell>{formatCurrency(item.remaining)}</TableCell>
@@ -408,7 +587,7 @@ const StudentDetails = () => {
               <TableBody>
                 {payments.map((p) => (
                   <TableRow key={p.id}>
-                    <TableCell>{formatDate(p.created_at)}</TableCell>
+                    <TableCell>{formatReadableDate(p.created_at)}</TableCell>
                     <TableCell>{formatCurrency(p.amount_paid)}</TableCell>
                     <TableCell className="capitalize">{p.fee_type || "-"}</TableCell>
                     <TableCell>{p.class_name || "-"}</TableCell>
@@ -491,7 +670,6 @@ const StudentDetails = () => {
                       <TableHead>Subject</TableHead>
                       <TableHead>Marks</TableHead>
                       <TableHead>Max Marks</TableHead>
-                      <TableHead>Pass Marks</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -500,7 +678,6 @@ const StudentDetails = () => {
                         <TableCell>{row.subject}</TableCell>
                         <TableCell>{row.marks}</TableCell>
                         <TableCell>{row.max_marks}</TableCell>
-                        <TableCell>{row.pass_marks}</TableCell>
                       </TableRow>
                     ))}
                   </TableBody>

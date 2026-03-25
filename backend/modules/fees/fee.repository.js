@@ -456,6 +456,7 @@ export async function getPaymentReceipt(paymentId){
     p.remarks,
     p.status,
     p.created_at,
+    s.id AS student_id,
     s.name,
     c.name AS class_name
     ,sec.name AS section_name

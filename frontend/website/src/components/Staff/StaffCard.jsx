@@ -1,10 +1,12 @@
 const StaffCard = ({ src, name, role, subtitle }) => {
   return (
-    <div className="overflow-hidden rounded-xl border border-zinc-800 bg-black text-white shadow-lg">
+    <div className="overflow-hidden rounded-xl border bg-black text-white shadow-lg">
       <div className="relative">
         <img
           src={src}
           alt={name}
+          loading="lazy"
+          decoding="async"
           className="h-90 w-full object-cover"
         />
       </div>

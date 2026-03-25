@@ -1,6 +1,7 @@
 import { execute, query } from "../../core/db/query.js";
 
 let teacherClassScopeColumnPromise;
+let staffUserIdColumnPromise;
 
 function hasTeacherClassScopeColumn() {
   if (!teacherClassScopeColumnPromise) {
@@ -17,6 +18,19 @@ function hasTeacherClassScopeColumn() {
   }
 
   return teacherClassScopeColumnPromise;
+}
+
+async function hasStaffUserIdColumn() {
+  if (!staffUserIdColumnPromise) {
+    staffUserIdColumnPromise = query(`SHOW COLUMNS FROM staff LIKE 'user_id'`)
+      .then((rows) => Array.isArray(rows) && rows.length > 0)
+      .catch((err) => {
+        staffUserIdColumnPromise = null;
+        throw err;
+      });
+  }
+
+  return staffUserIdColumnPromise;
 }
 
 export async function findMember(conversationId, userId) {
@@ -71,6 +85,30 @@ export async function getBroadcastConversation(name) {
     [name]
   );
   return rows[0];
+}
+
+export async function getConversationById(conversationId) {
+  const rows = await query(
+    `SELECT id, type, name, class_id, section_id, created_by
+     FROM conversations
+     WHERE id = ?
+     LIMIT 1`,
+    [conversationId]
+  );
+  return rows[0] || null;
+}
+
+export async function isSuperAdminUser(userId) {
+  const rows = await query(
+    `SELECT 1
+     FROM user_roles ur
+     JOIN roles r ON r.id = ur.role_id
+     WHERE ur.user_id = ?
+       AND r.name = 'super_admin'
+     LIMIT 1`,
+    [userId]
+  );
+  return rows.length > 0;
 }
 
 export async function createConversation(data) {
@@ -131,6 +169,10 @@ export async function updateConversationLastMessage(conversationId) {
 export async function getConversationMessages(conversationId, limit, offset) {
   const safeLimit = Math.max(1, Math.min(200, Number(limit) || 30));
   const safeOffset = Math.max(0, Number(offset) || 0);
+  const hasStaffUserId = await hasStaffUserIdColumn();
+  const staffJoin = hasStaffUserId
+    ? "LEFT JOIN staff st ON st.user_id = u.id"
+    : "LEFT JOIN staff st ON 1 = 0";
 
   return query(
     `SELECT
@@ -138,11 +180,15 @@ export async function getConversationMessages(conversationId, limit, offset) {
       m.conversation_id,
       m.sender_id,
       u.username,
+      COALESCE(st.name, t.name, u.username, u.email, u.phone, CONCAT('User #', u.id)) AS sender_name,
+      COALESCE(st.image_url, t.photo_url) AS sender_image_url,
       m.message,
       m.attachment_url,
       m.created_at
      FROM messages m
      JOIN users u ON u.id = m.sender_id
+     ${staffJoin}
+     LEFT JOIN teachers t ON t.user_id = u.id
      WHERE m.conversation_id=?
      ORDER BY m.created_at DESC
      LIMIT ${safeLimit} OFFSET ${safeOffset}`,
@@ -151,11 +197,62 @@ export async function getConversationMessages(conversationId, limit, offset) {
 }
 
 export async function getUserConversations(userId) {
+  const hasStaffUserId = await hasStaffUserIdColumn();
+  const staffJoin = hasStaffUserId
+    ? "LEFT JOIN staff st ON st.user_id = u.id"
+    : "LEFT JOIN staff st ON 1 = 0";
+  const staffNameJoin = hasStaffUserId
+    ? "LEFT JOIN staff st ON st.user_id = u.id"
+    : "LEFT JOIN staff st ON 1 = 0";
+
   return query(
     `SELECT
       c.id,
       c.type,
-      c.name,
+      CASE
+        WHEN c.type = 'direct' THEN COALESCE(
+          (
+            SELECT COALESCE(st.name, p.name, t.name, u.username, u.email, u.phone, CONCAT('User #', u.id))
+            FROM conversation_members other_cm
+            JOIN users u ON u.id = other_cm.user_id
+            ${staffNameJoin}
+            LEFT JOIN parents p ON p.user_id = u.id
+            LEFT JOIN teachers t ON t.user_id = u.id
+            WHERE other_cm.conversation_id = c.id
+              AND other_cm.user_id <> ?
+            ORDER BY other_cm.user_id ASC
+            LIMIT 1
+          ),
+          c.name,
+          CONCAT('Direct #', c.id)
+        )
+        ELSE c.name
+      END AS name,
+      CASE
+        WHEN c.type = 'direct' THEN (
+          SELECT other_cm.user_id
+          FROM conversation_members other_cm
+          WHERE other_cm.conversation_id = c.id
+            AND other_cm.user_id <> ?
+          ORDER BY other_cm.user_id ASC
+          LIMIT 1
+        )
+        ELSE NULL
+      END AS other_user_id,
+      CASE
+        WHEN c.type = 'direct' THEN (
+          SELECT COALESCE(st.image_url, t.photo_url)
+          FROM conversation_members other_cm
+          JOIN users u ON u.id = other_cm.user_id
+          ${staffJoin}
+          LEFT JOIN teachers t ON t.user_id = u.id
+          WHERE other_cm.conversation_id = c.id
+            AND other_cm.user_id <> ?
+          ORDER BY other_cm.user_id ASC
+          LIMIT 1
+        )
+        ELSE NULL
+      END AS other_user_image_url,
       c.class_id,
       c.section_id,
       c.last_message_at,
@@ -178,8 +275,19 @@ export async function getUserConversations(userId) {
       ON cm.conversation_id = c.id
     WHERE cm.user_id = ?
     ORDER BY COALESCE(c.last_message_at, c.created_at) DESC`,
-    [userId, userId]
+    [userId, userId, userId, userId, userId]
   );
+}
+
+export async function getConversationMemberUserIds(conversationId) {
+  const rows = await query(
+    `SELECT user_id
+     FROM conversation_members
+     WHERE conversation_id = ?`,
+    [conversationId]
+  );
+
+  return rows.map((row) => Number(row.user_id)).filter(Boolean);
 }
 
 export async function markConversationRead(conversationId, userId) {

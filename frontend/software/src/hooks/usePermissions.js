@@ -35,7 +35,6 @@ const rolePermissionFallbacks = {
 };
 
 export function usePermissions() {
-
   const { user } = useAuth();
 
   function can(permission) {

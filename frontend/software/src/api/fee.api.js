@@ -106,7 +106,9 @@ export async function exportPaymentsCsv(params = {}) {
     try {
       const data = await response.json();
       message = data?.message || message;
-    } catch {}
+    } catch {
+      // Ignore JSON parse failures and surface the default error instead.
+    }
     throw new Error(message);
   }
 

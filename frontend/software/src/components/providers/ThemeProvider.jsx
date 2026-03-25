@@ -1,9 +1,5 @@
-import { createContext, useContext, useEffect, useState } from "react"
-
-const ThemeProviderContext = createContext({
-  theme: "system",
-  setTheme: () => null,
-})
+import { useEffect, useState } from "react"
+import { ThemeProviderContext } from "./ThemeContext";
 
 export function ThemeProvider({
   children,
@@ -45,13 +41,4 @@ export function ThemeProvider({
       {children}
     </ThemeProviderContext.Provider>
   )
-}
-
-export const useTheme = () => {
-  const context = useContext(ThemeProviderContext)
-
-  if (!context)
-    throw new Error("useTheme must be used within a ThemeProvider")
-
-  return context
 }

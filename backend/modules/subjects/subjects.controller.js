@@ -18,8 +18,6 @@ export async function getSubjects(req, res) {
     success: true,
     data,
   });
-    console.log("service", res.json)
-
 }
 
 // UPDATE
@@ -55,7 +53,6 @@ export async function assignSubject(req, res, next) {
     if (!Array.isArray(subjectIds)) {
       throw new Error("subjectIds must be an array");
     }
-    console.log("Assign Oayloa", req.body)
     await service.assignSubjects(classId, subjectIds);
 
     res.json({ success: true });
@@ -67,8 +64,6 @@ export async function assignSubject(req, res, next) {
 export async function getClassSubjects(req, res, next) {
   try {
     const data = await service.getClassSubjects(req.params.classId);
-    console.log("I am controller", data);
-    console.log("I am controller", req.params.classId);
     res.json({ success: true, data });
   } catch (err) {
     next(err);

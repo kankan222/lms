@@ -40,6 +40,8 @@ const Gallery = ({ Text }) => {
             key={img.id}
             src={img.src}
             alt={`gallery-${img.id}`}
+            loading="lazy"
+            decoding="async"
             className="w-full object-cover aspect-square rounded-10px border border-stone-100"
           />
         ))}

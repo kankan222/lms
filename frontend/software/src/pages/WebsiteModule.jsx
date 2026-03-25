@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useState } from "react";
+import { useEffect, useEffectEvent, useMemo, useState } from "react";
 import TopBar from "../components/TopBar";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
@@ -25,6 +25,7 @@ import {
 } from "../components/ui/alert-dialog";
 import { Alert, AlertDescription, AlertTitle } from "../components/ui/alert";
 import ContactSubmissionsSection from "../components/website/ContactSubmissionsSection";
+import { resolveServerImageUrl } from "../lib/serverImage";
 import {
   addWebsiteStaff,
   bulkUploadWebsiteStaff,
@@ -34,7 +35,6 @@ import {
 } from "../api/website.api";
 
 const TAB_OPTIONS = ["school", "college", "contact"];
-const API_ROOT = (import.meta.env.VITE_API_URL || "http://localhost:5000/api/v1").replace(/\/api\/v1\/?$/, "");
 const SECTION_OPTIONS = [
   { value: "head", label: "Head Staff" },
   { value: "teaching", label: "Teaching Staff" },
@@ -53,12 +53,6 @@ const EMPTY_BULK_FORM = {
   images: [],
   type: "school",
 };
-
-function resolveImageUrl(path) {
-  if (!path) return "";
-  if (String(path).startsWith("http")) return path;
-  return `${API_ROOT}${path}`;
-}
 
 function sectionLabel(value) {
   return SECTION_OPTIONS.find((item) => item.value === value)?.label || value;
@@ -101,9 +95,13 @@ export default function WebsiteModule() {
     return map;
   }, [rows]);
 
+  const loadCampusStaffEvent = useEffectEvent((type) => {
+    loadCampusStaff(type);
+  });
+
   useEffect(() => {
     if (tab !== "contact") {
-      loadCampusStaff(tab);
+      loadCampusStaffEvent(tab);
     }
   }, [tab]);
 
@@ -512,10 +510,10 @@ export default function WebsiteModule() {
                     <h3 className="mb-3 text-xl font-semibold">{option.label}</h3>
                     <div className="grid grid-cols-1 gap-4 md:grid-cols-3 xl:grid-cols-4">
                       {(grouped[option.value] || []).map((row) => (
-                        <div key={row.id} className="overflow-hidden rounded-md border bg-white">
+                        <div key={row.id} className="overflow-hidden rounded-md border bg-card shadow-sm">
                           <div className="aspect-[3/4] bg-muted">
                             <img
-                              src={resolveImageUrl(row.image_url)}
+                              src={resolveServerImageUrl(row.image_url)}
                               alt={row.name}
                               className="h-full w-full object-cover"
                             />
@@ -632,7 +630,7 @@ export default function WebsiteModule() {
               <div className="grid gap-2">
                 <Label>Current Photo</Label>
                 <img
-                  src={resolveImageUrl(editRow.image_url)}
+                  src={resolveServerImageUrl(editRow.image_url)}
                   alt={editRow.name}
                   className="h-24 w-24 rounded object-cover"
                 />

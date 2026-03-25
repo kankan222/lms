@@ -9,6 +9,37 @@ export async function createSession(data) {
     body: JSON.stringify(data),
   });
 }
+export async function updateSession(id, data) {
+  return apiRequest(`/academic/sessions/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(data),
+  });
+}
+export async function deleteSession(id) {
+  return apiRequest(`/academic/sessions/${id}`, {
+    method: "DELETE",
+  });
+}
+export async function getStreams() {
+  return apiRequest("/academic/streams");
+}
+export async function createStream(data) {
+  return apiRequest("/academic/streams", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+export async function updateStream(id, data) {
+  return apiRequest(`/academic/streams/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(data),
+  });
+}
+export async function deleteStream(id) {
+  return apiRequest(`/academic/streams/${id}`, {
+    method: "DELETE",
+  });
+}
 export async function getClasses() {
   return apiRequest("/academic/classes");
 }

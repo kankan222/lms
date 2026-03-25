@@ -2,13 +2,7 @@
 import { Button } from "../ui/button";
 import { Alert, AlertDescription, AlertTitle } from "../ui/alert";
 import { getWebsiteContactSubmissions } from "../../api/website.api";
-
-function formatDateTime(value) {
-  if (!value) return "-";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleString();
-}
+import { formatReadableDateTime } from "../../lib/dateTime";
 
 export default function ContactSubmissionsSection() {
   const [rows, setRows] = useState([]);
@@ -62,7 +56,7 @@ export default function ContactSubmissionsSection() {
         <div className="overflow-hidden rounded-lg border">
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
-              <thead className="bg-secondary">
+              <thead className="bg-muted/40 [&_th]:text-[11px] [&_th]:font-medium [&_th]:uppercase [&_th]:tracking-[0.16em] [&_th]:text-muted-foreground">
                 <tr>
                   <th className="px-4 py-3 text-left font-medium">Name</th>
                   <th className="px-4 py-3 text-left font-medium">Contact Number</th>
@@ -79,7 +73,7 @@ export default function ContactSubmissionsSection() {
                       {row.message || "No message provided."}
                     </td>
                     <td className="px-4 py-3 whitespace-nowrap text-muted-foreground">
-                      {formatDateTime(row.created_at)}
+                      {formatReadableDateTime(row.created_at)}
                     </td>
                   </tr>
                 ))}

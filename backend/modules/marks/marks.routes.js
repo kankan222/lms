@@ -7,6 +7,8 @@ const router = express.Router();
 router.get("/exams", requirePermission("marks.view"), controller.getAccessibleExams);
 router.get("/exams/:examId", requirePermission("marks.view"), controller.getAccessibleExamById);
 router.get("/grid", requirePermission("marks.view"), controller.getMarksGrid);
+router.get("/pending-queue", requirePermission("marks.approve"), controller.getPendingApprovalQueue);
+router.get("/summary", requirePermission("marks.approve"), controller.getApprovalStatusSummary);
 router.post("/save", requirePermission("marks.enter"), controller.saveMarks);
 router.post("/submit", requirePermission("marks.enter"), controller.submitMarksForApproval);
 

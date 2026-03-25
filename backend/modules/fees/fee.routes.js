@@ -4,6 +4,21 @@ import { requirePermission } from "../../core/rbac/rbac.middleware.js";
 
 const router = express.Router();
 
+function requireAnyPermission(permissions) {
+  return (req, res, next) => {
+    const granted = req.user?.permissions || [];
+
+    if (permissions.some((permission) => granted.includes(permission))) {
+      return next();
+    }
+
+    return res.status(403).json({
+      success: false,
+      message: "Forbidden",
+    });
+  };
+}
+
 router.post(
   "/structure",
   requirePermission("fee.create"),
@@ -31,7 +46,7 @@ router.get(
 );
 router.get(
   "/receipt/:paymentId",
-  requirePermission("payment.view"),
+  requireAnyPermission(["payment.view", "fee.view"]),
   feeController.downloadReceipt,
 );
 router.post(

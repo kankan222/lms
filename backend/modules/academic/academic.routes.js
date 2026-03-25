@@ -25,6 +25,47 @@ router.get(
   attachPermissions,
   controller.getSessions
 );
+router.put(
+  "/sessions/:id",
+  authenticate,
+  attachPermissions,
+  requirePermission("academic.update"),
+  controller.updateSession
+);
+router.delete(
+  "/sessions/:id",
+  authenticate,
+  attachPermissions,
+  requirePermission("academic.delete"),
+  controller.deleteSession
+);
+router.get(
+  "/streams",
+  authenticate,
+  attachPermissions,
+  controller.getStreams
+);
+router.post(
+  "/streams",
+  authenticate,
+  attachPermissions,
+  requirePermission("academic.create"),
+  controller.createStream
+);
+router.put(
+  "/streams/:id",
+  authenticate,
+  attachPermissions,
+  requirePermission("academic.update"),
+  controller.updateStream
+);
+router.delete(
+  "/streams/:id",
+  authenticate,
+  attachPermissions,
+  requirePermission("academic.delete"),
+  controller.deleteStream
+);
 
 router.get(
   "/classes",

@@ -15,9 +15,13 @@ export type ConversationItem = {
   name: string | null;
   class_id: number | null;
   section_id: number | null;
+  other_user_id?: number | null;
+  other_user_image_url?: string | null;
   last_message_at: string | null;
   last_message: string | null;
   unread: number;
+  online?: boolean;
+  last_seen_at?: string | null;
 };
 
 export type MessageItem = {
@@ -25,6 +29,8 @@ export type MessageItem = {
   conversation_id: number;
   sender_id: number;
   username: string;
+  sender_name?: string | null;
+  sender_image_url?: string | null;
   message: string;
   attachment_url: string | null;
   created_at: string;

@@ -19,24 +19,55 @@ Production-ready mobile scaffold for the existing LMS backend (`Node/Express/MyS
 cp .env.example .env
 ```
 
-2. Set API URL in `.env`:
+2. Set local API URL in `.env`:
 
 ```env
 EXPO_PUBLIC_API_BASE_URL=http://localhost:5000/api/v1
 ```
 
+3. Set server API URL in `.env.production`:
+
+```env
+EXPO_PUBLIC_API_BASE_URL=https://kalongkapilividyapith.com/api/v1
+```
+
 ## Run
+
+Install dependencies:
 
 ```bash
 npm install
-npx expo start
+```
+
+Local backend target:
+
+```bash
+npm run start:local
+```
+
+Server backend target:
+
+```bash
+npm run start:server
+```
+
+Platform shortcuts:
+
+```bash
+npm run android:local
+npm run ios:local
+npm run web:local
+
+npm run android:server
+npm run ios:server
+npm run web:server
 ```
 
 ## Production Android Build
 
 The Android release config is defined in `app.config.ts` and `eas.json`.
 
-For production builds, the app uses:
+For production builds, the app should use:
 
 ```env
 EXPO_PUBLIC_API_BASE_URL=https://kalongkapilividyapith.com/api/v1

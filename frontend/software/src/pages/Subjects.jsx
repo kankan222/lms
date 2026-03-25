@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useEffectEvent, useState } from "react";
 import { Book, TrashIcon } from "lucide-react";
 import { Button } from "../components/ui/button";
 import TopBar from "../components/TopBar";
@@ -8,7 +8,8 @@ import {
   createSubject,
   updateSubject,
   deleteSubject,
-  assignSubjects
+  assignSubjects,
+  getClassSubjects,
 } from "../api/subjects.api.js";
 
 import { getClasses } from "../api/academic.api.js";
@@ -64,9 +65,26 @@ const Subjects = () => {
   const [assignError, setAssignError] = useState("");
   const [notice, setNotice] = useState(null);
 
-  useEffect(() => {
+  function showNotice(title, message, variant = "success") {
+    setNotice({ title, message, variant });
+  }
+
+  async function loadSubjects() {
+    const res = await getSubjects();
+    setSubjects(res.data);
+  }
+  async function loadClasses() {
+    const res = await getClasses();
+    setClasses(res.data);
+  }
+
+  const loadInitialSubjects = useEffectEvent(() => {
     loadSubjects();
     loadClasses();
+  });
+
+  useEffect(() => {
+    loadInitialSubjects();
   }, []);
 
   useEffect(() => {
@@ -77,19 +95,34 @@ const Subjects = () => {
     return () => window.clearTimeout(timeoutId);
   }, [notice]);
 
-  function showNotice(title, message, variant = "success") {
-    setNotice({ title, message, variant });
-  }
+  useEffect(() => {
+    if (!assignOpen || !selectedClass) return;
 
-  async function loadSubjects() {
-    const res = await getSubjects();
-    console.log(res.data)
-    setSubjects(res.data);
-  }
-  async function loadClasses() {
-    const res = await getClasses();
-    setClasses(res.data);
-  }
+    let ignore = false;
+
+    async function loadAssignedSubjects() {
+      try {
+        const res = await getClassSubjects(selectedClass);
+        if (ignore) return;
+        const assigned = Array.isArray(res?.data) ? res.data : [];
+        setSelectedSubjects(
+          assigned
+            .map((item) => Number(item.id))
+            .filter((id) => Number.isFinite(id))
+        );
+      } catch {
+        if (!ignore) {
+          setSelectedSubjects([]);
+        }
+      }
+    }
+
+    loadAssignedSubjects();
+    return () => {
+      ignore = true;
+    };
+  }, [assignOpen, selectedClass]);
+
   async function handleCreate(e) {
     e.preventDefault();
     setCreateError("");
@@ -158,7 +191,7 @@ const Subjects = () => {
       showNotice("Delete Failed", err?.message || "Failed to delete subject.", "error");
     }
   }
-async function handleAssign() {
+  async function handleAssign() {
     setAssignError("");
     if (!selectedClass) {
       setAssignError("Class is required.");
@@ -175,13 +208,16 @@ async function handleAssign() {
         subjectIds: selectedSubjects,
       });
     } catch (err) {
-      setAssignError(err?.message || "Failed to assign subjects.");
+      const message = err?.message || "Failed to assign subjects.";
+      setAssignError(message);
+      showNotice("Assign Failed", message, "error");
       return;
     }
 
     setAssignOpen(false);
     setSelectedClass("");
     setSelectedSubjects([]);
+    showNotice("Subjects Assigned", "Subjects assigned to the selected class successfully.");
   }
   return (
     <>
@@ -258,7 +294,17 @@ async function handleAssign() {
               </form>
             </SheetContent>
           </Sheet>
-                      <Dialog open={assignOpen} onOpenChange={setAssignOpen}>
+            <Dialog
+              open={assignOpen}
+              onOpenChange={(open) => {
+                setAssignOpen(open);
+                if (!open) {
+                  setAssignError("");
+                  setSelectedClass("");
+                  setSelectedSubjects([]);
+                }
+              }}
+            >
               <DialogTrigger asChild>
                 <Button variant="secondary">
                   Assign Subjects
@@ -279,12 +325,15 @@ async function handleAssign() {
                     <select
                       className="w-full border p-2 rounded"
                       value={selectedClass}
-                      onChange={(e) => setSelectedClass(e.target.value)}
+                      onChange={(e) => {
+                        setSelectedClass(e.target.value);
+                        setSelectedSubjects([]);
+                      }}
                     >
                       <option value="">Select Class</option>
                       {classes.map((c) => (
                         <option key={c.id} value={c.id}>
-                          {c.name}{c.medium ? ` (${c.medium})` : ""}
+                          {c.name}
                         </option>
                       ))}
                     </select>
@@ -297,7 +346,14 @@ async function handleAssign() {
                     <div className="grid gap-2 mt-2">
 
                       {subjects.map((s) => (
-                        <label key={s.id} className="flex items-center gap-2">
+                        <label
+                          key={s.id}
+                          className={`flex items-center gap-3 rounded-md border px-3 py-2 transition-colors ${
+                            selectedSubjects.includes(s.id)
+                              ? "border-green-600 bg-green-50 dark:border-green-500 dark:bg-green-950/30"
+                              : "border-border bg-background"
+                          }`}
+                        >
 
                           <input
                             type="checkbox"

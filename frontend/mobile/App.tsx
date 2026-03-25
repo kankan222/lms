@@ -6,8 +6,11 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
 import AppNavigator from "./src/navigation/AppNavigator";
 import { useAuthStore } from "./src/store/authStore";
+import { AppThemeProvider, useAppTheme } from "./src/theme/AppThemeProvider";
 
-export default function App() {
+function AppContainer() {
+  const { isDark } = useAppTheme();
+
   const hydrate = useAuthStore((state) => state.hydrate);
   const isHydrated = useAuthStore((state) => state.isHydrated);
 
@@ -27,11 +30,19 @@ export default function App() {
     <GestureHandlerRootView style={styles.root}>
       <SafeAreaProvider>
         <NavigationContainer>
-          <StatusBar style="dark" />
+          <StatusBar style={isDark ? "light" : "dark"} />
           <AppNavigator />
         </NavigationContainer>
       </SafeAreaProvider>
     </GestureHandlerRootView>
+  );
+}
+
+export default function App() {
+  return (
+    <AppThemeProvider>
+      <AppContainer />
+    </AppThemeProvider>
   );
 }
 

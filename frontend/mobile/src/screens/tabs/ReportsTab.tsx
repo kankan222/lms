@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   ActivityIndicator,
   Alert,
   Pressable,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
@@ -10,27 +11,40 @@ import {
   View,
 } from "react-native";
 import { getClassStructure } from "../../services/classesService";
-import { getExams, getExamById } from "../../services/examsService";
+import { useAppTheme } from "../../theme/AppThemeProvider";
+import SelectField from "../../components/form/SelectField";
+import { getExams, getExamById, type ExamSubject } from "../../services/examsService";
 import { getSubjects } from "../../services/subjectsService";
 import {
   approveMarks,
   downloadMyMarksheet,
   downloadStudentMarksheet,
+  getAccessibleExamById,
+  getAccessibleExams,
+  getMarksApprovalSummary,
   getMarksGrid,
+  getPendingApprovalQueue,
   getMyResults,
   getMyStudents,
   rejectMarks,
   saveMarks,
   submitMarksForApproval,
+  type AccessibleExamScope,
   type LinkedStudent,
   type MarksGridData,
+  type MarksApprovalSummary,
+  type PendingApprovalQueue,
   type StudentReport,
 } from "../../services/reportsService";
+import TopNotice from "../../components/feedback/TopNotice";
 import { useAuthStore } from "../../store/authStore";
+
+type ReportsTabKey = "review" | "entry" | "published" | "results";
 
 type ClassItem = {
   id: number;
   name: string;
+  class_scope?: string | null;
   sections: Array<{ id: number; name: string; medium?: string | null }>;
 };
 
@@ -39,10 +53,7 @@ type SubjectItem = {
   name: string;
 };
 
-type ExamSubject = {
-  subject_id: number;
-  subject_name?: string;
-};
+type NoticeTone = "success" | "error";
 
 const EMPTY_FILTERS = {
   exam_id: "",
@@ -59,43 +70,398 @@ const EMPTY_SELF_FILTERS = {
   student_id: "",
 };
 
+const DEFAULT_THEME = {
+  isDark: false,
+  bg: "#f8fafc",
+  card: "#ffffff",
+  cardMuted: "#f8fafc",
+  text: "#0f172a",
+  subText: "#64748b",
+  mutedText: "#94a3b8",
+  border: "#e2e8f0",
+  inputBg: "#ffffff",
+  overlay: "rgba(15, 23, 42, 0.28)",
+  icon: "#334155",
+};
+let currentTheme = DEFAULT_THEME;
+
+function getErrorMessage(err: unknown, fallback: string) {
+  if (typeof err === "object" && err && "response" in err) {
+    const data = (err as { response?: { data?: { message?: string; error?: string } } }).response?.data;
+    return data?.error || data?.message || fallback;
+  }
+  if (err instanceof Error && err.message) return err.message;
+  return fallback;
+}
+
+function uniqueMediums(
+  sections: Array<{ id: number; name: string; medium?: string | null }> = [],
+) {
+  return [...new Set(sections.map((item) => item.medium).filter(Boolean))];
+}
+
+function uniqueById<T extends { id: number | string }>(items: T[] = []) {
+  const seen = new Set<string>();
+  return items.filter((item) => {
+    const key = String(item.id);
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function formatPercent(value?: number | null) {
+  if (value === null || value === undefined || Number.isNaN(Number(value))) return "-";
+  return `${Number(value).toFixed(2)}%`;
+}
+
+function formatScope(scope?: string | null) {
+  return String(scope || "school").trim().toLowerCase() === "hs" ? "Higher Secondary" : "School";
+}
+
+function capitalize(value: string) {
+  return value ? value.charAt(0).toUpperCase() + value.slice(1) : "";
+}
+
+function noticeToneStyle(tone: NoticeTone) {
+  return tone === "success"
+    ? { borderColor: "#bbf7d0", backgroundColor: currentTheme.isDark ? "#052e16" : "#f0fdf4" }
+    : { borderColor: "#fecaca", backgroundColor: currentTheme.isDark ? "#450a0a" : "#fef2f2" };
+}
+
+function statusBadgeTone(status: string) {
+  if (status === "approved") return { borderColor: "#bbf7d0", backgroundColor: "#f0fdf4", color: "#15803d" };
+  if (status === "pending") return { borderColor: "#fde68a", backgroundColor: "#fffbeb", color: "#b45309" };
+  return { borderColor: "#cbd5e1", backgroundColor: "#f8fafc", color: "#475569" };
+}
+
+function summaryCardTone(tone: "default" | "green" | "amber" | "violet") {
+  if (tone === "green") return { borderColor: "#bbf7d0", backgroundColor: currentTheme.isDark ? "#052e16" : "#f0fdf4" };
+  if (tone === "amber") return { borderColor: "#fde68a", backgroundColor: currentTheme.isDark ? "#451a03" : "#fffbeb" };
+  if (tone === "violet") return { borderColor: "#ddd6fe", backgroundColor: currentTheme.isDark ? "#2e1065" : "#f5f3ff" };
+  return { borderColor: currentTheme.border, backgroundColor: currentTheme.card };
+}
+
+function summaryValueTone(tone: "default" | "green" | "amber" | "violet") {
+  if (tone === "green") return { color: currentTheme.isDark ? "#86efac" : "#15803d" };
+  if (tone === "amber") return { color: currentTheme.isDark ? "#fcd34d" : "#b45309" };
+  if (tone === "violet") return { color: currentTheme.isDark ? "#c4b5fd" : "#6d28d9" };
+  return { color: currentTheme.text };
+}
+
+function SectionCard({
+  title,
+  hint,
+  children,
+}: {
+  title: string;
+  hint?: string;
+  children: ReactNode;
+}) {
+  return (
+    <View style={styles.sectionCard}>
+      <View style={styles.rowBetween}>
+        <Text style={styles.sectionTitle}>{title}</Text>
+        {hint ? <Text style={styles.sectionHint}>{hint}</Text> : null}
+      </View>
+      {children}
+    </View>
+  );
+}
+
+function SummaryCard({
+  label,
+  value,
+  tone = "default",
+}: {
+  label: string;
+  value: string | number;
+  tone?: "default" | "green" | "amber" | "violet";
+}) {
+  return (
+    <View style={[styles.summaryCard, summaryCardTone(tone)]}>
+      <Text style={[styles.summaryValue, summaryValueTone(tone)]}>{value}</Text>
+      <Text style={styles.summaryLabel}>{label}</Text>
+    </View>
+  );
+}
+
+function TabChip({
+  label,
+  active,
+  onPress,
+}: {
+  label: string;
+  active: boolean;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable style={[styles.tabChip, active && styles.tabChipActive]} onPress={onPress}>
+      <Text style={[styles.tabChipText, active && styles.tabChipTextActive]}>{label}</Text>
+    </Pressable>
+  );
+}
+
+function FilterChip({
+  label,
+  active,
+  onPress,
+}: {
+  label: string;
+  active: boolean;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable style={[styles.filterChip, active && styles.filterChipActive]} onPress={onPress}>
+      <Text style={[styles.filterChipText, active && styles.filterChipTextActive]}>{label}</Text>
+    </Pressable>
+  );
+}
+
+function StatusBadge({ status }: { status: string }) {
+  const palette = statusBadgeTone(String(status || "").toLowerCase());
+  return (
+    <View style={[styles.statusBadge, { borderColor: palette.borderColor, backgroundColor: palette.backgroundColor }]}>
+      <Text style={[styles.statusBadgeText, { color: palette.color }]}>
+        {capitalize(String(status || "draft").toLowerCase())}
+      </Text>
+    </View>
+  );
+}
+
+function ReportCard({ report }: { report: StudentReport }) {
+  return (
+    <SectionCard
+      title={report.student?.name || "Approved Result"}
+      hint={`${report.exam?.class_name || "-"} / ${report.exam?.section_name || "-"}`}
+    >
+      <View style={styles.infoCard}>
+        <Text style={styles.infoText}>Exam: {report.exam?.name || "-"}</Text>
+        <Text style={styles.infoText}>Total: {report.summary?.total ?? 0}</Text>
+        <Text style={styles.infoText}>Max Total: {report.summary?.max_total ?? 0}</Text>
+        <Text style={styles.infoText}>Percentage: {formatPercent(report.summary?.percentage)}</Text>
+      </View>
+
+      {(report.subjects || []).map((row) => (
+        <View key={row.subject} style={styles.subjectRow}>
+          <View>
+            <Text style={styles.studentName}>{row.subject}</Text>
+          </View>
+          <View style={styles.subjectMarks}>
+            <Text style={styles.subjectMarksValue}>{row.marks}</Text>
+            <Text style={styles.mutedText}>/ {row.max_marks}</Text>
+          </View>
+        </View>
+      ))}
+    </SectionCard>
+  );
+}
+
 export default function ReportsTab() {
+  const { theme } = useAppTheme();
+  currentTheme = theme;
+  styles = useMemo(() => createStyles(theme), [theme]);
   const user = useAuthStore((state) => state.user);
   const permissions = user?.permissions || [];
   const isAdmin = permissions.includes("marks.approve");
   const canEnterMarks = permissions.includes("marks.enter");
+  const canViewExamCatalog = permissions.includes("exams.view");
   const selfViewOnly = !isAdmin && !canEnterMarks;
+
+  const tabs = useMemo(() => {
+    if (selfViewOnly) {
+      return [{ key: "results" as ReportsTabKey, label: "Results" }];
+    }
+    if (isAdmin) {
+      return [
+        { key: "review" as ReportsTabKey, label: "Review" },
+        { key: "entry" as ReportsTabKey, label: "Entry" },
+        { key: "published" as ReportsTabKey, label: "Published" },
+      ];
+    }
+    return [
+      { key: "entry" as ReportsTabKey, label: "Entry" },
+      { key: "published" as ReportsTabKey, label: "Published" },
+    ];
+  }, [isAdmin, selfViewOnly]);
+
+  const [activeTab, setActiveTab] = useState<ReportsTabKey>(tabs[0]?.key || "entry");
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [gridLoading, setGridLoading] = useState(false);
+  const [selfLoading, setSelfLoading] = useState(false);
+  const [examMetaLoading, setExamMetaLoading] = useState(false);
+  const [notice, setNotice] = useState<{ title: string; message: string; tone: NoticeTone } | null>(null);
 
   const [classes, setClasses] = useState<ClassItem[]>([]);
   const [subjects, setSubjects] = useState<SubjectItem[]>([]);
   const [exams, setExams] = useState<Array<{ id: number; name: string }>>([]);
   const [examSubjects, setExamSubjects] = useState<ExamSubject[]>([]);
+  const [examScopes, setExamScopes] = useState<AccessibleExamScope[]>([]);
   const [myStudents, setMyStudents] = useState<LinkedStudent[]>([]);
 
   const [filters, setFilters] = useState(EMPTY_FILTERS);
   const [selfFilters, setSelfFilters] = useState(EMPTY_SELF_FILTERS);
-
   const [grid, setGrid] = useState<MarksGridData | null>(null);
   const [selfReport, setSelfReport] = useState<StudentReport | null>(null);
   const [selectedStudentIds, setSelectedStudentIds] = useState<number[]>([]);
   const [editedMarks, setEditedMarks] = useState<Record<number, string>>({});
   const [editMode, setEditMode] = useState(false);
+  const [pendingQueue, setPendingQueue] = useState<PendingApprovalQueue>({ total_pending: 0, groups: [] });
+  const [approvalSummary, setApprovalSummary] = useState<MarksApprovalSummary>({ pending: 0, draft: 0, approved: 0 });
+  const [reviewQueueSnapshot, setReviewQueueSnapshot] = useState<PendingApprovalQueue | null>(null);
 
-  const [loading, setLoading] = useState(true);
-  const [gridLoading, setGridLoading] = useState(false);
-  const [selfLoading, setSelfLoading] = useState(false);
+  const scopedClassIds = useMemo(
+    () => [...new Set((examScopes || []).map((item) => String(item.class_id)))],
+    [examScopes],
+  );
+
+  const availableClasses = useMemo(() => {
+    if (!filters.exam_id) return classes;
+    return classes.filter((item) => scopedClassIds.includes(String(item.id)));
+  }, [classes, filters.exam_id, scopedClassIds]);
 
   const selectedClass = useMemo(
-    () => classes.find((item) => String(item.id) === String(filters.class_id)) || null,
-    [classes, filters.class_id]
+    () => availableClasses.find((item) => String(item.id) === String(filters.class_id)) || null,
+    [availableClasses, filters.class_id],
   );
-  const sections = selectedClass?.sections || [];
-  const mediums = [...new Set(sections.map((item) => item.medium).filter(Boolean))];
-  const filteredSubjects = examSubjects.length
-    ? subjects.filter((subject) =>
-        examSubjects.some((item) => String(item.subject_id) === String(subject.id))
-      )
-    : subjects;
+
+  const availableSections = useMemo(() => {
+    if (!selectedClass) return [];
+    const sections = selectedClass.sections || [];
+    if (!filters.exam_id) return sections;
+
+    const allowedSectionIds = new Set(
+      (examScopes || [])
+        .filter((item) => String(item.class_id) === String(selectedClass.id))
+        .map((item) => String(item.section_id)),
+    );
+    return sections.filter((item) => allowedSectionIds.has(String(item.id)));
+  }, [selectedClass, filters.exam_id, examScopes]);
+  const selectedSection = useMemo(
+    () => availableSections.find((item) => String(item.id) === String(filters.section_id)) || null,
+    [availableSections, filters.section_id],
+  );
+  const displayedPendingQueue = editMode && reviewQueueSnapshot ? reviewQueueSnapshot : pendingQueue;
+  const pendingReviewMeta = displayedPendingQueue.groups?.[0] || null;
+
+  const mediums = useMemo(() => uniqueMediums(availableSections), [availableSections]);
+  const examOptions = useMemo(
+    () => exams.map((exam) => ({ label: exam.name, value: String(exam.id) })),
+    [exams],
+  );
+  const classOptions = useMemo(
+    () => {
+      const rows =
+        isAdmin &&
+        activeTab === "review" &&
+        pendingReviewMeta &&
+        !availableClasses.some((item) => String(item.id) === String(filters.class_id))
+          ? [
+              ...availableClasses,
+              {
+                id: pendingReviewMeta.class_id,
+                name: pendingReviewMeta.class_name,
+                class_scope: undefined,
+                sections: [],
+              },
+            ]
+          : availableClasses;
+
+      return uniqueById(rows).map((item) => ({
+        label: item.name,
+        value: String(item.id),
+        description: formatScope(item.class_scope),
+      }));
+    },
+    [activeTab, availableClasses, filters.class_id, isAdmin, pendingReviewMeta],
+  );
+  const sectionOptions = useMemo(
+    () => {
+      const rows =
+        isAdmin &&
+        activeTab === "review" &&
+        pendingReviewMeta &&
+        !availableSections.some((item) => String(item.id) === String(filters.section_id))
+          ? [
+              ...availableSections,
+              {
+                id: pendingReviewMeta.section_id,
+                name: pendingReviewMeta.section_name,
+                medium: pendingReviewMeta.medium || undefined,
+              },
+            ]
+          : availableSections;
+
+      return uniqueById(rows).map((item) => ({
+        label: item.name,
+        value: String(item.id),
+        description: item.medium ? String(item.medium) : undefined,
+      }));
+    },
+    [activeTab, availableSections, filters.section_id, isAdmin, pendingReviewMeta],
+  );
+  const myStudentOptions = useMemo(
+    () =>
+      myStudents.map((student) => ({
+        label: student.name,
+        value: String(student.id),
+        description: student.class_name ? `${student.class_name} / ${student.section_name}` : "Linked student",
+      })),
+    [myStudents],
+  );
+
+  const filteredSubjects = useMemo(() => {
+    if (!examSubjects.length) return subjects;
+    return subjects.filter((subject) =>
+      examSubjects.some((item) => String(item.subject_id) === String(subject.id)),
+    );
+  }, [examSubjects, subjects]);
+  const subjectOptions = useMemo(
+    () => filteredSubjects.map((subject) => ({ label: subject.name, value: String(subject.id) })),
+    [filteredSubjects],
+  );
+  const selectedSubject = useMemo(
+    () => filteredSubjects.find((item) => String(item.id) === String(filters.subject_id)) || null,
+    [filteredSubjects, filters.subject_id],
+  );
+
+  const gridStatusCounts = useMemo(() => {
+    return (grid?.rows || []).reduce(
+      (acc, row) => {
+        const status = String(row.approval_status || "draft");
+        acc.total += 1;
+        if (status === "draft") acc.draft += 1;
+        if (status === "pending") acc.pending += 1;
+        if (status === "approved") acc.approved += 1;
+        return acc;
+      },
+      { total: 0, draft: 0, pending: 0, approved: 0 },
+    );
+  }, [grid]);
+
+  const allSelected = Boolean(grid?.rows?.length) && selectedStudentIds.length === (grid?.rows?.length || 0);
+
+  useEffect(() => {
+    setActiveTab(tabs[0]?.key || "entry");
+  }, [selfViewOnly, isAdmin]);
+
+  useEffect(() => {
+    if (!notice) return undefined;
+    const timer = setTimeout(() => setNotice(null), 3200);
+    return () => clearTimeout(timer);
+  }, [notice]);
+
+  useEffect(() => {
+    if (editMode) {
+      setReviewQueueSnapshot({
+        total_pending: pendingQueue.total_pending || 0,
+        groups: Array.isArray(pendingQueue.groups) ? [...pendingQueue.groups] : [],
+      });
+      return;
+    }
+    setReviewQueueSnapshot(null);
+  }, [editMode, pendingQueue]);
 
   useEffect(() => {
     loadBootstrap();
@@ -104,21 +470,37 @@ export default function ReportsTab() {
   useEffect(() => {
     if (!filters.exam_id) {
       setExamSubjects([]);
+      setExamScopes([]);
+      setExamMetaLoading(false);
       setFilters((prev) => ({ ...prev, subject_id: "" }));
       return;
     }
 
     let ignore = false;
     (async () => {
+      if (!ignore) setExamMetaLoading(true);
       try {
-        const res = await getExamById(filters.exam_id);
-        if (!ignore) {
-          setExamSubjects(Array.isArray(res?.subjects) ? (res.subjects as ExamSubject[]) : []);
-        }
+        const examLoader = canViewExamCatalog ? getExamById : getAccessibleExamById;
+        const exam = await examLoader(filters.exam_id);
+        if (ignore) return;
+        setExamSubjects(
+          Array.isArray(exam?.subjects)
+            ? exam.subjects.map((subject) => ({
+                ...subject,
+                pass_marks: subject.pass_marks ?? undefined,
+                subject_name: subject.subject_name ?? undefined,
+              }))
+            : [],
+        );
+        setExamScopes(Array.isArray(exam?.scopes) ? (exam.scopes as AccessibleExamScope[]) : []);
       } catch (err: unknown) {
+        if (ignore) return;
+        setExamSubjects([]);
+        setExamScopes([]);
+        setError("Exam load failed", getErrorMessage(err, "Failed to load exam subjects."));
+      } finally {
         if (!ignore) {
-          setExamSubjects([]);
-          Alert.alert("Exam load failed", getErrorMessage(err, "Failed to load exam subjects."));
+          setExamMetaLoading(false);
         }
       }
     })();
@@ -126,20 +508,137 @@ export default function ReportsTab() {
     return () => {
       ignore = true;
     };
-  }, [filters.exam_id]);
+  }, [filters.exam_id, canViewExamCatalog]);
+
+  useEffect(() => {
+    if (!filters.exam_id) return;
+    if (examMetaLoading) return;
+
+    if (filters.class_id && !availableClasses.some((item) => String(item.id) === String(filters.class_id))) {
+      setFilters((prev) => ({ ...prev, class_id: "", section_id: "", medium: "" }));
+      return;
+    }
+
+    if (filters.section_id && !availableSections.some((item) => String(item.id) === String(filters.section_id))) {
+      setFilters((prev) => ({ ...prev, section_id: "", medium: "" }));
+    }
+  }, [filters.exam_id, filters.class_id, filters.section_id, availableClasses, availableSections, examMetaLoading]);
+
+  useEffect(() => {
+    if (loading || selfViewOnly || !grid) return;
+    if (editMode || gridLoading) return;
+
+    const nextStatus =
+      activeTab === "review" ? "pending" : activeTab === "published" ? "approved" : "";
+    const currentStatus = String(filters.approval_status || "");
+    const activeStatus = currentStatus || nextStatus;
+    const gridHasRows = Array.isArray(grid?.rows) && grid.rows.length > 0;
+
+    const scopeMismatch =
+      String(grid.exam_id || "") !== String(filters.exam_id || "") ||
+      String(grid.class_id || "") !== String(filters.class_id || "") ||
+      String(grid.section_id || "") !== String(filters.section_id || "") ||
+      String(grid.subject?.id || "") !== String(filters.subject_id || "");
+
+    const statusMismatch =
+      gridHasRows &&
+      Boolean(activeStatus) &&
+      grid.rows.some((row) => String(row.approval_status || "") !== activeStatus);
+
+    if (scopeMismatch || statusMismatch || !filters.exam_id || !filters.class_id || !filters.section_id || !filters.subject_id) {
+      resetGridState({
+        exam_id: Number(filters.exam_id || 0),
+        class_id: Number(filters.class_id || 0),
+        section_id: Number(filters.section_id || 0),
+        subject: {
+          id: Number(filters.subject_id || 0),
+          name: selectedSubject?.name || "Subject",
+          max_marks: 0,
+          pass_marks: 0,
+        },
+        rows: [],
+      });
+    }
+  }, [
+    activeTab,
+    loading,
+    selfViewOnly,
+    editMode,
+    gridLoading,
+    grid,
+    filters.exam_id,
+    filters.class_id,
+    filters.section_id,
+    filters.subject_id,
+    filters.approval_status,
+    selectedSubject,
+  ]);
+
+  useEffect(() => {
+    if (loading || selfViewOnly) return;
+    if (!filters.exam_id || !filters.class_id || !filters.section_id || !filters.subject_id) return;
+    if (isAdmin && activeTab === "review" && editMode) return;
+    handleLoadGrid();
+  }, [
+    activeTab,
+    loading,
+    selfViewOnly,
+    isAdmin,
+    editMode,
+    filters.exam_id,
+    filters.class_id,
+    filters.section_id,
+    filters.subject_id,
+    filters.medium,
+    filters.name,
+    filters.approval_status,
+  ]);
+
+  useEffect(() => {
+    if (!isAdmin || loading || activeTab !== "review") return;
+    if (editMode) return;
+    const nextScope = pendingQueue.groups?.[0];
+    if (!nextScope) return;
+
+    const needsScopeUpdate =
+      String(filters.exam_id || "") !== String(nextScope.exam_id) ||
+      String(filters.class_id || "") !== String(nextScope.class_id) ||
+      String(filters.section_id || "") !== String(nextScope.section_id) ||
+      String(filters.subject_id || "") !== String(nextScope.subject_id) ||
+      String(filters.approval_status || "") !== "pending";
+
+    if (needsScopeUpdate) {
+      setFilters((prev) => ({
+        ...prev,
+        exam_id: String(nextScope.exam_id),
+        class_id: String(nextScope.class_id),
+        section_id: String(nextScope.section_id),
+        medium: nextScope.medium || "",
+        subject_id: String(nextScope.subject_id),
+        approval_status: "pending",
+      }));
+    }
+  }, [activeTab, pendingQueue, loading, isAdmin, filters.exam_id, filters.class_id, filters.section_id, filters.subject_id, filters.approval_status, editMode]);
 
   async function loadBootstrap() {
     setLoading(true);
     try {
+      const examLoader = canViewExamCatalog ? getExams : getAccessibleExams;
       const [classRows, subjectRows, examRows] = await Promise.all([
         getClassStructure(),
         getSubjects(),
-        getExams(),
+        examLoader(),
       ]);
+      const pendingRes = isAdmin ? await getPendingApprovalQueue() : null;
+      const summaryRes = isAdmin ? await getMarksApprovalSummary() : null;
 
       setClasses(classRows as ClassItem[]);
       setSubjects(subjectRows.map((subject) => ({ id: Number(subject.id), name: subject.name })));
-      setExams(examRows.map((exam) => ({ id: Number(exam.id), name: exam.name })));
+      setExams((examRows || []).map((exam) => ({ id: Number(exam.id), name: exam.name })));
+      if (isAdmin) {
+        setPendingQueue(pendingRes || { total_pending: 0, groups: [] });
+        setApprovalSummary(summaryRes || { pending: 0, draft: 0, approved: 0 });
+      }
 
       if (selfViewOnly) {
         const rows = await getMyStudents();
@@ -149,10 +648,32 @@ export default function ReportsTab() {
         }
       }
     } catch (err: unknown) {
-      Alert.alert("Reports unavailable", getErrorMessage(err, "Failed to load report filters."));
+      setError("Reports unavailable", getErrorMessage(err, "Failed to load report filters."));
     } finally {
       setLoading(false);
     }
+  }
+
+  async function refreshCurrentTab() {
+    setRefreshing(true);
+    try {
+      await loadBootstrap();
+      if (selfViewOnly) {
+        if (selfFilters.exam_id) await handleLoadSelfResults();
+      } else if (filters.exam_id && filters.class_id && filters.section_id && filters.subject_id) {
+        await handleLoadGrid();
+      }
+    } finally {
+      setRefreshing(false);
+    }
+  }
+
+  function setSuccess(title: string, message: string) {
+    setNotice({ title, message, tone: "success" });
+  }
+
+  function setError(title: string, message: string) {
+    setNotice({ title, message, tone: "error" });
   }
 
   function resetGridState(nextGrid: MarksGridData) {
@@ -160,15 +681,23 @@ export default function ReportsTab() {
     setSelectedStudentIds([]);
     const draft: Record<number, string> = {};
     (nextGrid.rows || []).forEach((row) => {
-      draft[Number(row.student_id)] = row.marks !== null && row.marks !== undefined ? String(row.marks) : "";
+      draft[Number(row.student_id)] =
+        row.marks !== null && row.marks !== undefined ? String(row.marks) : "";
     });
     setEditedMarks(draft);
     setEditMode(false);
   }
 
+  function syncTabFilter(tab: ReportsTabKey) {
+    setFilters((prev) => ({
+      ...prev,
+      approval_status: tab === "review" ? "pending" : tab === "published" ? "approved" : "",
+    }));
+  }
+
   async function handleLoadGrid() {
     if (!filters.exam_id || !filters.class_id || !filters.section_id || !filters.subject_id) {
-      Alert.alert("Validation", "Exam, class, section, and subject are required.");
+      setError("Validation", "Exam, class, section, and subject are required.");
       return;
     }
 
@@ -176,8 +705,21 @@ export default function ReportsTab() {
     try {
       const data = await getMarksGrid(filters);
       resetGridState(data);
+      setNotice(null);
     } catch (err: unknown) {
-      Alert.alert("Load failed", getErrorMessage(err, "Failed to load marks grid."));
+      resetGridState({
+        exam_id: Number(filters.exam_id || 0),
+        class_id: Number(filters.class_id || 0),
+        section_id: Number(filters.section_id || 0),
+        subject: {
+          id: Number(filters.subject_id || 0),
+          name: selectedSubject?.name || "Subject",
+          max_marks: 0,
+          pass_marks: 0,
+        },
+        rows: [],
+      });
+      setError("Load failed", getErrorMessage(err, "Failed to load marks grid."));
     } finally {
       setGridLoading(false);
     }
@@ -185,7 +727,7 @@ export default function ReportsTab() {
 
   function toggleRow(studentId: number) {
     setSelectedStudentIds((prev) =>
-      prev.includes(studentId) ? prev.filter((id) => id !== studentId) : [...prev, studentId]
+      prev.includes(studentId) ? prev.filter((id) => id !== studentId) : [...prev, studentId],
     );
   }
 
@@ -196,7 +738,7 @@ export default function ReportsTab() {
     }
 
     setSelectedStudentIds((prev) =>
-      prev.length === grid.rows.length ? [] : grid.rows.map((row) => Number(row.student_id))
+      prev.length === grid.rows.length ? [] : grid.rows.map((row) => Number(row.student_id)),
     );
   }
 
@@ -206,18 +748,18 @@ export default function ReportsTab() {
 
   function buildMutationPayload(extra: Record<string, unknown> = {}) {
     return {
-      exam_id: filters.exam_id,
-      class_id: filters.class_id,
-      section_id: filters.section_id,
+      exam_id: filters.exam_id || grid?.exam_id || "",
+      class_id: filters.class_id || grid?.class_id || "",
+      section_id: filters.section_id || grid?.section_id || "",
       medium: filters.medium || undefined,
-      subject_id: filters.subject_id,
+      subject_id: filters.subject_id || grid?.subject?.id || "",
       ...extra,
     };
   }
 
   async function handleSaveMarks() {
     if (!grid?.rows?.length) {
-      Alert.alert("Validation", "Load a marks grid first.");
+      setError("Validation", "Load a marks grid first.");
       return;
     }
 
@@ -229,17 +771,21 @@ export default function ReportsTab() {
       .filter((row) => row.marks !== "" && row.marks !== undefined);
 
     if (!marks.length) {
-      Alert.alert("Validation", "Enter at least one mark to save.");
+      setError("Validation", "Enter at least one mark to save.");
       return;
     }
 
     setGridLoading(true);
     try {
-      await saveMarks(buildMutationPayload({ marks }) as never);
+      await saveMarks({
+        ...buildMutationPayload(),
+        marks,
+      });
       await handleLoadGrid();
-      Alert.alert("Saved", "Marks saved as draft.");
+      setEditMode(false);
+      setSuccess("Saved", "Marks saved.");
     } catch (err: unknown) {
-      Alert.alert("Save failed", getErrorMessage(err, "Failed to save marks."));
+      setError("Save failed", getErrorMessage(err, "Failed to save marks."));
       setGridLoading(false);
     }
   }
@@ -248,12 +794,15 @@ export default function ReportsTab() {
     setGridLoading(true);
     try {
       await submitMarksForApproval(
-        buildMutationPayload(applyAll ? { apply_all: true } : { student_ids: selectedStudentIds })
+        buildMutationPayload(applyAll ? { apply_all: true } : { student_ids: selectedStudentIds }),
       );
       await handleLoadGrid();
-      Alert.alert("Submitted", applyAll ? "All draft marks submitted." : "Selected draft marks submitted.");
+      setSuccess(
+        "Submitted",
+        applyAll ? "All draft marks submitted." : "Selected draft marks submitted.",
+      );
     } catch (err: unknown) {
-      Alert.alert("Submit failed", getErrorMessage(err, "Failed to submit marks."));
+      setError("Submit failed", getErrorMessage(err, "Failed to submit marks."));
       setGridLoading(false);
     }
   }
@@ -262,12 +811,21 @@ export default function ReportsTab() {
     setGridLoading(true);
     try {
       await approveMarks(
-        buildMutationPayload(applyAll ? { apply_all: true } : { student_ids: selectedStudentIds })
+        buildMutationPayload(applyAll ? { apply_all: true } : { student_ids: selectedStudentIds }),
       );
+      if (isAdmin) {
+        const queue = await getPendingApprovalQueue();
+        setPendingQueue(queue);
+        const summary = await getMarksApprovalSummary();
+        setApprovalSummary(summary);
+      }
       await handleLoadGrid();
-      Alert.alert("Approved", applyAll ? "All pending marks approved." : "Selected marks approved.");
+      setSuccess(
+        "Approved",
+        applyAll ? "All pending marks approved." : "Selected marks approved.",
+      );
     } catch (err: unknown) {
-      Alert.alert("Approve failed", getErrorMessage(err, "Failed to approve marks."));
+      setError("Approve failed", getErrorMessage(err, "Failed to approve marks."));
       setGridLoading(false);
     }
   }
@@ -276,10 +834,16 @@ export default function ReportsTab() {
     setGridLoading(true);
     try {
       await rejectMarks(buildMutationPayload({ student_ids: selectedStudentIds }));
+      if (isAdmin) {
+        const queue = await getPendingApprovalQueue();
+        setPendingQueue(queue);
+        const summary = await getMarksApprovalSummary();
+        setApprovalSummary(summary);
+      }
       await handleLoadGrid();
-      Alert.alert("Rejected", "Selected marks moved back to draft.");
+      setSuccess("Rejected", "Selected marks moved back to draft.");
     } catch (err: unknown) {
-      Alert.alert("Reject failed", getErrorMessage(err, "Failed to reject marks."));
+      setError("Reject failed", getErrorMessage(err, "Failed to reject marks."));
       setGridLoading(false);
     }
   }
@@ -294,7 +858,7 @@ export default function ReportsTab() {
 
   async function handleLoadSelfResults() {
     if (!selfFilters.exam_id) {
-      Alert.alert("Validation", "Select an exam first.");
+      setError("Validation", "Select an exam first.");
       return;
     }
 
@@ -302,9 +866,10 @@ export default function ReportsTab() {
     try {
       const data = await getMyResults(selfFilters);
       setSelfReport(data);
+      setNotice(null);
     } catch (err: unknown) {
       setSelfReport(null);
-      Alert.alert("Load failed", getErrorMessage(err, "Failed to load approved results."));
+      setError("Load failed", getErrorMessage(err, "Failed to load approved results."));
     } finally {
       setSelfLoading(false);
     }
@@ -318,161 +883,192 @@ export default function ReportsTab() {
     }
   }
 
-  const allSelected = Boolean(grid?.rows?.length) && selectedStudentIds.length === grid?.rows?.length;
-
-  if (loading) {
+  function renderTabRow() {
+    if (tabs.length <= 1) return null;
     return (
-      <View style={styles.centered}>
-        <ActivityIndicator size="large" color="#0f172a" />
+      <View style={styles.tabsRow}>
+        {tabs.map((tab) => (
+          <TabChip
+            key={tab.key}
+            label={tab.label}
+            active={activeTab === tab.key}
+            onPress={() => {
+              setActiveTab(tab.key);
+              syncTabFilter(tab.key);
+            }}
+          />
+        ))}
       </View>
     );
   }
 
-  return selfViewOnly ? (
-    <ScrollView contentContainerStyle={styles.root}>
-      <View style={styles.heroCard}>
-        <Text style={styles.title}>Reports</Text>
-        <Text style={styles.subtitle}>View approved marks and download marksheets</Text>
+  function renderAdminSummary() {
+    if (!isAdmin) return null;
+    return (
+      <View style={styles.summaryGrid}>
+        <SummaryCard label="Pending Approval" value={approvalSummary.pending} tone="amber" />
+        <SummaryCard label="Draft Entries" value={approvalSummary.draft} tone="violet" />
+        <SummaryCard label="Approved Records" value={approvalSummary.approved} tone="green" />
       </View>
+    );
+  }
 
-      <View style={styles.card}>
-        <Text style={styles.sectionTitle}>Result Filters</Text>
-        <ChipGroup
+  function renderFilterPanel() {
+    return (
+      <SectionCard title="Filters" hint="Choose scope and load a grid">
+        <SelectField
           label="Exam"
-          options={exams.map((exam) => ({ label: exam.name, value: String(exam.id) }))}
-          value={selfFilters.exam_id}
-          onChange={(value) => setSelfFilters((prev) => ({ ...prev, exam_id: value }))}
-        />
-
-        {myStudents.length > 1 ? (
-          <ChipGroup
-            label="Student"
-            options={myStudents.map((student) => ({
-              label: `${student.name}${student.class_name ? ` (${student.class_name} - ${student.section_name})` : ""}`,
-              value: String(student.id),
-            }))}
-            value={selfFilters.student_id}
-            onChange={(value) => setSelfFilters((prev) => ({ ...prev, student_id: value }))}
-          />
-        ) : (
-          <View style={styles.infoCard}>
-            <Text style={styles.infoLabel}>Student</Text>
-            <Text style={styles.infoValue}>{myStudents[0]?.name || "Linked student will appear here"}</Text>
-          </View>
-        )}
-
-        <View style={styles.actionRow}>
-          <Pressable style={styles.primaryBtn} onPress={handleLoadSelfResults} disabled={selfLoading}>
-            <Text style={styles.primaryBtnText}>{selfLoading ? "Loading..." : "View Results"}</Text>
-          </Pressable>
-          <Pressable style={styles.secondaryBtn} onPress={handleDownloadMyResult} disabled={!selfReport}>
-            <Text style={styles.secondaryBtnText}>Download Marksheet</Text>
-          </Pressable>
-        </View>
-      </View>
-
-      {selfReport ? <ReportCard report={selfReport} /> : null}
-    </ScrollView>
-  ) : (
-    <ScrollView contentContainerStyle={styles.root}>
-      <View style={styles.heroCard}>
-        <Text style={styles.title}>Reports</Text>
-        <Text style={styles.subtitle}>
-          {isAdmin ? "Review, edit, approve, and export marks" : "Save draft marks and submit them for approval"}
-        </Text>
-      </View>
-
-      <View style={styles.card}>
-        <Text style={styles.sectionTitle}>Filters</Text>
-        <ChipGroup
-          label="Exam"
-          options={exams.map((exam) => ({ label: exam.name, value: String(exam.id) }))}
+          placeholder="Select exam"
           value={filters.exam_id}
-          onChange={(value) => setFilters((prev) => ({ ...prev, exam_id: value, subject_id: "" }))}
-        />
-        <ChipGroup
-          label="Class"
-          options={classes.map((item) => ({ label: item.name, value: String(item.id) }))}
-          value={filters.class_id}
+          options={examOptions}
           onChange={(value) =>
-            setFilters((prev) => ({ ...prev, class_id: value, section_id: "", medium: "" }))
+            setFilters((prev) => ({
+              ...prev,
+              exam_id: value,
+              class_id: "",
+              section_id: "",
+              medium: "",
+              subject_id: "",
+            }))
           }
+          allowClear
+          clearLabel="Clear exam"
         />
-        <ChipGroup
+
+        <SelectField
+          label="Class"
+          placeholder="Select class"
+          value={filters.class_id}
+          options={classOptions}
+          onChange={(value) =>
+            setFilters((prev) => ({
+              ...prev,
+              class_id: value,
+              section_id: "",
+              medium: "",
+            }))
+          }
+          allowClear
+          clearLabel="Clear class"
+        />
+
+        <SelectField
           label="Section"
-          options={sections.map((item) => ({ label: item.name, value: String(item.id) }))}
+          placeholder="Select section"
           value={filters.section_id}
+          options={sectionOptions}
           onChange={(value) => setFilters((prev) => ({ ...prev, section_id: value }))}
+          allowClear
+          clearLabel="Clear section"
+          disabled={!filters.class_id}
         />
-        <ChipGroup
-          label="Medium"
-          options={mediums.map((medium) => ({ label: String(medium), value: String(medium) }))}
-          value={filters.medium}
-          onChange={(value) => setFilters((prev) => ({ ...prev, medium: value }))}
-          includeAll
-          allLabel="All Mediums"
-        />
-        <ChipGroup
+
+        <SelectField
           label="Subject"
-          options={filteredSubjects.map((subject) => ({ label: subject.name, value: String(subject.id) }))}
+          placeholder="Select subject"
           value={filters.subject_id}
+          options={subjectOptions}
           onChange={(value) => setFilters((prev) => ({ ...prev, subject_id: value }))}
+          allowClear
+          clearLabel="Clear subject"
+          disabled={!filters.exam_id}
         />
+
+        {mediums.length ? (
+          <>
+            <Text style={styles.inputLabel}>Medium</Text>
+            <View style={styles.filterWrap}>
+              <FilterChip
+                label="All Mediums"
+                active={!filters.medium}
+                onPress={() => setFilters((prev) => ({ ...prev, medium: "" }))}
+              />
+              {mediums.map((medium) => (
+                <FilterChip
+                  key={String(medium)}
+                  label={String(medium)}
+                  active={filters.medium === medium}
+                  onPress={() => setFilters((prev) => ({ ...prev, medium: String(medium) }))}
+                />
+              ))}
+            </View>
+          </>
+        ) : null}
 
         {isAdmin ? (
-          <ChipGroup
-            label="Status"
-            options={[
-              { label: "Draft", value: "draft" },
-              { label: "Pending", value: "pending" },
-              { label: "Approved", value: "approved" },
-            ]}
-            value={filters.approval_status}
-            onChange={(value) => setFilters((prev) => ({ ...prev, approval_status: value }))}
-            includeAll
-            allLabel="All Statuses"
-          />
+          <>
+            <Text style={styles.inputLabel}>Status</Text>
+            <View style={styles.filterWrap}>
+              <FilterChip
+                label="All"
+                active={!filters.approval_status}
+                onPress={() => setFilters((prev) => ({ ...prev, approval_status: "" }))}
+              />
+              {["draft", "pending", "approved"].map((status) => (
+                <FilterChip
+                  key={status}
+                  label={capitalize(status)}
+                  active={filters.approval_status === status}
+                  onPress={() => setFilters((prev) => ({ ...prev, approval_status: status }))}
+                />
+              ))}
+            </View>
+          </>
         ) : null}
 
         <Text style={styles.inputLabel}>Student Search</Text>
         <TextInput
           style={styles.input}
-          placeholder="Search name"
+          placeholder="Search student name"
+          placeholderTextColor="#94a3b8"
           value={filters.name}
           onChangeText={(value) => setFilters((prev) => ({ ...prev, name: value }))}
         />
 
-        <Pressable style={styles.primaryBtn} onPress={handleLoadGrid} disabled={gridLoading}>
-          <Text style={styles.primaryBtnText}>{gridLoading ? "Loading..." : "Load Students"}</Text>
-        </Pressable>
-      </View>
+        <View style={styles.actionRow}>
+          <Pressable style={styles.primaryBtn} onPress={handleLoadGrid} disabled={gridLoading}>
+            <Text style={styles.primaryBtnText}>{gridLoading ? "Loading..." : "Load Students"}</Text>
+          </Pressable>
+        </View>
+      </SectionCard>
+    );
+  }
 
-      <View style={styles.summaryGrid}>
-        <SummaryCard label="Students" value={grid?.rows?.length || 0} />
-        <SummaryCard label="Selected" value={selectedStudentIds.length} />
-        <SummaryCard label="Subject" value={grid?.subject?.name || "-"} />
-      </View>
+  function renderGridPanel() {
+    const isPendingMode = activeTab === "review";
+    const isPublishedMode = activeTab === "published";
+    const showTeacherActions = canEnterMarks && !isPendingMode && !isPublishedMode;
+    const showAdminEditActions = isAdmin && !isPublishedMode;
+    const showAdminApprovalActions = isAdmin && isPendingMode;
+    const emptyMessage = isPendingMode
+      ? "Load a pending approval grid to review submitted marks."
+      : isPublishedMode
+        ? "Load approved records to download marksheets."
+        : "Select the filters above and load a marks grid.";
 
-      <View style={styles.card}>
-        <View style={styles.sectionHeader}>
-          <View>
-            <Text style={styles.sectionTitle}>{grid?.subject?.name || "Marks Grid"}</Text>
-            <Text style={styles.muted}>
-              {grid?.rows?.length || 0} student{grid?.rows?.length === 1 ? "" : "s"} loaded
-            </Text>
-          </View>
+    return (
+      <SectionCard
+        title={grid?.subject?.name || "Marks Grid"}
+        hint={`${grid?.rows?.length || 0} students`}
+      >
+        <View style={styles.summaryGrid}>
+          <SummaryCard label="Students" value={gridStatusCounts.total} />
+          <SummaryCard label="Selected" value={selectedStudentIds.length} />
+          <SummaryCard label="Pending" value={gridStatusCounts.pending} tone="amber" />
+          <SummaryCard label="Approved" value={gridStatusCounts.approved} tone="green" />
+        </View>
+
+        <View style={styles.actionWrap}>
           {grid?.rows?.length ? (
             <Pressable style={styles.secondaryBtn} onPress={toggleAllRows}>
               <Text style={styles.secondaryBtnText}>{allSelected ? "Clear Selection" : "Select All"}</Text>
             </Pressable>
           ) : null}
-        </View>
 
-        <View style={styles.actionWrap}>
-          {canEnterMarks ? (
+          {showTeacherActions ? (
             <>
-              <Pressable style={styles.primaryBtn} onPress={handleSaveMarks} disabled={gridLoading || !grid?.rows?.length}>
-                <Text style={styles.primaryBtnText}>Save</Text>
+              <Pressable style={styles.successBtn} onPress={handleSaveMarks} disabled={gridLoading || !grid?.rows?.length}>
+                <Text style={styles.successBtnText}>Save</Text>
               </Pressable>
               <Pressable
                 style={styles.secondaryBtn}
@@ -491,7 +1087,7 @@ export default function ReportsTab() {
             </>
           ) : null}
 
-          {isAdmin ? (
+          {showAdminEditActions ? (
             <>
               <Pressable
                 style={styles.secondaryBtn}
@@ -501,301 +1097,380 @@ export default function ReportsTab() {
                 <Text style={styles.secondaryBtnText}>{editMode ? "Cancel Edit" : "Edit"}</Text>
               </Pressable>
               {editMode ? (
-                <Pressable style={styles.primaryBtn} onPress={handleSaveMarks} disabled={gridLoading || !grid?.rows?.length}>
-                  <Text style={styles.primaryBtnText}>Save Changes</Text>
+                <Pressable style={styles.successBtn} onPress={handleSaveMarks} disabled={gridLoading || !grid?.rows?.length}>
+                  <Text style={styles.successBtnText}>Save Changes</Text>
                 </Pressable>
               ) : null}
+            </>
+          ) : null}
+
+          {showAdminApprovalActions ? (
+            <>
               <Pressable
-                style={styles.primaryBtn}
+                style={styles.successBtn}
                 onPress={() => handleApprove(false)}
                 disabled={gridLoading || !selectedStudentIds.length}
               >
-                <Text style={styles.primaryBtnText}>Approve Selected</Text>
+                <Text style={styles.successBtnText}>Approve Selected</Text>
               </Pressable>
-              <Pressable
-                style={styles.primaryBtn}
-                onPress={() => handleApprove(true)}
-                disabled={gridLoading || !grid?.rows?.length}
-              >
-                <Text style={styles.primaryBtnText}>Approve All</Text>
-              </Pressable>
-              <Pressable
-                style={styles.deleteBtn}
-                onPress={handleReject}
-                disabled={gridLoading || !selectedStudentIds.length}
-              >
-                <Text style={styles.deleteBtnText}>Reject</Text>
-              </Pressable>
+              {isPendingMode ? (
+                <>
+                  <Pressable
+                    style={styles.successBtn}
+                    onPress={() => handleApprove(true)}
+                    disabled={gridLoading || !grid?.rows?.length}
+                  >
+                    <Text style={styles.successBtnText}>Approve All</Text>
+                  </Pressable>
+                  <Pressable
+                    style={styles.deleteBtn}
+                    onPress={handleReject}
+                    disabled={gridLoading || !selectedStudentIds.length}
+                  >
+                    <Text style={styles.deleteBtnText}>Reject</Text>
+                  </Pressable>
+                </>
+              ) : null}
             </>
           ) : null}
         </View>
 
+        {gridLoading ? <ActivityIndicator size="large" color="#0f172a" /> : null}
+
         {grid?.rows?.length ? (
-          grid.rows.map((row) => {
-            const selected = selectedStudentIds.includes(Number(row.student_id));
-            return (
-              <Pressable
-                key={row.student_id}
-                style={[styles.studentCard, selected && styles.studentCardSelected]}
-                onPress={() => toggleRow(Number(row.student_id))}
-              >
-                <View style={styles.studentHeader}>
-                  <View>
-                    <Text style={styles.studentName}>{row.student_name}</Text>
-                    <Text style={styles.muted}>Roll: {row.roll_number || "-"}</Text>
-                    {row.medium ? <Text style={styles.muted}>{row.medium}</Text> : null}
-                  </View>
-                  <StatusBadge status={row.approval_status} />
+          grid.rows.map((row) => (
+            <Pressable
+              key={row.student_id}
+              style={[
+                styles.studentCard,
+                selectedStudentIds.includes(Number(row.student_id)) && styles.studentCardSelected,
+              ]}
+              onPress={() => toggleRow(Number(row.student_id))}
+            >
+              <View style={styles.rowBetween}>
+                <View style={styles.studentMeta}>
+                  <Text style={styles.studentName}>{row.student_name}</Text>
+                  <Text style={styles.mutedText}>Roll: {row.roll_number || "-"}</Text>
+                  <Text style={styles.mutedText}>
+                    {selectedClass?.name || "-"} / {selectedSection?.name || "-"}
+                    {selectedSection?.medium ? ` (${selectedSection.medium})` : row.medium ? ` (${row.medium})` : ""}
+                  </Text>
+                  <Text style={styles.mutedText}>Subject: {selectedSubject?.name || grid?.subject?.name || "-"}</Text>
+                </View>
+                <StatusBadge status={row.approval_status} />
+              </View>
+
+              <View style={styles.rowBetween}>
+                <View style={styles.marksBox}>
+                  <Text style={styles.inputLabel}>Marks</Text>
+                  {canEnterMarks || editMode ? (
+                    <TextInput
+                      style={[styles.input, styles.marksInput]}
+                      keyboardType="numeric"
+                      value={editedMarks[Number(row.student_id)] ?? ""}
+                      onChangeText={(value) => updateMarksValue(Number(row.student_id), value)}
+                      placeholder={`0-${grid.subject.max_marks}`}
+                      placeholderTextColor="#94a3b8"
+                    />
+                  ) : (
+                    <Text style={styles.marksValue}>{row.marks ?? "-"}</Text>
+                  )}
                 </View>
 
-                <View style={styles.marksRow}>
-                  <View style={styles.marksBox}>
-                    <Text style={styles.inputLabel}>Marks</Text>
-                    {canEnterMarks || editMode ? (
-                      <TextInput
-                        style={styles.input}
-                        keyboardType="numeric"
-                        value={editedMarks[Number(row.student_id)] ?? ""}
-                        onChangeText={(value) => updateMarksValue(Number(row.student_id), value)}
-                        placeholder={`0-${grid.subject.max_marks}`}
-                      />
-                    ) : (
-                      <Text style={styles.marksValue}>{row.marks ?? "-"}</Text>
-                    )}
-                  </View>
-
-                  {isAdmin ? (
-                    <Pressable
-                      style={styles.secondaryBtn}
-                      disabled={row.approval_status !== "approved"}
-                      onPress={() => handleDownloadStudent(Number(row.student_id))}
-                    >
-                      <Text style={styles.secondaryBtnText}>Download</Text>
-                    </Pressable>
-                  ) : null}
-                </View>
-              </Pressable>
-            );
-          })
+                {isAdmin ? (
+                  <Pressable
+                    style={styles.secondaryBtn}
+                    disabled={row.approval_status !== "approved"}
+                    onPress={() => handleDownloadStudent(Number(row.student_id))}
+                  >
+                    <Text style={styles.secondaryBtnText}>Download</Text>
+                  </Pressable>
+                ) : null}
+              </View>
+            </Pressable>
+          ))
         ) : (
-          <Text style={styles.muted}>Select the filters above and load a marks grid.</Text>
+          <Text style={styles.emptyText}>{emptyMessage}</Text>
         )}
+      </SectionCard>
+    );
+  }
+
+  function renderSelfView() {
+    return (
+      <>
+        <SectionCard title="Approved Results" hint="Parents and students">
+          <SelectField
+            label="Exam"
+            placeholder="Select exam"
+            value={selfFilters.exam_id}
+            options={examOptions}
+            onChange={(value) => setSelfFilters((prev) => ({ ...prev, exam_id: value }))}
+          />
+
+          {myStudents.length > 1 ? (
+            <>
+              <SelectField
+                label="Student"
+                placeholder="Select student"
+                value={selfFilters.student_id}
+                options={myStudentOptions}
+                onChange={(value) => setSelfFilters((prev) => ({ ...prev, student_id: value }))}
+              />
+            </>
+          ) : (
+            <View style={styles.infoCard}>
+              <Text style={styles.infoTitle}>Student</Text>
+              <Text style={styles.infoText}>{myStudents[0]?.name || "Linked student will appear here"}</Text>
+            </View>
+          )}
+
+          <View style={styles.actionRow}>
+            <Pressable style={styles.primaryBtn} onPress={handleLoadSelfResults} disabled={selfLoading}>
+              <Text style={styles.primaryBtnText}>{selfLoading ? "Loading..." : "View Results"}</Text>
+            </Pressable>
+            <Pressable style={styles.secondaryBtn} onPress={handleDownloadMyResult} disabled={!selfReport}>
+              <Text style={styles.secondaryBtnText}>Download Marksheet</Text>
+            </Pressable>
+          </View>
+        </SectionCard>
+
+        {selfReport ? <ReportCard report={selfReport} /> : null}
+      </>
+    );
+  }
+
+  if (loading) {
+    return (
+      <View style={styles.centered}>
+        <ActivityIndicator size="large" color="#0f172a" />
       </View>
+    );
+  }
+
+  return (
+    <ScrollView
+      style={styles.root}
+      contentContainerStyle={styles.content}
+      showsVerticalScrollIndicator={false}
+      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refreshCurrentTab} />}
+    >
+      <View style={styles.heroCard}>
+        <View style={styles.heroCopy}>
+          <Text style={styles.title}>Reports</Text>
+          <Text style={styles.subtitle}>
+            {selfViewOnly
+              ? "View approved marks and download marksheets from the live backend results flow."
+              : isAdmin
+                ? "Review, update, approve, and publish marks with the same workflow as the software module."
+                : "Load marks grids, save draft marks, and submit them for approval."}
+          </Text>
+        </View>
+      </View>
+
+      <TopNotice notice={notice} />
+
+      {renderTabRow()}
+
+      {selfViewOnly ? (
+        renderSelfView()
+      ) : (
+        <>
+          {renderAdminSummary()}
+          {renderFilterPanel()}
+          {renderGridPanel()}
+        </>
+      )}
     </ScrollView>
   );
 }
 
-function ChipGroup({
-  label,
-  options,
-  value,
-  onChange,
-  includeAll = false,
-  allLabel = "All",
-}: {
-  label: string;
-  options: Array<{ label: string; value: string }>;
-  value: string;
-  onChange: (value: string) => void;
-  includeAll?: boolean;
-  allLabel?: string;
-}) {
-  return (
-    <View style={styles.group}>
-      <Text style={styles.inputLabel}>{label}</Text>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipWrap}>
-        {includeAll ? (
-          <Pressable style={[styles.chip, !value && styles.chipActive]} onPress={() => onChange("")}>
-            <Text style={[styles.chipText, !value && styles.chipTextActive]}>{allLabel}</Text>
-          </Pressable>
-        ) : null}
-        {options.map((option) => {
-          const active = value === option.value;
-          return (
-            <Pressable
-              key={`${label}-${option.value}`}
-              style={[styles.chip, active && styles.chipActive]}
-              onPress={() => onChange(option.value)}
-            >
-              <Text style={[styles.chipText, active && styles.chipTextActive]}>{option.label}</Text>
-            </Pressable>
-          );
-        })}
-      </ScrollView>
-    </View>
-  );
-}
+let styles = createStyles(currentTheme);
 
-function SummaryCard({ label, value }: { label: string; value: string | number }) {
-  return (
-    <View style={styles.summaryCard}>
-      <Text style={styles.summaryValue}>{value}</Text>
-      <Text style={styles.summaryLabel}>{label}</Text>
-    </View>
-  );
-}
-
-function StatusBadge({ status }: { status: string }) {
-  const normalized = String(status || "").trim().toLowerCase();
-  const palette =
-    normalized === "approved"
-      ? { bg: "#dcfce7", border: "#86efac", text: "#166534" }
-      : normalized === "pending"
-        ? { bg: "#fef3c7", border: "#fde68a", text: "#92400e" }
-        : { bg: "#f8fafc", border: "#cbd5e1", text: "#475569" };
-
-  return (
-    <View style={[styles.statusBadge, { backgroundColor: palette.bg, borderColor: palette.border }]}>
-      <Text style={[styles.statusBadgeText, { color: palette.text }]}>{normalized || "-"}</Text>
-    </View>
-  );
-}
-
-function ReportCard({ report }: { report: StudentReport }) {
-  return (
-    <View style={styles.card}>
-      <View style={styles.sectionHeader}>
-        <View>
-          <Text style={styles.sectionTitle}>{report.student?.name || "-"}</Text>
-          <Text style={styles.muted}>
-            {report.exam?.name || "-"} | {report.exam?.class_name || "-"} / {report.exam?.section_name || "-"}
-          </Text>
-        </View>
-        <View>
-          <Text style={styles.metric}>Total: {report.summary?.total ?? 0}</Text>
-          <Text style={styles.metric}>Percentage: {report.summary?.percentage ?? 0}%</Text>
-        </View>
-      </View>
-
-      {(report.subjects || []).map((row) => (
-        <View key={row.subject} style={styles.reportRow}>
-          <Text style={styles.studentName}>{row.subject}</Text>
-          <Text style={styles.muted}>
-            Marks: {row.marks} | Max: {row.max_marks} | Pass: {row.pass_marks ?? "-"}
-          </Text>
-        </View>
-      ))}
-    </View>
-  );
-}
-
-function getErrorMessage(err: unknown, fallback: string) {
-  if (
-    typeof err === "object" &&
-    err &&
-    "response" in err &&
-    typeof (err as { response?: { data?: { message?: string } } }).response?.data?.message ===
-      "string"
-  ) {
-    return (err as { response?: { data?: { message?: string } } }).response?.data?.message || fallback;
-  }
-  if (err instanceof Error && err.message) {
-    return err.message;
-  }
-  return fallback;
-}
-
-const styles = StyleSheet.create({
-  root: {
-    gap: 12,
-    paddingBottom: 24,
-  },
+function createStyles(theme: typeof DEFAULT_THEME) {
+return StyleSheet.create({
+  root: { flex: 1 },
+  content: { gap: 14, paddingBottom: 8 },
   centered: {
-    minHeight: 260,
+    flex: 1,
+    minHeight: 320,
     alignItems: "center",
     justifyContent: "center",
   },
   heroCard: {
+    backgroundColor: theme.card,
+    borderRadius: 24,
     borderWidth: 1,
-    borderColor: "#e2e8f0",
-    borderRadius: 12,
-    backgroundColor: "#ffffff",
-    padding: 12,
+    borderColor: theme.border,
+    padding: 18,
   },
+  heroCopy: { gap: 6 },
   title: {
-    color: "#0f172a",
-    fontWeight: "700",
-    fontSize: 18,
+    color: theme.text,
+    fontWeight: "800",
+    fontSize: 22,
   },
   subtitle: {
-    marginTop: 4,
-    color: "#64748b",
-    fontSize: 12,
-    fontWeight: "600",
+    color: theme.subText,
+    lineHeight: 20,
   },
-  card: {
+  noticeCard: {
     borderWidth: 1,
-    borderColor: "#e2e8f0",
-    borderRadius: 12,
-    backgroundColor: "#ffffff",
-    padding: 12,
-    gap: 12,
+    borderRadius: 18,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
   },
-  sectionHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    gap: 12,
+  noticeTitle: {
+    color: theme.text,
+    fontWeight: "800",
+    marginBottom: 2,
   },
-  sectionTitle: {
-    color: "#0f172a",
-    fontWeight: "700",
-    fontSize: 16,
+  noticeMessage: {
+    color: theme.subText,
   },
-  muted: {
-    color: "#64748b",
-    fontSize: 12,
-  },
-  metric: {
-    color: "#334155",
-    fontWeight: "600",
-    fontSize: 12,
-    textAlign: "right",
-  },
-  group: {
-    gap: 8,
-  },
-  inputLabel: {
-    color: "#334155",
-    fontWeight: "600",
-    fontSize: 12,
-  },
-  chipWrap: {
+  tabsRow: {
     flexDirection: "row",
     flexWrap: "wrap",
     gap: 8,
   },
-  chip: {
+  tabChip: {
     borderWidth: 1,
-    borderColor: "#cbd5e1",
+    borderColor: theme.border,
     borderRadius: 999,
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    backgroundColor: "#ffffff",
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    backgroundColor: theme.card,
   },
-  chipActive: {
+  tabChipActive: {
     borderColor: "#0f172a",
-    backgroundColor: "#e2e8f0",
+    backgroundColor: "#0f172a",
   },
-  chipText: {
-    color: "#334155",
-    fontWeight: "600",
+  tabChipText: {
+    color: theme.subText,
+    fontWeight: "700",
     fontSize: 12,
   },
-  chipTextActive: {
-    color: "#0f172a",
+  tabChipTextActive: {
+    color: "#ffffff",
+  },
+  summaryGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 10,
+  },
+  summaryCard: {
+    width: "48%",
+    minHeight: 84,
+    borderWidth: 1,
+    borderRadius: 18,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    justifyContent: "space-between",
+  },
+  summaryValue: {
+    fontSize: 24,
+    fontWeight: "800",
+  },
+  summaryLabel: {
+    color: theme.subText,
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  sectionCard: {
+    backgroundColor: theme.card,
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: theme.border,
+    padding: 16,
+    gap: 12,
+  },
+  rowBetween: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: 10,
+  },
+  sectionTitle: {
+    color: theme.text,
+    fontWeight: "800",
+    fontSize: 16,
+  },
+  sectionHint: {
+    color: theme.subText,
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  inputLabel: {
+    color: theme.text,
+    fontWeight: "700",
   },
   input: {
     borderWidth: 1,
-    borderColor: "#cbd5e1",
-    borderRadius: 10,
-    backgroundColor: "#ffffff",
+    borderColor: theme.border,
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 11,
+    backgroundColor: theme.inputBg,
+    color: theme.text,
+  },
+  filterWrap: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  filterChip: {
+    borderWidth: 1,
+    borderColor: theme.border,
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    backgroundColor: theme.cardMuted,
+  },
+  filterChipActive: {
+    borderColor: "#0f172a",
+    backgroundColor: "#0f172a",
+  },
+  filterChipText: {
+    color: theme.subText,
+    fontWeight: "700",
+    fontSize: 12,
+  },
+  filterChipTextActive: {
+    color: "#ffffff",
+  },
+  scopeCard: {
+    minWidth: 132,
+    borderWidth: 1,
+    borderColor: theme.border,
+    borderRadius: 14,
     paddingHorizontal: 12,
     paddingVertical: 10,
+    backgroundColor: theme.card,
+    gap: 4,
+  },
+  scopeCardActive: {
+    borderColor: "#0f172a",
+    backgroundColor: "#0f172a",
+  },
+  scopeCardTitle: {
+    color: theme.text,
+    fontWeight: "700",
+  },
+  scopeCardTitleActive: {
+    color: "#ffffff",
+  },
+  scopeCardMeta: {
+    color: theme.subText,
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  scopeCardMetaActive: {
+    color: "rgba(255,255,255,0.72)",
   },
   actionRow: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 8,
+    gap: 10,
   },
   actionWrap: {
     flexDirection: "row",
@@ -804,37 +1479,49 @@ const styles = StyleSheet.create({
   },
   primaryBtn: {
     backgroundColor: "#0f172a",
-    paddingHorizontal: 12,
-    paddingVertical: 9,
-    borderRadius: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 11,
+    borderRadius: 12,
     alignItems: "center",
     justifyContent: "center",
   },
   primaryBtnText: {
     color: "#ffffff",
-    fontWeight: "600",
+    fontWeight: "700",
   },
   secondaryBtn: {
     borderWidth: 1,
-    borderColor: "#cbd5e1",
-    backgroundColor: "#ffffff",
-    paddingHorizontal: 12,
-    paddingVertical: 9,
-    borderRadius: 8,
+    borderColor: theme.border,
+    backgroundColor: theme.card,
+    paddingHorizontal: 14,
+    paddingVertical: 11,
+    borderRadius: 12,
     alignItems: "center",
     justifyContent: "center",
   },
   secondaryBtnText: {
     color: "#334155",
-    fontWeight: "600",
+    fontWeight: "700",
+  },
+  successBtn: {
+    backgroundColor: "#15803d",
+    paddingHorizontal: 14,
+    paddingVertical: 11,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  successBtnText: {
+    color: "#ffffff",
+    fontWeight: "700",
   },
   deleteBtn: {
+    backgroundColor: "#fee2e2",
     borderWidth: 1,
     borderColor: "#fecaca",
-    backgroundColor: "#fee2e2",
-    paddingHorizontal: 12,
-    paddingVertical: 9,
-    borderRadius: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 11,
+    borderRadius: 12,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -842,35 +1529,10 @@ const styles = StyleSheet.create({
     color: "#b91c1c",
     fontWeight: "700",
   },
-  summaryGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
-  },
-  summaryCard: {
-    minWidth: 100,
-    borderWidth: 1,
-    borderColor: "#e2e8f0",
-    borderRadius: 12,
-    backgroundColor: "#ffffff",
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-  },
-  summaryValue: {
-    color: "#0f172a",
-    fontWeight: "800",
-    fontSize: 16,
-  },
-  summaryLabel: {
-    marginTop: 4,
-    color: "#64748b",
-    fontWeight: "600",
-    fontSize: 12,
-  },
   studentCard: {
     borderWidth: 1,
     borderColor: "#e2e8f0",
-    borderRadius: 12,
+    borderRadius: 16,
     backgroundColor: "#f8fafc",
     padding: 12,
     gap: 10,
@@ -879,15 +1541,18 @@ const styles = StyleSheet.create({
     borderColor: "#0f172a",
     backgroundColor: "#eef2ff",
   },
-  studentHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    gap: 8,
+  studentMeta: {
+    flex: 1,
+    gap: 2,
   },
   studentName: {
     color: "#0f172a",
     fontWeight: "700",
     fontSize: 14,
+  },
+  mutedText: {
+    color: "#64748b",
+    fontSize: 12,
   },
   statusBadge: {
     borderWidth: 1,
@@ -898,43 +1563,57 @@ const styles = StyleSheet.create({
   statusBadgeText: {
     fontSize: 12,
     fontWeight: "700",
-    textTransform: "capitalize",
-  },
-  marksRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "flex-end",
-    gap: 10,
   },
   marksBox: {
     flex: 1,
     gap: 6,
+  },
+  marksInput: {
+    maxWidth: 120,
   },
   marksValue: {
     color: "#0f172a",
     fontSize: 20,
     fontWeight: "800",
   },
-  reportRow: {
-    borderTopWidth: 1,
-    borderTopColor: "#e2e8f0",
-    paddingTop: 10,
+  emptyText: {
+    color: "#64748b",
   },
   infoCard: {
     borderWidth: 1,
     borderColor: "#e2e8f0",
-    borderRadius: 10,
-    backgroundColor: "#f8fafc",
+    borderRadius: 16,
     padding: 12,
+    backgroundColor: "#f8fafc",
     gap: 4,
   },
-  infoLabel: {
-    color: "#64748b",
-    fontSize: 12,
-    fontWeight: "600",
-  },
-  infoValue: {
+  infoTitle: {
     color: "#0f172a",
-    fontWeight: "700",
+    fontWeight: "800",
+  },
+  infoText: {
+    color: "#475569",
+    lineHeight: 18,
+  },
+  subjectRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: 10,
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
+    borderRadius: 14,
+    backgroundColor: "#ffffff",
+    padding: 12,
+  },
+  subjectMarks: {
+    alignItems: "flex-end",
+    gap: 2,
+  },
+  subjectMarksValue: {
+    color: "#0f172a",
+    fontWeight: "800",
+    fontSize: 18,
   },
 });
+}

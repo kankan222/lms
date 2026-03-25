@@ -165,3 +165,88 @@ export async function getClassOverview() {
      ORDER BY c.name ASC, sec.name ASC`
   );
 }
+
+export async function getStudentAttendanceTrend(days = 7) {
+  const safeDays = Math.max(1, Math.min(31, Number(days) || 7));
+  return query(
+    `SELECT
+      sess.date AS attendance_date,
+      sa.status,
+      COUNT(*) AS total
+     FROM attendance_sessions sess
+     JOIN student_attendance sa
+       ON sa.attendance_session_id = sess.id
+     WHERE sess.attendance_type = 'student'
+       AND sess.approval_status = 'approved'
+       AND sess.date >= DATE_SUB(CURDATE(), INTERVAL ${safeDays - 1} DAY)
+     GROUP BY sess.date, sa.status
+     ORDER BY sess.date ASC`
+  );
+}
+
+export async function getTeacherAttendanceTrend(days = 7) {
+  const safeDays = Math.max(1, Math.min(31, Number(days) || 7));
+  return query(
+    `SELECT
+      attendance_date,
+      status,
+      COUNT(*) AS total
+     FROM teacher_daily_attendance
+     WHERE attendance_date >= DATE_SUB(CURDATE(), INTERVAL ${safeDays - 1} DAY)
+     GROUP BY attendance_date, status
+     ORDER BY attendance_date ASC`
+  );
+}
+
+export async function getAdmissionsTrend(months = 6) {
+  const safeMonths = Math.max(1, Math.min(12, Number(months) || 6));
+  return query(
+    `SELECT
+      DATE_FORMAT(date_of_admission, '%Y-%m') AS bucket,
+      COUNT(*) AS total
+     FROM students
+     WHERE date_of_admission IS NOT NULL
+       AND date_of_admission >= DATE_SUB(DATE_FORMAT(CURDATE(), '%Y-%m-01'), INTERVAL ${safeMonths - 1} MONTH)
+     GROUP BY DATE_FORMAT(date_of_admission, '%Y-%m')
+     ORDER BY bucket ASC`
+  );
+}
+
+export async function getFeeCollectionTrend(months = 6) {
+  const safeMonths = Math.max(1, Math.min(12, Number(months) || 6));
+  return query(
+    `SELECT
+      DATE_FORMAT(p.created_at, '%Y-%m') AS bucket,
+      SUM(p.amount_paid) AS total
+     FROM payments p
+     WHERE p.status = 'approved'
+       AND p.created_at >= DATE_SUB(DATE_FORMAT(CURDATE(), '%Y-%m-01'), INTERVAL ${safeMonths - 1} MONTH)
+     GROUP BY DATE_FORMAT(p.created_at, '%Y-%m')
+     ORDER BY bucket ASC`
+  );
+}
+
+export async function getFeeStatusBreakdown() {
+  return query(
+    `SELECT
+      sf.status,
+      COUNT(*) AS total_items,
+      COALESCE(SUM(sf.amount), 0) AS total_amount,
+      COALESCE(SUM(sf.paid_amount), 0) AS paid_amount,
+      COALESCE(SUM(GREATEST(sf.amount - sf.paid_amount, 0)), 0) AS outstanding_amount
+     FROM (
+       SELECT
+         student_fees.id,
+         student_fees.status,
+         student_fees.amount,
+         COALESCE(SUM(payments.amount_paid), 0) AS paid_amount
+       FROM student_fees
+       LEFT JOIN payments
+         ON payments.student_fee_id = student_fees.id
+        AND payments.status = 'approved'
+       GROUP BY student_fees.id, student_fees.status, student_fees.amount
+     ) sf
+     GROUP BY sf.status
+     ORDER BY FIELD(sf.status, 'paid', 'partial', 'pending')`
+  );
+}

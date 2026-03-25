@@ -17,6 +17,10 @@ const PERMISSIONS = [
   "academic.update",
   "academic.delete",
   "attendance.take",
+  "student_attendance.take",
+  "student_attendance.view",
+  "student_attendance.review",
+  "student_attendance.notify",
   "subjects.view",
   "subjects.create",
   "subjects.update",
@@ -57,11 +61,11 @@ const PERMISSIONS = [
 
 const ROLE_PERMISSION_MAP = {
   super_admin: PERMISSIONS,
-  teacher: ["marks.enter", "marks.view", "teacher.view", "attendance.take", "subjects.view", "exams.view", "messages.view", "messages.send"],
+  teacher: ["marks.enter", "marks.view", "teacher.view", "attendance.take", "student_attendance.take", "student_attendance.view", "subjects.view", "exams.view", "messages.view", "messages.send"],
   student: [],
-  parent: ["student.view", "fee.view", "marks.view", "messages.view", "messages.send"],
+  parent: ["student.view", "student_attendance.view", "fee.view", "marks.view", "messages.view", "messages.send"],
   accounts: ["payment.view", "payment.create", "payment.update", "payment.delete", "messages.view", "messages.send"],
-  staff: ["staff.view", "exams.create", "exams.view", "exams.update", "exams.delete", "marks.view", "marks.approve", "messages.view", "messages.send"],
+  staff: ["staff.view", "exams.create", "exams.view", "exams.update", "exams.delete", "marks.view", "marks.approve", "student_attendance.view", "student_attendance.review", "student_attendance.notify", "messages.view", "messages.send"],
 };
 
 const USERS = [

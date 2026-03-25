@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { SafeAreaView, StyleSheet, Text, View, Pressable } from "react-native";
+import { StyleSheet, Text, View, Pressable } from "react-native";
 import { useAuthStore } from "../store/authStore";
 import { getDashboardSummary } from "../services/dashboardService";
 
@@ -20,7 +20,7 @@ export default function DashboardScreen() {
   }, []);
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <View style={styles.safeArea}>
       <View style={styles.container}>
         <Text style={styles.title}>Dashboard</Text>
         <Text style={styles.subtitle}>Welcome {user?.name ?? "User"}</Text>
@@ -42,7 +42,7 @@ export default function DashboardScreen() {
           <Text style={styles.logoutText}>Logout</Text>
         </Pressable>
       </View>
-    </SafeAreaView>
+    </View>
   );
 }
 

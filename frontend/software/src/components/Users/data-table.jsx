@@ -15,7 +15,8 @@ import {
 } from "@/components/ui/table"
 
 export function DataTable({ columns, data }) {
-
+  // TanStack Table is intentionally used here as a library boundary.
+  // eslint-disable-next-line react-hooks/incompatible-library
   const table = useReactTable({
     data,
     columns,

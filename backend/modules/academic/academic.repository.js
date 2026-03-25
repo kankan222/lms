@@ -24,6 +24,48 @@ export async function getSessions() {
 export async function deactivateAllSessions() {
   return query(`UPDATE academic_sessions SET is_active=false`);
 }
+
+export async function updateSession(id, data) {
+  return query(
+    `UPDATE academic_sessions
+     SET name = ?, start_date = ?, end_date = ?, is_active = ?
+     WHERE id = ?`,
+    [data.name, data.startDate, data.endDate, data.isActive || false, id]
+  );
+}
+
+export async function deleteSession(id) {
+  return query(`DELETE FROM academic_sessions WHERE id = ?`, [id]);
+}
+
+export async function getStreams() {
+  return query(`
+    SELECT id, name
+    FROM streams
+    ORDER BY name ASC, id ASC
+  `);
+}
+
+export async function createStream(name) {
+  return query(
+    `INSERT INTO streams (name)
+     VALUES (?)`,
+    [name]
+  );
+}
+
+export async function updateStream(id, name) {
+  return query(
+    `UPDATE streams
+     SET name = ?
+     WHERE id = ?`,
+    [name, id]
+  );
+}
+
+export async function deleteStream(id) {
+  return query(`DELETE FROM streams WHERE id = ?`, [id]);
+}
 // CLASSES 7 SECTIONS
 export async function getClasses() {
   return query(`

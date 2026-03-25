@@ -4,12 +4,15 @@ import {
   Alert,
   Modal,
   Pressable,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
   TextInput,
   View,
 } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
+import TopNotice from "../../components/feedback/TopNotice";
 import { getClassStructure, getSessions } from "../../services/classesService";
 import {
   createExam,
@@ -22,6 +25,8 @@ import {
 } from "../../services/examsService";
 import { getSubjects, type SubjectItem } from "../../services/subjectsService";
 import { useAuthStore } from "../../store/authStore";
+import SelectField from "../../components/form/SelectField";
+import { useAppTheme } from "../../theme/AppThemeProvider";
 
 type ClassItem = {
   id: number;
@@ -41,7 +46,12 @@ type SubjectRow = {
   subject_id: number;
   subject_name: string;
   max_marks: number;
-  
+};
+
+type NoticeState = {
+  tone: "success" | "error";
+  title: string;
+  message: string;
 };
 
 type FormState = {
@@ -69,6 +79,7 @@ function formatScopeLabel(scope?: string | null) {
 }
 
 export default function ExamsTab() {
+  const { theme, isDark } = useAppTheme();
   const user = useAuthStore((state) => state.user);
   const permissions = user?.permissions || [];
   const roles = user?.roles || [];
@@ -84,6 +95,7 @@ export default function ExamsTab() {
   const [allSubjects, setAllSubjects] = useState<SubjectItem[]>([]);
 
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [open, setOpen] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
@@ -91,7 +103,9 @@ export default function ExamsTab() {
   const [sessionFilter, setSessionFilter] = useState("");
   const [classFilter, setClassFilter] = useState("");
   const [sectionFilter, setSectionFilter] = useState("");
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
+  const [notice, setNotice] = useState<NoticeState | null>(null);
 
   const classMap = useMemo(() => new Map(classes.map((c) => [String(c.id), c])), [classes]);
   const selectedClass = useMemo(
@@ -127,10 +141,17 @@ export default function ExamsTab() {
     () => filteredExams.reduce((sum, exam) => sum + (examDetailsMap[exam.id]?.subjects?.length || 0), 0),
     [examDetailsMap, filteredExams]
   );
+  const activeFilterCount = [search, sessionFilter, classFilter, sectionFilter].filter(Boolean).length;
 
   useEffect(() => {
     loadInitial();
   }, []);
+
+  useEffect(() => {
+    if (!notice) return undefined;
+    const timer = setTimeout(() => setNotice(null), 3200);
+    return () => clearTimeout(timer);
+  }, [notice]);
 
   useEffect(() => {
     loadExamList();
@@ -159,6 +180,10 @@ export default function ExamsTab() {
     } finally {
       setLoading(false);
     }
+  }
+
+  function showNotice(title: string, message: string, tone: "success" | "error" = "success") {
+    setNotice({ title, message, tone });
   }
 
   async function loadExamList() {
@@ -315,8 +340,12 @@ export default function ExamsTab() {
       await loadExamList();
       setOpen(false);
       resetForm();
+      showNotice(
+        editingId ? "Exam Updated" : "Exam Created",
+        editingId ? "Exam updated successfully." : "Exam created successfully."
+      );
     } catch (err: unknown) {
-      Alert.alert("Save failed", getErrorMessage(err, "Failed to save exam."));
+      showNotice("Save Failed", getErrorMessage(err, "Failed to save exam."), "error");
     } finally {
       setSaving(false);
     }
@@ -356,190 +385,202 @@ export default function ExamsTab() {
           try {
             await deleteExam(examId);
             await loadExamList();
+            showNotice("Exam Deleted", "Exam deleted successfully.");
           } catch (err: unknown) {
-            Alert.alert("Delete failed", getErrorMessage(err, "Failed to delete exam."));
+            showNotice("Delete Failed", getErrorMessage(err, "Failed to delete exam."), "error");
           }
         },
       },
     ]);
   }
 
+  async function handleRefresh() {
+    setRefreshing(true);
+    try {
+      await loadInitial();
+    } finally {
+      setRefreshing(false);
+    }
+  }
+
   return (
-    <View style={styles.root}>
-      <View style={styles.heroCard}>
+    <ScrollView
+      style={styles.root}
+      contentContainerStyle={styles.content}
+      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />}
+      showsVerticalScrollIndicator={false}
+    >
+      <View style={[styles.heroCard, { backgroundColor: theme.card, borderColor: theme.border, borderRadius: 24, padding: 18, gap: 14 }]}>
         <View style={styles.heroText}>
-          <Text style={styles.title}>Exams</Text>
-          <Text style={styles.subtitle}>
-            Manage exam scopes and subject marks with the same structure used in the web software.
+          <Text style={[styles.title, { color: theme.text, fontWeight: "800", fontSize: 22 }]}>Exams</Text>
+          <Text style={[styles.subtitle, { color: theme.subText, lineHeight: 20 }]}>
+            Manage exam setup, scopes, and subject marks
           </Text>
         </View>
-        {canCreate ? (
-          <Pressable
-            style={styles.primaryBtn}
-            onPress={() => {
-              resetForm();
-              setOpen(true);
-            }}
-          >
-            <Text style={styles.primaryBtnText}>Add Exam</Text>
-          </Pressable>
-        ) : null}
+        <View style={styles.heroActions}>
+          <View style={styles.heroPrimaryActions}>
+            <Pressable
+              style={[styles.iconUtilityBtn, { borderColor: theme.border, backgroundColor: isDark ? theme.cardMuted : "#fff" }]}
+              onPress={handleRefresh}
+            >
+              <Ionicons name="refresh-outline" size={18} color={theme.icon} />
+            </Pressable>
+            {canCreate ? (
+              <Pressable
+                style={[styles.heroPrimaryBtn, { backgroundColor: isDark ? "#e2e8f0" : "#0f172a" }]}
+                onPress={() => {
+                  resetForm();
+                  setOpen(true);
+                }}
+              >
+                <Text style={[styles.primaryBtnText, { color: isDark ? "#0f172a" : "#fff" }]}>Add Exam</Text>
+              </Pressable>
+            ) : null}
+          </View>
+        </View>
       </View>
 
+      <TopNotice notice={notice} />
+
       <View style={styles.summaryRow}>
-        <View style={styles.summaryCard}>
+        <View style={[styles.summaryCard, { backgroundColor: "#dbeafe" }]}>
           <Text style={styles.summaryLabel}>Visible Exams</Text>
-          <Text style={styles.summaryValue}>{filteredExams.length}</Text>
+          <Text style={[styles.summaryValue, { color: "#1d4ed8" }]}>{filteredExams.length}</Text>
         </View>
-        <View style={styles.summaryCard}>
+        <View style={[styles.summaryCard, { backgroundColor: "#dcfce7" }]}>
           <Text style={styles.summaryLabel}>Scopes</Text>
-          <Text style={styles.summaryValue}>{totalScopes}</Text>
+          <Text style={[styles.summaryValue, { color: "#15803d" }]}>{totalScopes}</Text>
         </View>
-        <View style={styles.summaryCard}>
+        <View style={[styles.summaryCard, { backgroundColor: "#fef3c7" }]}>
           <Text style={styles.summaryLabel}>Subjects</Text>
-          <Text style={styles.summaryValue}>{totalSubjects}</Text>
+          <Text style={[styles.summaryValue, { color: "#b45309" }]}>{totalSubjects}</Text>
         </View>
       </View>
 
       <View style={styles.filterCard}>
         <View style={styles.sectionHeader}>
-          <Text style={styles.filterTitle}>Filters</Text>
-          <Pressable style={styles.secondaryBtn} onPress={resetFilters}>
-            <Text style={styles.secondaryBtnText}>Reset</Text>
+          <Text style={styles.filterTitle}>Browse Exams</Text>
+          <Text style={styles.filterHint}>{filteredExams.length} visible</Text>
+        </View>
+        <View style={styles.searchRow}>
+          <TextInput
+            style={[styles.input, styles.searchInput]}
+            value={search}
+            onChangeText={setSearch}
+            placeholder="Search by exam, session, class, or section"
+            placeholderTextColor="#94a3b8"
+          />
+          <Pressable style={styles.iconUtilityBtn} onPress={() => setFiltersOpen(true)}>
+            <Ionicons name="options-outline" size={18} color="#334155" />
           </Pressable>
         </View>
+        {activeFilterCount ? (
+          <Text style={styles.activeFiltersText}>
+            {sessionFilter ? `Session: ${sessions.find((s) => String(s.id) === sessionFilter)?.name || "-"}` : "All sessions"}
+            {classFilter ? ` - Class: ${selectedClass?.name || "-"}` : ""}
+            {sectionFilter ? ` - Section: ${filterSections.find((s) => String(s.id) === sectionFilter)?.name || "-"}` : ""}
+          </Text>
+        ) : null}
+      </View>
 
-        <TextInput
-          style={styles.input}
-          value={search}
-          onChangeText={setSearch}
-          placeholder="Search by exam, session, class, or section"
-          placeholderTextColor="#94a3b8"
-        />
+      <Modal visible={filtersOpen} transparent animationType="fade" onRequestClose={() => setFiltersOpen(false)}>
+        <View style={styles.popoverOverlay}>
+          <Pressable style={styles.popoverBackdrop} onPress={() => setFiltersOpen(false)} />
+          <View style={styles.filterPopover}>
+            <View style={styles.sectionHeader}>
+              <Text style={styles.filterTitle}>Filters</Text>
+              <Pressable onPress={resetFilters}>
+                <Text style={styles.resetText}>Reset</Text>
+              </Pressable>
+            </View>
 
-        <Text style={[styles.inputLabel, styles.spaceTop]}>Session</Text>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.row}>
-          <Pressable
-            style={[styles.chip, !sessionFilter && styles.chipActive]}
-            onPress={() => setSessionFilter("")}
-          >
-            <Text style={[styles.chipText, !sessionFilter && styles.chipTextActive]}>All Sessions</Text>
-          </Pressable>
-          {sessions.map((s) => (
-            <Pressable
-              key={s.id}
-              style={[styles.chip, sessionFilter === String(s.id) && styles.chipActive]}
-              onPress={() => setSessionFilter(String(s.id))}
-            >
-              <Text style={[styles.chipText, sessionFilter === String(s.id) && styles.chipTextActive]}>
-                {s.name}
-              </Text>
-            </Pressable>
-          ))}
-        </ScrollView>
+            <SelectField
+              label="Session"
+              value={sessionFilter}
+              onChange={setSessionFilter}
+              options={sessions.map((s) => ({ label: s.name, value: String(s.id) }))}
+              placeholder="All sessions"
+              allowClear
+              clearLabel="All sessions"
+            />
 
-        <Text style={[styles.inputLabel, styles.spaceTop]}>Class</Text>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.row}>
-          <Pressable
-            style={[styles.chip, !classFilter && styles.chipActive]}
-            onPress={() => {
-              setClassFilter("");
-              setSectionFilter("");
-            }}
-          >
-            <Text style={[styles.chipText, !classFilter && styles.chipTextActive]}>All Classes</Text>
-          </Pressable>
-          {classes.map((c) => (
-            <Pressable
-              key={c.id}
-              style={[styles.chip, classFilter === String(c.id) && styles.chipActive]}
-              onPress={() => {
-                setClassFilter(String(c.id));
+            <SelectField
+              label="Class"
+              value={classFilter}
+              onChange={(value: string) => {
+                setClassFilter(value);
                 setSectionFilter("");
               }}
-            >
-              <Text style={[styles.chipText, classFilter === String(c.id) && styles.chipTextActive]}>
-                {c.name}
-              </Text>
-            </Pressable>
-          ))}
-        </ScrollView>
+              options={classes.map((c) => ({ label: c.name, value: String(c.id) }))}
+              placeholder="All classes"
+              allowClear
+              clearLabel="All classes"
+            />
 
-        <Text style={[styles.inputLabel, styles.spaceTop]}>Section</Text>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.row}>
-          <Pressable
-            style={[styles.chip, !sectionFilter && styles.chipActive]}
-            onPress={() => setSectionFilter("")}
-          >
-            <Text style={[styles.chipText, !sectionFilter && styles.chipTextActive]}>All Sections</Text>
-          </Pressable>
-          {filterSections.map((s) => (
-            <Pressable
-              key={s.id}
-              style={[styles.chip, sectionFilter === String(s.id) && styles.chipActive]}
-              onPress={() => setSectionFilter(String(s.id))}
-            >
-              <Text style={[styles.chipText, sectionFilter === String(s.id) && styles.chipTextActive]}>
-                {s.name}
-                {s.medium ? ` (${s.medium})` : ""}
-              </Text>
-            </Pressable>
-          ))}
-        </ScrollView>
-      </View>
+            <SelectField
+              label="Section"
+              value={sectionFilter}
+              onChange={setSectionFilter}
+              options={filterSections.map((s) => ({
+                label: `${s.name}${s.medium ? ` (${s.medium})` : ""}`,
+                value: String(s.id),
+              }))}
+              placeholder="All sections"
+              allowClear
+              clearLabel="All sections"
+              disabled={!selectedClass}
+            />
+
+            <View style={styles.rowActions}>
+              <Pressable style={styles.secondaryBtn} onPress={() => setFiltersOpen(false)}>
+                <Text style={styles.secondaryBtnText}>Apply</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
 
       {loading ? (
         <View style={styles.centered}>
           <ActivityIndicator size="large" color="#0f172a" />
         </View>
       ) : (
-        <ScrollView style={styles.listWrap} contentContainerStyle={styles.listContent}>
+        <View style={styles.listContent}>
           {filteredExams.length ? (
             filteredExams.map((exam) => {
               const details = examDetailsMap[exam.id];
+              const scopePreview = (details?.scopes || [])
+                .slice(0, 2)
+                .map((scope) => {
+                  const classItem = classMap.get(String(scope.class_id));
+                  return `${scope.class_name} - ${scope.section_name}${classItem?.class_scope ? ` • ${formatScopeLabel(classItem.class_scope)}` : ""}`;
+                })
+                .join(" • ");
+              const subjectPreview = (details?.subjects || [])
+                .slice(0, 3)
+                .map((subject) => `${subject.subject_name} (${subject.max_marks})`)
+                .join(" • ");
               return (
               <View key={exam.id} style={styles.card}>
                 <View style={styles.cardHeader}>
                   <View style={styles.cardTitleWrap}>
                     <Text style={styles.cardTitle}>{exam.name}</Text>
-                    <Text style={styles.meta}>Session: {exam.session_name || "-"}</Text>
+                    <Text style={styles.metaCompact}>Session: {exam.session_name || "-"}</Text>
                   </View>
                   <View style={styles.countBadge}>
-                    <Text style={styles.countBadgeText}>{details?.subjects?.length || 0} Subjects</Text>
+                    <Text style={styles.countBadgeText}>{details?.subjects?.length || 0} subjects</Text>
                   </View>
                 </View>
 
-                <Text style={styles.cardSectionTitle}>Scopes</Text>
-                <View style={styles.pillWrap}>
-                  {(details?.scopes || []).length ? (
-                    (details?.scopes || []).map((scope) => {
-                      const classItem = classMap.get(String(scope.class_id));
-                      return (
-                        <View
-                          key={`${exam.id}-${scope.class_id}-${scope.section_id}`}
-                          style={styles.scopePill}
-                        >
-                          <Text style={styles.scopePillText}>
-                            {scope.class_name} - {scope.section_name}
-                            {classItem?.class_scope ? ` - ${formatScopeLabel(classItem.class_scope)}` : ""}
-                          </Text>
-                        </View>
-                      );
-                    })
-                  ) : (
-                    <Text style={styles.meta}>No scope details available.</Text>
-                  )}
-                </View>
-
-                <Text style={[styles.cardSectionTitle, styles.spaceTop]}>Subjects</Text>
-                <View style={styles.pillWrap}>
-                  {(details?.subjects || []).map((subject) => (
-                    <View key={`${exam.id}-${subject.subject_id}`} style={styles.subjectPill}>
-                      <Text style={styles.scopePillText}>
-                        {subject.subject_name} - {subject.max_marks}
-                      </Text>
-                    </View>
-                  ))}
+                <View style={styles.metaStack}>
+                  <Text style={styles.metaCompact}>
+                    Scopes: {(details?.scopes || []).length || 0}
+                    {scopePreview ? ` • ${scopePreview}` : " • No scope details"}
+                  </Text>
+                  <Text style={styles.metaCompact}>
+                    Subjects: {(details?.subjects || []).length || 0}
+                    {subjectPreview ? ` • ${subjectPreview}` : ""}
+                  </Text>
                 </View>
 
                 {(canUpdate || canDelete) ? (
@@ -565,7 +606,7 @@ export default function ExamsTab() {
               <Text style={styles.emptyText}>Try a different filter or create a new exam.</Text>
             </View>
           )}
-        </ScrollView>
+        </View>
       )}
 
       <Modal visible={open} transparent animationType="slide" onRequestClose={() => setOpen(false)}>
@@ -682,17 +723,17 @@ export default function ExamsTab() {
             </ScrollView>
 
             <View style={styles.modalFooter}>
-              <Pressable style={styles.secondaryBtn} onPress={() => setOpen(false)} disabled={saving}>
+              <Pressable style={styles.modalSecondaryBtn} onPress={() => setOpen(false)} disabled={saving}>
                 <Text style={styles.secondaryBtnText}>Cancel</Text>
               </Pressable>
-              <Pressable style={styles.primaryBtn} onPress={submitForm} disabled={saving}>
+              <Pressable style={styles.modalPrimaryBtn} onPress={submitForm} disabled={saving}>
                 <Text style={styles.primaryBtnText}>{saving ? "Saving..." : editingId ? "Update" : "Save"}</Text>
               </Pressable>
             </View>
           </View>
         </View>
       </Modal>
-    </View>
+    </ScrollView>
   );
 }
 
@@ -722,7 +763,11 @@ function getErrorMessage(err: unknown, fallback: string) {
 
 const styles = StyleSheet.create({
   root: {
+    flex: 1,
+  },
+  content: {
     gap: 12,
+    paddingBottom: 8,
   },
   heroCard: {
     borderWidth: 1,
@@ -730,13 +775,42 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     backgroundColor: "#ffffff",
     padding: 16,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
     gap: 12,
+  },
+  heroActions: {
+    flexDirection: "row",
+    gap: 10,
+  },
+  heroPrimaryActions: {
+    flexDirection: "row",
+    gap: 10,
+    flex: 1,
+    alignItems: "center",
   },
   heroText: {
     flex: 1,
+  },
+  noticeCard: {
+    borderRadius: 18,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderWidth: 1,
+  },
+  noticeSuccessCard: {
+    backgroundColor: "#f0fdf4",
+    borderColor: "#bbf7d0",
+  },
+  noticeErrorCard: {
+    backgroundColor: "#fef2f2",
+    borderColor: "#fecaca",
+  },
+  noticeTitle: {
+    color: "#0f172a",
+    fontWeight: "800",
+    marginBottom: 2,
+  },
+  noticeMessage: {
+    color: "#475569",
   },
   title: {
     color: "#0f172a",
@@ -782,6 +856,23 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     fontSize: 16,
   },
+  filterHint: {
+    color: "#64748b",
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  searchRow: {
+    flexDirection: "row",
+    gap: 10,
+  },
+  searchInput: {
+    flex: 1,
+  },
+  activeFiltersText: {
+    color: "#64748b",
+    fontSize: 12,
+    fontWeight: "600",
+  },
   primaryBtn: {
     backgroundColor: "#0f172a",
     paddingHorizontal: 14,
@@ -789,6 +880,61 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     alignItems: "center",
     justifyContent: "center",
+  },
+  heroPrimaryBtn: {
+    flex: 1,
+    backgroundColor: "#0f172a",
+    paddingHorizontal: 14,
+    paddingVertical: 11,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  secondaryBtnCompact: {
+    borderWidth: 1,
+    borderColor: "#cbd5e1",
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#fff",
+  },
+  iconUtilityBtn: {
+    width: 42,
+    height: 42,
+    borderWidth: 1,
+    borderColor: "#cbd5e1",
+    paddingHorizontal: 0,
+    paddingVertical: 0,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#fff",
+  },
+  popoverOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: "flex-start",
+    paddingTop: 250,
+    paddingHorizontal: 24,
+  },
+  popoverBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "transparent",
+  },
+  filterPopover: {
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
+    borderRadius: 18,
+    backgroundColor: "#ffffff",
+    padding: 14,
+    gap: 12,
+    marginLeft: "auto",
+    width: "82%",
+  },
+  resetText: {
+    color: "#15803d",
+    fontWeight: "700",
   },
   primaryBtnText: {
     color: "#fff",
@@ -837,9 +983,11 @@ const styles = StyleSheet.create({
   card: {
     borderWidth: 1,
     borderColor: "#e2e8f0",
-    borderRadius: 16,
+    borderRadius: 20,
     backgroundColor: "#ffffff",
-    padding: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    gap: 8,
   },
   cardHeader: {
     flexDirection: "row",
@@ -848,15 +996,24 @@ const styles = StyleSheet.create({
   },
   cardTitleWrap: {
     flex: 1,
+    gap: 2,
   },
   cardTitle: {
     color: "#0f172a",
-    fontWeight: "700",
-    fontSize: 17,
+    fontWeight: "800",
+    fontSize: 16,
   },
   meta: {
     marginTop: 4,
     color: "#64748b",
+  },
+  metaCompact: {
+    color: "#64748b",
+    lineHeight: 17,
+    fontSize: 12.5,
+  },
+  metaStack: {
+    gap: 3,
   },
   countBadge: {
     borderRadius: 999,
@@ -902,7 +1059,7 @@ const styles = StyleSheet.create({
     fontWeight: "600",
   },
   rowActions: {
-    marginTop: 12,
+    marginTop: 4,
     flexDirection: "row",
     flexWrap: "wrap",
     gap: 8,
@@ -991,6 +1148,10 @@ const styles = StyleSheet.create({
   chipTextActive: {
     color: "#0f172a",
   },
+  resetFiltersBtn: {
+    alignSelf: "flex-start",
+    marginTop: 12,
+  },
   scopeRow: {
     borderWidth: 1,
     borderColor: "#e2e8f0",
@@ -1058,17 +1219,34 @@ const styles = StyleSheet.create({
     textAlign: "center",
   },
   modalFooter: {
-    marginTop: 12,
+    marginTop: 16,
     flexDirection: "row",
-    justifyContent: "flex-end",
     gap: 8,
+  },
+  modalPrimaryBtn: {
+    flex: 1,
+    backgroundColor: "#0f172a",
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  modalSecondaryBtn: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: "#cbd5e1",
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#fff",
   },
   spaceTop: {
     marginTop: 10,
   },
 });
-
-
 
 
 

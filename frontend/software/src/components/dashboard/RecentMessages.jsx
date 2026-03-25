@@ -1,9 +1,4 @@
-function formatDateTime(value) {
-  if (!value) return "-";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "-";
-  return date.toLocaleString();
-}
+import { formatReadableDateTime } from "../../lib/dateTime";
 
 export default function RecentMessages({ messages = [] }) {
   return (
@@ -19,7 +14,7 @@ export default function RecentMessages({ messages = [] }) {
             <p className="font-medium">{item.conversation_name}</p>
             <p className="text-sm text-muted-foreground line-clamp-2">{item.last_message || "-"}</p>
             <p className="text-xs text-muted-foreground mt-1">
-              {formatDateTime(item.last_message_time)}
+              {formatReadableDateTime(item.last_message_time)}
             </p>
           </div>
         ))}

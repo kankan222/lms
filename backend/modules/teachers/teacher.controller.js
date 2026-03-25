@@ -49,7 +49,15 @@ export async function getTeacherById(req, res, next) {
 
 export async function updateTeacher(req, res, next) {
   try {
-    await service.updateTeacher(req.params.id, req.body);
+    const photo_url = req.file ? `/uploads/teachers/${req.file.filename}` : undefined;
+    await service.updateTeacher(req.params.id, {
+      employee_id: req.body.employee_id,
+      name: req.body.name,
+      phone: req.body.phone,
+      email: req.body.email,
+      class_scope: req.body.class_scope,
+      photo_url,
+    });
     res.json({ success: true });
   } catch (err) {
     next(err);

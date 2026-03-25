@@ -6,16 +6,19 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { createSession, getSessions } from "../api/academic.api";
+import {
+  createSession,
+  deleteSession,
+  createStream,
+  deleteStream,
+  getSessions,
+  getStreams,
+  updateSession,
+  updateStream,
+} from "../api/academic.api";
 import { adminResetPassword, getMyAccount, getUsers, changeMyPassword } from "../api/users.api";
 import { usePermissions } from "../hooks/usePermissions";
-
-function formatDate(value) {
-  if (!value) return "-";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleDateString();
-}
+import { formatReadableDate } from "../lib/dateTime";
 
 function NoticeBanner({ notice }) {
   if (!notice) return null;
@@ -33,10 +36,15 @@ function NoticeBanner({ notice }) {
 }
 
 function AcademicSessionsPanel({ showNotice }) {
+  const { can } = usePermissions();
+  const canCreate = can("academic.create");
+  const canUpdate = can("academic.update");
+  const canDelete = can("academic.delete");
   const [sessions, setSessions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [editingId, setEditingId] = useState(null);
   const [form, setForm] = useState({
     name: "",
     startDate: "",
@@ -61,6 +69,16 @@ function AcademicSessionsPanel({ showNotice }) {
     }
   }
 
+  function resetForm() {
+    setEditingId(null);
+    setForm({
+      name: "",
+      startDate: "",
+      endDate: "",
+      isActive: true,
+    });
+  }
+
   async function handleSubmit(e) {
     e.preventDefault();
     setError("");
@@ -73,22 +91,42 @@ function AcademicSessionsPanel({ showNotice }) {
 
     setSaving(true);
     try {
-      await createSession({
+      const payload = {
         name,
         startDate: form.startDate,
         endDate: form.endDate,
         isActive: form.isActive,
-      });
-      setForm({
-        name: "",
-        startDate: "",
-        endDate: "",
-        isActive: true,
-      });
+      };
+
+      if (editingId) {
+        await updateSession(editingId, payload);
+        showNotice("Session Updated", "Academic session updated successfully.");
+      } else {
+        await createSession(payload);
+        showNotice("Session Created", "Academic session created successfully.");
+      }
+
+      resetForm();
       await loadSessions();
-      showNotice("Session Created", "Academic session created successfully.");
     } catch (err) {
-      setError(err?.message || "Failed to create academic session.");
+      setError(err?.message || "Failed to save academic session.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleDelete(sessionId) {
+    setError("");
+    setSaving(true);
+    try {
+      await deleteSession(sessionId);
+      if (String(editingId) === String(sessionId)) {
+        resetForm();
+      }
+      await loadSessions();
+      showNotice("Session Deleted", "Academic session deleted successfully.");
+    } catch (err) {
+      setError(err?.message || "Failed to delete academic session.");
     } finally {
       setSaving(false);
     }
@@ -98,7 +136,7 @@ function AcademicSessionsPanel({ showNotice }) {
     <div className="grid gap-4 lg:grid-cols-[360px_minmax(0,1fr)]">
       <Card>
         <CardHeader>
-          <CardTitle>Create Session</CardTitle>
+          <CardTitle>{editingId ? "Edit Session" : "Create Session"}</CardTitle>
           <CardDescription>
             Add an academic session and optionally mark it as the active one.
           </CardDescription>
@@ -111,6 +149,7 @@ function AcademicSessionsPanel({ showNotice }) {
                 value={form.name}
                 onChange={(e) => setForm((prev) => ({ ...prev, name: e.target.value }))}
                 placeholder="2026-2027"
+                disabled={!(editingId ? canUpdate : canCreate)}
               />
             </div>
 
@@ -120,6 +159,7 @@ function AcademicSessionsPanel({ showNotice }) {
                 type="date"
                 value={form.startDate}
                 onChange={(e) => setForm((prev) => ({ ...prev, startDate: e.target.value }))}
+                disabled={!(editingId ? canUpdate : canCreate)}
               />
             </div>
 
@@ -129,6 +169,7 @@ function AcademicSessionsPanel({ showNotice }) {
                 type="date"
                 value={form.endDate}
                 onChange={(e) => setForm((prev) => ({ ...prev, endDate: e.target.value }))}
+                disabled={!(editingId ? canUpdate : canCreate)}
               />
             </div>
 
@@ -137,15 +178,26 @@ function AcademicSessionsPanel({ showNotice }) {
                 type="checkbox"
                 checked={form.isActive}
                 onChange={(e) => setForm((prev) => ({ ...prev, isActive: e.target.checked }))}
+                disabled={!(editingId ? canUpdate : canCreate)}
               />
               Set as active session
             </label>
 
             {error && <p className="text-sm text-red-600">{error}</p>}
 
-            <Button type="submit" disabled={saving}>
-              {saving ? "Saving..." : "Create Session"}
-            </Button>
+            <div className="flex gap-2">
+              <Button
+                type="submit"
+                disabled={saving || !(editingId ? canUpdate : canCreate)}
+              >
+                {saving ? "Saving..." : editingId ? "Update Session" : "Create Session"}
+              </Button>
+              {editingId ? (
+                <Button type="button" variant="outline" onClick={resetForm} disabled={saving}>
+                  Cancel
+                </Button>
+              ) : null}
+            </div>
           </form>
         </CardContent>
       </Card>
@@ -167,7 +219,7 @@ function AcademicSessionsPanel({ showNotice }) {
                   <div>
                     <p className="font-semibold">{session.name}</p>
                     <p className="text-sm text-muted-foreground">
-                      {formatDate(session.start_date)} to {formatDate(session.end_date)}
+                      {formatReadableDate(session.start_date)} to {formatReadableDate(session.end_date)}
                     </p>
                   </div>
                   <span
@@ -179,6 +231,212 @@ function AcademicSessionsPanel({ showNotice }) {
                   >
                     {session.is_active ? "Active" : "Inactive"}
                   </span>
+                </div>
+                <div className="mt-3 flex gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setEditingId(session.id);
+                      setForm({
+                        name: session.name || "",
+                        startDate: String(session.start_date || "").slice(0, 10),
+                        endDate: String(session.end_date || "").slice(0, 10),
+                        isActive: Boolean(session.is_active),
+                      });
+                      setError("");
+                    }}
+                    disabled={!canUpdate || saving}
+                  >
+                    Edit
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="destructive"
+                    size="sm"
+                    onClick={() => handleDelete(session.id)}
+                    disabled={!canDelete || saving}
+                  >
+                    Delete
+                  </Button>
+                </div>
+              </div>
+            ))
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+function StreamsPanel({ showNotice }) {
+  const { can } = usePermissions();
+  const canCreate = can("academic.create");
+  const canUpdate = can("academic.update");
+  const canDelete = can("academic.delete");
+
+  const [streams, setStreams] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [form, setForm] = useState({ name: "" });
+  const [editingId, setEditingId] = useState(null);
+
+  useEffect(() => {
+    loadStreams();
+  }, []);
+
+  async function loadStreams() {
+    setLoading(true);
+    setError("");
+    try {
+      const res = await getStreams();
+      setStreams(Array.isArray(res?.data) ? res.data : []);
+    } catch (err) {
+      setError(err?.message || "Failed to load streams.");
+      setStreams([]);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function resetForm() {
+    setForm({ name: "" });
+    setEditingId(null);
+  }
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    setError("");
+
+    const name = String(form.name || "").trim();
+    if (!name) {
+      setError("Stream name is required.");
+      return;
+    }
+
+    setSaving(true);
+    try {
+      if (editingId) {
+        await updateStream(editingId, { name });
+        showNotice("Stream Updated", "Stream updated successfully.");
+      } else {
+        await createStream({ name });
+        showNotice("Stream Created", "Stream created successfully.");
+      }
+
+      resetForm();
+      await loadStreams();
+    } catch (err) {
+      setError(err?.message || "Failed to save stream.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleDelete(streamId) {
+    setError("");
+    setSaving(true);
+    try {
+      await deleteStream(streamId);
+      if (String(editingId) === String(streamId)) {
+        resetForm();
+      }
+      await loadStreams();
+      showNotice("Stream Deleted", "Stream deleted successfully.");
+    } catch (err) {
+      setError(err?.message || "Failed to delete stream.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="grid gap-4 lg:grid-cols-[360px_minmax(0,1fr)]">
+      <Card>
+        <CardHeader>
+          <CardTitle>{editingId ? "Edit Stream" : "Create Stream"}</CardTitle>
+          <CardDescription>
+            Manage higher secondary stream options used across student enrollment.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <form onSubmit={handleSubmit} className="grid gap-4">
+            <div className="grid gap-2">
+              <Label>Stream Name *</Label>
+              <Input
+                value={form.name}
+                onChange={(e) => setForm({ name: e.target.value })}
+                placeholder="Science"
+                disabled={!(editingId ? canUpdate : canCreate)}
+              />
+            </div>
+
+            {error && <p className="text-sm text-red-600">{error}</p>}
+
+            <div className="flex gap-2">
+              <Button
+                type="submit"
+                disabled={saving || !(editingId ? canUpdate : canCreate)}
+              >
+                {saving ? "Saving..." : editingId ? "Update Stream" : "Create Stream"}
+              </Button>
+              {editingId ? (
+                <Button type="button" variant="outline" onClick={resetForm} disabled={saving}>
+                  Cancel
+                </Button>
+              ) : null}
+            </div>
+          </form>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Available Streams</CardTitle>
+          <CardDescription>
+            Existing stream records from the academic module.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="grid gap-3">
+          {loading ? (
+            <p className="text-sm text-muted-foreground">Loading streams...</p>
+          ) : streams.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No streams found.</p>
+          ) : (
+            streams.map((stream) => (
+              <div
+                key={stream.id}
+                className="flex items-center justify-between gap-3 rounded-lg border bg-muted/30 px-4 py-3"
+              >
+                <div>
+                  <p className="font-semibold">{stream.name}</p>
+                  <p className="text-xs text-muted-foreground">Stream #{stream.id}</p>
+                </div>
+                <div className="flex gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setEditingId(stream.id);
+                      setForm({ name: stream.name || "" });
+                      setError("");
+                    }}
+                    disabled={!canUpdate || saving}
+                  >
+                    Edit
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="destructive"
+                    size="sm"
+                    onClick={() => handleDelete(stream.id)}
+                    disabled={!canDelete || saving}
+                  >
+                    Delete
+                  </Button>
                 </div>
               </div>
             ))
@@ -278,7 +536,7 @@ function AccountInformationPanel({ showNotice }) {
                   value={Array.isArray(account.roles) && account.roles.length ? account.roles.join(", ") : "-"}
                   spanTwo
                 />
-                <InfoTile label="Created" value={formatDate(account.created_at)} spanTwo />
+                <InfoTile label="Created" value={formatReadableDate(account.created_at)} spanTwo />
               </div>
             </>
           )}
@@ -480,14 +738,14 @@ function SecurityPanel({ showNotice }) {
         </CardContent>
       </Card>
 
-      <Card>
+      <Card className="min-h-0">
         <CardHeader>
           <CardTitle>Recent User Accounts</CardTitle>
           <CardDescription>
             Select from the current user directory returned by the users backend module.
           </CardDescription>
         </CardHeader>
-        <CardContent className="grid gap-3">
+        <CardContent className="grid max-h-[70vh] gap-3 overflow-y-auto pr-2">
           {loading ? (
             <p className="text-sm text-muted-foreground">Loading users...</p>
           ) : filteredUsers.length === 0 ? (
@@ -573,6 +831,7 @@ export default function Settings() {
         <TabsList variant="line" className="min-w-[220px] items-stretch border-r pr-4">
           <TabsTrigger value="account-information">Account Information</TabsTrigger>
           <TabsTrigger value="academic-sessions">Academic Sessions</TabsTrigger>
+          <TabsTrigger value="streams">Streams</TabsTrigger>
           <TabsTrigger value="security">Security</TabsTrigger>
           <TabsTrigger value="general">General</TabsTrigger>
         </TabsList>
@@ -583,6 +842,10 @@ export default function Settings() {
 
         <TabsContent value="academic-sessions">
           <AcademicSessionsPanel showNotice={showNotice} />
+        </TabsContent>
+
+        <TabsContent value="streams">
+          <StreamsPanel showNotice={showNotice} />
         </TabsContent>
 
         <TabsContent value="security">

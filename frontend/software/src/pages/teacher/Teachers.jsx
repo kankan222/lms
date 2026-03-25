@@ -1,8 +1,10 @@
-import { useEffect, useState } from "react";
+import { useEffect, useEffectEvent, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { Eye, EyeOff } from "lucide-react";
 import DataTable from "../../components/DataTable";
 import TopBar from "../../components/TopBar";
 import { usePermissions } from "../../hooks/usePermissions";
+import { resolveServerImageUrl } from "../../lib/serverImage";
 
 import {
   getTeachers,
@@ -15,14 +17,6 @@ import { Button } from "../../components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
-import {
-  Sheet,
-  SheetContent,
-  SheetFooter,
-  SheetHeader,
-  SheetTitle,
-  SheetTrigger,
-} from "@/components/ui/sheet";
 import {
   Dialog,
   DialogContent,
@@ -62,6 +56,7 @@ const Teachers = () => {
   const [errors, setErrors] = useState({});
   const [editError, setEditError] = useState("");
   const [notice, setNotice] = useState(null);
+  const [showPassword, setShowPassword] = useState(false);
 
   const [newTeacher, setNewTeacher] = useState({
     employee_id: "",
@@ -77,18 +72,6 @@ const Teachers = () => {
   function handleRowClick(row) {
     navigate(`/teachers/${row.id}`);
   }
-  useEffect(() => {
-    loadTeachers();
-  }, []);
-
-  useEffect(() => {
-    if (!notice) return undefined;
-    const timeoutId = window.setTimeout(() => {
-      setNotice(null);
-    }, 3500);
-    return () => window.clearTimeout(timeoutId);
-  }, [notice]);
-
   function showNotice(title, message, variant = "success") {
     setNotice({ title, message, variant });
   }
@@ -105,22 +88,40 @@ const Teachers = () => {
     );
   }
 
+  const loadInitialTeachers = useEffectEvent(() => {
+    loadTeachers();
+  });
+
+  useEffect(() => {
+    loadInitialTeachers();
+  }, []);
+
+  useEffect(() => {
+    if (!notice) return undefined;
+    const timeoutId = window.setTimeout(() => {
+      setNotice(null);
+    }, 3500);
+    return () => window.clearTimeout(timeoutId);
+  }, [notice]);
+
   function validateTeacher(data) {
     const errors = {};
-
-    if (!data.employee_id) {
-      errors.employee_id = "Employee ID required";
-    }
+    const phone = String(data.phone || "").trim();
+    const email = String(data.email || "").trim();
 
     if (!data.name || /^\d+$/.test(data.name)) {
       errors.name = "Name cannot be numeric";
     }
 
-    if (!/^\d{10}$/.test(data.phone)) {
+    if (!phone && !email) {
+      errors.contact = "Provide either phone or email";
+    }
+
+    if (phone && !/^\d{10}$/.test(phone)) {
       errors.phone = "Phone must be 10 digits";
     }
 
-    if (!/^\S+@\S+\.\S+$/.test(data.email)) {
+    if (email && !/^\S+@\S+\.\S+$/.test(email)) {
       errors.email = "Invalid email";
     }
     if (!["school", "hs"].includes(String(data.class_scope || ""))) {
@@ -143,10 +144,10 @@ const Teachers = () => {
     }
     setErrors({});
     const formData = new FormData();
-    formData.append("employee_id", newTeacher.employee_id);
+    formData.append("employee_id", newTeacher.employee_id.trim());
     formData.append("name", newTeacher.name);
-    formData.append("phone", newTeacher.phone);
-    formData.append("email", newTeacher.email);
+    formData.append("phone", newTeacher.phone.trim());
+    formData.append("email", newTeacher.email.trim());
     formData.append("class_scope", newTeacher.class_scope || "school");
     formData.append("password", newTeacher.password);
 
@@ -154,9 +155,6 @@ const Teachers = () => {
       formData.append("photo", newTeacher.photo);
     }
 
-    for (const [k, v] of formData.entries()) {
-      console.log(k, v);
-    }
     try {
       await createTeacher(formData);
     } catch (err) {
@@ -175,6 +173,7 @@ const Teachers = () => {
       photo: null,
       password: "",
     });
+    setShowPassword(false);
 
     setCreateOpen(false);
     showNotice("Teacher Created", "Teacher record created successfully.");
@@ -182,11 +181,13 @@ const Teachers = () => {
 
   function validateEditTeacher(data) {
     const next = {};
+    const phone = String(data.phone || "").trim();
+    const email = String(data.email || "").trim();
 
-    if (!data.employee_id) next.employee_id = "Employee ID required";
     if (!data.name || /^\d+$/.test(data.name)) next.name = "Name cannot be numeric";
-    if (!/^\d{10}$/.test(data.phone || "")) next.phone = "Phone must be 10 digits";
-    if (!/^\S+@\S+\.\S+$/.test(data.email || "")) next.email = "Invalid email";
+    if (!phone && !email) next.contact = "Provide either phone or email";
+    if (phone && !/^\d{10}$/.test(phone)) next.phone = "Phone must be 10 digits";
+    if (email && !/^\S+@\S+\.\S+$/.test(email)) next.email = "Invalid email";
     if (!["school", "hs"].includes(String(data.class_scope || ""))) next.class_scope = "Class scope required";
 
     return next;
@@ -203,13 +204,17 @@ const Teachers = () => {
     }
 
     try {
-      await updateTeacher(editingTeacher.id, {
-        employee_id: editingTeacher.employee_id,
-        name: editingTeacher.name,
-        phone: editingTeacher.phone,
-        email: editingTeacher.email,
-        class_scope: editingTeacher.class_scope || "school",
-      });
+      const formData = new FormData();
+      formData.append("employee_id", String(editingTeacher.employee_id || "").trim());
+      formData.append("name", String(editingTeacher.name || "").trim());
+      formData.append("phone", String(editingTeacher.phone || "").trim());
+      formData.append("email", String(editingTeacher.email || "").trim());
+      formData.append("class_scope", editingTeacher.class_scope || "school");
+      if (editingTeacher.photo) {
+        formData.append("photo", editingTeacher.photo);
+      }
+
+      await updateTeacher(editingTeacher.id, formData);
     } catch (err) {
       showNotice("Update Failed", err?.message || "Failed to update teacher.", "error");
       setEditError(err?.message || "Failed to update teacher.");
@@ -234,7 +239,10 @@ const Teachers = () => {
   }
 
   function handleEdit(row) {
-    setEditingTeacher(row);
+    setEditingTeacher({
+      ...row,
+      photo: null,
+    });
   }
 
   return (
@@ -275,7 +283,7 @@ const Teachers = () => {
                 </DialogHeader>
 
                 <div className="grid gap-3 py-4">
-                  <Label>Employee ID *</Label>
+                  <Label>Employee ID</Label>
                   <Input
                     value={newTeacher.employee_id}
                     onChange={(e) =>
@@ -285,9 +293,6 @@ const Teachers = () => {
                       }))
                     }
                   />
-                  {errors.employee_id && (
-                    <p className="text-red-500 text-xs">{errors.employee_id}</p>
-                  )}
                   <Label>Name *</Label>
                   <Input
                     value={newTeacher.name}
@@ -301,7 +306,7 @@ const Teachers = () => {
                   {errors.name && (
                     <p className="text-red-500 text-xs">{errors.name}</p>
                   )}
-                  <Label>Phone *</Label>
+                  <Label>Phone</Label>
                   <Input
                     value={newTeacher.phone}
                     onChange={(e) =>
@@ -313,6 +318,9 @@ const Teachers = () => {
                   />
                   {errors.phone && (
                     <p className="text-red-500 text-xs">{errors.phone}</p>
+                  )}
+                  {errors.contact && (
+                    <p className="text-red-500 text-xs">{errors.contact}</p>
                   )}
                   <Label>Class Scope *</Label>
                   <select
@@ -331,7 +339,7 @@ const Teachers = () => {
                   {errors.class_scope && (
                     <p className="text-red-500 text-xs">{errors.class_scope}</p>
                   )}
-                  <Label>Email *</Label>
+                  <Label>Email</Label>
                   <Input
                     value={newTeacher.email}
                     onChange={(e) =>
@@ -356,16 +364,27 @@ const Teachers = () => {
                     }
                   />
                   <Label>Password *</Label>
-                  <Input
-                    type="password"
-                    value={newTeacher.password}
-                    onChange={(e) =>
-                      setNewTeacher((prev) => ({
-                        ...prev,
-                        password: e.target.value,
-                      }))
-                    }
-                  />
+                  <div className="relative">
+                    <Input
+                      type={showPassword ? "text" : "password"}
+                      value={newTeacher.password}
+                      onChange={(e) =>
+                        setNewTeacher((prev) => ({
+                          ...prev,
+                          password: e.target.value,
+                        }))
+                      }
+                      className="pr-10"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword((prev) => !prev)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                      aria-label={showPassword ? "Hide password" : "Show password"}
+                    >
+                      {showPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+                    </button>
+                  </div>
                   {errors.password && (
                     <p className="text-red-500 text-xs">{errors.password}</p>
                   )}
@@ -414,20 +433,15 @@ const Teachers = () => {
         </div>
       )}
 
-      {/* EDIT FORM */}
-
-      <Sheet
-        open={!!editingTeacher}
-        onOpenChange={() => setEditingTeacher(null)}
-      >
-        <SheetContent>
+      <Dialog open={!!editingTeacher} onOpenChange={() => setEditingTeacher(null)}>
+        <DialogContent className="max-h-[85vh] overflow-y-auto">
           <form onSubmit={handleUpdate}>
-            <SheetHeader>
-              <SheetTitle>Edit Teacher</SheetTitle>
-            </SheetHeader>
+            <DialogHeader>
+              <DialogTitle>Edit Teacher</DialogTitle>
+            </DialogHeader>
 
             <div className="grid gap-3 py-4">
-              <Label>Employee ID *</Label>
+              <Label>Employee ID</Label>
               <Input
                 value={editingTeacher?.employee_id || ""}
                 onChange={(e) =>
@@ -442,14 +456,14 @@ const Teachers = () => {
               <Input
                 value={editingTeacher?.name || ""}
                 onChange={(e) =>
-                  setEditingTeacher({
-                    ...editingTeacher,
+                  setEditingTeacher((prev) => ({
+                    ...prev,
                     name: e.target.value,
-                  })
+                  }))
                 }
               />
 
-              <Label>Phone *</Label>
+              <Label>Phone</Label>
               <Input
                 value={editingTeacher?.phone || ""}
                 onChange={(e) =>
@@ -475,7 +489,7 @@ const Teachers = () => {
                 <option value="hs">Higher Secondary</option>
               </select>
 
-              <Label>Email *</Label>
+              <Label>Email</Label>
               <Input
                 value={editingTeacher?.email || ""}
                 onChange={(e) =>
@@ -485,15 +499,46 @@ const Teachers = () => {
                   }))
                 }
               />
+
+              <div className="grid gap-2">
+                <Label>Current Photo</Label>
+                {editingTeacher?.photo ? (
+                  <img
+                    src={URL.createObjectURL(editingTeacher.photo)}
+                    alt={editingTeacher?.name || "Teacher"}
+                    className="h-24 w-24 rounded-xl border object-cover"
+                  />
+                ) : editingTeacher?.photo_url ? (
+                  <img
+                    src={resolveServerImageUrl(editingTeacher.photo_url)}
+                    alt={editingTeacher?.name || "Teacher"}
+                    className="h-24 w-24 rounded-xl border object-cover"
+                  />
+                ) : (
+                  <p className="text-sm text-muted-foreground">No photo uploaded.</p>
+                )}
+              </div>
+
+              <Label>Replace Photo</Label>
+              <Input
+                type="file"
+                accept="image/*"
+                onChange={(e) =>
+                  setEditingTeacher((prev) => ({
+                    ...prev,
+                    photo: e.target.files?.[0] || null,
+                  }))
+                }
+              />
             </div>
             {editError && <p className="text-sm text-red-600">{editError}</p>}
 
-            <SheetFooter>
+            <DialogFooter>
               <Button type="submit">Update</Button>
-            </SheetFooter>
+            </DialogFooter>
           </form>
-        </SheetContent>
-      </Sheet>
+        </DialogContent>
+      </Dialog>
 
       <AlertDialog
         open={!!deletingTeacher}

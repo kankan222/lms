@@ -4,6 +4,11 @@ import { requirePermission }
 from "../../core/rbac/rbac.middleware.js";
 
 const router = express.Router();
+router.get(
+  "/stream",
+  requirePermission("notifications.view"),
+  controller.streamNotifications
+);
 
 router.get(
   "/me",
@@ -12,9 +17,27 @@ router.get(
 );
 
 router.patch(
+  "/read-all",
+  requirePermission("notifications.view"),
+  controller.markAllRead
+);
+
+router.patch(
   "/:id/read",
   requirePermission("notifications.view"),
   controller.markRead
+);
+
+router.post(
+  "/devices",
+  requirePermission("notifications.view"),
+  controller.registerDevice
+);
+
+router.delete(
+  "/devices",
+  requirePermission("notifications.view"),
+  controller.unregisterDevice
 );
 
 export default router;

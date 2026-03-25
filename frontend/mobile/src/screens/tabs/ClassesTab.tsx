@@ -4,20 +4,25 @@ import {
   Alert,
   Modal,
   Pressable,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
   TextInput,
   View,
 } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
+import TopNotice from "../../components/feedback/TopNotice";
 import {
   ClassItem,
   ClassPayload,
   ClassScope,
+  ClassStructureItem,
   SectionMedium,
   createClass,
   deleteClass,
   getClasses,
+  getClassStructure,
   updateClass,
 } from "../../services/classesService";
 
@@ -48,26 +53,94 @@ type SectionRowError = {
   medium?: string;
 };
 
+type NoticeState = {
+  tone: "success" | "error";
+  title: string;
+  message: string;
+} | null;
+
 const EMPTY_FORM: ClassForm = {
   name: "",
   class_scope: "school",
   sections: [{ name: "", medium: "" }],
 };
 
+function makeEmptyForm(): ClassForm {
+  return {
+    name: "",
+    class_scope: "school",
+    sections: [{ name: "", medium: "" }],
+  };
+}
+
 function formatScope(scope: ClassScope) {
   return scope === "hs" ? "Higher Secondary" : "School";
+}
+
+function splitCsv(raw: string) {
+  return String(raw || "")
+    .split(",")
+    .map((part) => part.trim())
+    .filter(Boolean);
+}
+
+function normalizeSections(item: ClassItem, structureMap: Map<number, ClassStructureItem>): SectionForm[] {
+  const structure = structureMap.get(Number(item.id));
+  if (structure?.sections?.length) {
+    return structure.sections.map((section) => ({
+      name: String(section.name || "").trim(),
+      medium: (String(section.medium || "").trim() as SectionMedium | "") || "",
+    }));
+  }
+
+  if (Array.isArray(item.section_details) && item.section_details.length) {
+    return item.section_details.map((section) => ({
+      name: String(section?.name || "").trim(),
+      medium: (String(section?.medium || "").trim() as SectionMedium | "") || "",
+    }));
+  }
+
+  return splitCsv(item.sections).map((name) => ({ name, medium: "" }));
+}
+
+function normalizeSubjects(item: ClassItem, structureMap: Map<number, ClassStructureItem>): string[] {
+  const structure = structureMap.get(Number(item.id));
+  if (structure?.subjects?.length) {
+    return structure.subjects.map((subject) => String(subject.name || "").trim()).filter(Boolean);
+  }
+
+  return splitCsv(item.subjects);
+}
+
+function buildClassRows(items: ClassItem[], structures: ClassStructureItem[]): ClassView[] {
+  const structureMap = new Map<number, ClassStructureItem>(
+    structures.map((entry) => [Number(entry.id), entry]),
+  );
+
+  return items
+    .map((item) => ({
+      id: Number(item.id),
+      name: String(item.name || "").trim(),
+      class_scope: (item.class_scope || structureMap.get(Number(item.id))?.class_scope || "school") as ClassScope,
+      sections: normalizeSections(item, structureMap),
+      subjects: normalizeSubjects(item, structureMap),
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name));
 }
 
 export default function ClassesTab() {
   const [rows, setRows] = useState<ClassView[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<NoticeState>(null);
 
+  const [scopeFilter, setScopeFilter] = useState<ClassScope | "all">("all");
   const [createOpen, setCreateOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
-  const [createForm, setCreateForm] = useState<ClassForm>(EMPTY_FORM);
-  const [editForm, setEditForm] = useState<ClassForm>(EMPTY_FORM);
+  const [createForm, setCreateForm] = useState<ClassForm>(makeEmptyForm());
+  const [editForm, setEditForm] = useState<ClassForm>(makeEmptyForm());
   const [createSectionErrors, setCreateSectionErrors] = useState<SectionRowError[]>([]);
   const [editSectionErrors, setEditSectionErrors] = useState<SectionRowError[]>([]);
   const [editingId, setEditingId] = useState<number | null>(null);
@@ -75,16 +148,24 @@ export default function ClassesTab() {
   const canSubmitCreate = useMemo(() => !saving, [saving]);
   const canSubmitEdit = useMemo(() => !saving && editingId !== null, [saving, editingId]);
 
-  const loadClasses = useCallback(async () => {
-    setLoading(true);
+  const loadClasses = useCallback(async (mode: "initial" | "refresh" = "initial") => {
+    if (mode === "refresh") {
+      setRefreshing(true);
+    } else {
+      setLoading(true);
+    }
     setError(null);
     try {
-      const data = await getClasses();
-      setRows(data.map(normalizeClassRow));
+      const [items, structure] = await Promise.all([getClasses(), getClassStructure()]);
+      setRows(buildClassRows(items, structure));
     } catch (err: unknown) {
       setError(getErrorMessage(err, "Could not load classes."));
     } finally {
-      setLoading(false);
+      if (mode === "refresh") {
+        setRefreshing(false);
+      } else {
+        setLoading(false);
+      }
     }
   }, []);
 
@@ -92,45 +173,49 @@ export default function ClassesTab() {
     loadClasses();
   }, [loadClasses]);
 
-  function splitCsv(raw: string) {
-    return String(raw || "")
-      .split(",")
-      .map((part) => part.trim())
-      .filter(Boolean);
-  }
+  useEffect(() => {
+    if (!notice) return undefined;
+    const timeout = setTimeout(() => setNotice(null), 3200);
+    return () => clearTimeout(timeout);
+  }, [notice]);
 
-  function normalizeClassRow(item: ClassItem): ClassView {
-    const sections: SectionForm[] = Array.isArray(item.section_details)
-      ? item.section_details.map((s) => ({
-          name: String(s?.name || "").trim(),
-          medium: (String(s?.medium || "").trim() as SectionMedium | "") || "",
-        }))
-      : splitCsv(item.sections).map((name) => ({ name, medium: "" }));
+  const filteredRows = useMemo(() => {
+    if (scopeFilter === "all") return rows;
+    return rows.filter((row) => row.class_scope === scopeFilter);
+  }, [rows, scopeFilter]);
 
-    return {
-      id: Number(item.id),
-      name: item.name,
-      class_scope: (item.class_scope || "school") as ClassScope,
-      sections,
-      subjects: splitCsv(item.subjects),
-    };
+  const stats = useMemo(() => {
+    const totalClasses = rows.length;
+    const totalSections = rows.reduce((sum, row) => sum + row.sections.length, 0);
+    const schoolCount = rows.filter((row) => row.class_scope === "school").length;
+    const higherSecondaryCount = rows.filter((row) => row.class_scope === "hs").length;
+    return [
+      { label: "Total Classes", value: totalClasses, accent: "#dbeafe", tone: "#1d4ed8" },
+      { label: "Sections", value: totalSections, accent: "#dcfce7", tone: "#15803d" },
+      { label: "School", value: schoolCount, accent: "#fef3c7", tone: "#b45309" },
+      { label: "Higher Secondary", value: higherSecondaryCount, accent: "#ede9fe", tone: "#6d28d9" },
+    ];
+  }, [rows]);
+
+  function showNotice(title: string, message: string, tone: "success" | "error" = "success") {
+    setNotice({ title, message, tone });
   }
 
   function validateForm(form: ClassForm): ValidationResult {
     const name = form.name.trim();
     const sections = (form.sections || [])
-      .map((s) => ({
-        name: String(s?.name || "").trim(),
-        medium: String(s?.medium || "").trim() as SectionMedium | "",
+      .map((section) => ({
+        name: String(section?.name || "").trim(),
+        medium: String(section?.medium || "").trim() as SectionMedium | "",
       }))
-      .filter((s) => s.name);
+      .filter((section) => section.name);
 
     if (!name) return { ok: false, message: "Class name is required." };
     if (!["school", "hs"].includes(form.class_scope)) {
       return { ok: false, message: "Class scope is required." };
     }
     if (!sections.length) return { ok: false, message: "At least one section is required." };
-    if (sections.some((s) => s.medium !== "English" && s.medium !== "Assamese")) {
+    if (sections.some((section) => section.medium !== "English" && section.medium !== "Assamese")) {
       return { ok: false, message: "Each section must have a medium." };
     }
 
@@ -145,9 +230,9 @@ export default function ClassesTab() {
   }
 
   function buildSectionErrors(form: ClassForm): SectionRowError[] {
-    return (form.sections || []).map((s) => {
-      const name = String(s?.name || "").trim();
-      const medium = String(s?.medium || "").trim();
+    return (form.sections || []).map((section) => {
+      const name = String(section?.name || "").trim();
+      const medium = String(section?.medium || "").trim();
       if (name && medium !== "English" && medium !== "Assamese") {
         return { medium: "Select section medium." };
       }
@@ -167,11 +252,12 @@ export default function ClassesTab() {
     try {
       await createClass(result.payload);
       setCreateOpen(false);
-      setCreateForm(EMPTY_FORM);
+      setCreateForm(makeEmptyForm());
       setCreateSectionErrors([]);
-      await loadClasses();
+      await loadClasses("refresh");
+      showNotice("Class Created", "The class has been added successfully.");
     } catch (err: unknown) {
-      Alert.alert("Create failed", getErrorMessage(err, "Could not create class."));
+      showNotice("Create Failed", getErrorMessage(err, "Could not create class."), "error");
     } finally {
       setSaving(false);
     }
@@ -202,11 +288,12 @@ export default function ClassesTab() {
       await updateClass(editingId, result.payload);
       setEditOpen(false);
       setEditingId(null);
-      setEditForm(EMPTY_FORM);
+      setEditForm(makeEmptyForm());
       setEditSectionErrors([]);
-      await loadClasses();
+      await loadClasses("refresh");
+      showNotice("Class Updated", "The class details have been updated.");
     } catch (err: unknown) {
-      Alert.alert("Update failed", getErrorMessage(err, "Could not update class."));
+      showNotice("Update Failed", getErrorMessage(err, "Could not update class."), "error");
     } finally {
       setSaving(false);
     }
@@ -222,8 +309,9 @@ export default function ClassesTab() {
           try {
             await deleteClass(id);
             setRows((prev) => prev.filter((item) => item.id !== id));
+            showNotice("Class Deleted", "The class has been removed.");
           } catch (err: unknown) {
-            Alert.alert("Delete failed", getErrorMessage(err, "Could not delete class."));
+            showNotice("Delete Failed", getErrorMessage(err, "Could not delete class."), "error");
           }
         },
       },
@@ -231,15 +319,61 @@ export default function ClassesTab() {
   }
 
   return (
-    <View style={styles.root}>
-      <View style={styles.toolbar}>
-        <View>
+    <ScrollView
+      style={styles.root}
+      contentContainerStyle={styles.content}
+      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => loadClasses("refresh")} />}
+      showsVerticalScrollIndicator={false}
+    >
+      <View style={styles.heroCard}>
+        <View style={styles.heroCopy}>
           <Text style={styles.title}>Classes</Text>
-          <Text style={styles.subtitle}>Find all classes here</Text>
+          <Text style={styles.subtitle}>Manage classes, sections, and scope with the live academic structure.</Text>
         </View>
-        <Pressable style={styles.primaryBtn} onPress={() => setCreateOpen(true)}>
-          <Text style={styles.primaryBtnText}>Add Class</Text>
-        </Pressable>
+        <View style={styles.heroActions}>
+          <View style={styles.heroPrimaryActions}>
+            <Pressable style={styles.iconUtilityBtn} onPress={() => loadClasses("refresh")}>
+              <Ionicons name="refresh-outline" size={18} color="#334155" />
+            </Pressable>
+            <Pressable style={styles.heroPrimaryBtn} onPress={() => setCreateOpen(true)}>
+              <Text style={styles.primaryBtnText}>Add Class</Text>
+            </Pressable>
+          </View>
+        </View>
+      </View>
+
+      <TopNotice notice={notice} />
+
+      <View style={styles.statsGrid}>
+        {stats.map((item) => (
+          <View key={item.label} style={[styles.statCard, { backgroundColor: item.accent }]}>
+            <Text style={styles.statLabel}>{item.label}</Text>
+            <Text style={[styles.statValue, { color: item.tone }]}>{item.value}</Text>
+          </View>
+        ))}
+      </View>
+
+      <View style={styles.filterCard}>
+        <View style={styles.filterHeader}>
+          <Text style={styles.sectionTitle}>Browse</Text>
+          <Text style={styles.filterHint}>{filteredRows.length} visible</Text>
+        </View>
+        <View style={styles.scopeRow}>
+          {(["all", "school", "hs"] as const).map((scope) => {
+            const active = scopeFilter === scope;
+            return (
+              <Pressable
+                key={scope}
+                style={[styles.filterChip, active && styles.filterChipActive]}
+                onPress={() => setScopeFilter(scope)}
+              >
+                <Text style={[styles.filterChipText, active && styles.filterChipTextActive]}>
+                  {scope === "all" ? "All" : formatScope(scope)}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
       </View>
 
       {loading ? (
@@ -248,35 +382,58 @@ export default function ClassesTab() {
         </View>
       ) : (
         <>
-          {error && <Text style={styles.errorText}>{error}</Text>}
+          {error ? <Text style={styles.errorText}>{error}</Text> : null}
+          {!error && filteredRows.length === 0 ? (
+            <View style={styles.emptyCard}>
+              <Text style={styles.emptyTitle}>No classes found</Text>
+              <Text style={styles.emptyText}>
+                {scopeFilter === "all"
+                  ? "Add your first class to start building the academic structure."
+                  : "No classes are available for the selected scope."}
+              </Text>
+            </View>
+          ) : null}
+
           <View style={styles.grid}>
-            {rows.map((row) => (
-              <View key={row.id} style={styles.card}>
-                <View style={styles.cardMain}>
+            {filteredRows.map((row) => (
+              <View key={row.id} style={styles.classCard}>
+                <View style={styles.cardTop}>
                   <View style={styles.iconBadge}>
-                    <Text style={styles.iconBadgeText}>C</Text>
+                    <Text style={styles.iconBadgeText}>{row.name.slice(0, 1).toUpperCase()}</Text>
                   </View>
-                  <View style={styles.cardContent}>
-                    <Text style={styles.className}>Class: {row.name}</Text>
-                    <Text style={styles.meta}><Text style={styles.metaLabel}>Scope: </Text>{formatScope(row.class_scope)}</Text>
-                    <View style={styles.sectionBlock}>
-                      <Text style={styles.metaLabel}>Sections:</Text>
-                      {row.sections.length ? (
-                        row.sections.map((section, index) => (
-                          <Text key={`${row.id}-section-${index}`} style={styles.listItem}>
-                            • {section.name}{section.medium ? ` (${section.medium})` : ""}
-                          </Text>
-                        ))
-                      ) : (
-                        <Text style={styles.listItem}>• None</Text>
-                      )}
-                    </View>
-                    <Text style={styles.meta}>
-                      <Text style={styles.metaLabel}>Subjects: </Text>
-                      {row.subjects.length ? row.subjects.join(", ") : "None"}
-                    </Text>
+                  <View style={styles.cardCopy}>
+                    <Text style={styles.className}>{row.name}</Text>
+                    <Text style={styles.scopeBadge}>{formatScope(row.class_scope)}</Text>
                   </View>
                 </View>
+
+                <View style={styles.detailBlock}>
+                  <Text style={styles.detailLabel}>Sections</Text>
+                  <View style={styles.pillWrap}>
+                    {row.sections.length ? (
+                      row.sections.map((section, index) => (
+                        <View key={`${row.id}-section-${index}`} style={styles.detailPill}>
+                          <Text style={styles.detailPillText}>
+                            {section.name}
+                            {section.medium ? ` â€¢ ${section.medium}` : ""}
+                          </Text>
+                        </View>
+                      ))
+                    ) : (
+                      <View style={styles.detailPill}>
+                        <Text style={styles.detailPillText}>No sections</Text>
+                      </View>
+                    )}
+                  </View>
+                </View>
+
+                <View style={styles.detailBlock}>
+                  <Text style={styles.detailLabel}>Subjects</Text>
+                  <Text style={styles.subjectText}>
+                    {row.subjects.length ? row.subjects.join(", ") : "No subjects linked yet."}
+                  </Text>
+                </View>
+
                 <View style={styles.rowActions}>
                   <Pressable style={styles.secondaryBtn} onPress={() => openEdit(row)}>
                     <Text style={styles.secondaryBtnText}>Edit</Text>
@@ -299,7 +456,7 @@ export default function ClassesTab() {
         saving={saving}
         onClose={() => {
           setCreateOpen(false);
-          setCreateForm(EMPTY_FORM);
+          setCreateForm(makeEmptyForm());
           setCreateSectionErrors([]);
         }}
         onChange={setCreateForm}
@@ -317,7 +474,7 @@ export default function ClassesTab() {
         onClose={() => {
           setEditOpen(false);
           setEditingId(null);
-          setEditForm(EMPTY_FORM);
+          setEditForm(makeEmptyForm());
           setEditSectionErrors([]);
         }}
         onChange={setEditForm}
@@ -325,7 +482,7 @@ export default function ClassesTab() {
         canSubmit={canSubmitEdit}
         sectionErrors={editSectionErrors}
       />
-    </View>
+    </ScrollView>
   );
 }
 
@@ -360,13 +517,14 @@ function ClassFormModal({
         <Pressable style={styles.modalBackdrop} onPress={onClose} />
         <View style={styles.modalCard}>
           <Text style={styles.modalTitle}>{title}</Text>
-          <ScrollView style={styles.modalBody}>
+          <ScrollView style={styles.modalBody} showsVerticalScrollIndicator={false}>
             <Text style={styles.inputLabel}>Class Name *</Text>
             <TextInput
               style={styles.input}
               value={form.name}
               onChangeText={(value) => onChange({ ...form, name: value })}
               placeholder="Class name"
+              placeholderTextColor="#94a3b8"
             />
 
             <Text style={[styles.inputLabel, styles.spaceTop]}>Class Scope *</Text>
@@ -399,36 +557,31 @@ function ClassFormModal({
                     onChange({ ...form, sections: nextSections });
                   }}
                   placeholder={`Section ${index + 1}`}
+                  placeholderTextColor="#94a3b8"
                 />
                 <View style={styles.mediumRow}>
-                  <Pressable
-                    style={[
-                      styles.mediumChip,
-                      section.medium === "English" && styles.mediumChipActive,
-                      sectionErrors[index]?.medium && styles.mediumChipError,
-                    ]}
-                    onPress={() => {
-                      const nextSections = [...form.sections];
-                      nextSections[index] = { ...nextSections[index], medium: "English" };
-                      onChange({ ...form, sections: nextSections });
-                    }}
-                  >
-                    <Text style={[styles.mediumChipText, section.medium === "English" && styles.mediumChipTextActive]}>English</Text>
-                  </Pressable>
-                  <Pressable
-                    style={[
-                      styles.mediumChip,
-                      section.medium === "Assamese" && styles.mediumChipActive,
-                      sectionErrors[index]?.medium && styles.mediumChipError,
-                    ]}
-                    onPress={() => {
-                      const nextSections = [...form.sections];
-                      nextSections[index] = { ...nextSections[index], medium: "Assamese" };
-                      onChange({ ...form, sections: nextSections });
-                    }}
-                  >
-                    <Text style={[styles.mediumChipText, section.medium === "Assamese" && styles.mediumChipTextActive]}>Assamese</Text>
-                  </Pressable>
+                  {(["English", "Assamese"] as const).map((medium) => {
+                    const active = section.medium === medium;
+                    return (
+                      <Pressable
+                        key={medium}
+                        style={[
+                          styles.mediumChip,
+                          active && styles.mediumChipActive,
+                          sectionErrors[index]?.medium && styles.mediumChipError,
+                        ]}
+                        onPress={() => {
+                          const nextSections = [...form.sections];
+                          nextSections[index] = { ...nextSections[index], medium };
+                          onChange({ ...form, sections: nextSections });
+                        }}
+                      >
+                        <Text style={[styles.mediumChipText, active && styles.mediumChipTextActive]}>
+                          {medium}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
                 </View>
                 {sectionErrors[index]?.medium ? (
                   <Text style={styles.fieldError}>{sectionErrors[index]?.medium}</Text>
@@ -448,11 +601,11 @@ function ClassFormModal({
               <Text style={styles.secondaryBtnText}>Cancel</Text>
             </Pressable>
             <Pressable
-              style={[styles.primaryBtn, !canSubmit && styles.disabledBtn]}
+              style={[styles.successBtn, !canSubmit && styles.disabledBtn]}
               onPress={onSubmit}
               disabled={!canSubmit}
             >
-              <Text style={styles.primaryBtnText}>{saving ? "Saving..." : submitText}</Text>
+              <Text style={styles.successBtnText}>{saving ? "Saving..." : submitText}</Text>
             </Pressable>
           </View>
         </View>
@@ -479,129 +632,450 @@ function getErrorMessage(err: unknown, fallback: string) {
 }
 
 const styles = StyleSheet.create({
-  root: { gap: 12 },
-  toolbar: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
-  title: { color: "#0f172a", fontWeight: "800", fontSize: 20 },
-  subtitle: { color: "#64748b", marginTop: 4 },
-  centered: { alignItems: "center", justifyContent: "center", paddingTop: 30 },
-  errorText: { color: "#dc2626", fontWeight: "600" },
-  grid: { gap: 10 },
-  card: {
+  root: {
+    flex: 1,
+  },
+  content: {
+    gap: 14,
+    paddingBottom: 8,
+  },
+  heroCard: {
+    backgroundColor: "#ffffff",
+    borderRadius: 24,
     borderWidth: 1,
     borderColor: "#e2e8f0",
-    borderRadius: 16,
+    padding: 18,
+    gap: 14,
+  },
+  heroCopy: {
+    gap: 6,
+  },
+  heroActions: {
+    gap: 10,
+  },
+  heroPrimaryActions: {
+    flexDirection: "row",
+    gap: 10,
+  },
+  title: {
+    color: "#0f172a",
+    fontWeight: "800",
+    fontSize: 22,
+  },
+  subtitle: {
+    color: "#64748b",
+    lineHeight: 20,
+  },
+  noticeCard: {
+    borderRadius: 18,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderWidth: 1,
+  },
+  noticeSuccessCard: {
+    backgroundColor: "#f0fdf4",
+    borderColor: "#bbf7d0",
+  },
+  noticeErrorCard: {
+    backgroundColor: "#fef2f2",
+    borderColor: "#fecaca",
+  },
+  noticeTitle: {
+    color: "#0f172a",
+    fontWeight: "800",
+    marginBottom: 2,
+  },
+  noticeMessage: {
+    color: "#475569",
+  },
+  statsGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 10,
+  },
+  statCard: {
+    width: "48%",
+    minHeight: 92,
+    borderRadius: 20,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    justifyContent: "space-between",
+  },
+  statLabel: {
+    color: "#334155",
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  statValue: {
+    fontSize: 26,
+    fontWeight: "800",
+  },
+  filterCard: {
     backgroundColor: "#ffffff",
-    padding: 14,
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
+    padding: 16,
     gap: 12,
   },
-  cardMain: { flexDirection: "row", gap: 12, alignItems: "flex-start" },
+  filterHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  sectionTitle: {
+    color: "#0f172a",
+    fontWeight: "800",
+    fontSize: 16,
+  },
+  filterHint: {
+    color: "#64748b",
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  scopeRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  filterChip: {
+    borderWidth: 1,
+    borderColor: "#cbd5e1",
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    backgroundColor: "#f8fafc",
+  },
+  filterChipActive: {
+    borderColor: "#0f172a",
+    backgroundColor: "#0f172a",
+  },
+  filterChipText: {
+    color: "#475569",
+    fontWeight: "700",
+    fontSize: 12,
+  },
+  filterChipTextActive: {
+    color: "#ffffff",
+  },
+  centered: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 40,
+  },
+  errorText: {
+    color: "#dc2626",
+    fontWeight: "700",
+  },
+  emptyCard: {
+    backgroundColor: "#ffffff",
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
+    padding: 18,
+    gap: 6,
+  },
+  emptyTitle: {
+    color: "#0f172a",
+    fontWeight: "800",
+    fontSize: 16,
+  },
+  emptyText: {
+    color: "#64748b",
+    lineHeight: 20,
+  },
+  grid: {
+    gap: 12,
+  },
+  classCard: {
+    backgroundColor: "#ffffff",
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
+    padding: 16,
+    gap: 14,
+  },
+  cardTop: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
   iconBadge: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
+    width: 42,
+    height: 42,
+    borderRadius: 14,
     backgroundColor: "#e2e8f0",
     alignItems: "center",
     justifyContent: "center",
   },
-  iconBadgeText: { color: "#0f172a", fontWeight: "800" },
-  cardContent: { flex: 1, gap: 4 },
-  className: { color: "#0f172a", fontWeight: "800", fontSize: 17 },
-  meta: { color: "#475569", marginTop: 2 },
-  metaLabel: { color: "#0f172a", fontWeight: "700" },
-  sectionBlock: { marginTop: 2, gap: 2 },
-  listItem: { color: "#475569" },
-  rowActions: { flexDirection: "row", gap: 8 },
+  iconBadgeText: {
+    color: "#0f172a",
+    fontWeight: "800",
+    fontSize: 16,
+  },
+  cardCopy: {
+    flex: 1,
+    gap: 4,
+  },
+  className: {
+    color: "#0f172a",
+    fontWeight: "800",
+    fontSize: 18,
+  },
+  scopeBadge: {
+    color: "#475569",
+    fontWeight: "700",
+    fontSize: 12,
+  },
+  detailBlock: {
+    gap: 8,
+  },
+  detailLabel: {
+    color: "#334155",
+    fontWeight: "800",
+    fontSize: 12,
+    textTransform: "uppercase",
+    letterSpacing: 0.4,
+  },
+  pillWrap: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  detailPill: {
+    backgroundColor: "#f8fafc",
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
+  },
+  detailPillText: {
+    color: "#334155",
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  subjectText: {
+    color: "#475569",
+    lineHeight: 20,
+  },
+  rowActions: {
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 10,
+  },
   primaryBtn: {
     backgroundColor: "#0f172a",
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 10,
+    paddingHorizontal: 16,
+    paddingVertical: 11,
+    borderRadius: 12,
     alignItems: "center",
     justifyContent: "center",
   },
-  primaryBtnText: { color: "#ffffff", fontWeight: "700" },
-  secondaryBtn: {
+  heroPrimaryBtn: {
+    flex: 1,
+    backgroundColor: "#0f172a",
+    paddingHorizontal: 16,
+    paddingVertical: 11,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  primaryBtnText: {
+    color: "#ffffff",
+    fontWeight: "700",
+  },
+  ghostBtn: {
     borderWidth: 1,
     borderColor: "#cbd5e1",
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 10,
+    backgroundColor: "#ffffff",
+    paddingHorizontal: 16,
+    paddingVertical: 11,
+    borderRadius: 12,
     alignItems: "center",
     justifyContent: "center",
   },
-  secondaryBtnText: { color: "#334155", fontWeight: "700" },
+  ghostBtnText: {
+    color: "#334155",
+    fontWeight: "700",
+  },
+  iconUtilityBtn: {
+    width: 42,
+    height: 42,
+    borderWidth: 1,
+    borderColor: "#cbd5e1",
+    backgroundColor: "#ffffff",
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  secondaryBtn: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: "#cbd5e1",
+    backgroundColor: "#ffffff",
+    paddingHorizontal: 14,
+    paddingVertical: 11,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  secondaryBtnText: {
+    color: "#334155",
+    fontWeight: "700",
+  },
   deleteBtn: {
+    flex: 1,
+    backgroundColor: "#fee2e2",
     borderWidth: 1,
     borderColor: "#fecaca",
-    backgroundColor: "#fee2e2",
     paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 10,
+    paddingVertical: 11,
+    borderRadius: 12,
     alignItems: "center",
     justifyContent: "center",
   },
-  deleteBtnText: { color: "#b91c1c", fontWeight: "700" },
-  modalOverlay: { flex: 1, justifyContent: "flex-end" },
+  deleteBtnText: {
+    color: "#b91c1c",
+    fontWeight: "700",
+  },
+  successBtn: {
+    flex: 1,
+    backgroundColor: "#15803d",
+    paddingHorizontal: 14,
+    paddingVertical: 11,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  successBtnText: {
+    color: "#ffffff",
+    fontWeight: "700",
+  },
+  modalOverlay: {
+    flex: 1,
+    justifyContent: "flex-end",
+  },
   modalBackdrop: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(15, 23, 42, 0.35)",
+    backgroundColor: "rgba(15, 23, 42, 0.28)",
   },
   modalCard: {
-    maxHeight: "86%",
+    maxHeight: "88%",
     backgroundColor: "#ffffff",
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    padding: 16,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 18,
+    gap: 10,
   },
-  modalTitle: { fontSize: 18, fontWeight: "800", color: "#0f172a", marginBottom: 10 },
-  modalBody: { maxHeight: 460 },
-  inputLabel: { color: "#334155", fontWeight: "700", marginBottom: 6 },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: "800",
+    color: "#0f172a",
+  },
+  modalBody: {
+    maxHeight: 500,
+  },
+  inputLabel: {
+    color: "#334155",
+    fontWeight: "700",
+    marginBottom: 6,
+  },
   input: {
     borderWidth: 1,
     borderColor: "#cbd5e1",
-    borderRadius: 12,
+    borderRadius: 14,
     backgroundColor: "#ffffff",
     paddingHorizontal: 12,
-    paddingVertical: 10,
+    paddingVertical: 11,
     marginBottom: 8,
+    color: "#0f172a",
   },
-  scopeRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 6 },
   scopeChip: {
     borderWidth: 1,
     borderColor: "#cbd5e1",
     borderRadius: 999,
     paddingHorizontal: 12,
     paddingVertical: 8,
+    backgroundColor: "#f8fafc",
   },
-  scopeChipActive: { borderColor: "#0f172a", backgroundColor: "#0f172a" },
-  scopeChipText: { color: "#334155", fontWeight: "700", fontSize: 12 },
-  scopeChipTextActive: { color: "#ffffff" },
-  sectionRow: { marginBottom: 8 },
-  sectionInput: { marginBottom: 6 },
-  spaceTop: { marginTop: 8 },
+  scopeChipActive: {
+    borderColor: "#0f172a",
+    backgroundColor: "#0f172a",
+  },
+  scopeChipText: {
+    color: "#334155",
+    fontWeight: "700",
+    fontSize: 12,
+  },
+  scopeChipTextActive: {
+    color: "#ffffff",
+  },
+  sectionRow: {
+    marginBottom: 10,
+  },
+  sectionInput: {
+    marginBottom: 6,
+  },
+  spaceTop: {
+    marginTop: 8,
+  },
   addSectionBtn: {
     marginTop: 4,
     borderWidth: 1,
     borderColor: "#cbd5e1",
-    borderRadius: 10,
+    borderRadius: 12,
     paddingHorizontal: 12,
-    paddingVertical: 8,
+    paddingVertical: 10,
     alignSelf: "flex-start",
+    backgroundColor: "#f8fafc",
   },
-  addSectionBtnText: { color: "#334155", fontWeight: "700" },
-  mediumRow: { flexDirection: "row", gap: 8, flexWrap: "wrap", marginBottom: 4 },
+  addSectionBtnText: {
+    color: "#334155",
+    fontWeight: "700",
+  },
+  mediumRow: {
+    flexDirection: "row",
+    gap: 8,
+    flexWrap: "wrap",
+    marginBottom: 4,
+  },
   mediumChip: {
     borderWidth: 1,
     borderColor: "#cbd5e1",
     borderRadius: 999,
     paddingHorizontal: 10,
-    paddingVertical: 6,
+    paddingVertical: 7,
+    backgroundColor: "#f8fafc",
   },
-  mediumChipActive: { borderColor: "#0f172a", backgroundColor: "#0f172a" },
-  mediumChipError: { borderColor: "#dc2626" },
-  mediumChipText: { color: "#334155", fontWeight: "700", fontSize: 12 },
-  mediumChipTextActive: { color: "#ffffff" },
-  fieldError: { color: "#b91c1c", marginBottom: 6, fontSize: 12 },
-  modalFooter: { marginTop: 12, flexDirection: "row", justifyContent: "flex-end", gap: 8 },
-  disabledBtn: { opacity: 0.7 },
+  mediumChipActive: {
+    borderColor: "#0f172a",
+    backgroundColor: "#0f172a",
+  },
+  mediumChipError: {
+    borderColor: "#dc2626",
+  },
+  mediumChipText: {
+    color: "#334155",
+    fontWeight: "700",
+    fontSize: 12,
+  },
+  mediumChipTextActive: {
+    color: "#ffffff",
+  },
+  fieldError: {
+    color: "#b91c1c",
+    marginBottom: 4,
+    fontSize: 12,
+  },
+  modalFooter: {
+    marginTop: 14,
+    flexDirection: "row",
+    gap: 10,
+  },
+  disabledBtn: {
+    opacity: 0.7,
+  },
 });

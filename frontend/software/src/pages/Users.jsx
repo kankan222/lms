@@ -1,9 +1,18 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useEffectEvent, useMemo, useState } from "react";
 import TopBar from "../components/TopBar";
 import DataTable from "../components/DataTable";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
+import { Separator } from "@/components/ui/separator";
+import {
+  Popover,
+  PopoverContent,
+  PopoverDescription,
+  PopoverHeader,
+  PopoverTitle,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import {
   Dialog,
   DialogContent,
@@ -109,6 +118,25 @@ function formatPermissionLabel(permissionName) {
   return [action, resource].filter(Boolean).join(" ");
 }
 
+function metricValueClass(value) {
+  return value === "danger"
+    ? "text-red-700 dark:text-red-200"
+    : value === "success"
+      ? "text-emerald-700 dark:text-emerald-200"
+      : "text-foreground";
+}
+
+function SurfaceCard({ className = "", accent = false, children }) {
+  return (
+    <div className={`relative overflow-hidden rounded-2xl border border-border/70 bg-card shadow-sm ${className}`}>
+      {accent ? (
+        <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-primary/40 to-transparent" />
+      ) : null}
+      {children}
+    </div>
+  );
+}
+
 export default function Users() {
   const [users, setUsers] = useState([]);
   const [classes, setClasses] = useState([]);
@@ -149,28 +177,7 @@ export default function Users() {
   const sections = selectedClass?.sections || [];
   const activeCount = users.filter((user) => user.status === "active").length;
   const inactiveCount = users.filter((user) => user.status === "inactive").length;
-
-  useEffect(() => {
-    loadClasses();
-    loadReferenceData();
-  }, []);
-
-  useEffect(() => {
-    loadUsers();
-  }, [role, status, classId, sectionId, page, limit]);
-
-  useEffect(() => {
-    if (!grantingUser) return;
-    loadPermissionDialog(grantingUser.id);
-  }, [grantingUser]);
-
-  useEffect(() => {
-    if (!notice) return undefined;
-    const timeoutId = window.setTimeout(() => {
-      setNotice(null);
-    }, 3500);
-    return () => window.clearTimeout(timeoutId);
-  }, [notice]);
+  const activeFilterCount = [role, status, classId, sectionId].filter(Boolean).length;
 
   async function loadClasses() {
     const res = await getClassStructure();
@@ -356,6 +363,40 @@ export default function Users() {
     }
   }
 
+  const loadInitialUsers = useEffectEvent(() => {
+    loadClasses();
+    loadReferenceData();
+  });
+
+  const loadFilteredUsers = useEffectEvent(() => {
+    loadUsers();
+  });
+
+  const loadGrantingUserPermissions = useEffectEvent(() => {
+    if (!grantingUser) return;
+    loadPermissionDialog(grantingUser.id);
+  });
+
+  useEffect(() => {
+    loadInitialUsers();
+  }, []);
+
+  useEffect(() => {
+    loadFilteredUsers();
+  }, [role, status, classId, sectionId, page, limit]);
+
+  useEffect(() => {
+    loadGrantingUserPermissions();
+  }, [grantingUser]);
+
+  useEffect(() => {
+    if (!notice) return undefined;
+    const timeoutId = window.setTimeout(() => {
+      setNotice(null);
+    }, 3500);
+    return () => window.clearTimeout(timeoutId);
+  }, [notice]);
+
   return (
     <>
       <div className="pointer-events-none fixed top-6 right-6 z-50 w-full max-w-sm">
@@ -382,140 +423,160 @@ export default function Users() {
         title="Users"
         subTitle="View all users, create accounts, and manage direct permissions"
         action={
-          <Button
-            onClick={() => {
-              resetCreateForm();
-              setOpenCreate(true);
-            }}
-          >
-            Add User
-          </Button>
+          <div className="flex gap-2">
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button variant="outline">
+                  {activeFilterCount > 0 ? `Filters (${activeFilterCount})` : "Filters"}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent align="end" className="w-80 space-y-4">
+                <PopoverHeader className="space-y-1">
+                  <PopoverTitle>Filters</PopoverTitle>
+                  <PopoverDescription>
+                    Narrow users by role, status, and parent enrollment scope.
+                  </PopoverDescription>
+                </PopoverHeader>
+
+                <Separator />
+
+                <div className="grid gap-4">
+                  <div className="grid gap-2">
+                    <Label>User Category</Label>
+                    <select
+                      className="w-full rounded-md border bg-background px-3 py-2"
+                      value={role}
+                      onChange={(e) => {
+                        setRole(e.target.value);
+                        setClassId("");
+                        setSectionId("");
+                        setPage(1);
+                      }}
+                    >
+                      {ROLE_FILTERS.map((item) => (
+                        <option key={item.value || "all"} value={item.value}>
+                          {item.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="grid gap-2">
+                    <Label>Status</Label>
+                    <select
+                      className="w-full rounded-md border bg-background px-3 py-2"
+                      value={status}
+                      onChange={(e) => {
+                        setStatus(e.target.value);
+                        setPage(1);
+                      }}
+                    >
+                      {STATUS_FILTERS.map((item) => (
+                        <option key={item.value || "all-status"} value={item.value}>
+                          {item.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="grid gap-2">
+                    <Label>Parent Class</Label>
+                    <select
+                      className="w-full rounded-md border bg-background px-3 py-2"
+                      value={classId}
+                      disabled={role !== "parent"}
+                      onChange={(e) => {
+                        setClassId(e.target.value);
+                        setSectionId("");
+                        setPage(1);
+                      }}
+                    >
+                      <option value="">All Classes</option>
+                      {classes.map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.name}
+                          {c.medium ? ` (${c.medium})` : ""}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="grid gap-2">
+                    <Label>Parent Section</Label>
+                    <select
+                      className="w-full rounded-md border bg-background px-3 py-2"
+                      value={sectionId}
+                      disabled={role !== "parent" || !classId}
+                      onChange={(e) => {
+                        setSectionId(e.target.value);
+                        setPage(1);
+                      }}
+                    >
+                      <option value="">All Sections</option>
+                      {sections.map((s) => (
+                        <option key={s.id} value={s.id}>
+                          {s.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                <Separator />
+
+                <Button
+                  variant="outline"
+                  className="w-full"
+                  onClick={() => {
+                    setRole("");
+                    setStatus("");
+                    setClassId("");
+                    setSectionId("");
+                    setPage(1);
+                  }}
+                >
+                  Reset Filters
+                </Button>
+              </PopoverContent>
+            </Popover>
+
+            <Button
+              onClick={() => {
+                resetCreateForm();
+                setOpenCreate(true);
+              }}
+            >
+              Add User
+            </Button>
+          </div>
         }
       />
 
-      <div className="mb-4 grid gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
-        <div className="rounded-xl border bg-card p-4">
-          <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <p className="text-base font-semibold">Filter Users</p>
-              <p className="text-sm text-muted-foreground">
-                Narrow by role, status, and parent enrollment scope.
-              </p>
-            </div>
-            <Button
-              variant="outline"
-              onClick={() => {
-                setRole("");
-                setStatus("");
-                setClassId("");
-                setSectionId("");
-                setPage(1);
-              }}
-            >
-              Reset Filters
-            </Button>
-          </div>
-
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-[repeat(4,minmax(0,1fr))]">
-            <div className="min-w-0">
-              <Label>User Category</Label>
-              <select
-                className="mt-1 w-full rounded-md border bg-background px-3 py-2"
-                value={role}
-                onChange={(e) => {
-                  setRole(e.target.value);
-                  setClassId("");
-                  setSectionId("");
-                  setPage(1);
-                }}
-              >
-                {ROLE_FILTERS.map((item) => (
-                  <option key={item.value || "all"} value={item.value}>
-                    {item.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div className="min-w-0">
-              <Label>Status</Label>
-              <select
-                className="mt-1 w-full rounded-md border bg-background px-3 py-2"
-                value={status}
-                onChange={(e) => {
-                  setStatus(e.target.value);
-                  setPage(1);
-                }}
-              >
-                {STATUS_FILTERS.map((item) => (
-                  <option key={item.value || "all-status"} value={item.value}>
-                    {item.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div className="min-w-0">
-              <Label>Parent Class</Label>
-              <select
-                className="mt-1 w-full rounded-md border bg-background px-3 py-2"
-                value={classId}
-                disabled={role !== "parent"}
-                onChange={(e) => {
-                  setClassId(e.target.value);
-                  setSectionId("");
-                  setPage(1);
-                }}
-              >
-                <option value="">All Classes</option>
-                {classes.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
-                    {c.medium ? ` (${c.medium})` : ""}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div className="min-w-0">
-              <Label>Parent Section</Label>
-              <select
-                className="mt-1 w-full rounded-md border bg-background px-3 py-2"
-                value={sectionId}
-                disabled={role !== "parent" || !classId}
-                onChange={(e) => {
-                  setSectionId(e.target.value);
-                  setPage(1);
-                }}
-              >
-                <option value="">All Sections</option>
-                {sections.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-        </div>
-
-        <div className="grid gap-3 rounded-xl border bg-card p-4 sm:grid-cols-3 xl:grid-cols-1">
-          <div className="rounded-lg border bg-background p-3">
+      <div className="mb-4">
+        <div className="grid gap-3 sm:grid-cols-3">
+          <SurfaceCard accent className="bg-gradient-to-br from-sky-500/15 via-background to-transparent">
+            <div className="p-4">
             <p className="text-xs uppercase tracking-wide text-muted-foreground">Visible Users</p>
             <p className="mt-1 text-2xl font-semibold">{pagination.total}</p>
-          </div>
-          <div className="rounded-lg border bg-background p-3">
+            </div>
+          </SurfaceCard>
+          <SurfaceCard accent className="bg-gradient-to-br from-emerald-500/15 via-background to-transparent">
+            <div className="p-4">
             <p className="text-xs uppercase tracking-wide text-muted-foreground">Active On Page</p>
-            <p className="mt-1 text-2xl font-semibold text-green-700">{activeCount}</p>
-          </div>
-          <div className="rounded-lg border bg-background p-3">
+            <p className={`mt-1 text-2xl font-semibold ${metricValueClass("success")}`}>{activeCount}</p>
+            </div>
+          </SurfaceCard>
+          <SurfaceCard accent className="bg-gradient-to-br from-rose-500/15 via-background to-transparent">
+            <div className="p-4">
             <p className="text-xs uppercase tracking-wide text-muted-foreground">Inactive On Page</p>
-            <p className="mt-1 text-2xl font-semibold text-red-700">{inactiveCount}</p>
-          </div>
+            <p className={`mt-1 text-2xl font-semibold ${metricValueClass("danger")}`}>{inactiveCount}</p>
+            </div>
+          </SurfaceCard>
         </div>
       </div>
 
-      <div className="rounded-xl border bg-card p-4">
+      <SurfaceCard>
+        <div className="p-4">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
           <div>
             <p className="text-base font-semibold">User Directory</p>
@@ -540,7 +601,7 @@ export default function Users() {
             setPage(1);
           }}
           renderActions={(row) => (
-            <>
+            <div className="flex gap-2">
               <Button
                 size="sm"
                 variant="outline"
@@ -561,10 +622,11 @@ export default function Users() {
               >
                 {row.status === "active" ? "Deactivate" : "Activate"}
               </Button>
-            </>
+            </div>
           )}
         />
-      </div>
+        </div>
+      </SurfaceCard>
 
       <Dialog
         open={openCreate}
@@ -646,7 +708,7 @@ export default function Users() {
 
             <div className="grid gap-2">
               <Label>Roles *</Label>
-              <div className="grid gap-2 rounded-lg border p-3 sm:grid-cols-2">
+              <div className="grid gap-2 rounded-2xl border border-border/70 bg-muted/20 p-3 sm:grid-cols-2">
                 {roles.map((roleName) => (
                   <label key={roleName} className="flex items-center gap-2 text-sm">
                     <input
@@ -690,7 +752,7 @@ export default function Users() {
               </DialogDescription>
             </DialogHeader>
 
-            <div className="grid gap-2 rounded-lg border p-3 sm:grid-cols-2">
+            <div className="grid gap-2 rounded-2xl border border-border/70 bg-muted/20 p-3 sm:grid-cols-2">
               {allPermissions.length === 0 && (
                 <p className="text-sm text-muted-foreground">
                   No permissions loaded yet.
@@ -699,7 +761,7 @@ export default function Users() {
               {allPermissions.map((permissionName) => (
                 <label
                   key={permissionName}
-                  className="flex items-start gap-3 rounded-md border bg-background px-3 py-2 text-sm"
+                  className="flex items-start gap-3 rounded-xl border border-border/70 bg-background/80 px-3 py-2 text-sm shadow-sm"
                 >
                   <input
                     type="checkbox"

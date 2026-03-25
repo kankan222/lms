@@ -19,6 +19,10 @@ router.get(
   requirePermission("messages.view"),
   controller.unreadMessages
 );
+router.get(
+  "/stream",
+  controller.streamMessages
+);
 router.post(
   "/",
   requirePermission("messages.send"),

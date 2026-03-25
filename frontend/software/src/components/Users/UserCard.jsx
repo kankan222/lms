@@ -3,7 +3,7 @@ import { Phone, Mail, Calendar, Clock, Wrench, Trash2, Printer, Pencil } from "l
 
 export default function UserCard() {
   return (
-    <div className="w-full bg-white rounded-xl border border-gray-200 shadow-sm p-6 flex gap-6 items-start">
+    <div className="flex w-full items-start gap-6 rounded-xl border bg-card p-6 shadow-sm">
       
       {/* Avatar */}
       <div className="w-24 h-24 rounded-lg overflow-hidden bg-pink-200 shrink-0">
@@ -19,12 +19,12 @@ export default function UserCard() {
         {/* Header */}
         <div className="flex items-start justify-between">
           <div>
-            <h2 className="text-xl font-semibold text-gray-900">
+            <h2 className="text-xl font-semibold text-foreground">
               Matt Clark
             </h2>
 
             {/* Meta Info */}
-            <div className="flex flex-wrap items-center gap-4 text-sm text-gray-500 mt-1">
+            <div className="mt-1 flex flex-wrap items-center gap-4 text-sm text-muted-foreground">
               <span className="flex items-center gap-1">
                 <Wrench size={16} /> Plumbing
               </span>
@@ -41,15 +41,15 @@ export default function UserCard() {
 
           {/* Actions */}
           <div className="flex gap-2">
-            <button className="flex items-center gap-2 px-3 py-1.5 border rounded-md text-sm hover:bg-gray-50">
+            <button className="flex items-center gap-2 rounded-md border px-3 py-1.5 text-sm transition-colors hover:bg-muted">
               <Trash2 size={16} /> Delete
             </button>
 
-            <button className="flex items-center gap-2 px-3 py-1.5 border rounded-md text-sm hover:bg-gray-50">
+            <button className="flex items-center gap-2 rounded-md border px-3 py-1.5 text-sm transition-colors hover:bg-muted">
               <Printer size={16} /> Print
             </button>
 
-            <button className="flex items-center gap-2 px-3 py-1.5 border rounded-md text-sm hover:bg-gray-50">
+            <button className="flex items-center gap-2 rounded-md border px-3 py-1.5 text-sm transition-colors hover:bg-muted">
               <Pencil size={16} /> Edit
             </button>
           </div>
@@ -63,8 +63,8 @@ export default function UserCard() {
           
           {/* Status */}
           <div>
-            <p className="text-gray-500 mb-1">Status</p>
-            <select className="px-3 py-1.5 border rounded-md text-blue-600 bg-blue-50">
+            <p className="mb-1 text-muted-foreground">Status</p>
+            <select className="rounded-md border bg-blue-50 px-3 py-1.5 text-blue-600 dark:bg-blue-500/10 dark:text-blue-200">
               <option>Ongoing</option>
               <option>Completed</option>
               <option>Pending</option>
@@ -73,8 +73,8 @@ export default function UserCard() {
 
           {/* Tags */}
           <div>
-            <p className="text-gray-500 mb-1">Tags</p>
-            <select className="px-3 py-1.5 border rounded-md text-red-600 bg-red-50">
+            <p className="mb-1 text-muted-foreground">Tags</p>
+            <select className="rounded-md border bg-red-50 px-3 py-1.5 text-red-600 dark:bg-red-500/10 dark:text-red-200">
               <option>Callback</option>
               <option>Urgent</option>
               <option>Follow Up</option>
@@ -83,13 +83,13 @@ export default function UserCard() {
 
           {/* Assigned Member */}
           <div>
-            <p className="text-gray-500 mb-1">Assigned Member</p>
+            <p className="mb-1 text-muted-foreground">Assigned Member</p>
 
             <div className="flex items-center gap-2">
               <div className="w-7 h-7 rounded-full bg-blue-600 text-white flex items-center justify-center text-xs font-semibold">
                 J
               </div>
-              <span className="text-gray-800">
+              <span className="text-foreground">
                 Jacqueline Gayle
               </span>
             </div>

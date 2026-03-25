@@ -31,8 +31,7 @@ import {
 } from "../api/staff.api";
 import { getUsers } from "../api/users.api";
 import { usePermissions } from "../hooks/usePermissions";
-
-const API_ROOT = (import.meta.env.VITE_API_URL || "http://localhost:5000/api/v1").replace(/\/api\/v1\/?$/, "");
+import { resolveServerImageUrl } from "../lib/serverImage";
 const SECTION_OPTIONS = [
   { value: "head", label: "Head Staff" },
   { value: "teaching", label: "Teaching Staff" },
@@ -57,12 +56,6 @@ const EMPTY_BULK_FORM = {
   section: "teaching",
   images: [],
 };
-
-function resolveImageUrl(path) {
-  if (!path) return "";
-  if (String(path).startsWith("http")) return path;
-  return `${API_ROOT}${path}`;
-}
 
 function sectionLabel(value) {
   return (
@@ -465,7 +458,7 @@ export default function StaffPage() {
               <h3 className="mb-2 text-lg font-semibold">{section.label}</h3>
               <div className="overflow-x-auto rounded-md border bg-card">
                 <table className="w-full text-sm">
-                  <thead className="bg-muted">
+                  <thead className="bg-muted/40 [&_th]:text-[11px] [&_th]:font-medium [&_th]:uppercase [&_th]:tracking-[0.16em] [&_th]:text-muted-foreground">
                     <tr>
                       <th className="p-2 text-left">Photo</th>
                       <th className="p-2 text-left">Name</th>
@@ -481,7 +474,7 @@ export default function StaffPage() {
                         <td className="p-2">
                           {row.image_url ? (
                             <img
-                              src={resolveImageUrl(row.image_url)}
+                              src={resolveServerImageUrl(row.image_url)}
                               alt={row.name}
                               className="h-12 w-12 rounded object-cover"
                             />
@@ -534,7 +527,7 @@ export default function StaffPage() {
               <div className="h-24 w-24 overflow-hidden rounded-lg bg-muted">
                 {rows[0].image_url ? (
                   <img
-                    src={resolveImageUrl(rows[0].image_url)}
+                    src={resolveServerImageUrl(rows[0].image_url)}
                     alt={rows[0].name}
                     className="h-full w-full object-cover"
                   />
@@ -650,7 +643,7 @@ export default function StaffPage() {
               <div className="grid gap-2">
                 <Label>Current Photo</Label>
                 <img
-                  src={resolveImageUrl(editRow.image_url)}
+                  src={resolveServerImageUrl(editRow.image_url)}
                   alt={editRow.name}
                   className="h-24 w-24 rounded object-cover"
                 />

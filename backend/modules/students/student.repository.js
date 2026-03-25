@@ -175,6 +175,8 @@ export async function getStudents(filters = {}) {
       s.mobile AS phone,
       s.gender,
       s.dob,
+      s.date_of_admission,
+      se.session_id,
       se.roll_number,
       se.class_id,
       se.section_id,

@@ -30,6 +30,8 @@ function Hero({ Text }) {
           <img
             src={Text === "school" ? SchoolHero : CollegeHero}
             alt="College"
+            fetchPriority="high"
+            decoding="async"
             className="w-full h-[50vh] sm:h-[calc(100vh-80px)] object"
           />
         </div>

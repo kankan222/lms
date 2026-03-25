@@ -49,8 +49,7 @@ export async function getClassSubjects(classId) {
   const conn = await pool.getConnection();
 
   try {
-    console.log("I am service", classId)
-    return await repo.getSubjectsByClass(conn, classId);
+    return await repo.getClassSubjects(classId);
   } finally {
     conn.release();
   }

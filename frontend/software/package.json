@@ -4,9 +4,13 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
+    "dev:local": "vite --host",
     "dev": "vite",
+    "build:local": "vite build --mode development",
+    "build:server": "vite build --mode production",
     "build": "vite build",
     "lint": "eslint .",
+    "preview:server": "vite preview --host",
     "preview": "vite preview"
   },
   "dependencies": {

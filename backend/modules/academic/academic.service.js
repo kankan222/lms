@@ -50,12 +50,86 @@ export async function createSession(data) {
   return repo.createSession(data);
 }
 
+export async function updateSession(id, data) {
+  if (!String(data?.name || "").trim()) {
+    throw new Error("Session name is required");
+  }
+  if (!data?.startDate || !data?.endDate) {
+    throw new Error("Session start date and end date are required");
+  }
+
+  if (data.isActive) {
+    await repo.deactivateAllSessions();
+  }
+
+  const result = await repo.updateSession(id, data);
+  if (!result?.affectedRows) {
+    throw new Error("Session not found");
+  }
+  return result;
+}
+
+export async function deleteSession(id) {
+  try {
+    const result = await repo.deleteSession(id);
+    if (!result?.affectedRows) {
+      throw new Error("Session not found");
+    }
+    return result;
+  } catch (err) {
+    if (err?.code === "ER_ROW_IS_REFERENCED_2" || err?.errno === 1451) {
+      throw new Error("This session is already linked to other records and cannot be deleted.");
+    }
+    throw err;
+  }
+}
+
 
 
 
 export function getSessions() {
   return repo.getSessions();
 }
+
+function normalizeStreamName(value) {
+  const name = String(value || "").trim();
+  if (!name) {
+    throw new Error("Stream name is required");
+  }
+  return name;
+}
+
+export function getStreams() {
+  return repo.getStreams();
+}
+
+export function createStream(data) {
+  return repo.createStream(normalizeStreamName(data?.name));
+}
+
+export async function updateStream(id, data) {
+  const result = await repo.updateStream(id, normalizeStreamName(data?.name));
+  if (!result?.affectedRows) {
+    throw new Error("Stream not found");
+  }
+  return result;
+}
+
+export async function deleteStream(id) {
+  try {
+    const result = await repo.deleteStream(id);
+    if (!result?.affectedRows) {
+      throw new Error("Stream not found");
+    }
+    return result;
+  } catch (err) {
+    if (err?.code === "ER_ROW_IS_REFERENCED_2" || err?.errno === 1451) {
+      throw new Error("This stream is already linked to students and cannot be deleted.");
+    }
+    throw err;
+  }
+}
+
 export async function getClasses() {
   const rows = await repo.getClasses();
   return rows.map((row) => {

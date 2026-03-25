@@ -61,7 +61,7 @@ const Home = () => {
       <header className="flex items-center xl:justify-between py-2 text-black z-50 flex-col sm:flex-row md:flex-row lg:flex-row 2xl:flex-row px-5 lg:px-15 2xl:px-30 gap-4">
         <div className="header-left flex items-center gap-2">
           <div className="header-img w-25">
-            <img src={logo} alt="" />
+            <img src={logo} alt="Kalong Kapili Vidyapith logo" fetchPriority="high" decoding="async" />
           </div>
           <div className="header-text border-l-2 border-primary pl-2 leading-10 ">
             <p>

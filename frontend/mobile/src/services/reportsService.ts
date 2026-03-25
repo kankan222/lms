@@ -79,6 +79,61 @@ export type LinkedStudent = {
   section_name?: string | null;
 };
 
+export type AccessibleExamItem = {
+  id: number;
+  name: string;
+  session_id?: number | null;
+  session_name?: string | null;
+  exam_date?: string | null;
+};
+
+export type AccessibleExamSubject = {
+  id?: number;
+  subject_id: number;
+  subject_name?: string | null;
+  max_marks: number;
+  pass_marks?: number | null;
+};
+
+export type AccessibleExamScope = {
+  id?: number;
+  class_id: number;
+  section_id: number;
+  class_name?: string | null;
+  section_name?: string | null;
+};
+
+export type AccessibleExamDetails = AccessibleExamItem & {
+  subjects: AccessibleExamSubject[];
+  scopes: AccessibleExamScope[];
+};
+
+export type PendingApprovalGroup = {
+  exam_id: number;
+  exam_name: string;
+  session_id?: number | null;
+  session_name?: string | null;
+  class_id: number;
+  class_name: string;
+  section_id: number;
+  section_name: string;
+  medium?: string | null;
+  subject_id: number;
+  subject_name: string;
+  pending_count: number;
+};
+
+export type PendingApprovalQueue = {
+  total_pending: number;
+  groups: PendingApprovalGroup[];
+};
+
+export type MarksApprovalSummary = {
+  pending: number;
+  draft: number;
+  approved: number;
+};
+
 function buildQuery(params: Record<string, string | number | undefined | null>) {
   const query = new URLSearchParams();
   Object.entries(params).forEach(([key, value]) => {
@@ -121,6 +176,26 @@ async function downloadAuthorizedFile(path: string, fileName: string, mimeType: 
 export async function getMarksGrid(filters: MarksGridFilters) {
   const response = await api.get<ApiEnvelope<MarksGridData>>(`/marks/grid${buildQuery(filters)}`);
   return response.data.data;
+}
+
+export async function getAccessibleExams() {
+  const response = await api.get<ApiEnvelope<AccessibleExamItem[]>>("/marks/exams");
+  return response.data.data ?? [];
+}
+
+export async function getAccessibleExamById(examId: number | string) {
+  const response = await api.get<ApiEnvelope<AccessibleExamDetails>>(`/marks/exams/${examId}`);
+  return response.data.data;
+}
+
+export async function getPendingApprovalQueue() {
+  const response = await api.get<ApiEnvelope<PendingApprovalQueue>>("/marks/pending-queue");
+  return response.data.data ?? { total_pending: 0, groups: [] };
+}
+
+export async function getMarksApprovalSummary() {
+  const response = await api.get<ApiEnvelope<MarksApprovalSummary>>("/marks/summary");
+  return response.data.data ?? { pending: 0, draft: 0, approved: 0 };
 }
 
 export async function saveMarks(payload: {

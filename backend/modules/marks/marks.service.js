@@ -163,6 +163,37 @@ export async function getMarksGrid(filters, userId) {
   };
 }
 
+export async function getPendingApprovalQueue() {
+  const rows = await repo.getPendingApprovalScopes();
+  return {
+    total_pending: rows.reduce((sum, row) => sum + Number(row.pending_count || 0), 0),
+    groups: rows.map((row) => ({
+      exam_id: Number(row.exam_id),
+      exam_name: row.exam_name,
+      session_id: Number(row.session_id),
+      session_name: row.session_name,
+      class_id: Number(row.class_id),
+      class_name: row.class_name,
+      section_id: Number(row.section_id),
+      section_name: row.section_name,
+      medium: row.medium || "",
+      subject_id: Number(row.subject_id),
+      subject_name: row.subject_name,
+      pending_count: Number(row.pending_count || 0),
+      latest_entry_id: Number(row.latest_entry_id || 0),
+    })),
+  };
+}
+
+export async function getApprovalStatusSummary() {
+  const summary = await repo.getApprovalStatusSummary();
+  return {
+    pending: Number(summary.pending_count || 0),
+    draft: Number(summary.draft_count || 0),
+    approved: Number(summary.approved_count || 0),
+  };
+}
+
 export async function getAccessibleExams(userId) {
   const userCtx = await getUserContext(userId);
 
@@ -225,6 +256,14 @@ export async function saveMarks(payload, userId) {
     payload,
     userId
   );
+
+  const hasDraftStatus = await repo.supportsMarksDraftStatus();
+  if (!hasDraftStatus) {
+    throw new AppError(
+      "Marks draft workflow is not enabled on this database. Apply migration 20260312_marks_workflow_draft_status.sql.",
+      500
+    );
+  }
 
   const marks = Array.isArray(payload.marks) ? payload.marks : [];
   if (!marks.length) throw new AppError("marks[] is required", 400);

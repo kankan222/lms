@@ -2,39 +2,39 @@ import { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Image,
   Modal,
   Pressable,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
   TextInput,
   View,
 } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import TopNotice from "../../components/feedback/TopNotice";
+import SelectField from "../../components/form/SelectField";
 import { useAuthStore } from "../../store/authStore";
+import { useAppTheme } from "../../theme/AppThemeProvider";
+import { ENV } from "../../constants/env";
 import {
-  ConversationItem,
   getConversations,
   getMessages,
   getTargets,
   markAsRead,
-  MessageItem,
-  MessagingTargets,
   sendMessage,
+  type ConversationItem,
+  type MessageItem,
+  type MessagingTargets,
 } from "../../services/messagingService";
-import { formatTimeLabel } from "../../utils/format";
+import { formatDateLabel, formatTimeLabel } from "../../utils/format";
 
-type ComposeState = {
-  target_type:
-    | "direct"
-    | "parent"
-    | "teacher"
-    | "class"
-    | "section"
-    | "broadcast"
-    | "all_classes"
-    | "all_sections"
-    | "all_parents"
-    | "all_teachers";
+type Notice = { title: string; message: string; tone: "success" | "error" } | null;
+type Screen = "list" | "chat";
+type Compose = {
+  target_type: "direct" | "parent" | "teacher" | "class" | "section" | "broadcast" | "all_classes" | "all_sections" | "all_parents" | "all_teachers";
   recipient_user_id: string;
   class_id: string;
   section_id: string;
@@ -42,16 +42,8 @@ type ComposeState = {
   message: string;
 };
 
-type RecipientFilters = {
-  search: string;
-  role: "all" | "parent" | "teacher";
-  class_id: string;
-  section_id: string;
-  medium: string;
-  teacher_type: "all" | "school" | "college";
-};
-
-const EMPTY_COMPOSE: ComposeState = {
+const EMPTY_TARGETS: MessagingTargets = { parents: [], teachers: [], classes: [], sections: [], broadcast_targets: [] };
+const EMPTY_COMPOSE: Compose = {
   target_type: "direct",
   recipient_user_id: "",
   class_id: "",
@@ -60,372 +52,412 @@ const EMPTY_COMPOSE: ComposeState = {
   message: "",
 };
 
-const EMPTY_FILTERS: RecipientFilters = {
-  search: "",
-  role: "all",
-  class_id: "",
-  section_id: "",
-  medium: "",
-  teacher_type: "all",
-};
+function getErrorMessage(err: unknown, fallback: string) {
+  if (typeof err === "object" && err && "response" in err) {
+    const data = (err as { response?: { data?: { error?: string; message?: string } } }).response?.data;
+    return data?.error || data?.message || fallback;
+  }
+  return fallback;
+}
 
-function formatScopeLabel(scope?: string | null) {
-  return scope === "hs" ? "Higher Secondary" : scope === "school" ? "School" : "";
+function firstLetter(value?: string | null) {
+  return String(value || "?").trim().charAt(0).toUpperCase() || "?";
+}
+
+function resolveMediaUrl(value?: string | null) {
+  const raw = String(value || "").trim();
+  if (!raw) return null;
+  if (/^https?:\/\//i.test(raw)) return raw;
+  const base = ENV.API_BASE_URL.replace(/\/api\/v1\/?$/i, "");
+  return `${base}${raw.startsWith("/") ? raw : `/${raw}`}`;
+}
+
+function presenceText(conversation?: ConversationItem | null) {
+  if (!conversation) return "";
+  if (conversation.type !== "direct") return conversation.type;
+  if (conversation.online) return "Online";
+  if (!conversation.last_seen_at) return "Offline";
+  return `Last seen ${formatDateLabel(conversation.last_seen_at)} ${formatTimeLabel(conversation.last_seen_at)}`;
+}
+
+function Avatar({ label, online, imageUrl }: { label?: string | null; online?: boolean; imageUrl?: string | null }) {
+  const resolvedImage = resolveMediaUrl(imageUrl);
+  return (
+    <View style={styles.avatarWrap}>
+      <View style={styles.avatarCircle}>
+        {resolvedImage ? (
+          <Image source={{ uri: resolvedImage }} style={styles.avatarImage} />
+        ) : (
+          <Text style={styles.avatarText}>{firstLetter(label)}</Text>
+        )}
+      </View>
+      <View style={[styles.presenceDot, online ? styles.presenceOnline : styles.presenceOffline]} />
+    </View>
+  );
 }
 
 export default function MessagingTab() {
+  const { theme, isDark } = useAppTheme();
+  const insets = useSafeAreaInsets();
   const user = useAuthStore((state) => state.user);
+  const isSuperAdmin = Array.isArray(user?.roles) && user.roles.includes("super_admin");
+
+  const [screen, setScreen] = useState<Screen>("list");
   const [conversations, setConversations] = useState<ConversationItem[]>([]);
   const [messages, setMessages] = useState<MessageItem[]>([]);
-  const [targets, setTargets] = useState<MessagingTargets>({
-    parents: [],
-    teachers: [],
-    classes: [],
-    sections: [],
-    broadcast_targets: [],
-  });
-
+  const [targets, setTargets] = useState<MessagingTargets>(EMPTY_TARGETS);
   const [activeConversationId, setActiveConversationId] = useState<number | null>(null);
+  const [search, setSearch] = useState("");
+  const [reply, setReply] = useState("");
+  const [compose, setCompose] = useState<Compose>(EMPTY_COMPOSE);
+  const [composeSearch, setComposeSearch] = useState("");
+  const [composeRoleFilter, setComposeRoleFilter] = useState("all");
+  const [composeClassFilter, setComposeClassFilter] = useState("");
+  const [composeSectionFilter, setComposeSectionFilter] = useState("");
+  const [composeTeacherTypeFilter, setComposeTeacherTypeFilter] = useState<"all" | "school" | "college">("all");
+  const [composeOpen, setComposeOpen] = useState(false);
   const [loadingConversations, setLoadingConversations] = useState(true);
   const [loadingMessages, setLoadingMessages] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [sending, setSending] = useState(false);
-
-  const [newMessageText, setNewMessageText] = useState("");
-  const [composeOpen, setComposeOpen] = useState(false);
-  const [compose, setCompose] = useState<ComposeState>(EMPTY_COMPOSE);
-  const [recipientFilters, setRecipientFilters] = useState<RecipientFilters>(EMPTY_FILTERS);
-  const [conversationSearch, setConversationSearch] = useState("");
+  const [notice, setNotice] = useState<Notice>(null);
 
   const activeConversation = useMemo(
-    () => conversations.find((c) => Number(c.id) === Number(activeConversationId)) ?? null,
-    [conversations, activeConversationId]
+    () => conversations.find((item) => Number(item.id) === Number(activeConversationId)) ?? null,
+    [conversations, activeConversationId],
   );
-  const broadcastTargetOptions = useMemo(
-    () =>
-      targets.broadcast_targets?.length
-        ? targets.broadcast_targets
-        : [
-            { key: "broadcast", label: "All Users" },
-            { key: "all_classes", label: "All Classes" },
-            { key: "all_sections", label: "All Sections" },
-            { key: "all_parents", label: "All Parents" },
-            { key: "all_teachers", label: "All Teachers" },
-          ],
-    [targets.broadcast_targets]
-  );
-  const filteredConversations = useMemo(() => {
-    const query = conversationSearch.trim().toLowerCase();
-    if (!query) return conversations;
-    return conversations.filter((item) =>
-      [item.name || "", item.type || "", item.last_message || ""].join(" ").toLowerCase().includes(query)
-    );
-  }, [conversationSearch, conversations]);
-
-  const sectionsByClass = useMemo(() => {
-    if (!compose.class_id) return [];
-    return targets.sections.filter((s) => String(s.class_id) === String(compose.class_id));
-  }, [targets.sections, compose.class_id]);
-
-  const sectionsByFilterClass = useMemo(() => {
-    if (!recipientFilters.class_id) return targets.sections;
-    return targets.sections.filter((s) => String(s.class_id) === String(recipientFilters.class_id));
-  }, [targets.sections, recipientFilters.class_id]);
-
   const recipientOptions = useMemo(() => {
-    const parents = targets.parents.map((p) => ({
-      role: "parent" as const,
-      user_id: p.user_id,
-      name: p.name,
-      email: p.email || "",
-      mobile: p.mobile || "",
-      class_id: p.class_id ? String(p.class_id) : "",
-      section_id: p.section_id ? String(p.section_id) : "",
-      class_name: p.class_name || "",
-      section_name: p.section_name || "",
-      medium: p.medium || "",
-      class_scope: p.class_scope || "",
-      teacher_type: "",
-    }));
-
-    const teachers = targets.teachers.map((t) => ({
-      role: "teacher" as const,
-      user_id: t.user_id,
-      name: t.name,
-      email: t.email || "",
-      mobile: t.phone || "",
-      class_id: t.class_id ? String(t.class_id) : "",
-      section_id: t.section_id ? String(t.section_id) : "",
-      class_name: t.class_name || "",
-      section_name: t.section_name || "",
-      medium: t.medium || t.class_medium || "",
-      class_scope: t.class_scope || "",
-      teacher_type: t.type || "school",
-    }));
-
-    const merged = [...parents, ...teachers].filter((row) => row.user_id);
-    const map = new Map<
-      string,
+    const grouped = new Map<
+      number,
       {
         user_id: number;
         name: string;
-        email: string;
-        mobile: string;
-        roles: Set<"parent" | "teacher">;
+        roleSet: Set<string>;
         classIds: Set<string>;
         sectionIds: Set<string>;
         classNames: Set<string>;
         sectionNames: Set<string>;
-        mediums: Set<string>;
-        classScopes: Set<string>;
+        phones: Set<string>;
+        emails: Set<string>;
         teacherTypes: Set<string>;
       }
     >();
 
-    for (const row of merged) {
-      if (user?.id && Number(row.user_id) === Number(user.id)) continue;
-      const key = String(row.user_id);
-      if (!map.has(key)) {
-        map.set(key, {
-          user_id: row.user_id,
-          name: row.name || "Unknown",
-          email: row.email,
-          mobile: row.mobile,
-          roles: new Set(),
-          classIds: new Set(),
-          sectionIds: new Set(),
-          classNames: new Set(),
-          sectionNames: new Set(),
-          mediums: new Set(),
-          classScopes: new Set(),
-          teacherTypes: new Set(),
-        });
-      }
-      const item = map.get(key)!;
-      item.roles.add(row.role);
-      if (row.class_id) item.classIds.add(row.class_id);
-      if (row.section_id) item.sectionIds.add(row.section_id);
-      if (row.class_name) item.classNames.add(row.class_name);
-      if (row.section_name) item.sectionNames.add(row.section_name);
-      if (row.medium) item.mediums.add(row.medium);
-      if (row.class_scope) item.classScopes.add(row.class_scope);
-      if (row.teacher_type) item.teacherTypes.add(row.teacher_type);
+    for (const item of targets.parents) {
+      const userId = Number(item.user_id);
+      if (!userId) continue;
+      const existing = grouped.get(userId) || {
+        user_id: userId,
+        name: item.name,
+        roleSet: new Set<string>(),
+        classIds: new Set<string>(),
+        sectionIds: new Set<string>(),
+        classNames: new Set<string>(),
+        sectionNames: new Set<string>(),
+        phones: new Set<string>(),
+        emails: new Set<string>(),
+        teacherTypes: new Set<string>(),
+      };
+      existing.roleSet.add("parent");
+      if (item.class_id) existing.classIds.add(String(item.class_id));
+      if (item.section_id) existing.sectionIds.add(String(item.section_id));
+      if (item.class_name) existing.classNames.add(String(item.class_name));
+      if (item.section_name) existing.sectionNames.add(String(item.section_name));
+      if (item.mobile) existing.phones.add(String(item.mobile));
+      if (item.email) existing.emails.add(String(item.email));
+      grouped.set(userId, existing);
+    }
+
+    for (const item of targets.teachers) {
+      const userId = Number(item.user_id);
+      if (!userId) continue;
+      const existing = grouped.get(userId) || {
+        user_id: userId,
+        name: item.name,
+        roleSet: new Set<string>(),
+        classIds: new Set<string>(),
+        sectionIds: new Set<string>(),
+        classNames: new Set<string>(),
+        sectionNames: new Set<string>(),
+        phones: new Set<string>(),
+        emails: new Set<string>(),
+        teacherTypes: new Set<string>(),
+      };
+      existing.roleSet.add("teacher");
+      if (item.class_id) existing.classIds.add(String(item.class_id));
+      if (item.section_id) existing.sectionIds.add(String(item.section_id));
+      if (item.class_name) existing.classNames.add(String(item.class_name));
+      if (item.section_name) existing.sectionNames.add(String(item.section_name));
+      if (item.phone) existing.phones.add(String(item.phone));
+      if (item.email) existing.emails.add(String(item.email));
+      if (item.type) existing.teacherTypes.add(String(item.type));
+      grouped.set(userId, existing);
     }
 
     const targetRole =
-      compose.target_type === "parent"
-        ? "parent"
-        : compose.target_type === "teacher"
-          ? "teacher"
-          : recipientFilters.role;
-    const search = recipientFilters.search.trim().toLowerCase();
+      compose.target_type === "parent" ? "parent" : compose.target_type === "teacher" ? "teacher" : composeRoleFilter;
+    const query = composeSearch.trim().toLowerCase();
 
-    return Array.from(map.values())
+    return Array.from(grouped.values())
       .map((item) => ({
-        ...item,
-        roles: Array.from(item.roles),
+        user_id: item.user_id,
+        name: item.name || `User #${item.user_id}`,
+        roles: Array.from(item.roleSet),
         classIds: Array.from(item.classIds),
         sectionIds: Array.from(item.sectionIds),
         classNames: Array.from(item.classNames),
         sectionNames: Array.from(item.sectionNames),
-        mediums: Array.from(item.mediums),
-        classScopes: Array.from(item.classScopes),
+        phones: Array.from(item.phones),
+        emails: Array.from(item.emails),
         teacherTypes: Array.from(item.teacherTypes),
       }))
       .filter((item) => {
         if (targetRole !== "all" && !item.roles.includes(targetRole)) return false;
-        if (recipientFilters.class_id && !item.classIds.includes(recipientFilters.class_id)) return false;
-        if (recipientFilters.section_id && !item.sectionIds.includes(recipientFilters.section_id)) return false;
-        if (recipientFilters.medium && !item.mediums.includes(recipientFilters.medium)) return false;
+        if (composeClassFilter && !item.classIds.includes(composeClassFilter)) return false;
+        if (composeSectionFilter && !item.sectionIds.includes(composeSectionFilter)) return false;
         if (
-          recipientFilters.teacher_type !== "all" &&
+          composeTeacherTypeFilter !== "all" &&
           item.roles.includes("teacher") &&
-          !item.teacherTypes.includes(recipientFilters.teacher_type)
+          !item.teacherTypes.includes(composeTeacherTypeFilter)
         ) {
           return false;
         }
-        if (!search) return true;
-        const text = [
+        if (!query) return true;
+        return [
           item.name,
-          item.email,
-          item.mobile,
           item.roles.join(" "),
           item.classNames.join(" "),
           item.sectionNames.join(" "),
-          item.mediums.join(" "),
-          item.classScopes.join(" "),
+          item.phones.join(" "),
+          item.emails.join(" "),
           item.teacherTypes.join(" "),
         ]
           .join(" ")
-          .toLowerCase();
-        return text.includes(search);
+          .toLowerCase()
+          .includes(query);
       })
       .sort((a, b) => a.name.localeCompare(b.name));
-  }, [targets.parents, targets.teachers, user?.id, compose.target_type, recipientFilters]);
-  const availableMedia = useMemo(() => {
-    const values = new Set<string>();
-    for (const item of [...targets.sections, ...targets.classes, ...targets.parents, ...targets.teachers]) {
-      if (item?.medium) values.add(String(item.medium));
-    }
-    return Array.from(values).sort((a, b) => a.localeCompare(b));
-  }, [targets]);
+  }, [targets, compose.target_type, composeRoleFilter, composeSearch, composeClassFilter, composeSectionFilter, composeTeacherTypeFilter]);
+  const selectedRecipient = useMemo(
+    () => recipientOptions.find((item) => String(item.user_id) === compose.recipient_user_id) ?? null,
+    [recipientOptions, compose.recipient_user_id],
+  );
+  const sectionsBySelectedClass = useMemo(
+    () => targets.sections.filter((item) => String(item.class_id) === compose.class_id),
+    [targets.sections, compose.class_id],
+  );
+  const sectionsByFilterClass = useMemo(
+    () => (composeClassFilter ? targets.sections.filter((item) => String(item.class_id) === composeClassFilter) : targets.sections),
+    [targets.sections, composeClassFilter],
+  );
+  const targetTypeOptions = useMemo(
+    () => [
+      { label: "One-to-One", value: "direct" },
+      { label: "One Parent", value: "parent" },
+      { label: "One Teacher", value: "teacher" },
+      { label: "Class", value: "class" },
+      { label: "Section", value: "section" },
+      ...targets.broadcast_targets.map((item) => ({ label: item.label, value: item.key })),
+    ],
+    [targets.broadcast_targets],
+  );
+  const classOptions = useMemo(
+    () =>
+      targets.classes.map((item) => ({
+        label: item.name,
+        value: String(item.id),
+        description: [item.medium, item.class_scope === "hs" ? "Higher Secondary" : item.class_scope ? "School" : ""]
+          .filter(Boolean)
+          .join(" - "),
+      })),
+    [targets.classes],
+  );
+  const sectionOptions = useMemo(
+    () =>
+      sectionsBySelectedClass.map((item) => ({
+        label: `${item.class_name} - ${item.name}`,
+        value: String(item.id),
+        description: [item.medium, item.class_scope === "hs" ? "Higher Secondary" : item.class_scope ? "School" : ""]
+          .filter(Boolean)
+          .join(" - "),
+      })),
+    [sectionsBySelectedClass],
+  );
+  const filteredSectionOptions = useMemo(
+    () =>
+      sectionsByFilterClass.map((item) => ({
+        label: `${item.class_name} - ${item.name}`,
+        value: String(item.id),
+      })),
+    [sectionsByFilterClass],
+  );
+  const filteredConversations = useMemo(() => {
+    const query = search.trim().toLowerCase();
+    if (!query) return conversations;
+    return conversations.filter((item) => [item.name, item.last_message, item.type].join(" - ").toLowerCase().includes(query));
+  }, [conversations, search]);
 
   useEffect(() => {
-    loadConversations();
-    loadTargets();
+    void loadBootstrap();
   }, []);
 
   useEffect(() => {
-    if (!activeConversationId) return;
-    loadMessages(activeConversationId);
-  }, [activeConversationId]);
+    if (!notice) return undefined;
+    const timer = setTimeout(() => setNotice(null), 3000);
+    return () => clearTimeout(timer);
+  }, [notice]);
 
-  async function loadConversations() {
-    setLoadingConversations(true);
-    try {
-      const data = await getConversations();
-      setConversations(data);
-      if (!activeConversationId && data.length) {
-        setActiveConversationId(data[0].id);
+  useEffect(() => {
+    if (screen !== "chat" || !activeConversationId) return;
+    void loadMessagesForConversation(activeConversationId);
+  }, [activeConversationId, screen]);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      void loadConversations(true);
+      if (screen === "chat" && activeConversationId) {
+        void loadMessagesForConversation(activeConversationId, true);
       }
-    } catch (err: unknown) {
-      Alert.alert("Error", getErrorMessage(err, "Could not load conversations."));
+    }, 4000);
+
+    return () => clearInterval(timer);
+  }, [activeConversationId, screen]);
+
+  async function loadBootstrap() {
+    await Promise.all([loadConversations(), loadTargets()]);
+  }
+
+  async function loadConversations(silent = false) {
+    if (!silent) setLoadingConversations(true);
+    try {
+      const rows = await getConversations();
+      setConversations(rows);
+      if (!activeConversationId && rows.length) setActiveConversationId(Number(rows[0].id));
+    } catch (err) {
+      if (!silent) Alert.alert("Error", getErrorMessage(err, "Could not load conversations."));
+      setConversations([]);
     } finally {
-      setLoadingConversations(false);
+      if (!silent) setLoadingConversations(false);
     }
   }
 
   async function loadTargets() {
     try {
-      const data = await getTargets();
-      setTargets(data);
+      setTargets(await getTargets());
     } catch {
-      setTargets({ parents: [], teachers: [], classes: [], sections: [], broadcast_targets: [] });
+      setTargets(EMPTY_TARGETS);
     }
   }
 
-  async function loadMessages(conversationId: number) {
-    setLoadingMessages(true);
+  async function loadMessagesForConversation(conversationId: number, silent = false) {
+    if (!silent) setLoadingMessages(true);
     try {
-      const data = await getMessages(conversationId, 1, 100);
-      setMessages([...data].reverse());
+      const rows = await getMessages(conversationId, 1, 100);
+      setMessages([...rows].reverse());
       await markAsRead(conversationId);
-      await loadConversations();
-    } catch (err: unknown) {
-      Alert.alert("Error", getErrorMessage(err, "Could not load messages."));
+      await loadConversations(true);
+    } catch (err) {
+      if (!silent) Alert.alert("Error", getErrorMessage(err, "Could not load messages."));
       setMessages([]);
     } finally {
-      setLoadingMessages(false);
+      if (!silent) setLoadingMessages(false);
     }
   }
 
-  async function sendInActiveConversation() {
-    if (!activeConversationId || !newMessageText.trim()) return;
+  async function onRefresh() {
+    setRefreshing(true);
+    try {
+      await Promise.all([loadConversations(true), loadTargets()]);
+      if (screen === "chat" && activeConversationId) await loadMessagesForConversation(activeConversationId, true);
+    } finally {
+      setRefreshing(false);
+    }
+  }
+
+  async function sendReply() {
+    if (!activeConversationId || !reply.trim()) return;
     setSending(true);
     try {
-      await sendMessage({
-        conversation_id: activeConversationId,
-        message: newMessageText.trim(),
-      });
-      setNewMessageText("");
-      await loadMessages(activeConversationId);
-    } catch (err: unknown) {
+      await sendMessage({ conversation_id: activeConversationId, message: reply.trim() });
+      setReply("");
+      await loadMessagesForConversation(activeConversationId, true);
+      setNotice({ title: "Sent", message: "Message delivered.", tone: "success" });
+    } catch (err) {
       Alert.alert("Send failed", getErrorMessage(err, "Failed to send message."));
     } finally {
       setSending(false);
     }
   }
 
-  async function sendComposedMessage() {
+  async function sendNewMessage() {
     if (!compose.message.trim()) {
-      Alert.alert("Validation", "Message is required.");
+      Alert.alert("Validation", "Enter a message.");
       return;
     }
-
-    const payload: {
-      target_type:
-        | "direct"
-        | "parent"
-        | "teacher"
-        | "class"
-        | "section"
-        | "broadcast"
-        | "all_classes"
-        | "all_sections"
-        | "all_parents"
-        | "all_teachers";
-      recipient_user_id?: number;
-      class_id?: number;
-      section_id?: number;
-      teacher_type?: "all" | "school" | "college";
-      name?: string;
-      message: string;
-    } = {
-      target_type: compose.target_type,
-      message: compose.message.trim(),
-    };
-
-    if (["direct", "parent", "teacher"].includes(compose.target_type)) {
-      if (!compose.recipient_user_id) {
-        Alert.alert("Validation", "Recipient is required.");
-        return;
-      }
-      payload.recipient_user_id = Number(compose.recipient_user_id);
-    }
-
-    if (compose.target_type === "class") {
-      if (!compose.class_id) {
-        Alert.alert("Validation", "Class is required.");
-        return;
-      }
-      payload.class_id = Number(compose.class_id);
-      payload.name = `Class ${targets.classes.find((c) => String(c.id) === compose.class_id)?.name || compose.class_id}`;
-    }
-
-    if (compose.target_type === "section") {
-      if (!compose.section_id) {
-        Alert.alert("Validation", "Section is required.");
-        return;
-      }
-      payload.section_id = Number(compose.section_id);
-      const section = targets.sections.find((s) => String(s.id) === compose.section_id);
-      payload.name = `Section ${section?.class_name || ""} ${section?.name || compose.section_id}`.trim();
-    }
-
-    if (compose.target_type === "broadcast") {
-      payload.name = "All Users";
-    }
-    if (compose.target_type === "all_classes") {
-      payload.name = "All Classes";
-    }
-    if (compose.target_type === "all_sections") {
-      payload.name = "All Sections";
-    }
-    if (compose.target_type === "all_parents") {
-      payload.name = "All Parents";
-    }
-    if (compose.target_type === "all_teachers") {
-      payload.teacher_type = compose.teacher_type;
-      payload.name =
-        compose.teacher_type === "school"
-          ? "All School Teachers"
-          : compose.teacher_type === "college"
-            ? "All College Teachers"
-            : "All Teachers";
-    }
-
     setSending(true);
     try {
+      const payload: Parameters<typeof sendMessage>[0] = {
+        target_type: compose.target_type,
+        message: compose.message.trim(),
+      };
+
+      if (["direct", "parent", "teacher"].includes(compose.target_type)) {
+        if (!compose.recipient_user_id) {
+          Alert.alert("Validation", "Choose a recipient.");
+          return;
+        }
+        payload.recipient_user_id = Number(compose.recipient_user_id);
+      }
+
+      if (compose.target_type === "class") {
+        if (!compose.class_id) {
+          Alert.alert("Validation", "Choose a class.");
+          return;
+        }
+        payload.class_id = Number(compose.class_id);
+        payload.name = `Class ${targets.classes.find((item) => String(item.id) === compose.class_id)?.name || compose.class_id}`;
+      }
+
+      if (compose.target_type === "section") {
+        if (!compose.section_id) {
+          Alert.alert("Validation", "Choose a section.");
+          return;
+        }
+        payload.section_id = Number(compose.section_id);
+        const section = targets.sections.find((item) => String(item.id) === compose.section_id);
+        payload.name = `Section ${section?.class_name || ""} ${section?.name || compose.section_id}`.trim();
+      }
+
+      if (compose.target_type === "broadcast") payload.name = "All Users";
+      if (compose.target_type === "all_classes") payload.name = "All Classes";
+      if (compose.target_type === "all_sections") payload.name = "All Sections";
+      if (compose.target_type === "all_parents") payload.name = "All Parents";
+      if (compose.target_type === "all_teachers") {
+        payload.teacher_type = compose.teacher_type;
+        payload.name =
+          compose.teacher_type === "college"
+            ? "All College Teachers"
+            : compose.teacher_type === "school"
+              ? "All School Teachers"
+              : "All Teachers";
+      }
+
       const result = await sendMessage(payload);
-      const conversationId = result.conversation_id;
       setComposeOpen(false);
       setCompose(EMPTY_COMPOSE);
-      setRecipientFilters(EMPTY_FILTERS);
-      await loadConversations();
-      if (conversationId) {
-        setActiveConversationId(conversationId);
-        await loadMessages(conversationId);
+      setComposeSearch("");
+      setComposeRoleFilter("all");
+      setComposeClassFilter("");
+      setComposeSectionFilter("");
+      setComposeTeacherTypeFilter("all");
+      await loadConversations(true);
+      if (result.conversation_id) {
+        setActiveConversationId(Number(result.conversation_id));
+        setScreen("chat");
+        await loadMessagesForConversation(Number(result.conversation_id), true);
       }
-    } catch (err: unknown) {
+      setNotice({ title: "Sent", message: "Conversation started successfully.", tone: "success" });
+    } catch (err) {
       Alert.alert("Send failed", getErrorMessage(err, "Failed to send message."));
     } finally {
       setSending(false);
@@ -433,116 +465,161 @@ export default function MessagingTab() {
   }
 
   return (
-    <View style={styles.root}>
-      {!activeConversationId ? (
-        <>
-          <View style={styles.toolbar}>
-            <View style={styles.toolbarCopy}>
-              <Text style={styles.title}>Messaging</Text>
-              <Text style={styles.toolbarSubTitle}>Teacher chat, parent chat, and broadcast updates.</Text>
-            </View>
-            <Pressable style={styles.primaryBtn} onPress={() => setComposeOpen(true)}>
-              <Text style={styles.primaryBtnText}>Compose</Text>
-            </Pressable>
-          </View>
+    <>
+      {screen === "list" ? (
+        <View style={[styles.root, { backgroundColor: theme.bg }]}>
+          <ScrollView
+            style={styles.root}
+            contentContainerStyle={styles.content}
+            refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void onRefresh()} />}
+            showsVerticalScrollIndicator={false}
+          >
+            <TopNotice notice={notice} />
 
-          <View style={styles.panel}>
-            <Text style={styles.panelTitle}>Conversations</Text>
-            <TextInput
-              style={[styles.input, styles.searchInput]}
-              value={conversationSearch}
-              onChangeText={setConversationSearch}
-              placeholder="Search conversations"
-              placeholderTextColor="#94a3b8"
-            />
-            {loadingConversations ? (
-              <ActivityIndicator size="small" color="#0f172a" />
-            ) : (
-              <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.conversationList}>
-                {filteredConversations.map((c) => {
-                  const active = Number(c.id) === Number(activeConversationId);
-                  return (
-                    <Pressable
-                      key={c.id}
-                      style={[styles.conversationCard, active && styles.conversationCardActive]}
-                      onPress={() => setActiveConversationId(c.id)}
-                    >
-                      <View style={styles.avatarCircle}>
-                        <Text style={styles.avatarText}>{String(c.name || c.type).charAt(0).toUpperCase()}</Text>
-                      </View>
-                      <View style={styles.conversationBody}>
-                        <View style={styles.conversationTopRow}>
-                          <Text style={[styles.conversationText, active && styles.conversationTextActive]}>
-                            {c.name || c.type}
-                          </Text>
-                          <Text style={styles.conversationTime}>
-                            {c.last_message_at ? formatTimeLabel(c.last_message_at) : ""}
-                          </Text>
-                        </View>
-                        <View style={styles.conversationBottomRow}>
-                          <Text style={styles.conversationPreview} numberOfLines={1}>
-                            {c.last_message || "No messages yet"}
-                          </Text>
-                          {Number(c.unread) > 0 ? <Text style={styles.unread}>{c.unread}</Text> : null}
-                        </View>
-                      </View>
-                    </Pressable>
-                  );
-                })}
-              </ScrollView>
-            )}
-          </View>
-        </>
-      ) : (
-        <View style={styles.chatScreen}>
-          <View style={styles.chatHeaderBar}>
-            <Pressable style={styles.backBtn} onPress={() => setActiveConversationId(null)}>
-              <Text style={styles.backBtnText}>Back</Text>
-            </Pressable>
-            <View style={styles.chatHeaderCopy}>
-              <Text style={styles.panelTitle}>
-                {activeConversation ? activeConversation.name || activeConversation.type : "Chat"}
-              </Text>
-              <Text style={styles.chatHeaderHint}>Conversation</Text>
-            </View>
-          </View>
-
-          <View style={styles.chatPanel}>
-            {loadingMessages ? (
-              <View style={styles.centered}>
-                <ActivityIndicator size="small" color="#0f172a" />
+            {isSuperAdmin ? (
+              <View style={styles.topActionRow}>
+                <Pressable style={styles.topActionBtn} onPress={() => setComposeOpen(true)}>
+                  <Ionicons name="create-outline" size={18} color="#fff" />
+                  <Text style={styles.topActionText}>New Conversation</Text>
+                </Pressable>
               </View>
-            ) : (
-              <ScrollView style={styles.messagesWrap} contentContainerStyle={styles.messagesContent}>
-                {messages.length ? (
-                  messages.map((m) => {
-                    const mine = Number(m.sender_id) === Number(user?.id);
-                    return (
-                      <View key={m.id} style={[styles.messageRow, mine ? styles.messageRowMine : styles.messageRowOther]}>
-                        <View style={[styles.bubble, mine ? styles.bubbleMine : styles.bubbleOther]}>
-                          {!mine ? <Text style={styles.bubbleUser}>{m.username}</Text> : null}
-                          <Text style={styles.bubbleMessage}>{m.message}</Text>
-                          <Text style={styles.bubbleTime}>{formatTimeLabel(m.created_at)}</Text>
-                        </View>
-                      </View>
-                    );
-                  })
-                ) : (
-                  <Text style={styles.emptyText}>No messages yet.</Text>
-                )}
-              </ScrollView>
-            )}
+            ) : null}
 
-            <View style={styles.inputRow}>
+            <>
+              <View style={[styles.searchWrap, { borderColor: theme.border, backgroundColor: theme.card }]}>
+                <Ionicons name="search-outline" size={18} color={theme.subText} />
+                <TextInput
+                  value={search}
+                  onChangeText={setSearch}
+                  placeholder="Search conversations"
+                  placeholderTextColor={theme.mutedText}
+                  style={[styles.searchInput, { color: theme.text }]}
+                />
+              </View>
+
+              {loadingConversations ? (
+                <View style={styles.centered}><ActivityIndicator size="small" color={theme.icon} /></View>
+              ) : filteredConversations.length ? (
+                filteredConversations.map((conversation) => (
+                  <Pressable
+                    key={conversation.id}
+                    style={[styles.rowCard, { borderColor: theme.border, backgroundColor: theme.card }]}
+                    onPress={() => {
+                      setActiveConversationId(Number(conversation.id));
+                      setScreen("chat");
+                    }}
+                  >
+                    <Avatar
+                      label={conversation.name || conversation.type}
+                      online={conversation.online}
+                      imageUrl={conversation.other_user_image_url}
+                    />
+                    <View style={styles.rowBody}>
+                      <View style={styles.rowTop}>
+                        <Text style={[styles.rowTitle, { color: theme.text }]} numberOfLines={1}>
+                          {conversation.name || conversation.type}
+                        </Text>
+                        <Text style={[styles.rowTime, { color: theme.subText }]}>
+                          {conversation.last_message_at ? formatTimeLabel(conversation.last_message_at) : ""}
+                        </Text>
+                      </View>
+                      <Text style={[styles.rowPreview, { color: theme.subText }]} numberOfLines={1}>
+                        {conversation.last_message || "No messages yet"}
+                      </Text>
+                      <View style={styles.rowTop}>
+                        <Text style={[styles.rowMeta, { color: theme.subText }]} numberOfLines={1}>
+                          {presenceText(conversation)}
+                        </Text>
+                        {Number(conversation.unread || 0) > 0 ? <Text style={styles.unread}>{conversation.unread}</Text> : null}
+                      </View>
+                    </View>
+                  </Pressable>
+                ))
+              ) : (
+                <View style={[styles.emptyCard, { borderColor: theme.border, backgroundColor: theme.card }]}>
+                  <Ionicons name="chatbubble-ellipses-outline" size={22} color={theme.subText} />
+                  <Text style={[styles.emptyTitle, { color: theme.text }]}>No conversations</Text>
+                  <Text style={[styles.emptyText, { color: theme.subText }]}>
+                    {search.trim() ? "Try a different search." : "Your conversations will appear here."}
+                  </Text>
+                </View>
+              )}
+            </>
+          </ScrollView>
+
+        </View>
+      ) : (
+        <View style={[styles.chatScreen, { backgroundColor: theme.bg }]}>
+          <TopNotice notice={notice} />
+          <View style={[styles.chatHeader, { borderColor: theme.border, backgroundColor: theme.card }]}>
+            <Pressable style={[styles.iconBtn, { backgroundColor: isDark ? theme.cardMuted : theme.bg }]} onPress={() => setScreen("list")}>
+              <Ionicons name="arrow-back-outline" size={20} color={theme.icon} />
+            </Pressable>
+            <Avatar
+              label={activeConversation?.name || activeConversation?.type}
+              online={activeConversation?.online}
+              imageUrl={activeConversation?.other_user_image_url}
+            />
+            <View style={styles.chatHeaderCopy}>
+              <Text style={[styles.rowTitle, { color: theme.text }]}>{activeConversation?.name || "Chat"}</Text>
+              <Text style={[styles.rowMeta, { color: theme.subText }]}>{presenceText(activeConversation)}</Text>
+            </View>
+          </View>
+
+          <View style={[styles.chatMessagesPanel, { borderColor: theme.border, backgroundColor: theme.cardMuted }]}>
+            <ScrollView
+              style={styles.chatMessagesScroll}
+              contentContainerStyle={[styles.chatMessagesContent, { paddingBottom: 16 }]}
+              showsVerticalScrollIndicator={false}
+            >
+              {loadingMessages ? (
+                <View style={styles.centered}><ActivityIndicator size="small" color={theme.icon} /></View>
+              ) : messages.length ? (
+                messages.map((message) => {
+                  const mine = Number(message.sender_id) === Number(user?.id);
+                  return (
+                    <View key={message.id} style={[styles.messageRow, mine ? styles.mine : styles.other]}>
+                      {!mine ? <Avatar label={message.sender_name || message.username} imageUrl={message.sender_image_url} /> : null}
+                      <View style={[
+                        styles.bubble,
+                        mine ? styles.bubbleMine : { backgroundColor: theme.card, borderColor: theme.border, borderWidth: 1 },
+                      ]}>
+                        {!mine ? <Text style={styles.senderName}>{message.sender_name || message.username}</Text> : null}
+                        <Text style={[styles.messageText, { color: theme.text }]}>{message.message}</Text>
+                        <Text style={[styles.bubbleTime, { color: theme.subText }]}>{formatTimeLabel(message.created_at)}</Text>
+                      </View>
+                    </View>
+                  );
+                })
+              ) : (
+                <View style={[styles.emptyCard, { borderColor: theme.border, backgroundColor: theme.card }]}>
+                  <Ionicons name="chatbox-outline" size={22} color={theme.subText} />
+                  <Text style={[styles.emptyTitle, { color: theme.text }]}>No messages yet</Text>
+                  <Text style={[styles.emptyText, { color: theme.subText }]}>Start the conversation with a reply below.</Text>
+                </View>
+              )}
+            </ScrollView>
+          </View>
+
+          <View
+            style={[
+              styles.replyBarWrap,
+              {
+                paddingBottom: Math.max(insets.bottom, 10) - 105,
+                backgroundColor: theme.bg,
+              },
+            ]}
+          >
+            <View style={[styles.replyBar, { borderColor: theme.border, backgroundColor: theme.card }]}>
               <TextInput
-                style={styles.input}
-                value={newMessageText}
-                onChangeText={setNewMessageText}
-                placeholder="Type message..."
-                editable={!sending}
+                value={reply}
+                onChangeText={setReply}
+                placeholder="Type a message"
+                placeholderTextColor={theme.mutedText}
+                style={[styles.replyInput, { borderColor: theme.border, backgroundColor: theme.inputBg, color: theme.text }]}
               />
-              <Pressable style={styles.primaryBtn} onPress={sendInActiveConversation} disabled={sending}>
-                <Text style={styles.primaryBtnText}>{sending ? "..." : "Send"}</Text>
+              <Pressable style={styles.sendBtn} onPress={() => void sendReply()} disabled={sending}>
+                <Ionicons name="send" size={18} color="#fff" />
               </Pressable>
             </View>
           </View>
@@ -552,670 +629,256 @@ export default function MessagingTab() {
       <Modal visible={composeOpen} transparent animationType="slide" onRequestClose={() => setComposeOpen(false)}>
         <View style={styles.modalOverlay}>
           <Pressable style={styles.modalBackdrop} onPress={() => setComposeOpen(false)} />
-          <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>Compose Message</Text>
-            <Text style={styles.modalSubTitle}>Choose a direct, class, section, or broadcast target.</Text>
-            <ScrollView style={styles.modalBody}>
-              <Text style={styles.inputLabel}>Target Type *</Text>
-              <View style={styles.chipWrap}>
-                {(["direct", "parent", "teacher", "class", "section"] as const).map((type) => {
-                  const active = compose.target_type === type;
-                  return (
-                    <Pressable
-                      key={type}
-                      style={[styles.chip, active && styles.chipActive]}
-                      onPress={() =>
-                        setCompose((prev) => ({
-                          ...prev,
-                          target_type: type,
-                          recipient_user_id: "",
-                          class_id: "",
-                          section_id: "",
-                        }))
-                      }
-                    >
-                      <Text style={[styles.chipText, active && styles.chipTextActive]}>{type}</Text>
-                    </Pressable>
-                  );
-                })}
-                {broadcastTargetOptions.map((target) => {
-                  const active = compose.target_type === target.key;
-                  return (
-                    <Pressable
-                      key={target.key}
-                      style={[styles.chip, active && styles.chipActive]}
-                      onPress={() =>
-                        setCompose((prev) => ({
-                          ...prev,
-                          target_type: target.key as ComposeState["target_type"],
-                          recipient_user_id: "",
-                          class_id: "",
-                          section_id: "",
-                        }))
-                      }
-                    >
-                      <Text style={[styles.chipText, active && styles.chipTextActive]}>{target.label}</Text>
-                    </Pressable>
-                  );
-                })}
+          <View style={[styles.modalCard, { borderColor: theme.border, backgroundColor: theme.card }]}>
+            <Text style={[styles.modalTitle, { color: theme.text }]}>New Message</Text>
+            <ScrollView showsVerticalScrollIndicator={false}>
+              <View style={styles.composeSection}>
+                <SelectField
+                  label="Audience"
+                  value={compose.target_type}
+                  options={targetTypeOptions}
+                  onChange={(value) =>
+                    setCompose((prev) => ({
+                      ...prev,
+                      target_type: value as Compose["target_type"],
+                      recipient_user_id: "",
+                      class_id: "",
+                      section_id: "",
+                      teacher_type: "all",
+                    }))
+                  }
+                />
               </View>
 
               {["direct", "parent", "teacher"].includes(compose.target_type) ? (
-                <>
-                  <Text style={[styles.inputLabel, styles.spaceTop]}>Find Recipient</Text>
+                <View style={styles.composeSection}>
                   <TextInput
-                    style={styles.input}
-                    value={recipientFilters.search}
-                    onChangeText={(value) => setRecipientFilters((prev) => ({ ...prev, search: value }))}
-                    placeholder="Search by name, phone, email, class, section"
+                    value={composeSearch}
+                    onChangeText={setComposeSearch}
+                    placeholder="Search by name, phone, class or section"
+                    placeholderTextColor={theme.mutedText}
+                    style={[styles.searchInputBox, { borderColor: theme.border, backgroundColor: theme.inputBg, color: theme.text }]}
                   />
-
                   {compose.target_type === "direct" ? (
-                    <>
-                      <Text style={[styles.inputLabel, styles.spaceTop]}>Role Filter</Text>
-                      <View style={styles.chipWrap}>
-                        {(["all", "parent", "teacher"] as const).map((role) => {
-                          const active = recipientFilters.role === role;
-                          return (
-                            <Pressable
-                              key={role}
-                              style={[styles.chip, active && styles.chipActive]}
-                              onPress={() => setRecipientFilters((prev) => ({ ...prev, role }))}
-                            >
-                              <Text style={[styles.chipText, active && styles.chipTextActive]}>{role}</Text>
-                            </Pressable>
-                          );
-                        })}
-                      </View>
-
-                      <Text style={[styles.inputLabel, styles.spaceTop]}>Class Filter</Text>
-                      <View style={styles.chipWrap}>
-                        <Pressable
-                          style={[styles.chip, recipientFilters.class_id === "" && styles.chipActive]}
-                          onPress={() => setRecipientFilters((prev) => ({ ...prev, class_id: "", section_id: "" }))}
-                        >
-                          <Text style={[styles.chipText, recipientFilters.class_id === "" && styles.chipTextActive]}>
-                            All Classes
-                          </Text>
-                        </Pressable>
-                        {targets.classes.map((c) => (
-                          <Pressable
-                            key={c.id}
-                            style={[styles.chip, recipientFilters.class_id === String(c.id) && styles.chipActive]}
-                            onPress={() => setRecipientFilters((prev) => ({ ...prev, class_id: String(c.id), section_id: "" }))}
-                          >
-                            <Text style={[styles.chipText, recipientFilters.class_id === String(c.id) && styles.chipTextActive]}>
-                              {c.name}
-                            </Text>
-                          </Pressable>
-                        ))}
-                      </View>
-
-                      <Text style={[styles.inputLabel, styles.spaceTop]}>Section Filter</Text>
-                      <View style={styles.chipWrap}>
-                        <Pressable
-                          style={[styles.chip, recipientFilters.section_id === "" && styles.chipActive]}
-                          onPress={() => setRecipientFilters((prev) => ({ ...prev, section_id: "" }))}
-                        >
-                          <Text style={[styles.chipText, recipientFilters.section_id === "" && styles.chipTextActive]}>
-                            All Sections
-                          </Text>
-                        </Pressable>
-                        {sectionsByFilterClass.map((s) => (
-                          <Pressable
-                            key={s.id}
-                            style={[styles.chip, recipientFilters.section_id === String(s.id) && styles.chipActive]}
-                            onPress={() => setRecipientFilters((prev) => ({ ...prev, section_id: String(s.id) }))}
-                          >
-                            <Text style={[styles.chipText, recipientFilters.section_id === String(s.id) && styles.chipTextActive]}>
-                              {s.class_name} - {s.name}
-                            </Text>
-                          </Pressable>
-                        ))}
-                      </View>
-
-                      <Text style={[styles.inputLabel, styles.spaceTop]}>Medium Filter</Text>
-                      <View style={styles.chipWrap}>
-                        <Pressable
-                          style={[styles.chip, recipientFilters.medium === "" && styles.chipActive]}
-                          onPress={() => setRecipientFilters((prev) => ({ ...prev, medium: "" }))}
-                        >
-                          <Text style={[styles.chipText, recipientFilters.medium === "" && styles.chipTextActive]}>
-                            All Medium
-                          </Text>
-                        </Pressable>
-                        {availableMedia.map((item) => (
-                          <Pressable
-                            key={item}
-                            style={[styles.chip, recipientFilters.medium === item && styles.chipActive]}
-                            onPress={() => setRecipientFilters((prev) => ({ ...prev, medium: item }))}
-                          >
-                            <Text style={[styles.chipText, recipientFilters.medium === item && styles.chipTextActive]}>
-                              {item}
-                            </Text>
-                          </Pressable>
-                        ))}
-                      </View>
-                    </>
+                    <SelectField
+                      label="User Type"
+                      value={composeRoleFilter}
+                      options={[
+                        { label: "All User Types", value: "all" },
+                        { label: "Parents", value: "parent" },
+                        { label: "Teachers", value: "teacher" },
+                      ]}
+                      onChange={setComposeRoleFilter}
+                    />
+                  ) : null}
+                  <SelectField
+                    label="Class"
+                    value={composeClassFilter}
+                    options={classOptions}
+                    onChange={(value) => {
+                      setComposeClassFilter(value);
+                      setComposeSectionFilter("");
+                    }}
+                    allowClear
+                    clearLabel="All Classes"
+                  />
+                  <SelectField
+                    label="Section"
+                    value={composeSectionFilter}
+                    options={filteredSectionOptions}
+                    onChange={setComposeSectionFilter}
+                    allowClear
+                    clearLabel="All Sections"
+                  />
+                  {(compose.target_type === "teacher" || (compose.target_type === "direct" && composeRoleFilter !== "parent")) ? (
+                    <SelectField
+                      label="Teacher Type"
+                      value={composeTeacherTypeFilter}
+                      options={[
+                        { label: "All Teacher Types", value: "all" },
+                        { label: "School", value: "school" },
+                        { label: "College", value: "college" },
+                      ]}
+                      onChange={(value) => setComposeTeacherTypeFilter(value as "all" | "school" | "college")}
+                    />
                   ) : null}
 
-                  {(compose.target_type === "teacher" ||
-                    (compose.target_type === "direct" && recipientFilters.role === "teacher")) ? (
-                    <>
-                      <Text style={[styles.inputLabel, styles.spaceTop]}>Teacher Type</Text>
-                      <View style={styles.chipWrap}>
-                        {(["all", "school", "college"] as const).map((item) => {
-                          const active = recipientFilters.teacher_type === item;
-                          return (
-                            <Pressable
-                              key={item}
-                              style={[styles.chip, active && styles.chipActive]}
-                              onPress={() => setRecipientFilters((prev) => ({ ...prev, teacher_type: item }))}
-                            >
-                              <Text style={[styles.chipText, active && styles.chipTextActive]}>{item}</Text>
-                            </Pressable>
-                          );
-                        })}
-                      </View>
-                    </>
+                  {selectedRecipient ? (
+                    <View style={[styles.selectedCard, { borderColor: "#bfdbfe", backgroundColor: isDark ? theme.cardMuted : "#eff6ff" }]}>
+                      <Text style={[styles.selectedLabel, { color: "#1d4ed8" }]}>Selected Recipient</Text>
+                      <Text style={[styles.rowTitle, { color: theme.text }]}>{selectedRecipient.name}</Text>
+                      <Text style={[styles.rowMeta, { color: theme.subText }]}>
+                        {selectedRecipient.roles.join(", ")}
+                        {selectedRecipient.phones[0] ? ` - ${selectedRecipient.phones[0]}` : ""}
+                        {selectedRecipient.classNames.length ? ` - ${selectedRecipient.classNames.join(", ")}` : ""}
+                      </Text>
+                    </View>
                   ) : null}
 
-                  <Text style={[styles.inputLabel, styles.spaceTop]}>Recipients</Text>
-                  <View style={styles.recipientWrap}>
-                    {recipientOptions.length === 0 ? (
-                      <Text style={styles.emptyText}>No users found for current filters.</Text>
-                    ) : (
-                      recipientOptions.map((r) => {
-                        const active = String(compose.recipient_user_id) === String(r.user_id);
-                        return (
-                          <Pressable
-                            key={r.user_id}
-                            style={[styles.recipientCard, active && styles.recipientCardActive]}
-                            onPress={() => setCompose((prev) => ({ ...prev, recipient_user_id: String(r.user_id) }))}
-                          >
-                            <Text style={[styles.recipientName, active && styles.recipientNameActive]}>
-                              {r.name}
-                            </Text>
-                            <Text style={styles.recipientMeta}>
-                              {r.roles.join(", ")}
-                              {r.mobile ? ` | ${r.mobile}` : ""}
-                            </Text>
-                            <Text style={styles.recipientMeta}>
-                              {r.classNames.join(", ")}
-                              {r.sectionNames.length ? ` | ${r.sectionNames.join(", ")}` : ""}
-                              {r.mediums.length ? ` | ${r.mediums.join(", ")}` : ""}
-                            </Text>
-                          </Pressable>
-                        );
-                      })
-                    )}
-                  </View>
-                </>
+                  {recipientOptions.map((item) => {
+                    const active = compose.recipient_user_id === String(item.user_id);
+                    return (
+                      <Pressable
+                        key={item.user_id}
+                        style={[
+                          styles.targetRow,
+                          {
+                            borderColor: active ? "#1d4ed8" : theme.border,
+                            backgroundColor: active ? (isDark ? theme.cardMuted : "#eff6ff") : theme.card,
+                          },
+                        ]}
+                        onPress={() => setCompose((prev) => ({ ...prev, recipient_user_id: String(item.user_id) }))}
+                      >
+                        <Text style={[styles.rowTitle, { color: active ? "#1d4ed8" : theme.text }]}>{item.name}</Text>
+                        <Text style={[styles.rowMeta, { color: theme.subText }]}>
+                          {item.roles.join(", ")}
+                          {item.phones[0] ? ` - ${item.phones[0]}` : ""}
+                          {item.classNames.length ? ` - ${item.classNames.join(", ")}` : ""}
+                          {item.sectionNames.length ? ` - ${item.sectionNames.join(", ")}` : ""}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                  {!recipientOptions.length ? (
+                    <View style={[styles.emptyInline, { borderColor: theme.border, backgroundColor: theme.inputBg }]}>
+                      <Text style={[styles.rowMeta, { color: theme.subText }]}>No matching recipients found.</Text>
+                    </View>
+                  ) : null}
+                </View>
               ) : null}
 
               {compose.target_type === "class" ? (
-                <>
-                  <Text style={[styles.inputLabel, styles.spaceTop]}>Class *</Text>
-                  <View style={styles.chipWrap}>
-                    {targets.classes.map((c) => {
-                      const active = compose.class_id === String(c.id);
-                      return (
-                        <Pressable
-                          key={c.id}
-                          style={[styles.chip, active && styles.chipActive]}
-                      onPress={() => setCompose((prev) => ({ ...prev, class_id: String(c.id) }))}
-                    >
-                          <Text style={[styles.chipText, active && styles.chipTextActive]}>
-                            {c.name}
-                            {c.medium ? ` (${c.medium})` : ""}
-                            {c.class_scope ? ` - ${formatScopeLabel(c.class_scope)}` : ""}
-                          </Text>
-                        </Pressable>
-                      );
-                    })}
-                  </View>
-                </>
+                <View style={styles.composeSection}>
+                  <SelectField label="Class" value={compose.class_id} options={classOptions} onChange={(value) => setCompose((prev) => ({ ...prev, class_id: value }))} />
+                </View>
               ) : null}
 
               {compose.target_type === "section" ? (
-                <>
-                  <Text style={[styles.inputLabel, styles.spaceTop]}>Class *</Text>
-                  <View style={styles.chipWrap}>
-                    {targets.classes.map((c) => {
-                      const active = compose.class_id === String(c.id);
-                      return (
-                        <Pressable
-                          key={c.id}
-                          style={[styles.chip, active && styles.chipActive]}
-                          onPress={() => setCompose((prev) => ({ ...prev, class_id: String(c.id), section_id: "" }))}
-                        >
-                          <Text style={[styles.chipText, active && styles.chipTextActive]}>{c.name}</Text>
-                        </Pressable>
-                      );
-                    })}
-                  </View>
-
-                  <Text style={[styles.inputLabel, styles.spaceTop]}>Section *</Text>
-                  <View style={styles.chipWrap}>
-                    {sectionsByClass.map((s) => {
-                      const active = compose.section_id === String(s.id);
-                      return (
-                        <Pressable
-                          key={s.id}
-                          style={[styles.chip, active && styles.chipActive]}
-                          onPress={() => setCompose((prev) => ({ ...prev, section_id: String(s.id) }))}
-                        >
-                          <Text style={[styles.chipText, active && styles.chipTextActive]}>
-                            {s.class_name} - {s.name}
-                            {s.medium ? ` (${s.medium})` : ""}
-                          </Text>
-                        </Pressable>
-                      );
-                    })}
-                  </View>
-                </>
+                <View style={styles.composeSection}>
+                  <SelectField
+                    label="Class"
+                    value={compose.class_id}
+                    options={classOptions}
+                    onChange={(value) => setCompose((prev) => ({ ...prev, class_id: value, section_id: "" }))}
+                  />
+                  <SelectField
+                    label="Section"
+                    value={compose.section_id}
+                    options={sectionOptions}
+                    onChange={(value) => setCompose((prev) => ({ ...prev, section_id: value }))}
+                  />
+                </View>
               ) : null}
 
               {compose.target_type === "all_teachers" ? (
-                <>
-                  <Text style={[styles.inputLabel, styles.spaceTop]}>Teacher Type</Text>
-                  <View style={styles.chipWrap}>
-                    {(["all", "school", "college"] as const).map((item) => {
-                      const active = compose.teacher_type === item;
-                      return (
-                        <Pressable
-                          key={item}
-                          style={[styles.chip, active && styles.chipActive]}
-                          onPress={() => setCompose((prev) => ({ ...prev, teacher_type: item }))}
-                        >
-                          <Text style={[styles.chipText, active && styles.chipTextActive]}>{item}</Text>
-                        </Pressable>
-                      );
-                    })}
-                  </View>
-                </>
+                <View style={styles.composeSection}>
+                  <SelectField
+                    label="Teacher Type"
+                    value={compose.teacher_type}
+                    options={[
+                      { label: "All Teachers", value: "all" },
+                      { label: "School Teachers", value: "school" },
+                      { label: "College Teachers", value: "college" },
+                    ]}
+                    onChange={(value) => setCompose((prev) => ({ ...prev, teacher_type: value as Compose["teacher_type"] }))}
+                  />
+                </View>
               ) : null}
 
-              <Text style={[styles.inputLabel, styles.spaceTop]}>Message *</Text>
               <TextInput
-                style={[styles.input, styles.messageInput]}
-                multiline
                 value={compose.message}
                 onChangeText={(value) => setCompose((prev) => ({ ...prev, message: value }))}
-                placeholder="Type message..."
+                placeholder="Write your message"
+                placeholderTextColor={theme.mutedText}
+                multiline
+                textAlignVertical="top"
+                style={[styles.composeInput, { borderColor: theme.border, backgroundColor: theme.inputBg, color: theme.text }]}
               />
             </ScrollView>
-            <View style={styles.modalFooter}>
-              <Pressable style={styles.secondaryBtn} onPress={() => setComposeOpen(false)} disabled={sending}>
-                <Text style={styles.secondaryBtnText}>Cancel</Text>
+            <View style={styles.modalActions}>
+              <Pressable style={[styles.secondaryBtn, { borderColor: theme.border, backgroundColor: theme.card }]} onPress={() => setComposeOpen(false)}>
+                <Text style={[styles.secondaryText, { color: theme.text }]}>Cancel</Text>
               </Pressable>
-              <Pressable style={styles.primaryBtn} onPress={sendComposedMessage} disabled={sending}>
-                <Text style={styles.primaryBtnText}>{sending ? "Sending..." : "Send"}</Text>
+              <Pressable style={styles.primaryBtn} onPress={() => void sendNewMessage()} disabled={sending}>
+                <Text style={styles.primaryText}>{sending ? "Sending..." : "Send"}</Text>
               </Pressable>
             </View>
           </View>
         </View>
       </Modal>
-    </View>
+    </>
   );
 }
 
-function getErrorMessage(err: unknown, fallback: string) {
-  if (
-    typeof err === "object" &&
-    err &&
-    "response" in err &&
-    typeof (err as { response?: { data?: { message?: string; error?: string } } }).response?.data
-      ?.error === "string"
-  ) {
-    return (
-      (err as { response?: { data?: { message?: string; error?: string } } }).response?.data?.error ||
-      fallback
-    );
-  }
-  if (
-    typeof err === "object" &&
-    err &&
-    "response" in err &&
-    typeof (err as { response?: { data?: { message?: string } } }).response?.data?.message === "string"
-  ) {
-    return (err as { response?: { data?: { message?: string } } }).response?.data?.message || fallback;
-  }
-  return fallback;
-}
-
 const styles = StyleSheet.create({
-  root: {
-    gap: 12,
-  },
-  toolbar: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 12,
-  },
-  chatScreen: {
-    gap: 12,
-  },
-  chatHeaderBar: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-  },
-  backBtn: {
-    borderRadius: 999,
-    backgroundColor: "#ffffff",
+  root: { flex: 1 },
+  chatScreen: { flex: 1, minHeight: 0, gap: 6 },
+  content: { gap: 12, paddingBottom: 110 },
+  chatMessagesScroll: { flex: 1, minHeight: 0 },
+  chatMessagesContent: { gap: 10, paddingTop: 2 },
+  chatMessagesPanel: {
+    flex: 1.6,
+    minHeight: 0,
     borderWidth: 1,
-    borderColor: "#cbd5e1",
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-  },
-  backBtnText: {
-    color: "#334155",
-    fontWeight: "700",
-  },
-  chatHeaderCopy: {
-    flex: 1,
-  },
-  chatHeaderHint: {
-    marginTop: 2,
-    color: "#64748b",
-    fontSize: 12,
-  },
-  toolbarCopy: {
-    flex: 1,
-  },
-  title: {
-    color: "#0f172a",
-    fontWeight: "700",
-    fontSize: 20,
-  },
-  toolbarSubTitle: {
-    marginTop: 4,
-    color: "#64748b",
-  },
-  panel: {
-    borderWidth: 1,
-    borderColor: "#d9f99d",
-    borderRadius: 18,
-    backgroundColor: "#ffffff",
-    padding: 12,
-  },
-  chatPanel: {
-    borderWidth: 1,
-    borderColor: "#d9f99d",
-    borderRadius: 18,
-    backgroundColor: "#ffffff",
-    padding: 12,
-  },
-  panelTitle: {
-    color: "#14532d",
-    fontWeight: "700",
-    marginBottom: 8,
-  },
-  conversationList: {
-    gap: 8,
-    paddingBottom: 6,
-  },
-  conversationCard: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    borderRadius: 16,
-    padding: 10,
-    backgroundColor: "#f8fafc",
-  },
-  conversationCardActive: {
-    backgroundColor: "#dcfce7",
-  },
-  avatarCircle: {
-    width: 44,
-    height: 44,
     borderRadius: 22,
-    backgroundColor: "#bbf7d0",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  avatarText: {
-    color: "#166534",
-    fontWeight: "700",
-    fontSize: 16,
-  },
-  conversationBody: {
-    flex: 1,
-  },
-  conversationTopRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    gap: 8,
-  },
-  conversationBottomRow: {
-    marginTop: 4,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-  },
-  conversationText: {
-    color: "#0f172a",
-    fontWeight: "700",
-    textTransform: "capitalize",
-    flex: 1,
-  },
-  conversationTextActive: {
-    color: "#166534",
-  },
-  conversationPreview: {
-    color: "#475569",
-    flex: 1,
-  },
-  conversationTime: {
-    color: "#64748b",
-    fontSize: 11,
-  },
-  unread: {
-    color: "#fff",
-    backgroundColor: "#16a34a",
-    borderRadius: 999,
-    fontSize: 11,
-    fontWeight: "700",
-    minWidth: 20,
-    textAlign: "center",
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-  },
-  centered: {
-    paddingVertical: 20,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  messagesWrap: {
-    maxHeight: 360,
-    backgroundColor: "#f0fdf4",
-  },
-  messagesContent: {
-    gap: 8,
-    paddingBottom: 8,
-    paddingTop: 4,
-  },
-  messageRow: {
-    flexDirection: "row",
-  },
-  messageRowMine: {
-    justifyContent: "flex-end",
-  },
-  messageRowOther: {
-    justifyContent: "flex-start",
-  },
-  bubble: {
-    borderRadius: 18,
-    padding: 10,
-    maxWidth: "88%",
-  },
-  bubbleMine: {
-    backgroundColor: "#dcfce7",
-    borderTopRightRadius: 6,
-  },
-  bubbleOther: {
-    backgroundColor: "#ffffff",
-    borderTopLeftRadius: 6,
-  },
-  bubbleUser: {
-    fontSize: 11,
-    color: "#166534",
-    fontWeight: "700",
-    marginBottom: 4,
-  },
-  bubbleMessage: {
-    color: "#0f172a",
-  },
-  bubbleTime: {
-    marginTop: 6,
-    fontSize: 11,
-    color: "#64748b",
-  },
-  inputRow: {
-    marginTop: 8,
-    flexDirection: "row",
-    gap: 8,
-    alignItems: "center",
-  },
-  input: {
-    flex: 1,
-    borderWidth: 1,
-    borderColor: "#cbd5e1",
-    borderRadius: 14,
-    backgroundColor: "#fff",
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    color: "#0f172a",
-  },
-  searchInput: {
-    marginBottom: 8,
-  },
-  messageInput: {
-    minHeight: 90,
-    textAlignVertical: "top",
-  },
-  primaryBtn: {
-    backgroundColor: "#16a34a",
-    borderRadius: 999,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  primaryBtnText: {
-    color: "#fff",
-    fontWeight: "700",
-  },
-  secondaryBtn: {
-    borderWidth: 1,
-    borderColor: "#cbd5e1",
-    borderRadius: 999,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  secondaryBtnText: {
-    color: "#334155",
-    fontWeight: "600",
-  },
-  emptyText: {
-    color: "#64748b",
-  },
-  modalOverlay: {
-    flex: 1,
-    justifyContent: "flex-end",
-  },
-  modalBackdrop: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(15, 23, 42, 0.35)",
-  },
-  modalCard: {
-    maxHeight: "86%",
-    backgroundColor: "#ffffff",
-    borderTopLeftRadius: 16,
-    borderTopRightRadius: 16,
-    padding: 16,
-  },
-  modalTitle: {
-    color: "#0f172a",
-    fontWeight: "700",
-    fontSize: 18,
-    marginBottom: 10,
-  },
-  modalSubTitle: {
-    color: "#64748b",
-    marginBottom: 10,
-  },
-  modalBody: {
-    maxHeight: 470,
-  },
-  inputLabel: {
-    color: "#334155",
-    fontWeight: "600",
-    marginBottom: 6,
-  },
-  chipWrap: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
-  },
-  chip: {
-    borderWidth: 1,
-    borderColor: "#cbd5e1",
-    borderRadius: 8,
     paddingHorizontal: 10,
-    paddingVertical: 6,
-    backgroundColor: "#fff",
+    paddingTop: 8,
+    paddingBottom: 4,
+    overflow: "hidden",
   },
-  chipActive: {
-    borderColor: "#0f172a",
-    backgroundColor: "#e2e8f0",
-  },
-  chipText: {
-    color: "#334155",
-    fontWeight: "600",
-    textTransform: "capitalize",
-  },
-  chipTextActive: {
-    color: "#0f172a",
-  },
-  recipientWrap: {
-    gap: 8,
-  },
-  recipientCard: {
-    borderWidth: 1,
-    borderColor: "#cbd5e1",
-    borderRadius: 8,
-    padding: 10,
-    backgroundColor: "#fff",
-  },
-  recipientCardActive: {
-    borderColor: "#0f172a",
-    backgroundColor: "#e2e8f0",
-  },
-  recipientName: {
-    color: "#1e293b",
-    fontWeight: "700",
-  },
-  recipientNameActive: {
-    color: "#0f172a",
-  },
-  recipientMeta: {
-    marginTop: 3,
-    color: "#64748b",
-    fontSize: 12,
-  },
-  spaceTop: {
-    marginTop: 10,
-  },
-  modalFooter: {
-    marginTop: 12,
-    flexDirection: "row",
-    justifyContent: "flex-end",
-    gap: 8,
-  },
+  centered: { alignItems: "center", justifyContent: "center", paddingVertical: 24 },
+  topActionRow: { alignItems: "flex-end" },
+  topActionBtn: { flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: "#15803d", paddingHorizontal: 14, paddingVertical: 10, borderRadius: 14 },
+  topActionText: { color: "#fff", fontWeight: "700" },
+  searchWrap: { flexDirection: "row", alignItems: "center", gap: 8, borderWidth: 1, borderRadius: 18, paddingHorizontal: 12, paddingVertical: 10 },
+  searchInput: { flex: 1, fontSize: 14 },
+  rowCard: { flexDirection: "row", gap: 12, borderWidth: 1, borderRadius: 20, padding: 12 },
+  rowBody: { flex: 1, gap: 4 },
+  rowTop: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 },
+  rowTitle: { fontSize: 15, fontWeight: "800", flex: 1 },
+  rowTime: { fontSize: 11 },
+  rowPreview: { fontSize: 13 },
+  rowMeta: { fontSize: 12, flex: 1 },
+  unread: { minWidth: 20, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 999, textAlign: "center", backgroundColor: "#16a34a", color: "#fff", fontSize: 11, fontWeight: "700" },
+  emptyCard: { borderWidth: 1, borderRadius: 20, paddingHorizontal: 18, paddingVertical: 24, alignItems: "center", justifyContent: "center", gap: 8 },
+  emptyTitle: { fontSize: 15, fontWeight: "800" },
+  avatarWrap: { width: 46, height: 46, alignItems: "center", justifyContent: "center", position: "relative" },
+  avatarCircle: { width: 42, height: 42, borderRadius: 21, backgroundColor: "#e2e8f0", alignItems: "center", justifyContent: "center" },
+  avatarImage: { width: 42, height: 42, borderRadius: 21 },
+  avatarText: { color: "#0f172a", fontWeight: "800", fontSize: 16 },
+  presenceDot: { position: "absolute", right: 2, bottom: 2, width: 12, height: 12, borderRadius: 6, borderWidth: 2, borderColor: "#fff" },
+  presenceOnline: { backgroundColor: "#22c55e" },
+  presenceOffline: { backgroundColor: "#ef4444" },
+  chatHeader: { flexDirection: "row", alignItems: "center", gap: 10, borderWidth: 1, borderRadius: 22, paddingHorizontal: 12, paddingVertical: 8 },
+  iconBtn: { width: 36, height: 36, borderRadius: 12, alignItems: "center", justifyContent: "center" },
+  chatHeaderCopy: { flex: 1, gap: 2 },
+  messageRow: { flexDirection: "row", gap: 8 },
+  mine: { justifyContent: "flex-end" },
+  other: { justifyContent: "flex-start" },
+  bubble: { maxWidth: "82%", borderRadius: 18, paddingHorizontal: 12, paddingVertical: 10 },
+  bubbleMine: { backgroundColor: "#dcfce7", borderTopRightRadius: 6, borderWidth: 1, borderColor: "#bbf7d0" },
+  senderName: { color: "#166534", fontSize: 11, fontWeight: "700", marginBottom: 4 },
+  messageText: {},
+  bubbleTime: { marginTop: 6, fontSize: 11 },
+  replyBarWrap: { paddingTop: 0, paddingHorizontal: 0, marginTop: "auto" },
+  replyBar: { flexDirection: "row", gap: 10, alignItems: "center", borderWidth: 1, borderRadius: 22, paddingHorizontal: 10, paddingVertical: 7 },
+  replyInput: { flex: 1, borderWidth: 1, borderRadius: 16, paddingHorizontal: 14, paddingVertical: 9 },
+  sendBtn: { width: 44, height: 44, borderRadius: 22, backgroundColor: "#15803d", alignItems: "center", justifyContent: "center" },
+  modalOverlay: { flex: 1, justifyContent: "flex-end" },
+  modalBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(15, 23, 42, 0.28)" },
+  modalCard: { maxHeight: "88%", borderTopLeftRadius: 24, borderTopRightRadius: 24, borderWidth: 1, borderBottomWidth: 0, padding: 16, gap: 12 },
+  modalTitle: { fontSize: 18, fontWeight: "800" },
+  composeSection: { gap: 10, marginBottom: 12 },
+  searchInputBox: { borderWidth: 1, borderRadius: 14, paddingHorizontal: 12, paddingVertical: 12, fontSize: 14 },
+  selectedCard: { borderWidth: 1, borderRadius: 14, padding: 12, gap: 4 },
+  selectedLabel: { fontSize: 11, fontWeight: "800", textTransform: "uppercase", letterSpacing: 0.4 },
+  targetRow: { borderWidth: 1, borderRadius: 14, padding: 12, marginBottom: 8 },
+  emptyInline: { borderWidth: 1, borderRadius: 14, padding: 12 },
+  composeInput: { borderWidth: 1, borderRadius: 14, minHeight: 120, paddingHorizontal: 12, paddingVertical: 10, marginTop: 6 },
+  modalActions: { flexDirection: "row", gap: 10 },
+  secondaryBtn: { flex: 1, borderWidth: 1, borderRadius: 12, paddingVertical: 11, alignItems: "center" },
+  secondaryText: { fontWeight: "700" },
+  primaryBtn: { flex: 1, borderRadius: 12, backgroundColor: "#15803d", paddingVertical: 11, alignItems: "center" },
+  primaryText: { color: "#fff", fontWeight: "700" },
+  emptyText: { textAlign: "center" },
 });

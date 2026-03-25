@@ -1,9 +1,4 @@
-function formatDateTime(value) {
-  if (!value) return "-";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "-";
-  return date.toLocaleString();
-}
+import { formatReadableDateTime } from "../../lib/dateTime";
 
 export default function RecentActivity({ activities = [] }) {
   return (
@@ -18,7 +13,7 @@ export default function RecentActivity({ activities = [] }) {
           <div key={item.id} className="rounded-lg border p-3">
             <div className="flex items-center justify-between gap-2">
               <p className="font-medium text-sm">{item.action || "Activity"}</p>
-              <p className="text-xs text-muted-foreground">{formatDateTime(item.created_at)}</p>
+              <p className="text-xs text-muted-foreground">{formatReadableDateTime(item.created_at)}</p>
             </div>
             <p className="text-sm text-muted-foreground mt-1">{item.description}</p>
             <p className="text-xs text-muted-foreground mt-1">By: {item.actor || "-"}</p>

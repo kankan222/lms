@@ -15,9 +15,12 @@ export type FeeInstallment = {
 
 export type FeeStructure = {
   id: number;
+  class_id?: number;
+  session_id?: number;
   admission_fee: number;
   class_name: string;
   session_name: string;
+  class_scope?: "school" | "hs" | string | null;
   installments: FeeInstallment[];
 };
 

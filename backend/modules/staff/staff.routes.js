@@ -5,8 +5,8 @@ import { uploadBulkStaffPhotos, uploadSingleStaffPhoto } from "./staff.middlewar
 
 const router = express.Router();
 
-router.get("/", requirePermission("staff.view"), controller.listStaff);
-router.get("/:id", requirePermission("staff.view"), controller.getStaffById);
+router.get("/", controller.listStaff);
+router.get("/:id", controller.getStaffById);
 router.post("/", requirePermission("dashboard.view"), uploadSingleStaffPhoto, controller.createStaff);
 router.post("/bulk", requirePermission("dashboard.view"), uploadBulkStaffPhotos, controller.bulkCreateStaff);
 router.put("/:id", requirePermission("dashboard.view"), uploadSingleStaffPhoto, controller.updateStaff);

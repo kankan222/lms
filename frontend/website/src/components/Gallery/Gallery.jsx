@@ -1,7 +1,9 @@
 import { Button } from "../ui/button";
 
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 const Gallery = ({ Text }) => {
+  const location = useLocation();
+  const section = Text || location.pathname.split("/")[1] || "college";
   const folder =
     Text === "school" ? "assets/gallery/school" : "assets/gallery/college";
   const totalImages = 4;
@@ -11,7 +13,6 @@ const Gallery = ({ Text }) => {
     src: `${folder}/image-${i + 1}.jpeg`,
   }));
 
-  const section = location.pathname.split("/")[1];
   return (
     <div className="flex items-center justify-center flex-col px-5 lg:px-15 2xl:px-30">
       <p className="text-3xl md:text-5xl font-extrabold mt-8 sm:mt-12 relative">
@@ -24,6 +25,8 @@ const Gallery = ({ Text }) => {
             key={i}
             src={img.src}
             alt={img.id}
+            loading="lazy"
+            decoding="async"
             className="w-100 object-cover aspect-square rounded-10px overflow-hidden border border-stone-100 "
           />
         ))}

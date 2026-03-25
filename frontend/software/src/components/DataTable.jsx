@@ -1,9 +1,12 @@
 import { useState, useMemo } from "react";
 import { Button } from "./ui/button";
+import { TrashIcon } from "lucide-react";
 
 export default function DataTable({
   columns,
   data,
+  tableClassName = "",
+  tableWrapperClassName = "",
   rowsPerPageOptions = [5, 10, 20],
   paginationMode = "client",
   page = 1,
@@ -65,10 +68,10 @@ export default function DataTable({
     const value = String(status || "").trim().toLowerCase();
 
     if (value === "paid" || value === "active" || value === "present") {
-      return "bg-green-100 text-green-700";
+      return "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-200";
     }
     if (value === "partial") {
-      return "bg-amber-100 text-amber-700";
+      return "bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-200";
     }
     if (
       value === "pending" ||
@@ -77,11 +80,16 @@ export default function DataTable({
       value === "suspended" ||
       value === "absent"
     ) {
-      return "bg-red-100 text-red-700";
+      return "bg-red-100 text-red-700 dark:bg-red-500/15 dark:text-red-200";
     }
-    if (value === "primary") return "bg-blue-100 text-blue-700";
-    return "bg-gray-100 text-gray-700";
+    if (value === "primary") {
+      return "bg-blue-100 text-blue-700 dark:bg-blue-500/15 dark:text-blue-200";
+    }
+    return "bg-muted text-muted-foreground";
   };
+
+  const isReactNode = (value) =>
+    typeof value === "object" && value !== null;
 
   return (
     <div className="w-full  rounded-sm border border-border overflow-hidden">
@@ -97,17 +105,18 @@ export default function DataTable({
       </div> */}
 
       {/* Table */}
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm text-left">
-          <thead className="border-b bg-secondary">
+      <div className={tableWrapperClassName || "overflow-x-auto"}>
+        <table className={`w-full text-sm text-left ${tableClassName}`}>
+          <thead className="border-b bg-muted/40">
             <tr>
-              <th className="p-3">
+              <th className="w-10 px-2 py-3 text-center text-[11px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
                 <input
                   type="checkbox"
                   checked={
                     selectedRows.length === paginatedData.length &&
                     paginatedData.length > 0
                   }
+                  onClick={(e) => e.stopPropagation()}
                   onChange={toggleAll}
                 />
               </th>
@@ -115,12 +124,16 @@ export default function DataTable({
               {columns.map((col) => (
                 <th
                   key={col.accessor}
-                  className="p-3 font-medium text-gray-600"
+                  className={`px-2 py-3 text-[11px] font-medium uppercase tracking-[0.16em] text-muted-foreground ${col.headerClassName || ""}`}
                 >
                   {col.header}
                 </th>
               ))}
-              {showActions && <th className="p-3">Actions</th>}
+              {showActions && (
+                <th className="px-2 py-3 text-[11px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
+                  Actions
+                </th>
+              )}
               
             </tr>
           </thead>
@@ -129,36 +142,56 @@ export default function DataTable({
             {paginatedData.map((row) => (
               <tr
                 key={row.id}
-                className="border-b hover:bg-gray-50 transition"
+                className="border-b transition-colors hover:bg-muted/35"
                 onClick={() => onRowClick?.(row)}
               >
-                <td className="p-3">
+                <td className="w-10 px-2 py-3 text-center">
                   <input
                     type="checkbox"
                     checked={selectedRows.includes(row.id)}
+                    onClick={(e) => e.stopPropagation()}
                     onChange={() => toggleRow(row.id)}
                   />
                 </td>
 
-                {columns.map((col) => (
-                  <td key={col.accessor} className="p-3 text-base text-black align-top">
-                    {col.accessor === "status" || col.accessor === "display_status" ? (
-                      <span
-                        className={`px-3 py-1 text-xs rounded-full font-medium ${statusColor(
-                          row[col.accessor],
-                        )}`}
-                      >
-                        {row[col.accessor]}
-                      </span>
-                    ) : (
-                      row[col.accessor]
-                    )}
-                  </td>
-                ))}
+                {columns.map((col) => {
+                  const cellValue = row[col.accessor];
+                  const renderedValue = typeof col.cell === "function"
+                    ? col.cell(row)
+                    : cellValue;
+                  const title =
+                    typeof cellValue === "string" || typeof cellValue === "number"
+                      ? String(cellValue)
+                      : undefined;
+
+                  return (
+                    <td
+                      key={col.accessor}
+                      className={`px-2 py-3 text-base text-foreground ${col.className || ""}`}
+                      title={title}
+                    >
+                      {col.accessor === "status" || col.accessor === "display_status" ? (
+                        <span
+                          className={`px-3 py-1 text-xs rounded-full font-medium ${statusColor(
+                            row[col.accessor],
+                          )}`}
+                        >
+                          {row[col.accessor]}
+                        </span>
+                      ) : isReactNode(renderedValue) ? (
+                        renderedValue
+                      ) : (
+                        <span className="block max-w-full overflow-hidden text-ellipsis whitespace-nowrap">
+                          {renderedValue}
+                        </span>
+                      )}
+                    </td>
+                  );
+                })}
 
                 {showActions && (
-                  <td className="p-3 align-top">
-                    <div className="flex flex-wrap gap-2">
+                  <td className="px-2 py-3">
+                    <div className="flex gap-2">
                       {onEdit && (
                         <Button onClick={(e) => { e.stopPropagation(); onEdit(row); }} variant="secondary">
                           Edit
@@ -166,7 +199,7 @@ export default function DataTable({
                       )}
                       {onDelete && (
                         <Button onClick={(e) => { e.stopPropagation(); onDelete(row); }} variant="destructive">
-                          Delete
+                         <TrashIcon />
                         </Button>
                       )}
                       {renderActions?.(row)}
@@ -180,7 +213,7 @@ export default function DataTable({
               <tr>
                 <td
                   colSpan={columns.length + 2}
-                  className="text-center p-5 text-gray-400"
+                  className="p-5 text-center text-muted-foreground"
                 >
                   No data found
                 </td>
@@ -220,7 +253,7 @@ export default function DataTable({
               ))}
             </select>
           </div>
-          <span className="text-sm text-gray-500">
+          <span className="text-sm text-muted-foreground">
             Page {effectiveCurrentPage} of {totalPages || 1}
           </span>
           <div className="flex gap-2 items-center">
@@ -233,7 +266,7 @@ export default function DataTable({
                   setCurrentPage((prev) => prev - 1);
                 }
               }}
-              className="px-3 py-1 border rounded-lg disabled:opacity-50"
+              className="rounded-lg border px-3 py-1 transition-colors disabled:opacity-50 hover:bg-muted"
             >
               Prev
             </button>
@@ -247,7 +280,7 @@ export default function DataTable({
                   setCurrentPage((prev) => prev + 1);
                 }
               }}
-              className="px-3 py-1 border rounded-lg disabled:opacity-50"
+              className="rounded-lg border px-3 py-1 transition-colors disabled:opacity-50 hover:bg-muted"
             >
               Next
             </button>

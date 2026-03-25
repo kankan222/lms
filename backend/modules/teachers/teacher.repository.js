@@ -242,6 +242,10 @@ export function getTeacherAssignments(teacherId) {
   return query(`
     SELECT
       ta.id,
+      ta.class_id,
+      ta.section_id,
+      ta.subject_id,
+      ta.session_id,
       t.name AS teacher,
       c.name AS class,
       s.name AS section,

@@ -8,11 +8,11 @@ type ApiEnvelope<T> = {
 
 export type TeacherItem = {
   id: number;
-  user_id: number;
-  employee_id: string;
+  user_id?: number;
+  employee_id?: string;
   name: string;
-  phone: string;
-  email: string;
+  phone?: string;
+  email?: string;
   class_scope: "school" | "hs";
   photo_url?: string | null;
 };
@@ -38,10 +38,19 @@ export type UpdateTeacherPayload = {
   email: string;
   class_scope: "school" | "hs";
   photo_url?: string | null;
+  photo?: {
+    uri: string;
+    name?: string;
+    type?: string;
+  } | null;
 };
 
 export type TeacherAssignment = {
   id: number;
+  class_id?: number;
+  section_id?: number;
+  subject_id?: number;
+  session_id?: number;
   teacher: string;
   class: string;
   section: string;
@@ -85,6 +94,12 @@ export async function getTeacher(id: number) {
   return response.data.data;
 }
 
+export function resolveTeacherPhotoUrl(photoUrl?: string | null) {
+  if (!photoUrl) return null;
+  if (/^https?:\/\//i.test(photoUrl)) return photoUrl;
+  return `https://kalongkapilividyapith.com${String(photoUrl).startsWith("/") ? photoUrl : `/${photoUrl}`}`;
+}
+
 export async function createTeacher(payload: CreateTeacherPayload) {
   const formData = new FormData();
   formData.append("employee_id", payload.employee_id);
@@ -109,7 +124,24 @@ export async function createTeacher(payload: CreateTeacherPayload) {
 }
 
 export async function updateTeacher(id: number, payload: UpdateTeacherPayload) {
-  const response = await api.put<ApiEnvelope<unknown>>(`/teachers/${id}`, payload);
+  const formData = new FormData();
+  formData.append("employee_id", payload.employee_id);
+  formData.append("name", payload.name);
+  formData.append("phone", payload.phone);
+  formData.append("email", payload.email);
+  formData.append("class_scope", payload.class_scope ?? "school");
+
+  if (payload.photo?.uri) {
+    formData.append("photo", {
+      uri: payload.photo.uri,
+      name: payload.photo.name ?? "teacher-photo.jpg",
+      type: payload.photo.type ?? "image/jpeg",
+    } as unknown as Blob);
+  }
+
+  const response = await api.put<ApiEnvelope<unknown>>(`/teachers/${id}`, formData, {
+    headers: { "Content-Type": "multipart/form-data" },
+  });
   return response.data;
 }
 

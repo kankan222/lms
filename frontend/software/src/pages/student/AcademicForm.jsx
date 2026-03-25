@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useEffectEvent, useState } from "react";
 import { Label } from "@/components/ui/label";
 import { Field, FieldGroup } from "@/components/ui/field";
 
@@ -15,10 +15,6 @@ export default function AcademicForm({ update, errors = {} }) {
   const [classes, setClasses] = useState([]);
   const [classId, setClassId] = useState("");
 
-  useEffect(() => {
-    loadAcademicData();
-  }, []);
-
   async function loadAcademicData() {
     const sessionRes = await getSessions();
     const classRes = await getClassStructure();
@@ -26,6 +22,14 @@ export default function AcademicForm({ update, errors = {} }) {
     setSessions(sessionRes.data);
     setClasses(classRes.data || []);
   }
+
+  const loadInitialAcademicData = useEffectEvent(() => {
+    loadAcademicData();
+  });
+
+  useEffect(() => {
+    loadInitialAcademicData();
+  }, []);
 
   const selectedClass = classes.find((c) => String(c.id) === String(classId));
   const sections = selectedClass?.sections || [];

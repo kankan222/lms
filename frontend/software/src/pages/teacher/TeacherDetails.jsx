@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useEffectEvent, useState } from "react";
 import { useParams } from "react-router-dom";
 import TopBar from "../../components/TopBar";
 import { usePermissions } from "../../hooks/usePermissions";
@@ -12,17 +12,15 @@ import {
 } from "../../api/teachers.api";
 
 import { getClassStructure, getSessions } from "../../api/academic.api";
-import { changePassword, adminResetPassword } from "../../api/users.api";
+import { adminResetPassword } from "../../api/users.api";
 
 import {
   Phone,
   Mail,
   IdCard,
   BookPlus,
-  Eye,
-  EyeOff,
+  LayoutList,
   Trash2,
-  Pencil,
 } from "lucide-react";
 import {
   Table,
@@ -37,7 +35,6 @@ import {
 import {
   Pagination,
   PaginationContent,
-  PaginationEllipsis,
   PaginationItem,
   PaginationLink,
   PaginationNext,
@@ -47,6 +44,16 @@ import {
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
   Dialog,
   DialogContent,
   DialogHeader,
@@ -55,8 +62,8 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-
-const API_ORIGIN = (import.meta.env.VITE_API_URL || "http://localhost:5000/api/v1").replace(/\/api\/v1\/?$/, "");
+import { resolveServerImageUrl } from "../../lib/serverImage";
+import { formatReadableDate, formatReadableDateTime } from "../../lib/dateTime";
 
 export default function TeacherDetails() {
   const { id } = useParams();
@@ -68,7 +75,7 @@ export default function TeacherDetails() {
   const [assignments, setAssignments] = useState([]);
   const [attendance, setAttendance] = useState([]);
 
-  const [selectedSection, setSelectedSection] = useState("");
+  const [selectedSections, setSelectedSections] = useState([]);
   const [selectedSession, setSelectedSession] = useState("");
   const [selectedSubjects, setSelectedSubjects] = useState([]);
 
@@ -77,8 +84,14 @@ export default function TeacherDetails() {
 
   const [assignDialogOpen, setAssignDialogOpen] = useState(false);
   const [passwordDialogOpen, setPasswordDialogOpen] = useState(false);
-
-  const [showPassword, setShowPassword] = useState(false);
+  const [assignmentError, setAssignmentError] = useState("");
+  const [passwordError, setPasswordError] = useState("");
+  const [feedbackDialog, setFeedbackDialog] = useState({
+    open: false,
+    title: "",
+    message: "",
+  });
+  const [assignmentToRemove, setAssignmentToRemove] = useState(null);
 
   const [passwordForm, setPasswordForm] = useState({
     currentPassword: "",
@@ -89,6 +102,30 @@ export default function TeacherDetails() {
   const [currentPage, setCurrentPage] = useState(1);
 
   const rowsPerPage = 10;
+
+  function deriveAssignmentSelections(sourceAssignments, sessionId) {
+    const normalizedSessionId = String(sessionId || "");
+    const scopedAssignments = normalizedSessionId
+      ? sourceAssignments.filter((assignment) => String(assignment.session_id) === normalizedSessionId)
+      : sourceAssignments;
+
+    return {
+      sections: Array.from(
+        new Set(
+          scopedAssignments
+            .filter((assignment) => assignment.class_id && assignment.section_id)
+            .map((assignment) => `${assignment.class_id}-${assignment.section_id}`),
+        ),
+      ),
+      subjects: Array.from(
+        new Set(
+          scopedAssignments
+            .filter((assignment) => assignment.class_id && assignment.subject_id)
+            .map((assignment) => `${assignment.class_id}-${assignment.subject_id}`),
+        ),
+      ),
+    };
+  }
 
   function isHsClassName(name) {
     const value = String(name || "").trim().toLowerCase();
@@ -109,9 +146,30 @@ export default function TeacherDetails() {
     matchesScope(cls.name, teacher?.class_scope || "school")
   );
 
-  useEffect(() => {
-    loadTeacher();
-  }, [id]);
+  const assignedClassSections = Array.from(
+    new Map(
+      assignments.map((assignment) => [
+        `${assignment.class}-${assignment.section}`,
+        {
+          key: `${assignment.class}-${assignment.section}`,
+          className: assignment.class,
+          sectionName: assignment.section,
+        },
+      ]),
+    ).values(),
+  );
+
+  const assignedSubjects = Array.from(
+    new Map(
+      assignments.map((assignment) => [
+        assignment.subject,
+        {
+          key: assignment.subject,
+          subjectName: assignment.subject,
+        },
+      ]),
+    ).values(),
+  );
 
   async function loadTeacher() {
     const teacherRes = await getTeacher(id);
@@ -126,62 +184,93 @@ export default function TeacherDetails() {
     setAttendance(attendanceRes.data || []);
     setClasses(classesRes.data || []);
     setSessions(sessionRes.data || []);
-    console.log(classesRes.data);
-    console.log(attendanceRes.data);
-    console.log(sessionRes.data);
   }
+
+  const loadTeacherDetails = useEffectEvent(() => {
+    loadTeacher();
+  });
+
+  useEffect(() => {
+    loadTeacherDetails();
+  }, [id]);
 
   if (!teacher) return <div>Loading...</div>;
 
   async function handleAssignSubjects() {
-    if (!selectedSection) {
-    alert("Select section");
-    return;
-  }
+    if (!selectedSubjects.length) {
+      setAssignmentError("Select at least one subject.");
+      return;
+    }
 
-  if (!selectedSession) {
-    alert("Select session");
-    return;
-  }
-    await Promise.all(
-      selectedSubjects.map((value) => {
-        const [classId, subjectId] = value.split("-");
+    if (!selectedSections.length) {
+      setAssignmentError("Select at least one section.");
+      return;
+    }
 
-        return assignTeacher(id, {
+    if (!selectedSession) {
+      setAssignmentError("Select an academic session.");
+      return;
+    }
+
+    setAssignmentError("");
+
+    const assignmentPayloads = selectedSubjects.flatMap((value) => {
+      const [classId, subjectId] = value.split("-");
+      const matchingSections = selectedSections
+        .map((sectionValue) => sectionValue.split("-"))
+        .filter(([sectionClassId]) => sectionClassId === classId)
+        .map(([, sectionId]) => sectionId);
+
+      return matchingSections.map((sectionId) =>
+        assignTeacher(id, {
           class_id: classId,
           subject_id: subjectId,
-          section_id: selectedSection,
+          section_id: sectionId,
           session_id: selectedSession,
-        });
-      }),
-    );
+        }),
+      );
+    });
+
+    if (!assignmentPayloads.length) {
+      setAssignmentError("Select sections for the chosen class subjects.");
+      return;
+    }
+
+    await Promise.all(assignmentPayloads);
 
     const updated = await getTeacherAssignments(id);
 
-    setAssignments(updated.data || [])
-    setSelectedSubjects([])
+    const updatedRows = updated.data || [];
+    setAssignments(updatedRows);
+    const nextSelections = deriveAssignmentSelections(updatedRows, selectedSession);
+    setSelectedSubjects(nextSelections.subjects);
+    setSelectedSections(nextSelections.sections);
+    setAssignmentError("");
     setAssignDialogOpen(false);
   }
 
-  async function handleRemoveAssignment(assignmentId) {
-    if (!confirm("Remove this assignment?")) return;
+  async function handleRemoveAssignment() {
+    if (!assignmentToRemove) return;
 
-    await removeAssignment(assignmentId);
+    await removeAssignment(assignmentToRemove.id);
 
-    setAssignments((prev) => prev.filter((a) => a.id !== assignmentId));
+    setAssignments((prev) => prev.filter((a) => a.id !== assignmentToRemove.id));
+    setAssignmentToRemove(null);
   }
 
   async function handlePasswordChange() {
 
   if (!passwordForm.newPassword) {
-    alert("Enter new password");
+    setPasswordError("Enter a new password.");
     return;
   }
 
   if (passwordForm.newPassword !== passwordForm.confirmPassword) {
-    alert("Passwords do not match");
+    setPasswordError("Passwords do not match.");
     return;
   }
+
+  setPasswordError("");
 
   const res = await adminResetPassword({
     user_id: teacher.user_id,
@@ -189,7 +278,11 @@ export default function TeacherDetails() {
   });
 
   if (res?.success) {
-    alert("Password updated successfully");
+    setFeedbackDialog({
+      open: true,
+      title: "Password Updated",
+      message: "Password updated successfully.",
+    });
   }
   setPasswordForm({
     currentPassword: "",
@@ -215,7 +308,7 @@ export default function TeacherDetails() {
         <div className="w-24 h-24 rounded-lg overflow-hidden bg-pink-200 shrink-0">
           {teacher.photo_url && (
             <img
-              src={`${API_ORIGIN}${teacher.photo_url}`}
+              src={resolveServerImageUrl(teacher.photo_url)}
               alt={teacher.name}
               className="w-full h-full object-cover"
             />
@@ -231,7 +324,7 @@ export default function TeacherDetails() {
                 {teacher.name}
               </h2>
               {/* Meta Info */}
-              <div className="flex flex-wrap items-center gap-4 text-sm text-gray-500 mt-1">
+              <div className="mt-1 flex flex-wrap items-center gap-4 text-sm text-muted-foreground">
                 <span className="flex items-center gap-1">
                   <IdCard size={16} /> {teacher.employee_id}
                 </span>
@@ -248,22 +341,70 @@ export default function TeacherDetails() {
                   Scope: {teacher.class_scope === "hs" ? "Higher Secondary" : "School"}
                 </span>
               </div>
-                <p className="flex items-center gap-1">
-                  <BookPlus size={16} /> Assigned Classes :
-                  {assignments.map((a) => (
-                    <span
-                      key={a.id}
-                      className="px-2 py-1 text-xs rounded bg-muted flex items-center gap-1"
-                    >
-                      {a.class} - {a.section} - {a.subject}
-                      <Trash2
-                        size={16}
-                        className="cursor-pointer text-red-500"
-                        onClick={() => handleRemoveAssignment(a.id)}
-                      />
-                    </span>
-                  ))}
-                </p>
+              <div className="mt-4 space-y-3">
+                <div className="flex items-start gap-2">
+                  <LayoutList size={16} className="mt-0.5 text-muted-foreground" />
+                  <div className="space-y-2">
+                    <p className="text-sm font-medium text-foreground">Assigned Classes & Sections</p>
+                    <div className="flex flex-wrap gap-2">
+                      {assignedClassSections.length ? (
+                        assignedClassSections.map((item) => (
+                          <span
+                            key={item.key}
+                            className="px-2 py-1 text-xs rounded bg-muted text-muted-foreground"
+                          >
+                            {item.className} - {item.sectionName}
+                          </span>
+                        ))
+                      ) : (
+                        <span className="text-sm text-muted-foreground">No class assignment yet</span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex items-start gap-2">
+                  <BookPlus size={16} className="mt-0.5 text-muted-foreground" />
+                  <div className="space-y-2">
+                    <p className="text-sm font-medium text-foreground">Assigned Subjects</p>
+                    <div className="flex flex-wrap gap-2">
+                      {assignedSubjects.length ? (
+                        assignedSubjects.map((item) => (
+                          <span
+                            key={item.key}
+                            className="px-2 py-1 text-xs rounded bg-muted text-muted-foreground"
+                          >
+                            {item.subjectName}
+                          </span>
+                        ))
+                      ) : (
+                        <span className="text-sm text-muted-foreground">No subject assignment yet</span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {assignments.length ? (
+                  <div className="space-y-2">
+                    <p className="text-sm font-medium text-foreground">Manage Assignments</p>
+                    <div className="flex flex-wrap gap-2">
+                      {assignments.map((assignment) => (
+                        <span
+                          key={assignment.id}
+                          className="px-2 py-1 text-xs rounded bg-muted flex items-center gap-1"
+                        >
+                          {assignment.class} - {assignment.section} - {assignment.subject}
+                          <Trash2
+                            size={16}
+                            className="cursor-pointer text-red-500"
+                            onClick={() => setAssignmentToRemove(assignment)}
+                          />
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+              </div>
             </div>
 
             {/* Actions */}
@@ -271,15 +412,38 @@ export default function TeacherDetails() {
             <div className="flex gap-2">
               <Dialog
                 open={assignDialogOpen}
-                onOpenChange={setAssignDialogOpen}
+                onOpenChange={(open) => {
+                  setAssignDialogOpen(open);
+                  if (open) {
+                    const nextSessionId =
+                      assignments[0]?.session_id ||
+                      sessions.find((session) => session.is_active)?.id ||
+                      sessions[0]?.id ||
+                      "";
+                    const normalizedSessionId = String(nextSessionId || "");
+                    const nextSelections = deriveAssignmentSelections(assignments, normalizedSessionId);
+                    setSelectedSession(normalizedSessionId);
+                    setSelectedSections(nextSelections.sections);
+                    setSelectedSubjects(nextSelections.subjects);
+                  }
+                  if (!open) {
+                    setAssignmentError("");
+                    setSelectedSubjects([]);
+                    setSelectedSections([]);
+                    setSelectedSession("");
+                  }
+                }}
               >
                 <DialogTrigger asChild>
-                  <Button variant="outline">Assign Subject</Button>
+                  <Button variant="outline">Assign</Button>
                 </DialogTrigger>
 
                 <DialogContent>
                   <DialogHeader>
-                    <DialogTitle>Assign Subjects</DialogTitle>
+                    <DialogTitle>Assign</DialogTitle>
+                    {assignmentError ? (
+                      <p className="text-sm text-red-600">{assignmentError}</p>
+                    ) : null}
                   </DialogHeader>
 
                   <div className="space-y-3 max-h-60 overflow-y-auto">
@@ -289,20 +453,39 @@ export default function TeacherDetails() {
                         className="border rounded-md p-3 flex items-center gap-2 flex-wrap"
                       >
                         <div className="font-medium w-full">{cls.name}</div>
-
-                        <select
-                          className="border rounded p-1 mt-2"
-                          value={selectedSection}
-                          onChange={(e) => setSelectedSection(e.target.value)}
-                        >
-                          <option value="">Select section</option>
-
-                          {cls.sections.map((sec) => (
-                            <option key={`${cls.id}-${sec.id}`} value={sec.id}>
-                              {sec.name}{sec.medium ? ` (${sec.medium})` : ""}
-                            </option>
-                          ))}
-                        </select>
+                        <div className="w-full space-y-2">
+                          <p className="text-sm font-medium text-foreground">Sections</p>
+                          <div className="flex flex-wrap gap-3">
+                            {cls.sections.map((sec) => {
+                              const sectionValue = `${cls.id}-${sec.id}`;
+                              return (
+                                <label
+                                  key={`${cls.id}-${sec.id}`}
+                                  className="flex items-center gap-2 text-sm text-muted-foreground"
+                                >
+                                  <Checkbox
+                                    checked={selectedSections.includes(sectionValue)}
+                                    onCheckedChange={(checked) => {
+                                      if (checked) {
+                                        setSelectedSections((prev) => [
+                                          ...prev,
+                                          sectionValue,
+                                        ]);
+                                      } else {
+                                        setSelectedSections((prev) =>
+                                          prev.filter((value) => value !== sectionValue),
+                                        );
+                                      }
+                                    }}
+                                  />
+                                  <span>
+                                    {sec.name}{sec.medium ? ` (${sec.medium})` : ""}
+                                  </span>
+                                </label>
+                              );
+                            })}
+                          </div>
+                        </div>
 
                         {cls.subjects.map((sub) => {
                           const value = `${cls.id}-${sub.id}`;
@@ -341,7 +524,13 @@ export default function TeacherDetails() {
                       <select
                         className="w-full border rounded-md p-2"
                         value={selectedSession}
-                        onChange={(e) => setSelectedSession(e.target.value)}
+                        onChange={(e) => {
+                          const nextSessionId = e.target.value;
+                          const nextSelections = deriveAssignmentSelections(assignments, nextSessionId);
+                          setSelectedSession(nextSessionId);
+                          setSelectedSections(nextSelections.sections);
+                          setSelectedSubjects(nextSelections.subjects);
+                        }}
                       >
                         <option value="">Select session</option>
 
@@ -355,14 +544,17 @@ export default function TeacherDetails() {
                   </div>
 
                   <Button onClick={handleAssignSubjects}>
-                    Save Assignments
+                    Assign
                   </Button>
                 </DialogContent>
               </Dialog>
 
               <Dialog
                 open={passwordDialogOpen}
-                onOpenChange={setPasswordDialogOpen}
+                onOpenChange={(open) => {
+                  setPasswordDialogOpen(open);
+                  if (!open) setPasswordError("");
+                }}
               >
                 <DialogTrigger asChild>
                   <Button variant="outline">Change Password</Button>
@@ -402,6 +594,10 @@ export default function TeacherDetails() {
                       />
                     </div>
 
+                    {passwordError ? (
+                      <p className="text-sm text-red-600">{passwordError}</p>
+                    ) : null}
+
                     <Button onClick={handlePasswordChange}>
                       Update Password
                     </Button>
@@ -430,10 +626,10 @@ export default function TeacherDetails() {
             {paginatedAttendance.map((attendance) => (
               <TableRow key={attendance.id}>
                 <TableCell className="font-medium">
-                  {attendance.attendance_date}
+                  {formatReadableDate(attendance.attendance_date)}
                 </TableCell>
-                <TableCell>{attendance.check_in}</TableCell>
-                <TableCell>{attendance.check_out}</TableCell>
+                <TableCell>{formatReadableDateTime(attendance.check_in)}</TableCell>
+                <TableCell>{formatReadableDateTime(attendance.check_out)}</TableCell>
                 <TableCell>{attendance.status}</TableCell>
                 <TableCell>{attendance.worked_hours}</TableCell>
               </TableRow>
@@ -477,6 +673,45 @@ export default function TeacherDetails() {
           </TableFooter>
         </Table>
       </div>
+
+      <AlertDialog
+        open={Boolean(assignmentToRemove)}
+        onOpenChange={(open) => {
+          if (!open) setAssignmentToRemove(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remove assignment?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {assignmentToRemove
+                ? `This will remove ${assignmentToRemove.class} - ${assignmentToRemove.section} - ${assignmentToRemove.subject} from the teacher.`
+                : "This will remove the selected assignment."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction variant="destructive" onClick={handleRemoveAssignment}>
+              Remove
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <Dialog
+        open={feedbackDialog.open}
+        onOpenChange={(open) => setFeedbackDialog((prev) => ({ ...prev, open }))}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{feedbackDialog.title}</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">{feedbackDialog.message}</p>
+          <Button onClick={() => setFeedbackDialog((prev) => ({ ...prev, open: false }))}>
+            Close
+          </Button>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }
