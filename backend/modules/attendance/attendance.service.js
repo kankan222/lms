@@ -481,6 +481,7 @@ export async function notifyAbsentParents(sessionId, data, actor) {
           relationship: row.relationship || "Parent",
         })
       : customMessage;
+    const notificationTitle = `Absence Notice: ${row.student_name}`;
 
     try {
       const messageResult = await messagingService.sendMessage(
@@ -497,7 +498,6 @@ export async function notifyAbsentParents(sessionId, data, actor) {
       try {
         await conn.beginTransaction();
 
-        const notificationTitle = `Absence Notice: ${row.student_name}`;
         const notificationId = await repo.createNotification(conn, {
           userId: row.parent_user_id,
           type: "student_attendance_absent",
