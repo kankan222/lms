@@ -25,6 +25,14 @@ function buildRealtimePayload(payload = {}) {
   };
 }
 
+function isMissingNotificationDevicesTable(err) {
+  return (
+    err?.code === "ER_NO_SUCH_TABLE" &&
+    typeof err?.sqlMessage === "string" &&
+    err.sqlMessage.includes("notification_devices")
+  );
+}
+
 export async function dispatchNotificationUpdate(userIds = [], payload = {}) {
   const normalizedUserIds = normalizeUserIds(userIds);
   if (!normalizedUserIds.length) return;
@@ -33,7 +41,18 @@ export async function dispatchNotificationUpdate(userIds = [], payload = {}) {
 
   const conn = await pool.getConnection();
   try {
-    const devices = await repo.listActivePushDevices(conn, normalizedUserIds);
+    let devices = [];
+    try {
+      devices = await repo.listActivePushDevices(conn, normalizedUserIds);
+    } catch (err) {
+      if (isMissingNotificationDevicesTable(err)) {
+        console.warn(
+          "notification_devices table is missing; skipping push notification dispatch."
+        );
+        return;
+      }
+      throw err;
+    }
     await sendPushNotifications(devices, payload);
   } finally {
     conn.release();

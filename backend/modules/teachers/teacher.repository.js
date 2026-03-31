@@ -227,7 +227,6 @@ export async function assignTeacher(data, conn) {
     data.subject_id,
     data.session_id
   ])
-  console.log("Repo", data);
 }
 
 export function removeAssignment(id) {

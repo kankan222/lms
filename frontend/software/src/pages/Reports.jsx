@@ -122,6 +122,7 @@ export default function Reports() {
   const { can } = usePermissions();
   const isAdmin = can("marks.approve");
   const canEnterMarks = can("marks.enter");
+  const canUseEntryFlow = canEnterMarks || isAdmin;
   const canViewExamCatalog = can("exams.view");
   const selfViewOnly = !isAdmin && !canEnterMarks;
   const [activeTab, setActiveTab] = useState(
@@ -361,7 +362,19 @@ export default function Reports() {
       Boolean(activeStatus) &&
       grid.rows.some((row) => String(row.approval_status || "") !== activeStatus);
 
-    if (scopeMismatch || statusMismatch || !filters.exam_id || !filters.class_id || !filters.section_id || !filters.subject_id) {
+    const hasStaleGridState =
+      gridHasRows ||
+      Boolean(grid?.exam_id || grid?.class_id || grid?.section_id || grid?.subject?.id);
+
+    if (
+      hasStaleGridState &&
+      (scopeMismatch ||
+        statusMismatch ||
+        !filters.exam_id ||
+        !filters.class_id ||
+        !filters.section_id ||
+        !filters.subject_id)
+    ) {
       resetGridState({ rows: [] });
     }
   });
@@ -919,8 +932,10 @@ export default function Reports() {
   function renderGridPanel({ mode = "entry" } = {}) {
     const isPendingMode = mode === "pending";
     const isApprovedMode = mode === "approved";
-    const showTeacherActions = canEnterMarks && !isPendingMode && !isApprovedMode;
-    const showAdminEditActions = isAdmin && !isApprovedMode;
+    const canEditMarks = isPendingMode ? editMode : !isApprovedMode && canUseEntryFlow;
+    const canSelectRows = !isApprovedMode;
+    const showEntryActions = canUseEntryFlow && !isPendingMode && !isApprovedMode;
+    const showAdminEditActions = isAdmin && isPendingMode;
     const showAdminApprovalActions = isAdmin && isPendingMode;
     const emptyMessage = isPendingMode
       ? "Load a pending approval grid to review submitted marks."
@@ -942,7 +957,7 @@ export default function Reports() {
           </div>
 
           <div className="flex flex-wrap gap-2">
-            {showTeacherActions ? (
+            {showEntryActions ? (
               <>
                 <Button onClick={handleSaveMarks} disabled={gridLoading || !grid?.rows?.length}>
                   Save
@@ -1031,6 +1046,7 @@ export default function Reports() {
               <TableHead className="w-12 text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
                 <Checkbox
                   checked={allSelected}
+                  disabled={!canSelectRows}
                   onCheckedChange={(checked) => toggleAllRows(Boolean(checked))}
                 />
               </TableHead>
@@ -1050,6 +1066,7 @@ export default function Reports() {
                 <TableCell>
                   <Checkbox
                     checked={selectedStudentIds.includes(Number(row.student_id))}
+                    disabled={!canSelectRows}
                     onCheckedChange={(checked) =>
                       toggleRow(Number(row.student_id), Boolean(checked))
                     }
@@ -1070,7 +1087,7 @@ export default function Reports() {
                 </TableCell>
                 <TableCell>{selectedSubject?.name || grid?.subject?.name || "-"}</TableCell>
                 <TableCell>
-                  {canEnterMarks || editMode ? (
+                  {canEditMarks && row.approval_status !== "approved" ? (
                     <Input
                       type="number"
                       min="0"

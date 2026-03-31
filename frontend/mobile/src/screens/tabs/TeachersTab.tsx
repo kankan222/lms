@@ -12,6 +12,7 @@ import { useAppTheme } from "../../theme/AppThemeProvider";
 type TeacherScope = "school" | "hs";
 type ScopeFilter = "all" | TeacherScope;
 type Notice = { title: string; message: string; tone: "success" | "error" } | null;
+type DeleteTarget = { id: number; name: string } | null;
 type TeacherPhoto = { uri: string; name?: string; type?: string } | null;
 type TeacherForm = { id?: number | null; employee_id: string; name: string; phone: string; email: string; class_scope: TeacherScope; password?: string; photo: TeacherPhoto; photo_preview: string | null };
 type AssignmentForm = { class_id: number | null; section_id: number | null; subject_id: number | null; session_id: number | null };
@@ -52,36 +53,39 @@ function validateTeacher(form: TeacherForm, requirePassword = false) {
 }
 
 function Sheet({ title, subtitle, onClose, children }: { title: string; subtitle?: string; onClose: () => void; children: ReactNode }) {
-  return <View style={styles.modalOverlay}><Pressable style={styles.modalBackdrop} onPress={onClose} /><View style={styles.modalCard}><View style={styles.rowBetween}><View style={styles.sheetHeaderCopy}><Text style={styles.modalTitle}>{title}</Text>{subtitle ? <Text style={styles.sheetSubtitle}>{subtitle}</Text> : null}</View><Pressable style={styles.closeBtn} onPress={onClose}><Text style={styles.closeBtnText}>Close</Text></Pressable></View><ScrollView style={styles.modalBody} showsVerticalScrollIndicator={false}>{children}</ScrollView></View></View>;
+  const { theme, isDark } = useAppTheme();
+  return <View style={styles.modalOverlay}><Pressable style={[styles.modalBackdrop, { backgroundColor: theme.overlay }]} onPress={onClose} /><View style={[styles.modalCard, { backgroundColor: theme.card, borderColor: theme.border }]}><View style={styles.rowBetween}><View style={styles.sheetHeaderCopy}><Text style={[styles.modalTitle, { color: theme.text }]}>{title}</Text>{subtitle ? <Text style={[styles.sheetSubtitle, { color: theme.subText }]}>{subtitle}</Text> : null}</View><Pressable style={[styles.closeBtn, { borderColor: theme.border, backgroundColor: isDark ? theme.cardMuted : theme.card }]} onPress={onClose}><Text style={[styles.closeBtnText, { color: theme.text }]}>Close</Text></Pressable></View><ScrollView style={styles.modalBody} showsVerticalScrollIndicator={false}>{children}</ScrollView></View></View>;
 }
 
 function FormInput({ label, value, onChangeText, placeholder, keyboardType = "default", autoCapitalize = "sentences", secureTextEntry = false }: { label: string; value: string; onChangeText: (value: string) => void; placeholder?: string; keyboardType?: "default" | "email-address" | "phone-pad"; autoCapitalize?: "none" | "sentences" | "words" | "characters"; secureTextEntry?: boolean }) {
-  return <View style={styles.fieldBlock}><Text style={styles.inputLabel}>{label}</Text><TextInput style={styles.input} value={value} onChangeText={onChangeText} placeholder={placeholder} keyboardType={keyboardType} autoCapitalize={autoCapitalize} secureTextEntry={secureTextEntry} placeholderTextColor="#94a3b8" /></View>;
+  const { theme } = useAppTheme();
+  return <View style={styles.fieldBlock}><Text style={[styles.inputLabel, { color: theme.subText }]}>{label}</Text><TextInput style={[styles.input, { borderColor: theme.border, backgroundColor: theme.inputBg, color: theme.text }]} value={value} onChangeText={onChangeText} placeholder={placeholder} keyboardType={keyboardType} autoCapitalize={autoCapitalize} secureTextEntry={secureTextEntry} placeholderTextColor={theme.mutedText} /></View>;
 }
 
 function PhotoField({ label, previewUri, onPick, onRemove }: { label: string; previewUri?: string | null; onPick: () => void; onRemove: () => void }) {
+  const { theme } = useAppTheme();
   return (
     <View style={styles.fieldBlock}>
-      <Text style={styles.inputLabel}>{label}</Text>
-      <View style={styles.photoField}>
+      <Text style={[styles.inputLabel, { color: theme.subText }]}>{label}</Text>
+      <View style={[styles.photoField, { borderColor: theme.border, backgroundColor: theme.cardMuted }]}>
         <View style={styles.photoPreviewWrap}>
           {previewUri ? (
             <Image source={{ uri: previewUri }} style={styles.photoPreview} />
           ) : (
-            <View style={styles.photoPreviewEmpty}>
-              <Ionicons name="person-outline" size={24} color="#64748b" />
+            <View style={[styles.photoPreviewEmpty, { backgroundColor: theme.card }]}>
+              <Ionicons name="person-outline" size={24} color={theme.subText} />
             </View>
           )}
         </View>
         <View style={styles.photoActions}>
-          <Pressable style={styles.photoActionBtn} onPress={onPick}>
-            <Ionicons name="image-outline" size={16} color="#334155" />
-            <Text style={styles.photoActionText}>{previewUri ? "Change Photo" : "Upload Photo"}</Text>
+          <Pressable style={[styles.photoActionBtn, { borderColor: theme.border, backgroundColor: theme.card }]} onPress={onPick}>
+            <Ionicons name="image-outline" size={16} color={theme.text} />
+            <Text style={[styles.photoActionText, { color: theme.text }]}>{previewUri ? "Change Photo" : "Upload Photo"}</Text>
           </Pressable>
           {previewUri ? (
-            <Pressable style={styles.photoRemoveBtn} onPress={onRemove}>
-              <Ionicons name="trash-outline" size={16} color="#b91c1c" />
-              <Text style={styles.photoRemoveText}>Remove</Text>
+            <Pressable style={[styles.photoRemoveBtn, { borderColor: theme.dangerBorder, backgroundColor: theme.dangerSoft }]} onPress={onRemove}>
+              <Ionicons name="trash-outline" size={16} color={theme.danger} />
+              <Text style={[styles.photoRemoveText, { color: theme.danger }]}>Remove</Text>
             </Pressable>
           ) : null}
         </View>
@@ -91,8 +95,9 @@ function PhotoField({ label, previewUri, onPick, onRemove }: { label: string; pr
 }
 
 function CardAction({ icon, label, onPress, tone = "default" }: { icon: keyof typeof Ionicons.glyphMap; label: string; onPress: () => void; tone?: "default" | "danger" }) {
+  const { theme } = useAppTheme();
   const isDanger = tone === "danger";
-  return <Pressable style={[styles.cardActionBtn, isDanger && styles.cardDeleteBtn]} onPress={onPress}><Ionicons name={icon} size={15} color={isDanger ? "#b91c1c" : "#334155"} /><Text style={[styles.cardActionText, isDanger && styles.cardDeleteText]}>{label}</Text></Pressable>;
+  return <Pressable style={[styles.cardActionBtn, { borderColor: isDanger ? theme.dangerBorder : theme.border, backgroundColor: isDanger ? theme.dangerSoft : theme.card }, isDanger && styles.cardDeleteBtn]} onPress={onPress}><Ionicons name={icon} size={15} color={isDanger ? theme.danger : theme.text} /><Text style={[styles.cardActionText, { color: isDanger ? theme.danger : theme.text }, isDanger && styles.cardDeleteText]}>{label}</Text></Pressable>;
 }
 
 export default function TeachersTab() {
@@ -122,6 +127,7 @@ export default function TeachersTab() {
   const [selectedAssignmentSubjects, setSelectedAssignmentSubjects] = useState<number[]>([]);
   const [selectedTeacher, setSelectedTeacher] = useState<TeacherItem | null>(null);
   const [selectedTeacherId, setSelectedTeacherId] = useState<number | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<DeleteTarget>(null);
   const [assignments, setAssignments] = useState<TeacherAssignment[]>([]);
 
   const activeSession = useMemo(() => sessions.find((s) => Number(s.is_active) === 1 || s.is_active === true) ?? null, [sessions]);
@@ -141,12 +147,12 @@ export default function TeachersTab() {
     const hs = teachers.filter((t) => (t.class_scope ?? "school") === "hs").length;
     const withPhone = teachers.filter((t) => String(t.phone || "").trim()).length;
     return [
-      { label: "Total Teachers", value: teachers.length, accent: "#dbeafe", tone: "#1d4ed8" },
-      { label: "School", value: school, accent: "#dcfce7", tone: "#15803d" },
-      { label: "Higher Secondary", value: hs, accent: "#ede9fe", tone: "#6d28d9" },
-      { label: "Phone Linked", value: withPhone, accent: "#fef3c7", tone: "#b45309" },
+      { label: "Total Teachers", value: teachers.length, accent: theme.infoSoft, border: theme.infoBorder, tone: theme.infoText },
+      { label: "School", value: school, accent: theme.successSoft, border: theme.successBorder, tone: theme.success },
+      { label: "Higher Secondary", value: hs, accent: theme.card, border: theme.border, tone: theme.text },
+      { label: "Phone Linked", value: withPhone, accent: theme.warningSoft, border: theme.warningBorder, tone: theme.warningText },
     ];
-  }, [teachers]);
+  }, [teachers, theme]);
 
   const loadData = useCallback(async (mode: "initial" | "refresh" = "initial") => {
     if (mode === "refresh") setRefreshing(true); else setLoading(true);
@@ -244,10 +250,23 @@ export default function TeachersTab() {
   }
 
   function confirmDelete(id: number) {
-    Alert.alert("Delete teacher", "Do you want to delete this teacher?", [
-      { text: "Cancel", style: "cancel" },
-      { text: "Delete", style: "destructive", onPress: async () => { try { await deleteTeacher(id); setTeachers((prev) => prev.filter((item) => item.id !== id)); showNotice("Teacher Deleted", "Teacher record deleted successfully."); } catch (err: unknown) { Alert.alert("Delete failed", getErrorMessage(err, "Could not delete teacher.")); } } },
-    ]);
+    const teacher = teachers.find((item) => item.id === id);
+    setDeleteTarget({ id, name: teacher?.name || "this teacher" });
+  }
+
+  async function handleDelete() {
+    if (!deleteTarget) return;
+    setSaving(true);
+    try {
+      await deleteTeacher(deleteTarget.id);
+      setTeachers((prev) => prev.filter((item) => item.id !== deleteTarget.id));
+      setDeleteTarget(null);
+      showNotice("Teacher Deleted", "Teacher record deleted successfully.");
+    } catch (err: unknown) {
+      showNotice("Delete Failed", getErrorMessage(err, "Could not delete teacher."), "error");
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function openAssignments(teacher: TeacherItem) {
@@ -322,38 +341,35 @@ export default function TeachersTab() {
   }
 
   return (
+    <View style={styles.screen}>
+      <TopNotice notice={notice} style={styles.topNoticeOverlay} />
     <ScrollView style={styles.root} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => loadData("refresh")} />}>
-      <View style={[styles.heroCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+      <View style={styles.innerContent}>
+      <View style={styles.heroCard}>
         <View style={styles.heroCopy}>
+          <Text style={[styles.heroEyebrow, { color: theme.subText }]}>Overview</Text>
           <Text style={[styles.title, { color: theme.text }]}>{canManageTeachers ? "Teachers" : "My Profile"}</Text>
-          <Text style={[styles.subtitle, { color: theme.subText }]}>{canManageTeachers ? "Manage teacher records and assignment scopes with the live backend data." : "View your teacher profile and assignments."}</Text>
+          <Text style={[styles.subtitle, { color: theme.subText }]}>{canManageTeachers ? "Manage teacher records and assignment scopes." : "View your teacher profile and assignments."}</Text>
         </View>
-        <View style={styles.heroActions}>
           <View style={styles.heroPrimaryActions}>
-            <Pressable style={styles.iconUtilityBtn} onPress={() => loadData("refresh")}>
-              <Ionicons name="refresh-outline" size={18} color="#334155" />
-            </Pressable>
-            {canManageTeachers ? <Pressable style={styles.heroPrimaryBtn} onPress={() => setCreateOpen(true)}><Text style={styles.primaryBtnText}>Add Teacher</Text></Pressable> : null}
+            {canManageTeachers ? <Pressable style={[styles.heroPrimaryBtn, { backgroundColor: theme.primary }]} onPress={() => setCreateOpen(true)}><Text style={[styles.primaryBtnText, { color: theme.primaryText }]}>Add Teacher</Text></Pressable> : null}
           </View>
-        </View>
       </View>
 
-      <TopNotice notice={notice} />
-
-      {canManageTeachers ? <View style={styles.statsGrid}>{stats.map((item) => <View key={item.label} style={[styles.statCard, { backgroundColor: item.accent }]}><Text style={styles.statLabel}>{item.label}</Text><Text style={[styles.statValue, { color: item.tone }]}>{item.value}</Text></View>)}</View> : null}
+      {canManageTeachers ? <View style={styles.statsGrid}>{stats.map((item) => <View key={item.label} style={[styles.statCard, { backgroundColor: item.accent, borderColor: item.border }]}><Text style={[styles.statLabel, { color: theme.subText }]}>{item.label}</Text><Text style={[styles.statValue, { color: item.tone }]}>{item.value}</Text></View>)}</View> : null}
 
       {loading ? <View style={styles.centered}><ActivityIndicator size="large" color={theme.text} /></View> : <>
-        {error ? <Text style={styles.errorText}>{error}</Text> : null}
+        {error ? <Text style={[styles.errorText, { color: theme.danger }]}>{error}</Text> : null}
         {canManageTeachers ? <View style={[styles.sectionCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
           <View style={styles.rowBetween}><Text style={[styles.sectionTitle, { color: theme.text }]}>Teacher Directory</Text><Text style={[styles.hint, { color: theme.subText }]}>{filteredTeachers.length} visible</Text></View>
           <FormInput label="Search" value={search} onChangeText={setSearch} placeholder="Name, employee ID, phone or email" autoCapitalize="none" />
-          <Text style={styles.inputLabel}>Scope</Text>
-          <View style={styles.filterRow}>{(["all", "school", "hs"] as ScopeFilter[]).map((scope) => <Pressable key={scope} style={[styles.filterChip, scopeFilter === scope && styles.filterChipActive]} onPress={() => setScopeFilter(scope)}><Text style={[styles.filterChipText, scopeFilter === scope && styles.filterChipTextActive]}>{scope === "all" ? "All" : formatScope(scope)}</Text></Pressable>)}</View>
+          <Text style={[styles.inputLabel, { color: theme.subText }]}>Scope</Text>
+          <View style={styles.filterRow}>{(["all", "school", "hs"] as ScopeFilter[]).map((scope) => <Pressable key={scope} style={[styles.filterChip, { borderColor: theme.border, backgroundColor: theme.cardMuted }, scopeFilter === scope && { borderColor: theme.primary, backgroundColor: theme.isDark ? "#f8fafc" : theme.primary }]} onPress={() => setScopeFilter(scope)}><Text style={[styles.filterChipText, { color: theme.subText }, scopeFilter === scope && { color: theme.isDark ? "#0f172a" : theme.primaryText }]}>{scope === "all" ? "All" : formatScope(scope)}</Text></Pressable>)}</View>
         </View> : null}
 
         {selfTeacher ? <View style={[styles.teacherCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
           <View style={styles.cardTop}><View style={[styles.avatarBadge, { backgroundColor: theme.cardMuted }]}>{resolveTeacherPhotoUrl(selfTeacher.photo_url) ? <Image source={{ uri: resolveTeacherPhotoUrl(selfTeacher.photo_url)! }} style={styles.avatarImage} /> : <Text style={[styles.avatarText, { color: theme.text }]}>{selfTeacher.name?.slice(0, 1)?.toUpperCase() || "T"}</Text>}</View><View style={styles.cardCopy}><Text style={[styles.teacherName, { color: theme.text }]}>{selfTeacher.name}</Text><Text style={[styles.teacherMeta, { color: theme.subText }]}>{formatScope(selfTeacher.class_scope)}</Text></View></View>
-          <View style={styles.detailList}><Text style={styles.detailText}>Employee ID: {selfTeacher.employee_id || "-"}</Text><Text style={styles.detailText}>Phone: {selfTeacher.phone || "-"}</Text><Text style={styles.detailText}>Email: {selfTeacher.email || "-"}</Text></View>
+          <View style={styles.detailList}><Text style={[styles.detailText, { color: theme.subText }]}>Employee ID: {selfTeacher.employee_id || "-"}</Text><Text style={[styles.detailText, { color: theme.subText }]}>Phone: {selfTeacher.phone || "-"}</Text><Text style={[styles.detailText, { color: theme.subText }]}>Email: {selfTeacher.email || "-"}</Text></View>
           <View style={styles.cardActions}>
             <CardAction icon="eye-outline" label="Details" onPress={() => openDetails(selfTeacher)} />
             <CardAction icon="git-network-outline" label="Assignments" onPress={() => openAssignments(selfTeacher)} />
@@ -361,7 +377,7 @@ export default function TeachersTab() {
         </View> : <View style={styles.grid}>
           {filteredTeachers.map((teacher) => <View key={teacher.id} style={[styles.teacherCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
             <View style={styles.cardTop}><View style={[styles.avatarBadge, { backgroundColor: theme.cardMuted }]}>{resolveTeacherPhotoUrl(teacher.photo_url) ? <Image source={{ uri: resolveTeacherPhotoUrl(teacher.photo_url)! }} style={styles.avatarImage} /> : <Text style={[styles.avatarText, { color: theme.text }]}>{teacher.name?.slice(0, 1)?.toUpperCase() || "T"}</Text>}</View><View style={styles.cardCopy}><Text style={[styles.teacherName, { color: theme.text }]}>{teacher.name}</Text><Text style={[styles.teacherMeta, { color: theme.subText }]}>{formatScope(teacher.class_scope)}</Text></View></View>
-            <View style={styles.detailList}><Text style={styles.detailText}>Employee ID: {teacher.employee_id || "-"}</Text><Text style={styles.detailText}>Phone: {teacher.phone || "-"}</Text><Text style={styles.detailText}>Email: {teacher.email || "-"}</Text></View>
+            <View style={styles.detailList}><Text style={[styles.detailText, { color: theme.subText }]}>Employee ID: {teacher.employee_id || "-"}</Text><Text style={[styles.detailText, { color: theme.subText }]}>Phone: {teacher.phone || "-"}</Text><Text style={[styles.detailText, { color: theme.subText }]}>Email: {teacher.email || "-"}</Text></View>
             <View style={styles.cardActions}>
               <CardAction icon="eye-outline" label="Details" onPress={() => openDetails(teacher)} />
               <CardAction icon="git-network-outline" label="Assignments" onPress={() => openAssignments(teacher)} />
@@ -382,10 +398,10 @@ export default function TeachersTab() {
           <FormInput label="Name *" value={createForm.name} onChangeText={(value) => setCreateForm((prev) => ({ ...prev, name: value }))} placeholder="Teacher name" />
           <FormInput label="Phone" value={createForm.phone} onChangeText={(value) => setCreateForm((prev) => ({ ...prev, phone: value }))} placeholder="10 digit phone" keyboardType="phone-pad" />
           <FormInput label="Email" value={createForm.email} onChangeText={(value) => setCreateForm((prev) => ({ ...prev, email: value }))} placeholder="teacher@school.com" keyboardType="email-address" autoCapitalize="none" />
-          <Text style={styles.inputLabel}>Class Scope *</Text>
-          <View style={styles.filterRow}>{(["school", "hs"] as TeacherScope[]).map((scope) => <Pressable key={scope} style={[styles.filterChip, createForm.class_scope === scope && styles.filterChipActive]} onPress={() => setCreateForm((prev) => ({ ...prev, class_scope: scope }))}><Text style={[styles.filterChipText, createForm.class_scope === scope && styles.filterChipTextActive]}>{formatScope(scope)}</Text></Pressable>)}</View>
+          <Text style={[styles.inputLabel, { color: theme.subText }]}>Class Scope *</Text>
+          <View style={styles.filterRow}>{(["school", "hs"] as TeacherScope[]).map((scope) => <Pressable key={scope} style={[styles.filterChip, { borderColor: theme.border, backgroundColor: theme.cardMuted }, createForm.class_scope === scope && { borderColor: theme.primary, backgroundColor: theme.isDark ? "#f8fafc" : theme.primary }]} onPress={() => setCreateForm((prev) => ({ ...prev, class_scope: scope }))}><Text style={[styles.filterChipText, { color: theme.subText }, createForm.class_scope === scope && { color: theme.isDark ? "#0f172a" : theme.primaryText }]}>{formatScope(scope)}</Text></Pressable>)}</View>
           <FormInput label="Password *" value={String(createForm.password || "")} onChangeText={(value) => setCreateForm((prev) => ({ ...prev, password: value }))} placeholder="Minimum 6 characters" secureTextEntry />
-          <View style={styles.rowActions}><Pressable style={styles.secondaryBtn} onPress={() => setCreateOpen(false)}><Text style={styles.secondaryBtnText}>Cancel</Text></Pressable><Pressable style={styles.successBtn} onPress={handleCreate} disabled={saving}><Text style={styles.successBtnText}>{saving ? "Saving..." : "Save"}</Text></Pressable></View>
+          <View style={styles.rowActions}><Pressable style={[styles.secondaryBtn, { borderColor: theme.border, backgroundColor: theme.card }]} onPress={() => setCreateOpen(false)}><Text style={[styles.secondaryBtnText, { color: theme.text }]}>Cancel</Text></Pressable><Pressable style={[styles.successBtn, { backgroundColor: theme.success, borderColor: theme.successBorder }]} onPress={handleCreate} disabled={saving}><Text style={[styles.successBtnText, { color: theme.successText }]}>{saving ? "Saving..." : "Save"}</Text></Pressable></View>
         </Sheet>
       </Modal>
 
@@ -396,25 +412,25 @@ export default function TeachersTab() {
           <FormInput label="Name *" value={editForm.name} onChangeText={(value) => setEditForm((prev) => ({ ...prev, name: value }))} placeholder="Teacher name" />
           <FormInput label="Phone" value={editForm.phone} onChangeText={(value) => setEditForm((prev) => ({ ...prev, phone: value }))} placeholder="10 digit phone" keyboardType="phone-pad" />
           <FormInput label="Email" value={editForm.email} onChangeText={(value) => setEditForm((prev) => ({ ...prev, email: value }))} placeholder="teacher@school.com" keyboardType="email-address" autoCapitalize="none" />
-          <Text style={styles.inputLabel}>Class Scope *</Text>
-          <View style={styles.filterRow}>{(["school", "hs"] as TeacherScope[]).map((scope) => <Pressable key={scope} style={[styles.filterChip, editForm.class_scope === scope && styles.filterChipActive]} onPress={() => setEditForm((prev) => ({ ...prev, class_scope: scope }))}><Text style={[styles.filterChipText, editForm.class_scope === scope && styles.filterChipTextActive]}>{formatScope(scope)}</Text></Pressable>)}</View>
-          <View style={styles.rowActions}><Pressable style={styles.secondaryBtn} onPress={() => setEditOpen(false)}><Text style={styles.secondaryBtnText}>Cancel</Text></Pressable><Pressable style={styles.successBtn} onPress={handleEdit} disabled={saving}><Text style={styles.successBtnText}>{saving ? "Saving..." : "Update"}</Text></Pressable></View>
+          <Text style={[styles.inputLabel, { color: theme.subText }]}>Class Scope *</Text>
+          <View style={styles.filterRow}>{(["school", "hs"] as TeacherScope[]).map((scope) => <Pressable key={scope} style={[styles.filterChip, { borderColor: theme.border, backgroundColor: theme.cardMuted }, editForm.class_scope === scope && { borderColor: theme.primary, backgroundColor: theme.isDark ? "#f8fafc" : theme.primary }]} onPress={() => setEditForm((prev) => ({ ...prev, class_scope: scope }))}><Text style={[styles.filterChipText, { color: theme.subText }, editForm.class_scope === scope && { color: theme.isDark ? "#0f172a" : theme.primaryText }]}>{formatScope(scope)}</Text></Pressable>)}</View>
+          <View style={styles.rowActions}><Pressable style={[styles.secondaryBtn, { borderColor: theme.border, backgroundColor: theme.card }]} onPress={() => setEditOpen(false)}><Text style={[styles.secondaryBtnText, { color: theme.text }]}>Cancel</Text></Pressable><Pressable style={[styles.successBtn, { backgroundColor: theme.success, borderColor: theme.successBorder }]} onPress={handleEdit} disabled={saving}><Text style={[styles.successBtnText, { color: theme.successText }]}>{saving ? "Saving..." : "Update"}</Text></Pressable></View>
         </Sheet>
       </Modal>
 
       <Modal visible={assignmentOpen} transparent animationType="slide" onRequestClose={() => setAssignmentOpen(false)}>
         <Sheet title={`Assignments: ${selectedTeacher?.name ?? "Teacher"}`} subtitle="Assign class, section, subject, and session from the live academic structure." onClose={() => setAssignmentOpen(false)}>
-          <Text style={styles.inputLabel}>Class *</Text>
-          <View style={styles.filterRow}>{filteredAssignmentClasses.map((item) => <Pressable key={item.id} style={[styles.filterChip, assignmentForm.class_id === item.id && styles.filterChipActive]} onPress={() => { const nextSelections = deriveAssignmentSelections(assignments, item.id, assignmentForm.session_id); setAssignmentForm((prev) => ({ ...prev, class_id: item.id, section_id: nextSelections.sections[0] ?? null, subject_id: nextSelections.subjects[0] ?? null })); setSelectedAssignmentSections(nextSelections.sections); setSelectedAssignmentSubjects(nextSelections.subjects); }}><Text style={[styles.filterChipText, assignmentForm.class_id === item.id && styles.filterChipTextActive]}>{item.name}</Text></Pressable>)}</View>
-          <Text style={[styles.inputLabel, styles.spaceTop]}>Section *</Text>
-          <View style={styles.filterRow}>{(selectedClass?.sections ?? []).map((section) => <Pressable key={section.id} style={[styles.filterChip, selectedAssignmentSections.includes(section.id) && styles.filterChipActive]} onPress={() => setSelectedAssignmentSections((prev) => prev.includes(section.id) ? prev.filter((value) => value !== section.id) : [...prev, section.id])}><Text style={[styles.filterChipText, selectedAssignmentSections.includes(section.id) && styles.filterChipTextActive]}>{section.name}{section.medium ? ` (${section.medium})` : ""}</Text></Pressable>)}</View>
-          <Text style={[styles.inputLabel, styles.spaceTop]}>Subject *</Text>
-          <View style={styles.filterRow}>{(selectedClass?.subjects ?? []).map((subject) => <Pressable key={subject.id} style={[styles.filterChip, selectedAssignmentSubjects.includes(subject.id) && styles.filterChipActive]} onPress={() => setSelectedAssignmentSubjects((prev) => prev.includes(subject.id) ? prev.filter((value) => value !== subject.id) : [...prev, subject.id])}><Text style={[styles.filterChipText, selectedAssignmentSubjects.includes(subject.id) && styles.filterChipTextActive]}>{subject.name}</Text></Pressable>)}</View>
-          <Text style={[styles.inputLabel, styles.spaceTop]}>Session *</Text>
-          <View style={styles.filterRow}>{sessions.map((session) => <Pressable key={session.id} style={[styles.filterChip, assignmentForm.session_id === session.id && styles.filterChipActive]} onPress={() => { const nextSelections = deriveAssignmentSelections(assignments, assignmentForm.class_id, session.id); setAssignmentForm((prev) => ({ ...prev, session_id: session.id, section_id: nextSelections.sections[0] ?? null, subject_id: nextSelections.subjects[0] ?? null })); setSelectedAssignmentSections(nextSelections.sections); setSelectedAssignmentSubjects(nextSelections.subjects); }}><Text style={[styles.filterChipText, assignmentForm.session_id === session.id && styles.filterChipTextActive]}>{session.name}</Text></Pressable>)}</View>
-          {canManageTeachers ? <Pressable style={[styles.successBtn, styles.spaceTop]} onPress={submitAssignment} disabled={saving}><Text style={styles.successBtnText}>{saving ? "Saving..." : "Assign to Teacher"}</Text></Pressable> : null}
-          <Text style={[styles.inputLabel, styles.spaceTop]}>Current Assignments</Text>
-          {loadingAssignments ? <ActivityIndicator size="small" color="#0f172a" /> : assignments.length ? assignments.map((assignment) => <View key={assignment.id} style={styles.assignmentCard}><Text style={styles.assignmentText}>{assignment.class} - {assignment.section} - {assignment.subject}</Text><Text style={styles.assignmentSubText}>Session: {assignment.session}</Text>{canManageTeachers ? <Pressable onPress={() => deleteAssignment(assignment.id)} style={styles.assignmentDelete}><Text style={styles.assignmentDeleteText}>Remove</Text></Pressable> : null}</View>) : <Text style={styles.emptyText}>No assignments found.</Text>}
+          <Text style={[styles.inputLabel, { color: theme.subText }]}>Class *</Text>
+          <View style={styles.filterRow}>{filteredAssignmentClasses.map((item) => <Pressable key={item.id} style={[styles.filterChip, { borderColor: theme.border, backgroundColor: theme.cardMuted }, assignmentForm.class_id === item.id && { borderColor: theme.primary, backgroundColor: theme.isDark ? "#f8fafc" : theme.primary }]} onPress={() => { const nextSelections = deriveAssignmentSelections(assignments, item.id, assignmentForm.session_id); setAssignmentForm((prev) => ({ ...prev, class_id: item.id, section_id: nextSelections.sections[0] ?? null, subject_id: nextSelections.subjects[0] ?? null })); setSelectedAssignmentSections(nextSelections.sections); setSelectedAssignmentSubjects(nextSelections.subjects); }}><Text style={[styles.filterChipText, { color: theme.subText }, assignmentForm.class_id === item.id && { color: theme.isDark ? "#0f172a" : theme.primaryText }]}>{item.name}</Text></Pressable>)}</View>
+          <Text style={[styles.inputLabel, styles.spaceTop, { color: theme.subText }]}>Section *</Text>
+          <View style={styles.filterRow}>{(selectedClass?.sections ?? []).map((section) => <Pressable key={section.id} style={[styles.filterChip, { borderColor: theme.border, backgroundColor: theme.cardMuted }, selectedAssignmentSections.includes(section.id) && { borderColor: theme.primary, backgroundColor: theme.isDark ? "#f8fafc" : theme.primary }]} onPress={() => setSelectedAssignmentSections((prev) => prev.includes(section.id) ? prev.filter((value) => value !== section.id) : [...prev, section.id])}><Text style={[styles.filterChipText, { color: theme.subText }, selectedAssignmentSections.includes(section.id) && { color: theme.isDark ? "#0f172a" : theme.primaryText }]}>{section.name}{section.medium ? ` (${section.medium})` : ""}</Text></Pressable>)}</View>
+          <Text style={[styles.inputLabel, styles.spaceTop, { color: theme.subText }]}>Subject *</Text>
+          <View style={styles.filterRow}>{(selectedClass?.subjects ?? []).map((subject) => <Pressable key={subject.id} style={[styles.filterChip, { borderColor: theme.border, backgroundColor: theme.cardMuted }, selectedAssignmentSubjects.includes(subject.id) && { borderColor: theme.primary, backgroundColor: theme.isDark ? "#f8fafc" : theme.primary }]} onPress={() => setSelectedAssignmentSubjects((prev) => prev.includes(subject.id) ? prev.filter((value) => value !== subject.id) : [...prev, subject.id])}><Text style={[styles.filterChipText, { color: theme.subText }, selectedAssignmentSubjects.includes(subject.id) && { color: theme.isDark ? "#0f172a" : theme.primaryText }]}>{subject.name}</Text></Pressable>)}</View>
+          <Text style={[styles.inputLabel, styles.spaceTop, { color: theme.subText }]}>Session *</Text>
+          <View style={styles.filterRow}>{sessions.map((session) => <Pressable key={session.id} style={[styles.filterChip, { borderColor: theme.border, backgroundColor: theme.cardMuted }, assignmentForm.session_id === session.id && { borderColor: theme.primary, backgroundColor: theme.isDark ? "#f8fafc" : theme.primary }]} onPress={() => { const nextSelections = deriveAssignmentSelections(assignments, assignmentForm.class_id, session.id); setAssignmentForm((prev) => ({ ...prev, session_id: session.id, section_id: nextSelections.sections[0] ?? null, subject_id: nextSelections.subjects[0] ?? null })); setSelectedAssignmentSections(nextSelections.sections); setSelectedAssignmentSubjects(nextSelections.subjects); }}><Text style={[styles.filterChipText, { color: theme.subText }, assignmentForm.session_id === session.id && { color: theme.isDark ? "#0f172a" : theme.primaryText }]}>{session.name}</Text></Pressable>)}</View>
+          {canManageTeachers ? <Pressable style={[styles.successBtn, styles.spaceTop, { backgroundColor: theme.success, borderColor: theme.successBorder }]} onPress={submitAssignment} disabled={saving}><Text style={[styles.successBtnText, { color: theme.successText }]}>{saving ? "Saving..." : "Assign to Teacher"}</Text></Pressable> : null}
+          <Text style={[styles.inputLabel, styles.spaceTop, { color: theme.subText }]}>Current Assignments</Text>
+          {loadingAssignments ? <ActivityIndicator size="small" color={theme.primary} /> : assignments.length ? assignments.map((assignment) => <View key={assignment.id} style={[styles.assignmentCard, { borderColor: theme.border, backgroundColor: theme.cardMuted }]}><Text style={[styles.assignmentText, { color: theme.text }]}>{assignment.class} - {assignment.section} - {assignment.subject}</Text><Text style={[styles.assignmentSubText, { color: theme.subText }]}>Session: {assignment.session}</Text>{canManageTeachers ? <Pressable onPress={() => deleteAssignment(assignment.id)} style={[styles.assignmentDelete, { borderColor: theme.dangerBorder, backgroundColor: theme.dangerSoft }]}><Text style={[styles.assignmentDeleteText, { color: theme.danger }]}>Remove</Text></Pressable> : null}</View>) : <Text style={[styles.emptyText, { color: theme.subText }]}>No assignments found.</Text>}
         </Sheet>
       </Modal>
 
@@ -423,17 +439,44 @@ export default function TeachersTab() {
           <TeacherDetailsModule teacherId={selectedTeacherId} canManageTeachers={canManageTeachers} />
         </Sheet>
       </Modal>
+      <Modal visible={deleteTarget !== null} transparent animationType="fade" onRequestClose={() => setDeleteTarget(null)}>
+        <View style={styles.modalOverlay}>
+          <Pressable style={[styles.modalBackdrop, { backgroundColor: theme.overlay }]} onPress={() => setDeleteTarget(null)} />
+          <View style={[styles.confirmCard, { backgroundColor: theme.card, borderColor: theme.dangerBorder }]}>
+            <View style={[styles.confirmIcon, { backgroundColor: theme.dangerSoft, borderColor: theme.dangerBorder }]}>
+              <Text style={[styles.confirmIconText, { color: theme.danger }]}>×</Text>
+            </View>
+            <Text style={[styles.confirmTitle, { color: theme.text }]}>Delete Teacher</Text>
+            <Text style={[styles.confirmMessage, { color: theme.subText }]}>
+              {deleteTarget ? `This will remove ${deleteTarget.name} from the teachers list.` : ""}
+            </Text>
+            <View style={styles.rowActions}>
+              <Pressable style={[styles.secondaryBtn, { borderColor: theme.border, backgroundColor: theme.card }]} onPress={() => setDeleteTarget(null)} disabled={saving}>
+                <Text style={[styles.secondaryBtnText, { color: theme.text }]}>Cancel</Text>
+              </Pressable>
+              <Pressable style={[styles.deleteBtn, { backgroundColor: theme.dangerSoft, borderColor: theme.dangerBorder }, saving && styles.disabledBtn]} onPress={handleDelete} disabled={saving}>
+                <Text style={[styles.deleteBtnText, { color: theme.danger }]}>{saving ? "Deleting..." : "Delete"}</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
+      </View>
     </ScrollView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  screen: { flex: 1 },
   root: { flex: 1 },
-  content: { gap: 14, paddingBottom: 8 },
-  heroCard: { backgroundColor: "#fff", borderRadius: 24, borderWidth: 1, borderColor: "#e2e8f0", padding: 18, gap: 14 },
+  content: { gap: 14, paddingBottom: 120 },
+  innerContent: { gap: 14, paddingHorizontal: 14, paddingTop: 10 },
+  topNoticeOverlay: { position: "absolute", top: 0, left: 14, right: 14, zIndex: 20 },
+  heroCard: { borderRadius: 24, paddingVertical: 0, gap: 8 },
   heroCopy: { gap: 6 },
-  heroActions: { gap: 10 },
   heroPrimaryActions: { flexDirection: "row", gap: 10 },
+  heroEyebrow: { fontSize: 12, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.6 },
   title: { color: "#0f172a", fontWeight: "800", fontSize: 22 },
   subtitle: { color: "#64748b", lineHeight: 20 },
   noticeCard: { borderRadius: 18, paddingHorizontal: 14, paddingVertical: 12, borderWidth: 1 },
@@ -442,7 +485,7 @@ const styles = StyleSheet.create({
   noticeTitle: { color: "#0f172a", fontWeight: "800", marginBottom: 2 },
   noticeMessage: { color: "#475569" },
   statsGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
-  statCard: { width: "48%", minHeight: 92, borderRadius: 20, paddingHorizontal: 14, paddingVertical: 12, justifyContent: "space-between" },
+  statCard: { width: "48%", minHeight: 92, borderRadius: 20, borderWidth: 1, paddingHorizontal: 14, paddingVertical: 12, justifyContent: "space-between" },
   statLabel: { color: "#334155", fontSize: 12, fontWeight: "700" },
   statValue: { fontSize: 26, fontWeight: "800" },
   centered: { alignItems: "center", justifyContent: "center", paddingVertical: 40 },
@@ -486,7 +529,7 @@ const styles = StyleSheet.create({
   secondaryBtnText: { color: "#334155", fontWeight: "700" },
   deleteBtn: { flex: 1, backgroundColor: "#fee2e2", borderWidth: 1, borderColor: "#fecaca", paddingHorizontal: 14, paddingVertical: 11, borderRadius: 12, alignItems: "center", justifyContent: "center" },
   deleteBtnText: { color: "#b91c1c", fontWeight: "700" },
-  successBtn: { flex: 1, backgroundColor: "#15803d", paddingHorizontal: 14, paddingVertical: 11, borderRadius: 12, alignItems: "center", justifyContent: "center" },
+  successBtn: { flex: 1, borderWidth: 1, paddingHorizontal: 14, paddingVertical: 11, borderRadius: 12, alignItems: "center", justifyContent: "center" },
   successBtnText: { color: "#fff", fontWeight: "700" },
   modalOverlay: { flex: 1, justifyContent: "flex-end" },
   modalBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(15, 23, 42, 0.28)" },
@@ -515,4 +558,10 @@ const styles = StyleSheet.create({
   emptyTitle: { color: "#0f172a", fontWeight: "700", fontSize: 15 },
   emptyText: { color: "#64748b", marginTop: 8 },
   spaceTop: { marginTop: 10 },
+  confirmCard: { marginHorizontal: 18, marginBottom: 120, borderWidth: 1, borderRadius: 24, paddingHorizontal: 18, paddingVertical: 20, gap: 12 },
+  confirmIcon: { width: 44, height: 44, borderWidth: 1, borderRadius: 16, alignItems: "center", justifyContent: "center", alignSelf: "center" },
+  confirmIconText: { fontSize: 22, fontWeight: "800" },
+  confirmTitle: { fontSize: 18, fontWeight: "800", textAlign: "center" },
+  confirmMessage: { fontSize: 14, lineHeight: 20, textAlign: "center" },
+  disabledBtn: { opacity: 0.7 },
 });

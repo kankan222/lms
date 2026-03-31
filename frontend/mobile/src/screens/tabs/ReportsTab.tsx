@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -82,6 +82,13 @@ const DEFAULT_THEME = {
   inputBg: "#ffffff",
   overlay: "rgba(15, 23, 42, 0.28)",
   icon: "#334155",
+  primary: "#0f172a",
+  primaryText: "#ffffff",
+  success: "#15803d",
+  successText: "#ffffff",
+  danger: "#b91c1c",
+  dangerSoft: "#fee2e2",
+  dangerBorder: "#fecaca",
 };
 let currentTheme = DEFAULT_THEME;
 
@@ -130,9 +137,25 @@ function noticeToneStyle(tone: NoticeTone) {
 }
 
 function statusBadgeTone(status: string) {
-  if (status === "approved") return { borderColor: "#bbf7d0", backgroundColor: "#f0fdf4", color: "#15803d" };
-  if (status === "pending") return { borderColor: "#fde68a", backgroundColor: "#fffbeb", color: "#b45309" };
-  return { borderColor: "#cbd5e1", backgroundColor: "#f8fafc", color: "#475569" };
+  if (status === "approved") {
+    return {
+      borderColor: currentTheme.isDark ? "#15803d" : "#bbf7d0",
+      backgroundColor: currentTheme.isDark ? "#052e16" : "#f0fdf4",
+      color: currentTheme.isDark ? "#86efac" : "#15803d",
+    };
+  }
+  if (status === "pending") {
+    return {
+      borderColor: currentTheme.isDark ? "#d97706" : "#fde68a",
+      backgroundColor: currentTheme.isDark ? "#451a03" : "#fffbeb",
+      color: currentTheme.isDark ? "#fcd34d" : "#b45309",
+    };
+  }
+  return {
+    borderColor: currentTheme.border,
+    backgroundColor: currentTheme.cardMuted,
+    color: currentTheme.subText,
+  };
 }
 
 function summaryCardTone(tone: "default" | "green" | "amber" | "violet") {
@@ -265,6 +288,7 @@ export default function ReportsTab() {
   const permissions = user?.permissions || [];
   const isAdmin = permissions.includes("marks.approve");
   const canEnterMarks = permissions.includes("marks.enter");
+  const canUseEntryFlow = canEnterMarks || isAdmin;
   const canViewExamCatalog = permissions.includes("exams.view");
   const selfViewOnly = !isAdmin && !canEnterMarks;
 
@@ -310,6 +334,8 @@ export default function ReportsTab() {
   const [pendingQueue, setPendingQueue] = useState<PendingApprovalQueue>({ total_pending: 0, groups: [] });
   const [approvalSummary, setApprovalSummary] = useState<MarksApprovalSummary>({ pending: 0, draft: 0, approved: 0 });
   const [reviewQueueSnapshot, setReviewQueueSnapshot] = useState<PendingApprovalQueue | null>(null);
+  const scrollRef = useRef<ScrollView | null>(null);
+  const rowOffsetsRef = useRef<Record<number, number>>({});
 
   const scopedClassIds = useMemo(
     () => [...new Set((examScopes || []).map((item) => String(item.class_id)))],
@@ -545,7 +571,19 @@ export default function ReportsTab() {
       Boolean(activeStatus) &&
       grid.rows.some((row) => String(row.approval_status || "") !== activeStatus);
 
-    if (scopeMismatch || statusMismatch || !filters.exam_id || !filters.class_id || !filters.section_id || !filters.subject_id) {
+    const hasStaleGridState =
+      gridHasRows ||
+      Boolean(grid?.exam_id || grid?.class_id || grid?.section_id || grid?.subject?.id);
+
+    if (
+      hasStaleGridState &&
+      (scopeMismatch ||
+        statusMismatch ||
+        !filters.exam_id ||
+        !filters.class_id ||
+        !filters.section_id ||
+        !filters.subject_id)
+    ) {
       resetGridState({
         exam_id: Number(filters.exam_id || 0),
         class_id: Number(filters.class_id || 0),
@@ -744,6 +782,22 @@ export default function ReportsTab() {
 
   function updateMarksValue(studentId: number, value: string) {
     setEditedMarks((prev) => ({ ...prev, [studentId]: value }));
+  }
+
+  function registerRowOffset(studentId: number, y: number) {
+    rowOffsetsRef.current[studentId] = y;
+  }
+
+  function focusMarksInput(studentId: number) {
+    const y = rowOffsetsRef.current[studentId];
+    if (typeof y !== "number") return;
+
+    requestAnimationFrame(() => {
+      scrollRef.current?.scrollTo({
+        y: Math.max(y - 24, 0),
+        animated: true,
+      });
+    });
   }
 
   function buildMutationPayload(extra: Record<string, unknown> = {}) {
@@ -1020,7 +1074,7 @@ export default function ReportsTab() {
         <TextInput
           style={styles.input}
           placeholder="Search student name"
-          placeholderTextColor="#94a3b8"
+          placeholderTextColor={theme.mutedText}
           value={filters.name}
           onChangeText={(value) => setFilters((prev) => ({ ...prev, name: value }))}
         />
@@ -1037,8 +1091,10 @@ export default function ReportsTab() {
   function renderGridPanel() {
     const isPendingMode = activeTab === "review";
     const isPublishedMode = activeTab === "published";
-    const showTeacherActions = canEnterMarks && !isPendingMode && !isPublishedMode;
-    const showAdminEditActions = isAdmin && !isPublishedMode;
+    const canEditMarks = isPendingMode ? editMode : !isPublishedMode && canUseEntryFlow;
+    const canSelectRows = !isPublishedMode;
+    const showEntryActions = canUseEntryFlow && !isPendingMode && !isPublishedMode;
+    const showAdminEditActions = isAdmin && isPendingMode;
     const showAdminApprovalActions = isAdmin && isPendingMode;
     const emptyMessage = isPendingMode
       ? "Load a pending approval grid to review submitted marks."
@@ -1060,29 +1116,33 @@ export default function ReportsTab() {
 
         <View style={styles.actionWrap}>
           {grid?.rows?.length ? (
-            <Pressable style={styles.secondaryBtn} onPress={toggleAllRows}>
-              <Text style={styles.secondaryBtnText}>{allSelected ? "Clear Selection" : "Select All"}</Text>
+            <Pressable
+              style={[styles.secondaryBtn, { backgroundColor: theme.card, borderColor: theme.border }, !canSelectRows && styles.disabledBtn]}
+              onPress={toggleAllRows}
+              disabled={!canSelectRows}
+            >
+              <Text style={[styles.secondaryBtnText, { color: theme.text }]}>{allSelected ? "Clear Selection" : "Select All"}</Text>
             </Pressable>
           ) : null}
 
-          {showTeacherActions ? (
+          {showEntryActions ? (
             <>
-              <Pressable style={styles.successBtn} onPress={handleSaveMarks} disabled={gridLoading || !grid?.rows?.length}>
+              <Pressable style={[styles.successBtn, { backgroundColor: theme.success }]} onPress={handleSaveMarks} disabled={gridLoading || !grid?.rows?.length}>
                 <Text style={styles.successBtnText}>Save</Text>
               </Pressable>
               <Pressable
-                style={styles.secondaryBtn}
+                style={[styles.secondaryBtn, { backgroundColor: theme.card, borderColor: theme.border }]}
                 onPress={() => handleSubmitMarks(false)}
                 disabled={gridLoading || !selectedStudentIds.length}
               >
-                <Text style={styles.secondaryBtnText}>Submit Selected</Text>
+                <Text style={[styles.secondaryBtnText, { color: theme.text }]}>Submit Selected</Text>
               </Pressable>
               <Pressable
-                style={styles.secondaryBtn}
+                style={[styles.secondaryBtn, { backgroundColor: theme.card, borderColor: theme.border }]}
                 onPress={() => handleSubmitMarks(true)}
                 disabled={gridLoading || !grid?.rows?.length}
               >
-                <Text style={styles.secondaryBtnText}>Submit All</Text>
+                <Text style={[styles.secondaryBtnText, { color: theme.text }]}>Submit All</Text>
               </Pressable>
             </>
           ) : null}
@@ -1090,14 +1150,14 @@ export default function ReportsTab() {
           {showAdminEditActions ? (
             <>
               <Pressable
-                style={styles.secondaryBtn}
+                style={[styles.secondaryBtn, { backgroundColor: theme.card, borderColor: theme.border }]}
                 onPress={() => setEditMode((prev) => !prev)}
                 disabled={!grid?.rows?.length}
               >
-                <Text style={styles.secondaryBtnText}>{editMode ? "Cancel Edit" : "Edit"}</Text>
+                <Text style={[styles.secondaryBtnText, { color: theme.text }]}>{editMode ? "Cancel Edit" : "Edit"}</Text>
               </Pressable>
               {editMode ? (
-                <Pressable style={styles.successBtn} onPress={handleSaveMarks} disabled={gridLoading || !grid?.rows?.length}>
+                <Pressable style={[styles.successBtn, { backgroundColor: theme.success }]} onPress={handleSaveMarks} disabled={gridLoading || !grid?.rows?.length}>
                   <Text style={styles.successBtnText}>Save Changes</Text>
                 </Pressable>
               ) : null}
@@ -1107,7 +1167,7 @@ export default function ReportsTab() {
           {showAdminApprovalActions ? (
             <>
               <Pressable
-                style={styles.successBtn}
+                style={[styles.successBtn, { backgroundColor: theme.success }]}
                 onPress={() => handleApprove(false)}
                 disabled={gridLoading || !selectedStudentIds.length}
               >
@@ -1116,18 +1176,18 @@ export default function ReportsTab() {
               {isPendingMode ? (
                 <>
                   <Pressable
-                    style={styles.successBtn}
+                    style={[styles.successBtn, { backgroundColor: theme.success }]}
                     onPress={() => handleApprove(true)}
                     disabled={gridLoading || !grid?.rows?.length}
                   >
                     <Text style={styles.successBtnText}>Approve All</Text>
                   </Pressable>
                   <Pressable
-                    style={styles.deleteBtn}
+                    style={[styles.deleteBtn, { backgroundColor: theme.dangerSoft, borderColor: theme.dangerBorder }]}
                     onPress={handleReject}
                     disabled={gridLoading || !selectedStudentIds.length}
                   >
-                    <Text style={styles.deleteBtnText}>Reject</Text>
+                    <Text style={[styles.deleteBtnText, { color: theme.danger }]}>Reject</Text>
                   </Pressable>
                 </>
               ) : null}
@@ -1135,7 +1195,7 @@ export default function ReportsTab() {
           ) : null}
         </View>
 
-        {gridLoading ? <ActivityIndicator size="large" color="#0f172a" /> : null}
+        {gridLoading ? <ActivityIndicator size="large" color={theme.primary} /> : null}
 
         {grid?.rows?.length ? (
           grid.rows.map((row) => (
@@ -1143,54 +1203,77 @@ export default function ReportsTab() {
               key={row.student_id}
               style={[
                 styles.studentCard,
-                selectedStudentIds.includes(Number(row.student_id)) && styles.studentCardSelected,
+                { backgroundColor: theme.cardMuted, borderColor: theme.border },
+                canSelectRows &&
+                  selectedStudentIds.includes(Number(row.student_id)) &&
+                  [styles.studentCardSelected, { borderColor: theme.primary, backgroundColor: theme.isDark ? "#1e293b" : "#eef2ff" }],
               ]}
+              onLayout={(event) => registerRowOffset(Number(row.student_id), event.nativeEvent.layout.y)}
               onPress={() => toggleRow(Number(row.student_id))}
+              disabled={!canSelectRows}
             >
               <View style={styles.rowBetween}>
                 <View style={styles.studentMeta}>
-                  <Text style={styles.studentName}>{row.student_name}</Text>
-                  <Text style={styles.mutedText}>Roll: {row.roll_number || "-"}</Text>
-                  <Text style={styles.mutedText}>
-                    {selectedClass?.name || "-"} / {selectedSection?.name || "-"}
-                    {selectedSection?.medium ? ` (${selectedSection.medium})` : row.medium ? ` (${row.medium})` : ""}
-                  </Text>
-                  <Text style={styles.mutedText}>Subject: {selectedSubject?.name || grid?.subject?.name || "-"}</Text>
+                  <View style={styles.studentHeaderRow}>
+                    <Text style={[styles.studentName, { color: theme.text }]}>{row.student_name}</Text>
+                    {canSelectRows ? (
+                      <View
+                        style={[
+                          styles.selectionDot,
+                          { backgroundColor: theme.border },
+                          selectedStudentIds.includes(Number(row.student_id)) && [styles.selectionDotActive, { backgroundColor: theme.primary }],
+                        ]}
+                      />
+                    ) : null}
+                  </View>
+                  <View style={styles.metaWrap}>
+                    <View style={[styles.metaPill, { borderColor: theme.border, backgroundColor: theme.card }]}>
+                      <Text style={[styles.metaPillText, { color: theme.subText }]}>Roll {row.roll_number || "-"}</Text>
+                    </View>
+                    <View style={[styles.metaPill, { borderColor: theme.border, backgroundColor: theme.card }]}>
+                      <Text style={[styles.metaPillText, { color: theme.subText }]}>
+                        {selectedClass?.name || "-"} / {selectedSection?.name || "-"}
+                        {selectedSection?.medium ? ` (${selectedSection.medium})` : row.medium ? ` (${row.medium})` : ""}
+                      </Text>
+                    </View>
+                  </View>
+                  <Text style={[styles.subjectMeta, { color: theme.subText }]}>Subject: {selectedSubject?.name || grid?.subject?.name || "-"}</Text>
                 </View>
                 <StatusBadge status={row.approval_status} />
               </View>
 
-              <View style={styles.rowBetween}>
+              <View style={styles.cardFooterRow}>
                 <View style={styles.marksBox}>
-                  <Text style={styles.inputLabel}>Marks</Text>
-                  {canEnterMarks || editMode ? (
+                  <Text style={[styles.compactLabel, { color: theme.subText }]}>Marks</Text>
+                  {canEditMarks && row.approval_status !== "approved" ? (
                     <TextInput
-                      style={[styles.input, styles.marksInput]}
+                      style={[styles.input, styles.marksInput, styles.compactInput]}
                       keyboardType="numeric"
                       value={editedMarks[Number(row.student_id)] ?? ""}
                       onChangeText={(value) => updateMarksValue(Number(row.student_id), value)}
+                      onFocus={() => focusMarksInput(Number(row.student_id))}
                       placeholder={`0-${grid.subject.max_marks}`}
-                      placeholderTextColor="#94a3b8"
+                      placeholderTextColor={theme.mutedText}
                     />
                   ) : (
-                    <Text style={styles.marksValue}>{row.marks ?? "-"}</Text>
+                    <Text style={[styles.marksValue, { color: theme.text }]}>{row.marks ?? "-"}</Text>
                   )}
                 </View>
 
                 {isAdmin ? (
                   <Pressable
-                    style={styles.secondaryBtn}
+                    style={[styles.smallSecondaryBtn, { backgroundColor: theme.card, borderColor: theme.border }]}
                     disabled={row.approval_status !== "approved"}
                     onPress={() => handleDownloadStudent(Number(row.student_id))}
                   >
-                    <Text style={styles.secondaryBtnText}>Download</Text>
+                    <Text style={[styles.smallSecondaryBtnText, { color: theme.text }]}>Download</Text>
                   </Pressable>
                 ) : null}
               </View>
             </Pressable>
           ))
         ) : (
-          <Text style={styles.emptyText}>{emptyMessage}</Text>
+          <Text style={[styles.emptyText, { color: theme.subText }]}>{emptyMessage}</Text>
         )}
       </SectionCard>
     );
@@ -1243,45 +1326,53 @@ export default function ReportsTab() {
   if (loading) {
     return (
       <View style={styles.centered}>
-        <ActivityIndicator size="large" color="#0f172a" />
+        <ActivityIndicator size="large" color={theme.primary} />
       </View>
     );
   }
 
   return (
-    <ScrollView
-      style={styles.root}
-      contentContainerStyle={styles.content}
-      showsVerticalScrollIndicator={false}
-      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refreshCurrentTab} />}
-    >
-      <View style={styles.heroCard}>
-        <View style={styles.heroCopy}>
-          <Text style={styles.title}>Reports</Text>
-          <Text style={styles.subtitle}>
-            {selfViewOnly
-              ? "View approved marks and download marksheets from the live backend results flow."
-              : isAdmin
-                ? "Review, update, approve, and publish marks with the same workflow as the software module."
-                : "Load marks grids, save draft marks, and submit them for approval."}
-          </Text>
+    <View style={styles.screen}>
+      <TopNotice notice={notice} style={styles.topNoticeOverlay} />
+      <ScrollView
+        ref={scrollRef}
+        style={styles.root}
+        contentContainerStyle={styles.content}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
+        automaticallyAdjustKeyboardInsets
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refreshCurrentTab} />}
+      >
+        <View style={styles.innerContent}>
+          <View style={styles.heroCard}>
+            <View style={styles.heroCopy}>
+              <Text style={styles.heroEyebrow}>Overview</Text>
+              <Text style={styles.title}>Reports</Text>
+              <Text style={styles.subtitle}>
+                {selfViewOnly
+                  ? "View approved marks and download marksheets."
+                  : isAdmin
+                    ? "Review, update, approve, and publish marks."
+                    : "Load marks grids, save draft marks, and submit them for approval."}
+              </Text>
+            </View>
+          </View>
+
+          {renderTabRow()}
+
+          {selfViewOnly ? (
+            renderSelfView()
+          ) : (
+            <>
+              {renderAdminSummary()}
+              {renderFilterPanel()}
+              {renderGridPanel()}
+            </>
+          )}
         </View>
-      </View>
-
-      <TopNotice notice={notice} />
-
-      {renderTabRow()}
-
-      {selfViewOnly ? (
-        renderSelfView()
-      ) : (
-        <>
-          {renderAdminSummary()}
-          {renderFilterPanel()}
-          {renderGridPanel()}
-        </>
-      )}
-    </ScrollView>
+      </ScrollView>
+    </View>
   );
 }
 
@@ -1289,8 +1380,18 @@ let styles = createStyles(currentTheme);
 
 function createStyles(theme: typeof DEFAULT_THEME) {
 return StyleSheet.create({
+  screen: { flex: 1 },
   root: { flex: 1 },
-  content: { gap: 14, paddingBottom: 8 },
+  content: { paddingHorizontal: 14, paddingTop: 10, paddingBottom: 120 },
+  innerContent: { gap: 14 },
+  topNoticeOverlay: {
+    position: "absolute",
+    top: 10,
+    left: 14,
+    right: 14,
+    zIndex: 20,
+    elevation: 20,
+  },
   centered: {
     flex: 1,
     minHeight: 320,
@@ -1298,13 +1399,17 @@ return StyleSheet.create({
     justifyContent: "center",
   },
   heroCard: {
-    backgroundColor: theme.card,
     borderRadius: 24,
-    borderWidth: 1,
-    borderColor: theme.border,
-    padding: 18,
+    paddingVertical: 2,
   },
   heroCopy: { gap: 6 },
+  heroEyebrow: {
+    color: theme.subText,
+    fontSize: 12,
+    fontWeight: "700",
+    letterSpacing: 1.1,
+    textTransform: "uppercase",
+  },
   title: {
     color: theme.text,
     fontWeight: "800",
@@ -1342,8 +1447,8 @@ return StyleSheet.create({
     backgroundColor: theme.card,
   },
   tabChipActive: {
-    borderColor: "#0f172a",
-    backgroundColor: "#0f172a",
+    borderColor: theme.isDark ? "#cbd5e1" : theme.primary,
+    backgroundColor: theme.isDark ? "#e2e8f0" : theme.primary,
   },
   tabChipText: {
     color: theme.subText,
@@ -1351,7 +1456,7 @@ return StyleSheet.create({
     fontSize: 12,
   },
   tabChipTextActive: {
-    color: "#ffffff",
+    color: theme.isDark ? "#0f172a" : "#ffffff",
   },
   summaryGrid: {
     flexDirection: "row",
@@ -1427,8 +1532,8 @@ return StyleSheet.create({
     backgroundColor: theme.cardMuted,
   },
   filterChipActive: {
-    borderColor: "#0f172a",
-    backgroundColor: "#0f172a",
+    borderColor: theme.isDark ? "#cbd5e1" : theme.primary,
+    backgroundColor: theme.isDark ? "#e2e8f0" : theme.primary,
   },
   filterChipText: {
     color: theme.subText,
@@ -1436,7 +1541,7 @@ return StyleSheet.create({
     fontSize: 12,
   },
   filterChipTextActive: {
-    color: "#ffffff",
+    color: theme.isDark ? "#0f172a" : "#ffffff",
   },
   scopeCard: {
     minWidth: 132,
@@ -1449,15 +1554,15 @@ return StyleSheet.create({
     gap: 4,
   },
   scopeCardActive: {
-    borderColor: "#0f172a",
-    backgroundColor: "#0f172a",
+    borderColor: theme.isDark ? "#cbd5e1" : theme.primary,
+    backgroundColor: theme.isDark ? "#e2e8f0" : theme.primary,
   },
   scopeCardTitle: {
     color: theme.text,
     fontWeight: "700",
   },
   scopeCardTitleActive: {
-    color: "#ffffff",
+    color: theme.isDark ? "#0f172a" : "#ffffff",
   },
   scopeCardMeta: {
     color: theme.subText,
@@ -1465,7 +1570,7 @@ return StyleSheet.create({
     fontWeight: "600",
   },
   scopeCardMetaActive: {
-    color: "rgba(255,255,255,0.72)",
+    color: theme.isDark ? "#334155" : "rgba(255,255,255,0.72)",
   },
   actionRow: {
     flexDirection: "row",
@@ -1478,7 +1583,7 @@ return StyleSheet.create({
     gap: 8,
   },
   primaryBtn: {
-    backgroundColor: "#0f172a",
+    backgroundColor: theme.primary,
     paddingHorizontal: 14,
     paddingVertical: 11,
     borderRadius: 12,
@@ -1486,7 +1591,7 @@ return StyleSheet.create({
     justifyContent: "center",
   },
   primaryBtnText: {
-    color: "#ffffff",
+    color: theme.primaryText,
     fontWeight: "700",
   },
   secondaryBtn: {
@@ -1499,12 +1604,15 @@ return StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  disabledBtn: {
+    opacity: 0.5,
+  },
   secondaryBtnText: {
-    color: "#334155",
+    color: theme.text,
     fontWeight: "700",
   },
   successBtn: {
-    backgroundColor: "#15803d",
+    backgroundColor: theme.success,
     paddingHorizontal: 14,
     paddingVertical: 11,
     borderRadius: 12,
@@ -1512,13 +1620,13 @@ return StyleSheet.create({
     justifyContent: "center",
   },
   successBtnText: {
-    color: "#ffffff",
+    color: theme.successText,
     fontWeight: "700",
   },
   deleteBtn: {
-    backgroundColor: "#fee2e2",
+    backgroundColor: theme.dangerSoft,
     borderWidth: 1,
-    borderColor: "#fecaca",
+    borderColor: theme.dangerBorder,
     paddingHorizontal: 14,
     paddingVertical: 11,
     borderRadius: 12,
@@ -1526,16 +1634,16 @@ return StyleSheet.create({
     justifyContent: "center",
   },
   deleteBtnText: {
-    color: "#b91c1c",
+    color: theme.danger,
     fontWeight: "700",
   },
   studentCard: {
     borderWidth: 1,
     borderColor: "#e2e8f0",
-    borderRadius: 16,
+    borderRadius: 14,
     backgroundColor: "#f8fafc",
-    padding: 12,
-    gap: 10,
+    padding: 10,
+    gap: 8,
   },
   studentCardSelected: {
     borderColor: "#0f172a",
@@ -1543,38 +1651,108 @@ return StyleSheet.create({
   },
   studentMeta: {
     flex: 1,
-    gap: 2,
+    gap: 4,
+  },
+  studentHeaderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  selectionDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 999,
+    backgroundColor: "#cbd5e1",
+  },
+  selectionDotActive: {
+    backgroundColor: "#0f172a",
   },
   studentName: {
     color: "#0f172a",
     fontWeight: "700",
     fontSize: 14,
+    flex: 1,
   },
   mutedText: {
     color: "#64748b",
     fontSize: 12,
   },
+  metaWrap: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 6,
+  },
+  metaPill: {
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
+    backgroundColor: "#ffffff",
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  metaPillText: {
+    color: "#475569",
+    fontSize: 11,
+    fontWeight: "700",
+  },
+  subjectMeta: {
+    color: "#64748b",
+    fontSize: 11,
+    fontWeight: "600",
+  },
   statusBadge: {
     borderWidth: 1,
     borderRadius: 999,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
   },
   statusBadgeText: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: "700",
+  },
+  cardFooterRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-end",
+    gap: 10,
   },
   marksBox: {
     flex: 1,
-    gap: 6,
+    gap: 4,
+  },
+  compactLabel: {
+    color: "#475569",
+    fontWeight: "700",
+    fontSize: 11,
   },
   marksInput: {
-    maxWidth: 120,
+    maxWidth: 96,
+  },
+  compactInput: {
+    minHeight: 40,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
   },
   marksValue: {
     color: "#0f172a",
-    fontSize: 20,
+    fontSize: 18,
     fontWeight: "800",
+  },
+  smallSecondaryBtn: {
+    borderWidth: 1,
+    borderColor: theme.border,
+    backgroundColor: theme.card,
+    paddingHorizontal: 10,
+    paddingVertical: 9,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+    minWidth: 84,
+  },
+  smallSecondaryBtnText: {
+    color: "#334155",
+    fontWeight: "700",
+    fontSize: 12,
   },
   emptyText: {
     color: "#64748b",

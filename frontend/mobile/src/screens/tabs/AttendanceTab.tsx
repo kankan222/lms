@@ -49,6 +49,14 @@ const DEFAULT_THEME = {
   inputBg: "#ffffff",
   overlay: "rgba(15, 23, 42, 0.28)",
   icon: "#334155",
+  primary: "#0f172a",
+  primaryText: "#ffffff",
+  success: "#15803d",
+  successBorder: "#bbf7d0",
+  successText: "#ffffff",
+  danger: "#b91c1c",
+  dangerSoft: "#fee2e2",
+  dangerBorder: "#fecaca",
 };
 let currentTheme = DEFAULT_THEME;
 
@@ -206,6 +214,7 @@ export default function AttendanceTab() {
   const [approvedLoading, setApprovedLoading] = useState(false);
   const [approvedRows, setApprovedRows] = useState<StudentAttendanceSessionItem[]>([]);
   const [selectedApproved, setSelectedApproved] = useState<StudentAttendanceSessionDetails | null>(null);
+  const [notifyFilters, setNotifyFilters] = useState({ class_id: "", section_id: "" });
   const [notifyForm, setNotifyForm] = useState({ template_key: "", message: "", student_ids: [] as number[] });
   const [messageTemplates, setMessageTemplates] = useState<AbsenceMessageTemplate[]>([]);
   const [notifyLoading, setNotifyLoading] = useState(false);
@@ -282,6 +291,35 @@ export default function AttendanceTab() {
     const q = teacherSearch.trim().toLowerCase();
     return teacherLogs.filter((row) => !q || String(row.teacher || "").toLowerCase().includes(q));
   }, [teacherLogs, teacherSearch]);
+  const notifyFilterClassOptions = useMemo(() => {
+    const classMap = new Map<string, { label: string; value: string }>();
+    approvedRows.forEach((row) => {
+      const value = String(row.class_id || "");
+      if (!value || classMap.has(value)) return;
+      classMap.set(value, { label: row.class_name || `Class ${value}`, value });
+    });
+    return [...classMap.values()];
+  }, [approvedRows]);
+  const notifyFilterSectionOptions = useMemo(() => {
+    const sectionMap = new Map<string, { label: string; value: string }>();
+    approvedRows
+      .filter((row) => !notifyFilters.class_id || String(row.class_id) === String(notifyFilters.class_id))
+      .forEach((row) => {
+        const value = String(row.section_id || "");
+        if (!value || sectionMap.has(value)) return;
+        sectionMap.set(value, { label: row.section_name || `Section ${value}`, value });
+      });
+    return [...sectionMap.values()];
+  }, [approvedRows, notifyFilters.class_id]);
+  const filteredApprovedRows = useMemo(
+    () =>
+      approvedRows.filter((row) => {
+        if (notifyFilters.class_id && String(row.class_id) !== String(notifyFilters.class_id)) return false;
+        if (notifyFilters.section_id && String(row.section_id) !== String(notifyFilters.section_id)) return false;
+        return true;
+      }),
+    [approvedRows, notifyFilters.class_id, notifyFilters.section_id],
+  );
   const teacherScopeKeys = useMemo(
     () =>
       new Set(
@@ -337,6 +375,25 @@ export default function AttendanceTab() {
       setForm((prev) => ({ ...prev, session_id: sessionOptions[0].value }));
     }
   }, [sessionOptions, form.session_id]);
+
+  useEffect(() => {
+    if (!notifyFilters.class_id) {
+      if (notifyFilters.section_id) setNotifyFilters((prev) => ({ ...prev, section_id: "" }));
+      return;
+    }
+    if (!notifyFilterSectionOptions.some((item) => item.value === String(notifyFilters.section_id))) {
+      setNotifyFilters((prev) => ({ ...prev, section_id: "" }));
+    }
+  }, [notifyFilters.class_id, notifyFilters.section_id, notifyFilterSectionOptions]);
+
+  useEffect(() => {
+    if (!selectedApproved) return;
+    const stillVisible = filteredApprovedRows.some((row) => Number(row.id) === Number(selectedApproved.id));
+    if (!stillVisible) {
+      setSelectedApproved(null);
+      setNotifyForm((prev) => ({ ...prev, student_ids: [] }));
+    }
+  }, [filteredApprovedRows, selectedApproved]);
 
   useEffect(() => {
     if (
@@ -602,10 +659,12 @@ export default function AttendanceTab() {
         message: notifyForm.template_key ? undefined : notifyForm.message,
         student_ids: notifyForm.student_ids,
       });
+      const sentCount = Number(result?.sent_count || 0);
+      const failedCount = Number(result?.failed_count || 0);
       setNotice({
-        title: "Parent Messages Sent",
-        message: `${result?.sent_count || 0} sent${result?.failed_count ? `, ${result.failed_count} failed` : ""}.`,
-        tone: "success",
+        title: failedCount ? (sentCount ? "Parent Messages Partially Sent" : "Parent Messages Failed") : "Parent Messages Sent",
+        message: `${sentCount} sent${failedCount ? `, ${failedCount} failed` : ""}.`,
+        tone: failedCount ? "error" : "success",
       });
       await openSessionDetails(Number(selectedApproved.id), "approved");
     } catch (err: unknown) {
@@ -616,15 +675,17 @@ export default function AttendanceTab() {
   }
 
   return (
+    <View style={styles.screen}>
+      <TopNotice notice={notice} style={styles.topNoticeOverlay} />
     <ScrollView style={styles.root} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refreshCurrentTab} />}>
+      <View style={styles.innerContent}>
       <View style={styles.heroCard}>
         <View style={styles.heroCopy}>
+          <Text style={styles.heroEyebrow}>Overview</Text>
           <Text style={styles.title}>Attendance</Text>
-          <Text style={styles.subtitle}>Record student attendance, review sessions, notify parents, and track teacher logs from the live backend flow.</Text>
+          <Text style={styles.subtitle}>Record student attendance, review sessions, notify parents, and track teacher logs.</Text>
         </View>
       </View>
-
-      <TopNotice notice={notice} />
 
       <View style={styles.tabsRow}>
         {tabs.map((tab) => <Pressable key={tab.key} style={[styles.tabBtn, activeTab === tab.key && styles.tabBtnActive]} onPress={() => setActiveTab(tab.key)}><Text style={[styles.tabBtnText, activeTab === tab.key && styles.tabBtnTextActive]}>{tab.label}</Text></Pressable>)}
@@ -710,7 +771,35 @@ export default function AttendanceTab() {
 
       {(activeTab === "approved" || activeTab === "history" || activeTab === "notify") ? <>
         <SectionCard title={activeTab === "notify" ? "Approved Sessions" : activeTab === "approved" ? "Approved Classes" : "Attendance History"} hint={`${approvedRows.length} sessions`}>
-          {approvedLoading ? <ActivityIndicator size="large" color="#0f172a" /> : approvedRows.length ? approvedRows.map((row) => <Pressable key={row.id} style={styles.sessionCard} onPress={() => openSessionDetails(Number(row.id), "approved")}><View style={styles.rowBetween}><Text style={styles.sessionTitle}>{row.class_name || "-"} / {row.section_name || "-"}</Text><StatusBadge status={row.approval_status || "approved"} /></View><Text style={styles.detailText}>{formatDate(row.date)} • Absent: {row.absent_count || 0}</Text>{row.reviewed_by_username ? <Text style={styles.detailText}>Reviewed by {row.reviewed_by_username}</Text> : null}</Pressable>) : <Text style={styles.emptyText}>No sessions found.</Text>}
+          {activeTab === "notify" ? <>
+            <View style={styles.filterGrid}>
+              <SelectField
+                label="Class"
+                value={notifyFilters.class_id}
+                onChange={(value) => setNotifyFilters({ class_id: value, section_id: "" })}
+                options={notifyFilterClassOptions}
+                placeholder="All classes"
+                clearLabel="Clear class"
+              />
+              <SelectField
+                label="Section"
+                value={notifyFilters.section_id}
+                onChange={(value) => setNotifyFilters((prev) => ({ ...prev, section_id: value }))}
+                options={notifyFilterSectionOptions}
+                placeholder="All sections"
+                clearLabel="Clear section"
+              />
+            </View>
+            {(notifyFilters.class_id || notifyFilters.section_id) ? (
+              <Pressable
+                style={[styles.secondaryBtn, styles.notifyResetBtn]}
+                onPress={() => setNotifyFilters({ class_id: "", section_id: "" })}
+              >
+                <Text style={styles.secondaryBtnText}>Reset Filters</Text>
+              </Pressable>
+            ) : null}
+          </> : null}
+          {approvedLoading ? <ActivityIndicator size="large" color={theme.text} /> : filteredApprovedRows.length ? filteredApprovedRows.map((row) => { const selected = Number(selectedApproved?.id) === Number(row.id); return <Pressable key={row.id} style={[styles.sessionCard, selected && styles.sessionCardSelected]} onPress={() => openSessionDetails(Number(row.id), "approved")}><View style={styles.rowBetween}><Text style={[styles.sessionTitle, selected && styles.sessionTitleSelected]}>{row.class_name || "-"} / {row.section_name || "-"}</Text><StatusBadge status={row.approval_status || "approved"} /></View><Text style={[styles.detailText, selected && styles.sessionDetailTextSelected]}>{formatDate(row.date)} - Absent: {row.absent_count || 0}</Text>{row.reviewed_by_username ? <Text style={[styles.detailText, selected && styles.sessionDetailTextSelected]}>Reviewed by {row.reviewed_by_username}</Text> : null}</Pressable>; }) : <Text style={styles.emptyText}>{activeTab === "notify" ? "No approved sessions match the selected filters." : "No sessions found."}</Text>}
         </SectionCard>
         <SectionCard title={activeTab === "notify" ? "Parent Message" : "Session Details"} hint={selectedApproved ? "Selected" : "Choose a session"}>
           {selectedApproved ? <>
@@ -733,7 +822,9 @@ export default function AttendanceTab() {
         <TextInput style={styles.input} value={teacherSearch} onChangeText={setTeacherSearch} placeholder="Search teacher name" placeholderTextColor="#94a3b8" />
         {teacherLogsLoading ? <ActivityIndicator size="large" color="#0f172a" /> : filteredTeacherLogs.length ? filteredTeacherLogs.map((row) => <View key={row.id} style={styles.sessionCard}><View style={styles.rowBetween}><Text style={styles.sessionTitle}>{row.teacher}</Text><StatusBadge status={row.status} /></View><Text style={styles.detailText}>Date: {formatDate(row.attendance_date)}</Text><Text style={styles.detailText}>Check In: {formatDateTime(row.check_in)}</Text><Text style={styles.detailText}>Check Out: {formatDateTime(row.check_out)}</Text><Text style={styles.detailText}>Worked Hours: {row.worked_hours || "-"}</Text></View>) : <Text style={styles.emptyText}>No teacher attendance records found.</Text>}
       </SectionCard> : null}
+      </View>
     </ScrollView>
+    </View>
   );
 }
 
@@ -749,10 +840,14 @@ let styles = createStyles(currentTheme);
 
 function createStyles(theme: typeof DEFAULT_THEME) {
 return StyleSheet.create({
+  screen: { flex: 1 },
   root: { flex: 1 },
-  content: { gap: 14, paddingBottom: 8 },
-  heroCard: { backgroundColor: theme.card, borderRadius: 24, borderWidth: 1, borderColor: theme.border, padding: 18, gap: 14 },
+  content: { gap: 14, paddingBottom: 120 },
+  innerContent: { gap: 14, paddingHorizontal: 14, paddingTop: 10 },
+  topNoticeOverlay: { position: "absolute", top: 0, left: 14, right: 14, zIndex: 20 },
+  heroCard: { borderRadius: 24, paddingVertical: 0, gap: 8 },
   heroCopy: { gap: 6 },
+  heroEyebrow: { color: theme.subText, fontSize: 12, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.6 },
   title: { color: theme.text, fontWeight: "800", fontSize: 22 },
   subtitle: { color: theme.subText, lineHeight: 20 },
   noticeCard: { borderRadius: 18, paddingHorizontal: 14, paddingVertical: 12, borderWidth: 1 },
@@ -761,10 +856,10 @@ return StyleSheet.create({
   noticeTitle: { color: theme.text, fontWeight: "800", marginBottom: 2 },
   noticeMessage: { color: theme.subText },
   tabsRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-  tabBtn: { borderWidth: 1, borderColor: theme.border, borderRadius: 999, paddingHorizontal: 14, paddingVertical: 8, backgroundColor: theme.card },
-  tabBtnActive: { borderColor: "#0f172a", backgroundColor: "#0f172a" },
+  tabBtn: { borderWidth: 1, borderColor: theme.border, borderRadius: 999, paddingHorizontal: 14, paddingVertical: 8, backgroundColor: theme.cardMuted },
+  tabBtnActive: { borderColor: theme.primary, backgroundColor: theme.primary },
   tabBtnText: { color: theme.subText, fontWeight: "700", fontSize: 12 },
-  tabBtnTextActive: { color: "#fff" },
+  tabBtnTextActive: { color: theme.primaryText },
   statsGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
   summaryCard: { width: "48%", minHeight: 86, borderWidth: 1, borderRadius: 18, paddingHorizontal: 14, paddingVertical: 12, justifyContent: "space-between" },
   summaryValue: { fontSize: 24, fontWeight: "800" },
@@ -776,6 +871,7 @@ return StyleSheet.create({
   inputLabel: { color: theme.text, fontWeight: "700" },
   input: { borderWidth: 1, borderColor: theme.border, borderRadius: 14, paddingHorizontal: 12, paddingVertical: 11, backgroundColor: theme.inputBg, color: theme.text },
   textarea: { minHeight: 110 },
+  filterGrid: { gap: 10 },
   filterRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   filterChip: { borderWidth: 1, borderColor: theme.border, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 8, backgroundColor: theme.cardMuted },
   filterChipActive: { borderColor: "#0f172a", backgroundColor: "#0f172a" },
@@ -789,10 +885,11 @@ return StyleSheet.create({
   rowActions: { flexDirection: "row", gap: 10, marginTop: 2 },
   secondaryBtn: { flex: 1, borderWidth: 1, borderColor: theme.border, backgroundColor: theme.card, paddingHorizontal: 14, paddingVertical: 11, borderRadius: 12, alignItems: "center", justifyContent: "center" },
   secondaryBtnText: { color: theme.text, fontWeight: "700" },
-  successBtn: { backgroundColor: "#15803d", paddingHorizontal: 14, paddingVertical: 11, borderRadius: 12, alignItems: "center", justifyContent: "center" },
-  successBtnText: { color: "#fff", fontWeight: "700" },
-  deleteBtn: { backgroundColor: "#fee2e2", borderWidth: 1, borderColor: "#fecaca", paddingHorizontal: 14, paddingVertical: 11, borderRadius: 12, alignItems: "center", justifyContent: "center" },
-  deleteBtnText: { color: "#b91c1c", fontWeight: "700" },
+  notifyResetBtn: { flex: 0, alignSelf: "flex-start" },
+  successBtn: { backgroundColor: theme.success, borderWidth: 1, borderColor: theme.successBorder, paddingHorizontal: 14, paddingVertical: 11, borderRadius: 12, alignItems: "center", justifyContent: "center" },
+  successBtnText: { color: theme.successText, fontWeight: "700" },
+  deleteBtn: { backgroundColor: theme.dangerSoft, borderWidth: 1, borderColor: theme.dangerBorder, paddingHorizontal: 14, paddingVertical: 11, borderRadius: 12, alignItems: "center", justifyContent: "center" },
+  deleteBtnText: { color: theme.danger, fontWeight: "700" },
   infoCard: { borderWidth: 1, borderColor: theme.border, borderRadius: 16, padding: 12, backgroundColor: theme.cardMuted, gap: 4 },
   infoTitle: { color: theme.text, fontWeight: "800" },
   infoText: { color: theme.subText, lineHeight: 18 },
@@ -809,6 +906,9 @@ return StyleSheet.create({
   submitBtn: { marginTop: 4 },
   sessionCard: { borderWidth: 1, borderColor: theme.border, borderRadius: 16, backgroundColor: theme.cardMuted, padding: 12, gap: 5 },
   sessionTitle: { color: theme.text, fontWeight: "700" },
+  sessionCardSelected: { borderColor: theme.primary, backgroundColor: theme.isDark ? "#1e293b" : theme.card },
+  sessionTitleSelected: { color: theme.text },
+  sessionDetailTextSelected: { color: theme.isDark ? "#cbd5e1" : theme.subText },
   statusBadge: { borderWidth: 1, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4 },
   statusBadgeText: { fontSize: 12, fontWeight: "700" },
   studentRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 8, borderWidth: 1, borderColor: theme.border, borderRadius: 12, padding: 10, backgroundColor: theme.card },

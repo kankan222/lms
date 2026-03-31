@@ -53,7 +53,7 @@ export default function SelectField({
       <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
         <View style={styles.overlay}>
           <Pressable style={[styles.backdrop, { backgroundColor: theme.overlay }]} onPress={() => setOpen(false)} />
-          <View style={[styles.modalCard, { backgroundColor: theme.card }]}>
+          <View style={[styles.modalCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
             <View style={styles.modalHeader}>
               <Text style={[styles.modalTitle, { color: theme.text }]}>{label || placeholder}</Text>
               <Pressable onPress={() => setOpen(false)} style={[styles.headerBtn, { borderColor: theme.border, backgroundColor: theme.inputBg }]}>
@@ -63,13 +63,20 @@ export default function SelectField({
             <ScrollView style={styles.optionList} showsVerticalScrollIndicator={false}>
               {allowClear ? (
                 <Pressable
-                  style={[styles.optionRow, { borderColor: theme.border, backgroundColor: theme.inputBg }]}
+                  style={[
+                    styles.clearRow,
+                    {
+                      borderColor: theme.border,
+                      backgroundColor: theme.cardMuted,
+                    },
+                  ]}
                   onPress={() => {
                     onChange("");
                     setOpen(false);
                   }}
                 >
-                  <Text style={[styles.optionLabel, { color: theme.text }]}>{clearLabel}</Text>
+                  <Text style={[styles.clearLabel, { color: theme.text }]}>{clearLabel}</Text>
+                  <Text style={[styles.clearMeta, { color: theme.mutedText }]}>Reset</Text>
                 </Pressable>
               ) : null}
               {options.map((option) => {
@@ -77,17 +84,42 @@ export default function SelectField({
                 return (
                   <Pressable
                     key={`${option.value}`}
-                    style={[styles.optionRow, { borderColor: theme.border, backgroundColor: theme.inputBg }, active && styles.optionRowActive]}
+                    style={[
+                      styles.optionRow,
+                      { borderColor: theme.border, backgroundColor: theme.inputBg },
+                      active && {
+                        borderColor: theme.primary,
+                        backgroundColor: theme.isDark ? "#f8fafc" : theme.cardMuted,
+                      },
+                    ]}
                     onPress={() => {
                       onChange(String(option.value));
                       setOpen(false);
                     }}
                   >
                     <View style={styles.optionCopy}>
-                      <Text style={[styles.optionLabel, { color: theme.text }, active && styles.optionLabelActive]}>{option.label}</Text>
-                      {option.description ? <Text style={[styles.optionDescription, { color: theme.subText }, active && styles.optionDescriptionActive]}>{option.description}</Text> : null}
+                      <Text
+                        style={[
+                          styles.optionLabel,
+                          { color: theme.text },
+                          active && { color: theme.isDark ? "#0f172a" : theme.text },
+                        ]}
+                      >
+                        {option.label}
+                      </Text>
+                      {option.description ? (
+                        <Text
+                          style={[
+                            styles.optionDescription,
+                            { color: theme.subText },
+                            active && { color: theme.isDark ? "#334155" : theme.subText },
+                          ]}
+                        >
+                          {option.description}
+                        </Text>
+                      ) : null}
                     </View>
-                    {active ? <Text style={styles.optionCheck}>OK</Text> : null}
+                    {active ? <Text style={[styles.optionCheck, { color: theme.success }]}>OK</Text> : null}
                   </Pressable>
                 );
               })}
@@ -125,6 +157,7 @@ const styles = StyleSheet.create({
   backdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(15, 23, 42, 0.28)" },
   modalCard: {
     maxHeight: "75%",
+    borderWidth: 1,
     backgroundColor: "#fff",
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
@@ -145,6 +178,18 @@ const styles = StyleSheet.create({
   },
   headerBtnText: { color: "#334155", fontWeight: "700" },
   optionList: { maxHeight: 520 },
+  clearRow: {
+    borderWidth: 1,
+    borderStyle: "dashed",
+    borderRadius: 14,
+    paddingHorizontal: 10,
+    paddingVertical: 9,
+    marginBottom: 10,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: 10,
+  },
   optionRow: {
     borderWidth: 1,
     borderColor: "#e2e8f0",
@@ -158,11 +203,10 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 10,
   },
-  optionRowActive: { borderColor: "#0f172a", backgroundColor: "#f8fafc" },
   optionCopy: { flex: 1, gap: 2 },
+  clearLabel: { color: "#0f172a", fontWeight: "800" },
+  clearMeta: { fontSize: 11, fontWeight: "800", textTransform: "uppercase", letterSpacing: 0.6 },
   optionLabel: { color: "#0f172a", fontWeight: "700" },
-  optionLabelActive: { color: "#0f172a" },
   optionDescription: { color: "#64748b", fontSize: 12, lineHeight: 16 },
-  optionDescriptionActive: { color: "#475569" },
   optionCheck: { color: "#15803d", fontWeight: "800", fontSize: 12 },
 });

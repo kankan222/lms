@@ -4,13 +4,28 @@ import { requirePermission } from "../../core/rbac/rbac.middleware.js";
 
 const router = express.Router();
 
+function requireAnyPermission(permissions) {
+  return (req, res, next) => {
+    const granted = req.user?.permissions || [];
+
+    if (permissions.some((permission) => granted.includes(permission))) {
+      return next();
+    }
+
+    return res.status(403).json({
+      success: false,
+      message: "Forbidden",
+    });
+  };
+}
+
 router.get("/exams", requirePermission("marks.view"), controller.getAccessibleExams);
 router.get("/exams/:examId", requirePermission("marks.view"), controller.getAccessibleExamById);
 router.get("/grid", requirePermission("marks.view"), controller.getMarksGrid);
 router.get("/pending-queue", requirePermission("marks.approve"), controller.getPendingApprovalQueue);
 router.get("/summary", requirePermission("marks.approve"), controller.getApprovalStatusSummary);
-router.post("/save", requirePermission("marks.enter"), controller.saveMarks);
-router.post("/submit", requirePermission("marks.enter"), controller.submitMarksForApproval);
+router.post("/save", requireAnyPermission(["marks.enter", "marks.approve"]), controller.saveMarks);
+router.post("/submit", requireAnyPermission(["marks.enter", "marks.approve"]), controller.submitMarksForApproval);
 
 router.post("/approve", requirePermission("marks.approve"), controller.approveMarks);
 router.post("/reject", requirePermission("marks.approve"), controller.rejectMarks);

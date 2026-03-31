@@ -11,8 +11,8 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { Ionicons } from "@expo/vector-icons";
 import TopNotice from "../../components/feedback/TopNotice";
+import { useAppTheme } from "../../theme/AppThemeProvider";
 import {
   ClassItem,
   ClassPayload,
@@ -58,6 +58,7 @@ type NoticeState = {
   title: string;
   message: string;
 } | null;
+type DeleteTarget = { id: number; name: string } | null;
 
 const EMPTY_FORM: ClassForm = {
   name: "",
@@ -129,6 +130,7 @@ function buildClassRows(items: ClassItem[], structures: ClassStructureItem[]): C
 }
 
 export default function ClassesTab() {
+  const { theme } = useAppTheme();
   const [rows, setRows] = useState<ClassView[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -144,6 +146,7 @@ export default function ClassesTab() {
   const [createSectionErrors, setCreateSectionErrors] = useState<SectionRowError[]>([]);
   const [editSectionErrors, setEditSectionErrors] = useState<SectionRowError[]>([]);
   const [editingId, setEditingId] = useState<number | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<DeleteTarget>(null);
 
   const canSubmitCreate = useMemo(() => !saving, [saving]);
   const canSubmitEdit = useMemo(() => !saving && editingId !== null, [saving, editingId]);
@@ -190,12 +193,40 @@ export default function ClassesTab() {
     const schoolCount = rows.filter((row) => row.class_scope === "school").length;
     const higherSecondaryCount = rows.filter((row) => row.class_scope === "hs").length;
     return [
-      { label: "Total Classes", value: totalClasses, accent: "#dbeafe", tone: "#1d4ed8" },
-      { label: "Sections", value: totalSections, accent: "#dcfce7", tone: "#15803d" },
-      { label: "School", value: schoolCount, accent: "#fef3c7", tone: "#b45309" },
-      { label: "Higher Secondary", value: higherSecondaryCount, accent: "#ede9fe", tone: "#6d28d9" },
+      {
+        label: "Total Classes",
+        value: totalClasses,
+        accent: theme.infoSoft,
+        border: theme.infoBorder,
+        tone: theme.infoText,
+        labelTone: theme.subText,
+      },
+      {
+        label: "Sections",
+        value: totalSections,
+        accent: theme.successSoft,
+        border: theme.successBorder,
+        tone: theme.success,
+        labelTone: theme.subText,
+      },
+      {
+        label: "School",
+        value: schoolCount,
+        accent: theme.warningSoft,
+        border: theme.warningBorder,
+        tone: theme.warningText,
+        labelTone: theme.subText,
+      },
+      {
+        label: "Higher Secondary",
+        value: higherSecondaryCount,
+        accent: theme.card,
+        border: theme.border,
+        tone: theme.text,
+        labelTone: theme.subText,
+      },
     ];
-  }, [rows]);
+  }, [rows, theme]);
 
   function showNotice(title: string, message: string, tone: "success" | "error" = "success") {
     setNotice({ title, message, tone });
@@ -299,190 +330,242 @@ export default function ClassesTab() {
     }
   }
 
-  async function confirmDelete(id: number, className: string) {
-    Alert.alert("Delete class", `This will remove ${className} from the active classes list.`, [
-      { text: "Cancel", style: "cancel" },
-      {
-        text: "Delete",
-        style: "destructive",
-        onPress: async () => {
-          try {
-            await deleteClass(id);
-            setRows((prev) => prev.filter((item) => item.id !== id));
-            showNotice("Class Deleted", "The class has been removed.");
-          } catch (err: unknown) {
-            showNotice("Delete Failed", getErrorMessage(err, "Could not delete class."), "error");
-          }
-        },
-      },
-    ]);
+  function confirmDelete(id: number, className: string) {
+    setDeleteTarget({ id, name: className });
+  }
+
+  async function handleDelete() {
+    if (!deleteTarget) return;
+    setSaving(true);
+    try {
+      await deleteClass(deleteTarget.id);
+      setRows((prev) => prev.filter((item) => item.id !== deleteTarget.id));
+      setDeleteTarget(null);
+      showNotice("Class Deleted", "The class has been removed.");
+    } catch (err: unknown) {
+      showNotice("Delete Failed", getErrorMessage(err, "Could not delete class."), "error");
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
-    <ScrollView
-      style={styles.root}
-      contentContainerStyle={styles.content}
-      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => loadClasses("refresh")} />}
-      showsVerticalScrollIndicator={false}
-    >
-      <View style={styles.heroCard}>
-        <View style={styles.heroCopy}>
-          <Text style={styles.title}>Classes</Text>
-          <Text style={styles.subtitle}>Manage classes, sections, and scope with the live academic structure.</Text>
-        </View>
-        <View style={styles.heroActions}>
-          <View style={styles.heroPrimaryActions}>
-            <Pressable style={styles.iconUtilityBtn} onPress={() => loadClasses("refresh")}>
-              <Ionicons name="refresh-outline" size={18} color="#334155" />
-            </Pressable>
-            <Pressable style={styles.heroPrimaryBtn} onPress={() => setCreateOpen(true)}>
-              <Text style={styles.primaryBtnText}>Add Class</Text>
-            </Pressable>
-          </View>
-        </View>
-      </View>
-
-      <TopNotice notice={notice} />
-
-      <View style={styles.statsGrid}>
-        {stats.map((item) => (
-          <View key={item.label} style={[styles.statCard, { backgroundColor: item.accent }]}>
-            <Text style={styles.statLabel}>{item.label}</Text>
-            <Text style={[styles.statValue, { color: item.tone }]}>{item.value}</Text>
-          </View>
-        ))}
-      </View>
-
-      <View style={styles.filterCard}>
-        <View style={styles.filterHeader}>
-          <Text style={styles.sectionTitle}>Browse</Text>
-          <Text style={styles.filterHint}>{filteredRows.length} visible</Text>
-        </View>
-        <View style={styles.scopeRow}>
-          {(["all", "school", "hs"] as const).map((scope) => {
-            const active = scopeFilter === scope;
-            return (
-              <Pressable
-                key={scope}
-                style={[styles.filterChip, active && styles.filterChipActive]}
-                onPress={() => setScopeFilter(scope)}
-              >
-                <Text style={[styles.filterChipText, active && styles.filterChipTextActive]}>
-                  {scope === "all" ? "All" : formatScope(scope)}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </View>
-      </View>
-
-      {loading ? (
-        <View style={styles.centered}>
-          <ActivityIndicator size="large" color="#0f172a" />
-        </View>
-      ) : (
-        <>
-          {error ? <Text style={styles.errorText}>{error}</Text> : null}
-          {!error && filteredRows.length === 0 ? (
-            <View style={styles.emptyCard}>
-              <Text style={styles.emptyTitle}>No classes found</Text>
-              <Text style={styles.emptyText}>
-                {scopeFilter === "all"
-                  ? "Add your first class to start building the academic structure."
-                  : "No classes are available for the selected scope."}
+    <View style={styles.screen}>
+      <TopNotice notice={notice} style={styles.topNoticeOverlay} />
+      <ScrollView
+        style={styles.root}
+        contentContainerStyle={styles.content}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => loadClasses("refresh")} />}
+        showsVerticalScrollIndicator={false}
+      >
+        <View style={styles.innerContent}>
+          <View style={styles.heroCard}>
+            <View style={styles.heroCopy}>
+              <Text style={[styles.heroEyebrow, { color: theme.subText }]}>Overview</Text>
+              <Text style={[styles.title, { color: theme.text }]}>Classes</Text>
+              <Text style={[styles.subtitle, { color: theme.subText }]}>
+                Manage classes, sections, and scope with the live academic structure.
               </Text>
             </View>
-          ) : null}
+          </View>
 
-          <View style={styles.grid}>
-            {filteredRows.map((row) => (
-              <View key={row.id} style={styles.classCard}>
+          <View style={styles.heroPrimaryActions}>
+            <Pressable style={[styles.heroPrimaryBtn, { backgroundColor: theme.primary }]} onPress={() => setCreateOpen(true)}>
+              <Text style={[styles.primaryBtnText, { color: theme.primaryText }]}>Add Class</Text>
+            </Pressable>
+          </View>
+
+          <View style={styles.statsGrid}>
+            {stats.map((item) => (
+              <View key={item.label} style={[styles.statCard, { backgroundColor: item.accent, borderColor: item.border }]}>
+                <Text style={[styles.statLabel, { color: item.labelTone }]}>{item.label}</Text>
+                <Text style={[styles.statValue, { color: item.tone }]}>{item.value}</Text>
+              </View>
+            ))}
+          </View>
+
+          <View style={[styles.filterCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+            <View style={styles.filterHeader}>
+              <Text style={[styles.sectionTitle, { color: theme.text }]}>Browse</Text>
+              <Text style={[styles.filterHint, { color: theme.subText }]}>{filteredRows.length} visible</Text>
+            </View>
+            <View style={styles.scopeRow}>
+              {(["all", "school", "hs"] as const).map((scope) => {
+                const active = scopeFilter === scope;
+                return (
+                  <Pressable
+                    key={scope}
+                    style={[
+                      styles.filterChip,
+                      { borderColor: theme.border, backgroundColor: theme.cardMuted },
+                      active && [styles.filterChipActive, { borderColor: theme.primary, backgroundColor: theme.primary }],
+                    ]}
+                    onPress={() => setScopeFilter(scope)}
+                  >
+                    <Text
+                      style={[
+                        styles.filterChipText,
+                        { color: theme.subText },
+                        active && [styles.filterChipTextActive, { color: theme.primaryText }],
+                      ]}
+                    >
+                      {scope === "all" ? "All" : formatScope(scope)}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          </View>
+
+          {loading ? (
+            <View style={styles.centered}>
+              <ActivityIndicator size="large" color={theme.text} />
+            </View>
+          ) : (
+            <>
+              {error ? <Text style={[styles.errorText, { color: theme.danger }]}>{error}</Text> : null}
+              {!error && filteredRows.length === 0 ? (
+                <View style={[styles.emptyCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                  <Text style={[styles.emptyTitle, { color: theme.text }]}>No classes found</Text>
+                  <Text style={[styles.emptyText, { color: theme.subText }]}>
+                    {scopeFilter === "all"
+                      ? "Add your first class to start building the academic structure."
+                      : "No classes are available for the selected scope."}
+                  </Text>
+                </View>
+              ) : null}
+
+              <View style={styles.grid}>
+                {filteredRows.map((row) => (
+                  <View key={row.id} style={[styles.classCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
                 <View style={styles.cardTop}>
-                  <View style={styles.iconBadge}>
-                    <Text style={styles.iconBadgeText}>{row.name.slice(0, 1).toUpperCase()}</Text>
+                  <View style={[styles.iconBadge, { backgroundColor: theme.cardMuted }]}>
+                    <Text style={[styles.iconBadgeText, { color: theme.text }]}>{row.name.slice(0, 1).toUpperCase()}</Text>
                   </View>
                   <View style={styles.cardCopy}>
-                    <Text style={styles.className}>{row.name}</Text>
-                    <Text style={styles.scopeBadge}>{formatScope(row.class_scope)}</Text>
+                    <Text style={[styles.className, { color: theme.text }]}>{row.name}</Text>
+                    <Text style={[styles.scopeBadge, { color: theme.subText }]}>{formatScope(row.class_scope)}</Text>
                   </View>
                 </View>
 
                 <View style={styles.detailBlock}>
-                  <Text style={styles.detailLabel}>Sections</Text>
+                  <Text style={[styles.detailLabel, { color: theme.subText }]}>Sections</Text>
                   <View style={styles.pillWrap}>
                     {row.sections.length ? (
                       row.sections.map((section, index) => (
-                        <View key={`${row.id}-section-${index}`} style={styles.detailPill}>
-                          <Text style={styles.detailPillText}>
+                        <View
+                          key={`${row.id}-section-${index}`}
+                          style={[styles.detailPill, { backgroundColor: theme.cardMuted, borderColor: theme.border }]}
+                        >
+                          <Text style={[styles.detailPillText, { color: theme.text }]}>
                             {section.name}
                             {section.medium ? ` • ${section.medium}` : ""}
                           </Text>
                         </View>
                       ))
                     ) : (
-                      <View style={styles.detailPill}>
-                        <Text style={styles.detailPillText}>No sections</Text>
+                      <View style={[styles.detailPill, { backgroundColor: theme.cardMuted, borderColor: theme.border }]}>
+                        <Text style={[styles.detailPillText, { color: theme.text }]}>No sections</Text>
                       </View>
                     )}
                   </View>
                 </View>
 
                 <View style={styles.detailBlock}>
-                  <Text style={styles.detailLabel}>Subjects</Text>
-                  <Text style={styles.subjectText}>
+                  <Text style={[styles.detailLabel, { color: theme.subText }]}>Subjects</Text>
+                  <Text style={[styles.subjectText, { color: theme.subText }]}>
                     {row.subjects.length ? row.subjects.join(", ") : "No subjects linked yet."}
                   </Text>
                 </View>
 
                 <View style={styles.rowActions}>
-                  <Pressable style={styles.secondaryBtn} onPress={() => openEdit(row)}>
-                    <Text style={styles.secondaryBtnText}>Edit</Text>
+                  <Pressable
+                    style={[styles.secondaryBtn, { backgroundColor: theme.card, borderColor: theme.border }]}
+                    onPress={() => openEdit(row)}
+                  >
+                    <Text style={[styles.secondaryBtnText, { color: theme.text }]}>Edit</Text>
                   </Pressable>
-                  <Pressable style={styles.deleteBtn} onPress={() => confirmDelete(row.id, row.name)}>
-                    <Text style={styles.deleteBtnText}>Delete</Text>
+                  <Pressable
+                    style={[styles.deleteBtn, { backgroundColor: theme.dangerSoft, borderColor: theme.dangerBorder }]}
+                    onPress={() => confirmDelete(row.id, row.name)}
+                  >
+                    <Text style={[styles.deleteBtnText, { color: theme.danger }]}>Delete</Text>
                   </Pressable>
                 </View>
+                  </View>
+                ))}
               </View>
-            ))}
+            </>
+          )}
+        </View>
+
+        <ClassFormModal
+          visible={createOpen}
+          title="Add Class"
+          submitText="Save"
+          form={createForm}
+          saving={saving}
+          onClose={() => {
+            setCreateOpen(false);
+            setCreateForm(makeEmptyForm());
+            setCreateSectionErrors([]);
+          }}
+          onChange={setCreateForm}
+          onSubmit={handleCreate}
+          canSubmit={canSubmitCreate}
+          sectionErrors={createSectionErrors}
+        />
+
+        <ClassFormModal
+          visible={editOpen}
+          title="Edit Class"
+          submitText="Update"
+          form={editForm}
+          saving={saving}
+          onClose={() => {
+            setEditOpen(false);
+            setEditingId(null);
+            setEditForm(makeEmptyForm());
+            setEditSectionErrors([]);
+          }}
+          onChange={setEditForm}
+          onSubmit={handleEdit}
+          canSubmit={canSubmitEdit}
+          sectionErrors={editSectionErrors}
+        />
+
+        <Modal visible={deleteTarget !== null} transparent animationType="fade" onRequestClose={() => setDeleteTarget(null)}>
+          <View style={styles.modalOverlay}>
+            <Pressable style={[styles.modalBackdrop, { backgroundColor: theme.overlay }]} onPress={() => setDeleteTarget(null)} />
+            <View style={[styles.confirmCard, { backgroundColor: theme.card, borderColor: theme.dangerBorder }]}>
+              <View style={[styles.confirmIcon, { backgroundColor: theme.dangerSoft, borderColor: theme.dangerBorder }]}>
+                <Text style={[styles.confirmIconText, { color: theme.danger }]}>×</Text>
+              </View>
+              <Text style={[styles.confirmTitle, { color: theme.text }]}>Delete Class</Text>
+              <Text style={[styles.confirmMessage, { color: theme.subText }]}>
+                {deleteTarget ? `This will remove ${deleteTarget.name} from the active classes list.` : ""}
+              </Text>
+              <View style={styles.modalFooter}>
+                <Pressable
+                  style={[styles.secondaryBtn, { backgroundColor: theme.card, borderColor: theme.border }]}
+                  onPress={() => setDeleteTarget(null)}
+                  disabled={saving}
+                >
+                  <Text style={[styles.secondaryBtnText, { color: theme.text }]}>Cancel</Text>
+                </Pressable>
+                <Pressable
+                  style={[styles.deleteBtn, { backgroundColor: theme.dangerSoft, borderColor: theme.dangerBorder }, saving && styles.disabledBtn]}
+                  onPress={handleDelete}
+                  disabled={saving}
+                >
+                  <Text style={[styles.deleteBtnText, { color: theme.danger }]}>{saving ? "Deleting..." : "Delete"}</Text>
+                </Pressable>
+              </View>
+            </View>
           </View>
-        </>
-      )}
-
-      <ClassFormModal
-        visible={createOpen}
-        title="Add Class"
-        submitText="Save"
-        form={createForm}
-        saving={saving}
-        onClose={() => {
-          setCreateOpen(false);
-          setCreateForm(makeEmptyForm());
-          setCreateSectionErrors([]);
-        }}
-        onChange={setCreateForm}
-        onSubmit={handleCreate}
-        canSubmit={canSubmitCreate}
-        sectionErrors={createSectionErrors}
-      />
-
-      <ClassFormModal
-        visible={editOpen}
-        title="Edit Class"
-        submitText="Update"
-        form={editForm}
-        saving={saving}
-        onClose={() => {
-          setEditOpen(false);
-          setEditingId(null);
-          setEditForm(makeEmptyForm());
-          setEditSectionErrors([]);
-        }}
-        onChange={setEditForm}
-        onSubmit={handleEdit}
-        canSubmit={canSubmitEdit}
-        sectionErrors={editSectionErrors}
-      />
-    </ScrollView>
+        </Modal>
+      </ScrollView>
+    </View>
   );
 }
 
@@ -511,33 +594,44 @@ function ClassFormModal({
   onSubmit,
   sectionErrors,
 }: ClassFormModalProps) {
+  const { theme } = useAppTheme();
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <View style={styles.modalOverlay}>
-        <Pressable style={styles.modalBackdrop} onPress={onClose} />
-        <View style={styles.modalCard}>
-          <Text style={styles.modalTitle}>{title}</Text>
+        <Pressable style={[styles.modalBackdrop, { backgroundColor: theme.overlay }]} onPress={onClose} />
+        <View style={[styles.modalCard, { backgroundColor: theme.card }]}>
+          <Text style={[styles.modalTitle, { color: theme.text }]}>{title}</Text>
           <ScrollView style={styles.modalBody} showsVerticalScrollIndicator={false}>
-            <Text style={styles.inputLabel}>Class Name *</Text>
+            <Text style={[styles.inputLabel, { color: theme.subText }]}>Class Name *</Text>
             <TextInput
-              style={styles.input}
+              style={[styles.input, { borderColor: theme.border, backgroundColor: theme.inputBg, color: theme.text }]}
               value={form.name}
               onChangeText={(value) => onChange({ ...form, name: value })}
               placeholder="Class name"
-              placeholderTextColor="#94a3b8"
+              placeholderTextColor={theme.mutedText}
             />
 
-            <Text style={[styles.inputLabel, styles.spaceTop]}>Class Scope *</Text>
+            <Text style={[styles.inputLabel, styles.spaceTop, { color: theme.subText }]}>Class Scope *</Text>
             <View style={styles.scopeRow}>
               {(["school", "hs"] as const).map((scope) => {
                 const active = form.class_scope === scope;
                 return (
                   <Pressable
                     key={scope}
-                    style={[styles.scopeChip, active && styles.scopeChipActive]}
+                    style={[
+                      styles.scopeChip,
+                      { borderColor: theme.border, backgroundColor: theme.cardMuted },
+                      active && [styles.scopeChipActive, { borderColor: theme.primary, backgroundColor: theme.primary }],
+                    ]}
                     onPress={() => onChange({ ...form, class_scope: scope })}
                   >
-                    <Text style={[styles.scopeChipText, active && styles.scopeChipTextActive]}>
+                    <Text
+                      style={[
+                        styles.scopeChipText,
+                        { color: theme.subText },
+                        active && [styles.scopeChipTextActive, { color: theme.primaryText }],
+                      ]}
+                    >
                       {formatScope(scope)}
                     </Text>
                   </Pressable>
@@ -545,11 +639,11 @@ function ClassFormModal({
               })}
             </View>
 
-            <Text style={[styles.inputLabel, styles.spaceTop]}>Sections *</Text>
+            <Text style={[styles.inputLabel, styles.spaceTop, { color: theme.subText }]}>Sections *</Text>
             {form.sections.map((section, index) => (
               <View key={`section-${index}`} style={styles.sectionRow}>
                 <TextInput
-                  style={[styles.input, styles.sectionInput]}
+                  style={[styles.input, styles.sectionInput, { borderColor: theme.border, backgroundColor: theme.inputBg, color: theme.text }]}
                   value={section.name}
                   onChangeText={(value) => {
                     const nextSections = [...form.sections];
@@ -557,7 +651,7 @@ function ClassFormModal({
                     onChange({ ...form, sections: nextSections });
                   }}
                   placeholder={`Section ${index + 1}`}
-                  placeholderTextColor="#94a3b8"
+                  placeholderTextColor={theme.mutedText}
                 />
                 <View style={styles.mediumRow}>
                   {(["English", "Assamese"] as const).map((medium) => {
@@ -567,8 +661,9 @@ function ClassFormModal({
                         key={medium}
                         style={[
                           styles.mediumChip,
-                          active && styles.mediumChipActive,
-                          sectionErrors[index]?.medium && styles.mediumChipError,
+                          { borderColor: theme.border, backgroundColor: theme.cardMuted },
+                          active && [styles.mediumChipActive, { borderColor: theme.primary, backgroundColor: theme.primary }],
+                          sectionErrors[index]?.medium && [styles.mediumChipError, { borderColor: theme.danger }],
                         ]}
                         onPress={() => {
                           const nextSections = [...form.sections];
@@ -576,7 +671,13 @@ function ClassFormModal({
                           onChange({ ...form, sections: nextSections });
                         }}
                       >
-                        <Text style={[styles.mediumChipText, active && styles.mediumChipTextActive]}>
+                        <Text
+                          style={[
+                            styles.mediumChipText,
+                            { color: theme.subText },
+                            active && [styles.mediumChipTextActive, { color: theme.primaryText }],
+                          ]}
+                        >
                           {medium}
                         </Text>
                       </Pressable>
@@ -584,28 +685,36 @@ function ClassFormModal({
                   })}
                 </View>
                 {sectionErrors[index]?.medium ? (
-                  <Text style={styles.fieldError}>{sectionErrors[index]?.medium}</Text>
+                  <Text style={[styles.fieldError, { color: theme.danger }]}>{sectionErrors[index]?.medium}</Text>
                 ) : null}
               </View>
             ))}
 
             <Pressable
-              style={styles.addSectionBtn}
+              style={[styles.addSectionBtn, { borderColor: theme.border, backgroundColor: theme.cardMuted }]}
               onPress={() => onChange({ ...form, sections: [...form.sections, { name: "", medium: "" }] })}
             >
-              <Text style={styles.addSectionBtnText}>Add Section</Text>
+              <Text style={[styles.addSectionBtnText, { color: theme.text }]}>Add Section</Text>
             </Pressable>
           </ScrollView>
           <View style={styles.modalFooter}>
-            <Pressable style={styles.secondaryBtn} onPress={onClose} disabled={saving}>
-              <Text style={styles.secondaryBtnText}>Cancel</Text>
+            <Pressable
+              style={[styles.secondaryBtn, { backgroundColor: theme.card, borderColor: theme.border }]}
+              onPress={onClose}
+              disabled={saving}
+            >
+              <Text style={[styles.secondaryBtnText, { color: theme.text }]}>Cancel</Text>
             </Pressable>
             <Pressable
-              style={[styles.successBtn, !canSubmit && styles.disabledBtn]}
+              style={[
+                styles.successBtn,
+                { backgroundColor: theme.success, borderColor: theme.successBorder },
+                !canSubmit && styles.disabledBtn,
+              ]}
               onPress={onSubmit}
               disabled={!canSubmit}
             >
-              <Text style={styles.successBtnText}>{saving ? "Saving..." : submitText}</Text>
+              <Text style={[styles.successBtnText, { color: theme.successText }]}>{saving ? "Saving..." : submitText}</Text>
             </Pressable>
           </View>
         </View>
@@ -632,38 +741,55 @@ function getErrorMessage(err: unknown, fallback: string) {
 }
 
 const styles = StyleSheet.create({
+  screen: {
+    flex: 1,
+  },
   root: {
     flex: 1,
   },
   content: {
     gap: 14,
-    paddingBottom: 8,
+    paddingBottom: 120,
+  },
+  innerContent: {
+    gap: 14,
+    paddingHorizontal: 14,
+    paddingTop: 10,
+  },
+  topNoticeOverlay: {
+    position: "absolute",
+    top: 0,
+    left: 14,
+    right: 14,
+    zIndex: 20,
   },
   heroCard: {
-    backgroundColor: "#ffffff",
     borderRadius: 24,
-    borderWidth: 1,
-    borderColor: "#e2e8f0",
-    padding: 18,
-    gap: 14,
+    paddingVertical: 0,
+    gap: 8,
   },
   heroCopy: {
     gap: 6,
-  },
-  heroActions: {
-    gap: 10,
   },
   heroPrimaryActions: {
     flexDirection: "row",
     gap: 10,
   },
+  heroEyebrow: {
+    fontSize: 12,
+    fontWeight: "700",
+    textTransform: "uppercase",
+    letterSpacing: 0.6,
+  },
   title: {
     color: "#0f172a",
     fontWeight: "800",
     fontSize: 22,
+    marginTop: 4,
   },
   subtitle: {
     color: "#64748b",
+    marginTop: 6,
     lineHeight: 20,
   },
   noticeCard: {
@@ -697,6 +823,7 @@ const styles = StyleSheet.create({
     width: "48%",
     minHeight: 92,
     borderRadius: 20,
+    borderWidth: 1,
     paddingHorizontal: 14,
     paddingVertical: 12,
     justifyContent: "space-between",
@@ -874,7 +1001,6 @@ const styles = StyleSheet.create({
   },
   heroPrimaryBtn: {
     flex: 1,
-    backgroundColor: "#0f172a",
     paddingHorizontal: 16,
     paddingVertical: 11,
     borderRadius: 12,
@@ -884,30 +1010,6 @@ const styles = StyleSheet.create({
   primaryBtnText: {
     color: "#ffffff",
     fontWeight: "700",
-  },
-  ghostBtn: {
-    borderWidth: 1,
-    borderColor: "#cbd5e1",
-    backgroundColor: "#ffffff",
-    paddingHorizontal: 16,
-    paddingVertical: 11,
-    borderRadius: 12,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  ghostBtnText: {
-    color: "#334155",
-    fontWeight: "700",
-  },
-  iconUtilityBtn: {
-    width: 42,
-    height: 42,
-    borderWidth: 1,
-    borderColor: "#cbd5e1",
-    backgroundColor: "#ffffff",
-    borderRadius: 12,
-    alignItems: "center",
-    justifyContent: "center",
   },
   secondaryBtn: {
     flex: 1,
@@ -1069,6 +1171,38 @@ const styles = StyleSheet.create({
     color: "#b91c1c",
     marginBottom: 4,
     fontSize: 12,
+  },
+  confirmCard: {
+    marginHorizontal: 18,
+    marginBottom: 120,
+    borderWidth: 1,
+    borderRadius: 24,
+    paddingHorizontal: 18,
+    paddingVertical: 20,
+    gap: 12,
+  },
+  confirmIcon: {
+    width: 44,
+    height: 44,
+    borderWidth: 1,
+    borderRadius: 16,
+    alignItems: "center",
+    justifyContent: "center",
+    alignSelf: "center",
+  },
+  confirmIconText: {
+    fontSize: 22,
+    fontWeight: "800",
+  },
+  confirmTitle: {
+    fontSize: 18,
+    fontWeight: "800",
+    textAlign: "center",
+  },
+  confirmMessage: {
+    fontSize: 14,
+    lineHeight: 20,
+    textAlign: "center",
   },
   modalFooter: {
     marginTop: 14,

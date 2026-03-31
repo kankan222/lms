@@ -143,19 +143,21 @@ export default function ProfileTab() {
   }
 
   return (
-    <ScrollView
-      contentContainerStyle={styles.container}
-      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => loadAccount("refresh")} />}
-      showsVerticalScrollIndicator={false}
-    >
-      <View style={[styles.heroCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+    <View style={styles.screen}>
+      <TopNotice notice={notice} style={styles.topNoticeOverlay} />
+      <ScrollView
+        contentContainerStyle={styles.container}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => loadAccount("refresh")} />}
+        showsVerticalScrollIndicator={false}
+      >
+        <View style={styles.innerContent}>
+      <View style={styles.heroCard}>
+        <Text style={[styles.heroEyebrow, { color: theme.subText }]}>Overview</Text>
         <Text style={[styles.heroTitle, { color: theme.text }]}>My Profile</Text>
         <Text style={[styles.heroSubtitle, { color: theme.subText }]}>
-          View your account details, update your password, and log out of the mobile app.
+          View your account details, update your password, and manage account security.
         </Text>
       </View>
-
-      <TopNotice notice={notice} />
 
       <SectionCard title="Account Information" hint={account?.status || "-"}>
         {loading ? (
@@ -178,22 +180,22 @@ export default function ProfileTab() {
             <Pressable
               style={[
                 styles.secondaryBtn,
-                { borderColor: theme.border, backgroundColor: isDark ? theme.cardMuted : "#fff" },
+                { borderColor: theme.border, backgroundColor: theme.cardMuted },
               ]}
               onPress={() => setPasswordOpen(true)}
             >
               <Text style={[styles.secondaryBtnText, { color: theme.text }]}>Change Password</Text>
             </Pressable>
           ) : null}
-          <Pressable style={styles.deleteBtn} onPress={() => logout()}>
-            <Text style={styles.deleteBtnText}>Logout</Text>
+          <Pressable style={[styles.deleteBtn, { borderColor: theme.dangerBorder, backgroundColor: theme.dangerSoft }]} onPress={() => logout()}>
+            <Text style={[styles.deleteBtnText, { color: theme.danger }]}>Logout</Text>
           </Pressable>
         </View>
       </SectionCard>
 
       <Modal visible={isSuperAdmin && passwordOpen} transparent animationType="slide" onRequestClose={() => setPasswordOpen(false)}>
         <View style={styles.modalOverlay}>
-          <Pressable style={styles.modalBackdrop} onPress={() => setPasswordOpen(false)} />
+          <Pressable style={[styles.modalBackdrop, { backgroundColor: theme.overlay }]} onPress={() => setPasswordOpen(false)} />
           <View style={[styles.modalCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
             <Text style={[styles.modalTitle, { color: theme.text }]}>Change Password</Text>
             <Text style={[styles.muted, { color: theme.subText }]}>Update your password for this account.</Text>
@@ -217,7 +219,7 @@ export default function ProfileTab() {
             <Pressable
               style={[
                 styles.secondaryBtn,
-                { borderColor: theme.border, backgroundColor: isDark ? theme.cardMuted : "#fff" },
+                { borderColor: theme.border, backgroundColor: theme.cardMuted },
               ]}
               onPress={() => setPasswordOpen(false)}
             >
@@ -226,12 +228,12 @@ export default function ProfileTab() {
               <Pressable
                 style={[
                   styles.primaryBtn,
-                  { backgroundColor: isDark ? "#f8fafc" : "#0f172a" },
+                  { backgroundColor: theme.primary },
                 ]}
                 onPress={handleChangePassword}
                 disabled={passwordSaving}
               >
-                <Text style={[styles.primaryBtnText, { color: isDark ? "#0f172a" : "#ffffff" }]}>
+                <Text style={[styles.primaryBtnText, { color: theme.primaryText }]}>
                   {passwordSaving ? "Saving..." : "Update"}
                 </Text>
               </Pressable>
@@ -239,20 +241,42 @@ export default function ProfileTab() {
           </View>
         </View>
       </Modal>
-    </ScrollView>
+        </View>
+      </ScrollView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  screen: {
+    flex: 1,
+  },
   container: {
     gap: 14,
-    paddingBottom: 24,
+    paddingBottom: 120,
+  },
+  innerContent: {
+    gap: 14,
+    paddingHorizontal: 14,
+    paddingTop: 10,
+  },
+  topNoticeOverlay: {
+    position: "absolute",
+    top: 0,
+    left: 14,
+    right: 14,
+    zIndex: 20,
   },
   heroCard: {
-    borderWidth: 1,
     borderRadius: 24,
-    padding: 18,
+    paddingVertical: 0,
     gap: 6,
+  },
+  heroEyebrow: {
+    fontSize: 12,
+    fontWeight: "700",
+    textTransform: "uppercase",
+    letterSpacing: 0.6,
   },
   heroTitle: {
     fontWeight: "800",
@@ -357,8 +381,6 @@ const styles = StyleSheet.create({
   deleteBtn: {
     flex: 1,
     borderWidth: 1,
-    borderColor: "#fecaca",
-    backgroundColor: "#fee2e2",
     paddingHorizontal: 14,
     paddingVertical: 11,
     borderRadius: 12,
@@ -366,7 +388,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   deleteBtnText: {
-    color: "#b91c1c",
     fontWeight: "700",
   },
   modalOverlay: {
@@ -375,7 +396,6 @@ const styles = StyleSheet.create({
   },
   modalBackdrop: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(15, 23, 42, 0.35)",
   },
   modalCard: {
     borderTopLeftRadius: 22,

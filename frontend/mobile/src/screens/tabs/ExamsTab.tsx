@@ -53,6 +53,18 @@ type NoticeState = {
   title: string;
   message: string;
 };
+type DeleteTarget = { id: number; name: string } | null;
+
+const DEFAULT_THEME = {
+  primary: "#0f172a",
+  primaryText: "#ffffff",
+  success: "#15803d",
+  successBorder: "#bbf7d0",
+  successText: "#ffffff",
+  danger: "#b91c1c",
+  dangerSoft: "#fee2e2",
+  dangerBorder: "#fecaca",
+};
 
 type FormState = {
   name: string;
@@ -106,6 +118,7 @@ export default function ExamsTab() {
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [notice, setNotice] = useState<NoticeState | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<DeleteTarget>(null);
 
   const classMap = useMemo(() => new Map(classes.map((c) => [String(c.id), c])), [classes]);
   const selectedClass = useMemo(
@@ -376,22 +389,23 @@ export default function ExamsTab() {
   }
 
   function onDelete(examId: number) {
-    Alert.alert("Delete exam", "Delete this exam?", [
-      { text: "Cancel", style: "cancel" },
-      {
-        text: "Delete",
-        style: "destructive",
-        onPress: async () => {
-          try {
-            await deleteExam(examId);
-            await loadExamList();
-            showNotice("Exam Deleted", "Exam deleted successfully.");
-          } catch (err: unknown) {
-            showNotice("Delete Failed", getErrorMessage(err, "Failed to delete exam."), "error");
-          }
-        },
-      },
-    ]);
+    const exam = exams.find((item) => item.id === examId);
+    setDeleteTarget({ id: examId, name: exam?.name || "this exam" });
+  }
+
+  async function handleDelete() {
+    if (!deleteTarget) return;
+    setSaving(true);
+    try {
+      await deleteExam(deleteTarget.id);
+      setDeleteTarget(null);
+      await loadExamList();
+      showNotice("Exam Deleted", "Exam deleted successfully.");
+    } catch (err: unknown) {
+      showNotice("Delete Failed", getErrorMessage(err, "Failed to delete exam."), "error");
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function handleRefresh() {
@@ -404,78 +418,72 @@ export default function ExamsTab() {
   }
 
   return (
+    <View style={styles.screen}>
+      <TopNotice notice={notice} style={styles.topNoticeOverlay} />
     <ScrollView
       style={styles.root}
       contentContainerStyle={styles.content}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />}
       showsVerticalScrollIndicator={false}
     >
-      <View style={[styles.heroCard, { backgroundColor: theme.card, borderColor: theme.border, borderRadius: 24, padding: 18, gap: 14 }]}>
+      <View style={styles.innerContent}>
+      <View style={styles.heroCard}>
         <View style={styles.heroText}>
+          <Text style={[styles.heroEyebrow, { color: theme.subText }]}>Overview</Text>
           <Text style={[styles.title, { color: theme.text, fontWeight: "800", fontSize: 22 }]}>Exams</Text>
           <Text style={[styles.subtitle, { color: theme.subText, lineHeight: 20 }]}>
             Manage exam setup, scopes, and subject marks
           </Text>
         </View>
-        <View style={styles.heroActions}>
           <View style={styles.heroPrimaryActions}>
-            <Pressable
-              style={[styles.iconUtilityBtn, { borderColor: theme.border, backgroundColor: isDark ? theme.cardMuted : "#fff" }]}
-              onPress={handleRefresh}
-            >
-              <Ionicons name="refresh-outline" size={18} color={theme.icon} />
-            </Pressable>
             {canCreate ? (
               <Pressable
-                style={[styles.heroPrimaryBtn, { backgroundColor: isDark ? "#e2e8f0" : "#0f172a" }]}
+                style={[styles.heroPrimaryBtn, { backgroundColor: theme.primary }]}
                 onPress={() => {
                   resetForm();
                   setOpen(true);
                 }}
               >
-                <Text style={[styles.primaryBtnText, { color: isDark ? "#0f172a" : "#fff" }]}>Add Exam</Text>
+                <Text style={[styles.primaryBtnText, { color: theme.primaryText }]}>Add Exam</Text>
               </Pressable>
             ) : null}
           </View>
-        </View>
       </View>
-
-      <TopNotice notice={notice} />
 
       <View style={styles.summaryRow}>
-        <View style={[styles.summaryCard, { backgroundColor: "#dbeafe" }]}>
-          <Text style={styles.summaryLabel}>Visible Exams</Text>
-          <Text style={[styles.summaryValue, { color: "#1d4ed8" }]}>{filteredExams.length}</Text>
+        <View style={[styles.summaryCard, { backgroundColor: theme.isDark ? "#172554" : "#dbeafe", borderColor: theme.isDark ? "#1d4ed8" : "#93c5fd" }]}>
+          <Text style={[styles.summaryLabel, { color: theme.subText }]}>Visible Exams</Text>
+          <Text style={[styles.summaryValue, { color: theme.isDark ? "#bfdbfe" : "#1d4ed8" }]}>{filteredExams.length}</Text>
         </View>
-        <View style={[styles.summaryCard, { backgroundColor: "#dcfce7" }]}>
-          <Text style={styles.summaryLabel}>Scopes</Text>
-          <Text style={[styles.summaryValue, { color: "#15803d" }]}>{totalScopes}</Text>
+        <View style={[styles.summaryCard, { backgroundColor: theme.isDark ? "#14532d" : "#dcfce7", borderColor: theme.isDark ? "#15803d" : "#86efac" }]}>
+          <Text style={[styles.summaryLabel, { color: theme.subText }]}>Scopes</Text>
+          <Text style={[styles.summaryValue, { color: theme.isDark ? "#bbf7d0" : "#15803d" }]}>{totalScopes}</Text>
         </View>
-        <View style={[styles.summaryCard, { backgroundColor: "#fef3c7" }]}>
-          <Text style={styles.summaryLabel}>Subjects</Text>
-          <Text style={[styles.summaryValue, { color: "#b45309" }]}>{totalSubjects}</Text>
+        <View style={[styles.summaryCard, { backgroundColor: theme.isDark ? "#78350f" : "#fef3c7", borderColor: theme.isDark ? "#d97706" : "#fcd34d" }]}>
+          <Text style={[styles.summaryLabel, { color: theme.subText }]}>Subjects</Text>
+          <Text style={[styles.summaryValue, { color: theme.isDark ? "#fde68a" : "#b45309" }]}>{totalSubjects}</Text>
         </View>
       </View>
 
-      <View style={styles.filterCard}>
+      <View style={[styles.filterCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
         <View style={styles.sectionHeader}>
           <Text style={styles.filterTitle}>Browse Exams</Text>
           <Text style={styles.filterHint}>{filteredExams.length} visible</Text>
         </View>
         <View style={styles.searchRow}>
           <TextInput
-            style={[styles.input, styles.searchInput]}
+            style={[styles.input, styles.searchInput, { borderColor: theme.border, backgroundColor: theme.inputBg, color: theme.text }]}
             value={search}
             onChangeText={setSearch}
             placeholder="Search by exam, session, class, or section"
-            placeholderTextColor="#94a3b8"
+            placeholderTextColor={theme.mutedText}
           />
-          <Pressable style={styles.iconUtilityBtn} onPress={() => setFiltersOpen(true)}>
-            <Ionicons name="options-outline" size={18} color="#334155" />
+          <Pressable style={[styles.iconUtilityBtn, { borderColor: theme.border, backgroundColor: theme.card }]} onPress={() => setFiltersOpen(true)}>
+            <Ionicons name="options-outline" size={18} color={theme.icon} />
           </Pressable>
         </View>
         {activeFilterCount ? (
-          <Text style={styles.activeFiltersText}>
+          <Text style={[styles.activeFiltersText, { color: theme.subText }]}>
             {sessionFilter ? `Session: ${sessions.find((s) => String(s.id) === sessionFilter)?.name || "-"}` : "All sessions"}
             {classFilter ? ` - Class: ${selectedClass?.name || "-"}` : ""}
             {sectionFilter ? ` - Section: ${filterSections.find((s) => String(s.id) === sectionFilter)?.name || "-"}` : ""}
@@ -486,11 +494,11 @@ export default function ExamsTab() {
       <Modal visible={filtersOpen} transparent animationType="fade" onRequestClose={() => setFiltersOpen(false)}>
         <View style={styles.popoverOverlay}>
           <Pressable style={styles.popoverBackdrop} onPress={() => setFiltersOpen(false)} />
-          <View style={styles.filterPopover}>
+          <View style={[styles.filterPopover, { backgroundColor: theme.card, borderColor: theme.border }]}>
             <View style={styles.sectionHeader}>
-              <Text style={styles.filterTitle}>Filters</Text>
+              <Text style={[styles.filterTitle, { color: theme.text }]}>Filters</Text>
               <Pressable onPress={resetFilters}>
-                <Text style={styles.resetText}>Reset</Text>
+                <Text style={[styles.resetText, { color: theme.success }]}>Reset</Text>
               </Pressable>
             </View>
 
@@ -532,8 +540,8 @@ export default function ExamsTab() {
             />
 
             <View style={styles.rowActions}>
-              <Pressable style={styles.secondaryBtn} onPress={() => setFiltersOpen(false)}>
-                <Text style={styles.secondaryBtnText}>Apply</Text>
+              <Pressable style={[styles.secondaryBtn, { borderColor: theme.border, backgroundColor: theme.card }]} onPress={() => setFiltersOpen(false)}>
+                <Text style={[styles.secondaryBtnText, { color: theme.text }]}>Apply</Text>
               </Pressable>
             </View>
           </View>
@@ -542,7 +550,7 @@ export default function ExamsTab() {
 
       {loading ? (
         <View style={styles.centered}>
-          <ActivityIndicator size="large" color="#0f172a" />
+          <ActivityIndicator size="large" color={theme.primary} />
         </View>
       ) : (
         <View style={styles.listContent}>
@@ -561,23 +569,23 @@ export default function ExamsTab() {
                 .map((subject) => `${subject.subject_name} (${subject.max_marks})`)
                 .join(" • ");
               return (
-              <View key={exam.id} style={styles.card}>
+              <View key={exam.id} style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
                 <View style={styles.cardHeader}>
                   <View style={styles.cardTitleWrap}>
-                    <Text style={styles.cardTitle}>{exam.name}</Text>
-                    <Text style={styles.metaCompact}>Session: {exam.session_name || "-"}</Text>
+                    <Text style={[styles.cardTitle, { color: theme.text }]}>{exam.name}</Text>
+                    <Text style={[styles.metaCompact, { color: theme.subText }]}>Session: {exam.session_name || "-"}</Text>
                   </View>
-                  <View style={styles.countBadge}>
-                    <Text style={styles.countBadgeText}>{details?.subjects?.length || 0} subjects</Text>
+                  <View style={[styles.countBadge, { backgroundColor: theme.cardMuted }]}>
+                    <Text style={[styles.countBadgeText, { color: theme.text }]}>{details?.subjects?.length || 0} subjects</Text>
                   </View>
                 </View>
 
                 <View style={styles.metaStack}>
-                  <Text style={styles.metaCompact}>
+                  <Text style={[styles.metaCompact, { color: theme.subText }]}>
                     Scopes: {(details?.scopes || []).length || 0}
                     {scopePreview ? ` • ${scopePreview}` : " • No scope details"}
                   </Text>
-                  <Text style={styles.metaCompact}>
+                  <Text style={[styles.metaCompact, { color: theme.subText }]}>
                     Subjects: {(details?.subjects || []).length || 0}
                     {subjectPreview ? ` • ${subjectPreview}` : ""}
                   </Text>
@@ -586,13 +594,13 @@ export default function ExamsTab() {
                 {(canUpdate || canDelete) ? (
                   <View style={styles.rowActions}>
                     {canUpdate ? (
-                      <Pressable style={styles.secondaryBtn} onPress={() => onEdit(exam.id)}>
-                        <Text style={styles.secondaryBtnText}>Edit</Text>
-                      </Pressable>
+                <Pressable style={[styles.secondaryBtn, { borderColor: theme.border, backgroundColor: theme.card }]} onPress={() => onEdit(exam.id)}>
+                  <Text style={[styles.secondaryBtnText, { color: theme.text }]}>Edit</Text>
+                </Pressable>
                     ) : null}
                     {canDelete ? (
-                      <Pressable style={styles.deleteBtn} onPress={() => onDelete(exam.id)}>
-                        <Text style={styles.deleteBtnText}>Delete</Text>
+                      <Pressable style={[styles.deleteBtn, { backgroundColor: theme.dangerSoft, borderColor: theme.dangerBorder }]} onPress={() => onDelete(exam.id)}>
+                        <Text style={[styles.deleteBtnText, { color: theme.danger }]}>Delete</Text>
                       </Pressable>
                     ) : null}
                   </View>
@@ -601,9 +609,9 @@ export default function ExamsTab() {
             );
             })
           ) : (
-            <View style={styles.emptyCard}>
-              <Text style={styles.emptyTitle}>No exams found.</Text>
-              <Text style={styles.emptyText}>Try a different filter or create a new exam.</Text>
+            <View style={[styles.emptyCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+              <Text style={[styles.emptyTitle, { color: theme.text }]}>No exams found.</Text>
+              <Text style={[styles.emptyText, { color: theme.subText }]}>Try a different filter or create a new exam.</Text>
             </View>
           )}
         </View>
@@ -611,26 +619,30 @@ export default function ExamsTab() {
 
       <Modal visible={open} transparent animationType="slide" onRequestClose={() => setOpen(false)}>
         <View style={styles.modalOverlay}>
-          <Pressable style={styles.modalBackdrop} onPress={() => setOpen(false)} />
-          <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>{editingId ? "Update Exam" : "Create Exam"}</Text>
+          <Pressable style={[styles.modalBackdrop, { backgroundColor: theme.overlay }]} onPress={() => setOpen(false)} />
+          <View style={[styles.modalCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+            <Text style={[styles.modalTitle, { color: theme.text }]}>{editingId ? "Update Exam" : "Create Exam"}</Text>
             <ScrollView style={styles.modalBody}>
-              <Text style={styles.inputLabel}>Exam Name *</Text>
+              <Text style={[styles.inputLabel, { color: theme.subText }]}>Exam Name *</Text>
               <TextInput
-                style={styles.input}
+                style={[styles.input, { borderColor: theme.border, backgroundColor: theme.inputBg, color: theme.text }]}
                 value={form.name}
                 onChangeText={(value) => setForm((prev) => ({ ...prev, name: value }))}
               />
 
-              <Text style={[styles.inputLabel, styles.spaceTop]}>Session</Text>
+              <Text style={[styles.inputLabel, styles.spaceTop, { color: theme.subText }]}>Session</Text>
               <ScrollView horizontal contentContainerStyle={styles.row}>
                 {sessions.map((s) => (
                   <Pressable
                     key={s.id}
-                    style={[styles.chip, form.session_id === String(s.id) && styles.chipActive]}
+                    style={[
+                      styles.chip,
+                      { borderColor: theme.border, backgroundColor: theme.card },
+                      form.session_id === String(s.id) && { borderColor: theme.primary, backgroundColor: theme.primary },
+                    ]}
                     onPress={() => setForm((prev) => ({ ...prev, session_id: String(s.id) }))}
                   >
-                    <Text style={[styles.chipText, form.session_id === String(s.id) && styles.chipTextActive]}>
+                    <Text style={[styles.chipText, { color: theme.text }, form.session_id === String(s.id) && { color: theme.primaryText }]}>
                       {s.name}
                     </Text>
                   </Pressable>
@@ -638,9 +650,9 @@ export default function ExamsTab() {
               </ScrollView>
 
               <View style={[styles.sectionHeader, styles.spaceTop]}>
-                <Text style={styles.inputLabel}>Class-Section Scopes *</Text>
-                <Pressable style={styles.secondaryBtn} onPress={addScopeRow}>
-                  <Text style={styles.secondaryBtnText}>Add Scope</Text>
+                <Text style={[styles.inputLabel, { color: theme.subText }]}>Class-Section Scopes *</Text>
+                <Pressable style={[styles.secondaryBtn, { borderColor: theme.border, backgroundColor: theme.card }]} onPress={addScopeRow}>
+                  <Text style={[styles.secondaryBtnText, { color: theme.text }]}>Add Scope</Text>
                 </Pressable>
               </View>
 
@@ -648,15 +660,19 @@ export default function ExamsTab() {
                 const selectedClass = classMap.get(String(scope.class_id));
                 const sections = selectedClass?.sections || [];
                 return (
-                  <View key={`${idx}-${scope.class_id}-${scope.section_id}`} style={styles.scopeRow}>
+                  <View key={`${idx}-${scope.class_id}-${scope.section_id}`} style={[styles.scopeRow, { borderColor: theme.border, backgroundColor: theme.cardMuted }]}>
                     <ScrollView horizontal contentContainerStyle={styles.row}>
                       {classes.map((c) => (
                         <Pressable
                           key={`c-${idx}-${c.id}`}
-                          style={[styles.chip, scope.class_id === String(c.id) && styles.chipActive]}
+                          style={[
+                            styles.chip,
+                            { borderColor: theme.border, backgroundColor: theme.card },
+                            scope.class_id === String(c.id) && { borderColor: theme.primary, backgroundColor: theme.primary },
+                          ]}
                           onPress={() => setScope(idx, "class_id", String(c.id))}
                         >
-                          <Text style={[styles.chipText, scope.class_id === String(c.id) && styles.chipTextActive]}>
+                          <Text style={[styles.chipText, { color: theme.text }, scope.class_id === String(c.id) && { color: theme.primaryText }]}>
                             {c.name}
                           </Text>
                         </Pressable>
@@ -667,10 +683,14 @@ export default function ExamsTab() {
                       {sections.map((s) => (
                         <Pressable
                           key={`s-${idx}-${s.id}`}
-                          style={[styles.chip, scope.section_id === String(s.id) && styles.chipActive]}
+                          style={[
+                            styles.chip,
+                            { borderColor: theme.border, backgroundColor: theme.card },
+                            scope.section_id === String(s.id) && { borderColor: theme.primary, backgroundColor: theme.primary },
+                          ]}
                           onPress={() => setScope(idx, "section_id", String(s.id))}
                         >
-                          <Text style={[styles.chipText, scope.section_id === String(s.id) && styles.chipTextActive]}>
+                          <Text style={[styles.chipText, { color: theme.text }, scope.section_id === String(s.id) && { color: theme.primaryText }]}>
                             {s.name}{s.medium ? ` (${s.medium})` : ""}
                           </Text>
                         </Pressable>
@@ -678,27 +698,31 @@ export default function ExamsTab() {
                     </ScrollView>
 
                     <Pressable
-                      style={[styles.scopeRemoveBtn, styles.spaceTop]}
+                      style={[styles.scopeRemoveBtn, styles.spaceTop, { borderColor: theme.border, backgroundColor: theme.card }]}
                       onPress={() => removeScopeRow(idx)}
                       disabled={form.scopes.length === 1}
                     >
-                      <Text style={styles.scopeRemoveText}>Remove Scope</Text>
+                      <Text style={[styles.scopeRemoveText, { color: theme.subText }]}>Remove Scope</Text>
                     </Pressable>
                   </View>
                 );
               })}
 
-              <Text style={[styles.inputLabel, styles.spaceTop]}>Subjects (select and set marks) *</Text>
+              <Text style={[styles.inputLabel, styles.spaceTop, { color: theme.subText }]}>Subjects (select and set marks) *</Text>
               <View style={styles.subjectWrap}>
                 {allSubjects.map((subject) => {
                   const checked = form.subjects.some((s) => Number(s.subject_id) === Number(subject.id));
                   return (
                     <Pressable
                       key={subject.id}
-                      style={[styles.subjectChip, checked && styles.subjectChipActive]}
+                      style={[
+                        styles.subjectChip,
+                        { borderColor: theme.border, backgroundColor: theme.card },
+                        checked && { borderColor: theme.primary, backgroundColor: theme.primary },
+                      ]}
                       onPress={() => toggleSubject(subject)}
                     >
-                      <Text style={[styles.chipText, checked && styles.chipTextActive]}>{subject.name}</Text>
+                      <Text style={[styles.chipText, { color: theme.text }, checked && { color: theme.primaryText }]}>{subject.name}</Text>
                     </Pressable>
                   );
                 })}
@@ -707,14 +731,15 @@ export default function ExamsTab() {
               {form.subjects.length ? (
                 <View style={styles.spaceTop}>
                   {form.subjects.map((s) => (
-                    <View key={s.subject_id} style={styles.subjectRow}>
-                      <Text style={styles.subjectName}>{s.subject_name}</Text>
+                    <View key={s.subject_id} style={[styles.subjectRow, { borderColor: theme.border, backgroundColor: theme.cardMuted }]}>
+                      <Text style={[styles.subjectName, { color: theme.text }]}>{s.subject_name}</Text>
                       <TextInput
-                        style={styles.marksInput}
+                        style={[styles.marksInput, { borderColor: theme.border, backgroundColor: theme.inputBg, color: theme.text }]}
                         keyboardType="number-pad"
                         value={String(s.max_marks)}
                         onChangeText={(v) => updateSubjectField(s.subject_id, "max_marks", v)}
                         placeholder="Max"
+                        placeholderTextColor={theme.mutedText}
                       />
                     </View>
                   ))}
@@ -723,17 +748,41 @@ export default function ExamsTab() {
             </ScrollView>
 
             <View style={styles.modalFooter}>
-              <Pressable style={styles.modalSecondaryBtn} onPress={() => setOpen(false)} disabled={saving}>
-                <Text style={styles.secondaryBtnText}>Cancel</Text>
+              <Pressable style={[styles.modalSecondaryBtn, { backgroundColor: theme.card, borderColor: theme.border }]} onPress={() => setOpen(false)} disabled={saving}>
+                <Text style={[styles.secondaryBtnText, { color: theme.text }]}>Cancel</Text>
               </Pressable>
-              <Pressable style={styles.modalPrimaryBtn} onPress={submitForm} disabled={saving}>
-                <Text style={styles.primaryBtnText}>{saving ? "Saving..." : editingId ? "Update" : "Save"}</Text>
+              <Pressable style={[styles.modalPrimaryBtn, { backgroundColor: theme.success, borderColor: theme.successBorder }]} onPress={submitForm} disabled={saving}>
+                <Text style={[styles.primaryBtnText, { color: theme.successText }]}>{saving ? "Saving..." : editingId ? "Update" : "Save"}</Text>
               </Pressable>
             </View>
           </View>
         </View>
       </Modal>
+      <Modal visible={deleteTarget !== null} transparent animationType="fade" onRequestClose={() => setDeleteTarget(null)}>
+        <View style={styles.modalOverlay}>
+          <Pressable style={[styles.modalBackdrop, { backgroundColor: theme.overlay }]} onPress={() => setDeleteTarget(null)} />
+          <View style={[styles.confirmCard, { backgroundColor: theme.card, borderColor: theme.dangerBorder }]}>
+            <View style={[styles.confirmIcon, { backgroundColor: theme.dangerSoft, borderColor: theme.dangerBorder }]}>
+              <Text style={[styles.confirmIconText, { color: theme.danger }]}>x</Text>
+            </View>
+            <Text style={[styles.confirmTitle, { color: theme.text }]}>Delete Exam</Text>
+            <Text style={[styles.confirmMessage, { color: theme.subText }]}>
+              {deleteTarget ? `This will remove ${deleteTarget.name}.` : ""}
+            </Text>
+            <View style={styles.rowActions}>
+              <Pressable style={[styles.secondaryBtn, { borderColor: theme.border, backgroundColor: theme.card }]} onPress={() => setDeleteTarget(null)} disabled={saving}>
+                <Text style={styles.secondaryBtnText}>Cancel</Text>
+              </Pressable>
+              <Pressable style={[styles.deleteBtn, { backgroundColor: theme.dangerSoft, borderColor: theme.dangerBorder }]} onPress={handleDelete} disabled={saving}>
+                <Text style={styles.deleteBtnText}>{saving ? "Deleting..." : "Delete"}</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
+      </View>
     </ScrollView>
+    </View>
   );
 }
 
@@ -762,20 +811,32 @@ function getErrorMessage(err: unknown, fallback: string) {
 }
 
 const styles = StyleSheet.create({
+  screen: {
+    flex: 1,
+  },
   root: {
     flex: 1,
   },
   content: {
+    paddingHorizontal: 14,
+    paddingTop: 10,
+    paddingBottom: 120,
+  },
+  innerContent: {
     gap: 12,
-    paddingBottom: 8,
+  },
+  topNoticeOverlay: {
+    position: "absolute",
+    top: 10,
+    left: 14,
+    right: 14,
+    zIndex: 20,
+    elevation: 20,
   },
   heroCard: {
-    borderWidth: 1,
-    borderColor: "#e2e8f0",
-    borderRadius: 16,
-    backgroundColor: "#ffffff",
-    padding: 16,
-    gap: 12,
+    borderRadius: 24,
+    paddingVertical: 2,
+    gap: 10,
   },
   heroActions: {
     flexDirection: "row",
@@ -789,6 +850,13 @@ const styles = StyleSheet.create({
   },
   heroText: {
     flex: 1,
+  },
+  heroEyebrow: {
+    fontSize: 12,
+    fontWeight: "700",
+    letterSpacing: 1.1,
+    textTransform: "uppercase",
+    marginBottom: 4,
   },
   noticeCard: {
     borderRadius: 18,
@@ -829,8 +897,7 @@ const styles = StyleSheet.create({
     flex: 1,
     borderWidth: 1,
     borderColor: "#e2e8f0",
-    borderRadius: 14,
-    backgroundColor: "#ffffff",
+    borderRadius: 16,
     padding: 12,
   },
   summaryLabel: {
@@ -847,8 +914,7 @@ const styles = StyleSheet.create({
   filterCard: {
     borderWidth: 1,
     borderColor: "#e2e8f0",
-    borderRadius: 16,
-    backgroundColor: "#ffffff",
+    borderRadius: 18,
     padding: 14,
   },
   filterTitle: {
@@ -874,7 +940,6 @@ const styles = StyleSheet.create({
     fontWeight: "600",
   },
   primaryBtn: {
-    backgroundColor: "#0f172a",
     paddingHorizontal: 14,
     paddingVertical: 10,
     borderRadius: 10,
@@ -883,10 +948,9 @@ const styles = StyleSheet.create({
   },
   heroPrimaryBtn: {
     flex: 1,
-    backgroundColor: "#0f172a",
     paddingHorizontal: 14,
     paddingVertical: 11,
-    borderRadius: 12,
+    borderRadius: 14,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -926,7 +990,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#e2e8f0",
     borderRadius: 18,
-    backgroundColor: "#ffffff",
     padding: 14,
     gap: 12,
     marginLeft: "auto",
@@ -937,7 +1000,6 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
   primaryBtnText: {
-    color: "#fff",
     fontWeight: "700",
   },
   secondaryBtn: {
@@ -984,7 +1046,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#e2e8f0",
     borderRadius: 20,
-    backgroundColor: "#ffffff",
     paddingHorizontal: 14,
     paddingVertical: 12,
     gap: 8,
@@ -1068,7 +1129,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#e2e8f0",
     borderRadius: 16,
-    backgroundColor: "#ffffff",
     padding: 18,
     alignItems: "center",
   },
@@ -1091,7 +1151,7 @@ const styles = StyleSheet.create({
   },
   modalCard: {
     maxHeight: "92%",
-    backgroundColor: "#ffffff",
+    borderWidth: 1,
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     padding: 16,
@@ -1225,10 +1285,10 @@ const styles = StyleSheet.create({
   },
   modalPrimaryBtn: {
     flex: 1,
-    backgroundColor: "#0f172a",
     paddingHorizontal: 14,
     paddingVertical: 10,
     borderRadius: 10,
+    borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -1246,11 +1306,40 @@ const styles = StyleSheet.create({
   spaceTop: {
     marginTop: 10,
   },
+  confirmCard: {
+    marginHorizontal: 20,
+    marginTop: "auto",
+    marginBottom: 120,
+    borderWidth: 1,
+    borderRadius: 24,
+    paddingHorizontal: 20,
+    paddingVertical: 22,
+    alignItems: "center",
+    gap: 10,
+  },
+  confirmIcon: {
+    width: 54,
+    height: 54,
+    borderRadius: 27,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  confirmIconText: {
+    fontSize: 28,
+    fontWeight: "800",
+    lineHeight: 30,
+    textTransform: "uppercase",
+  },
+  confirmTitle: {
+    fontSize: 18,
+    fontWeight: "800",
+    textAlign: "center",
+  },
+  confirmMessage: {
+    fontSize: 13,
+    lineHeight: 20,
+    textAlign: "center",
+    marginBottom: 4,
+  },
 });
-
-
-
-
-
-
-

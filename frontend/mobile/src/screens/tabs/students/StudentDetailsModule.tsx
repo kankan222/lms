@@ -37,16 +37,38 @@ function statusPalette(value: string) {
   return { borderColor: "#cbd5e1", backgroundColor: "#f8fafc", color: "#475569" };
 }
 
-function summaryPalette(tone: "default" | "blue" | "green" | "violet") {
-  if (tone === "blue") return { borderColor: "#bfdbfe", backgroundColor: "#eff6ff", color: "#1d4ed8" };
-  if (tone === "green") return { borderColor: "#bbf7d0", backgroundColor: "#f0fdf4", color: "#15803d" };
-  if (tone === "violet") return { borderColor: "#ddd6fe", backgroundColor: "#f5f3ff", color: "#6d28d9" };
-  return { borderColor: "#e2e8f0", backgroundColor: "#ffffff", color: "#0f172a" };
+function summaryPalette(tone: "default" | "blue" | "green" | "violet", isDark: boolean) {
+  if (tone === "blue") {
+    return {
+      borderColor: isDark ? "#1d4ed8" : "#bfdbfe",
+      backgroundColor: isDark ? "#172554" : "#eff6ff",
+      color: isDark ? "#bfdbfe" : "#1d4ed8",
+    };
+  }
+  if (tone === "green") {
+    return {
+      borderColor: isDark ? "#15803d" : "#bbf7d0",
+      backgroundColor: isDark ? "#14532d" : "#f0fdf4",
+      color: isDark ? "#bbf7d0" : "#15803d",
+    };
+  }
+  if (tone === "violet") {
+    return {
+      borderColor: isDark ? "#7c3aed" : "#ddd6fe",
+      backgroundColor: isDark ? "#3b0764" : "#f5f3ff",
+      color: isDark ? "#ddd6fe" : "#6d28d9",
+    };
+  }
+  return {
+    borderColor: isDark ? "#475569" : "#e2e8f0",
+    backgroundColor: isDark ? "#1e293b" : "#ffffff",
+    color: isDark ? "#f8fafc" : "#0f172a",
+  };
 }
 
 function FilterChip({ label, active, onPress }: { label: string; active: boolean; onPress: () => void }) {
   const { theme } = useAppTheme();
-  return <Pressable style={[styles.filterChip, { borderColor: theme.border, backgroundColor: theme.cardMuted }, active && styles.filterChipActive]} onPress={onPress}><Text style={[styles.filterChipText, { color: theme.subText }, active && styles.filterChipTextActive]}>{label}</Text></Pressable>;
+  return <Pressable style={[styles.filterChip, { borderColor: theme.border, backgroundColor: theme.cardMuted }, active && { borderColor: theme.primary, backgroundColor: theme.primary }]} onPress={onPress}><Text style={[styles.filterChipText, { color: theme.subText }, active && { color: theme.primaryText }]}>{label}</Text></Pressable>;
 }
 
 function StatusChip({ value }: { value: string }) {
@@ -61,7 +83,7 @@ function SectionCard({ title: heading, hint, children }: { title: string; hint?:
 
 function SummaryCard({ label, value, tone = "default" }: { label: string; value: string | number; tone?: "default" | "blue" | "green" | "violet" }) {
   const { theme } = useAppTheme();
-  const palette = summaryPalette(tone);
+  const palette = summaryPalette(tone, theme.isDark);
   return <View style={[styles.summaryCard, { borderColor: palette.borderColor, backgroundColor: palette.backgroundColor }]}><Text style={[styles.summaryValue, { color: palette.color }]}>{value}</Text><Text style={[styles.summaryLabel, { color: theme.subText }]}>{label}</Text></View>;
 }
 
@@ -77,7 +99,7 @@ function InfoRow({ label, value }: { label: string; value: string }) {
 }
 
 export default function StudentDetailsModule({ studentId, exams }: Props) {
-  const { theme, isDark } = useAppTheme();
+  const { theme } = useAppTheme();
   const user = useAuthStore((state) => state.user);
   const isParent = Boolean(user?.roles?.includes("parent"));
   const [loading, setLoading] = useState(false);
@@ -229,7 +251,9 @@ export default function StudentDetailsModule({ studentId, exams }: Props) {
 
   return (
     <View style={styles.root}>
+      <TopNotice notice={notice} style={styles.topNoticeOverlay} />
       <View style={[styles.heroCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+        <Text style={[styles.heroEyebrow, { color: theme.subText }]}>Overview</Text>
         <View style={styles.heroTop}>
           {photoUri ? <Image source={{ uri: photoUri }} style={[styles.photo, { backgroundColor: theme.cardMuted }]} /> : <View style={[styles.avatarFallback, { backgroundColor: theme.cardMuted }]}><Text style={[styles.avatarText, { color: theme.text }]}>{(student.name || "S").slice(0, 1).toUpperCase()}</Text></View>}
           <View style={styles.heroCopy}>
@@ -250,8 +274,6 @@ export default function StudentDetailsModule({ studentId, exams }: Props) {
           <SummaryCard label="Paid Total" value={fmtCurrency(totalPaid)} />
         </View>
       </View>
-
-      <TopNotice notice={notice} />
 
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tabsRow}>
         {(["overview", "parents", "attendance", "fees", "reports"] as TabKey[]).map((tab) => <FilterChip key={tab} label={title(tab)} active={activeTab === tab} onPress={() => setActiveTab(tab)} />)}
@@ -395,7 +417,7 @@ export default function StudentDetailsModule({ studentId, exams }: Props) {
               {reportExams.map((exam) => <FilterChip key={exam.id} label={exam.name} active={selectedExamId === exam.id} onPress={() => setSelectedExamId(exam.id)} />)}
             </ScrollView>
             <View style={styles.actionRow}>
-              <Pressable style={[styles.primaryBtn, { backgroundColor: isDark ? "#e2e8f0" : "#0f172a" }, (!selectedExamId || !report) && styles.btnDisabled]} disabled={!selectedExamId || !report} onPress={handleDownloadMarksheet}><Text style={[styles.primaryBtnText, { color: isDark ? "#0f172a" : "#ffffff" }]}>Download Marksheet</Text></Pressable>
+              <Pressable style={[styles.primaryBtn, { backgroundColor: theme.primary }, (!selectedExamId || !report) && styles.btnDisabled]} disabled={!selectedExamId || !report} onPress={handleDownloadMarksheet}><Text style={[styles.primaryBtnText, { color: theme.primaryText }]}>Download Marksheet</Text></Pressable>
             </View>
             {reportLoading ? <ActivityIndicator color={theme.text} /> : null}
             {reportError ? <Text style={styles.errorText}>{reportError}</Text> : null}
@@ -435,9 +457,11 @@ export default function StudentDetailsModule({ studentId, exams }: Props) {
 }
 
 const styles = StyleSheet.create({
-  root: { gap: 14, paddingBottom: 8 },
+  root: { position: "relative", gap: 14, paddingBottom: 8 },
   centered: { minHeight: 260, alignItems: "center", justifyContent: "center" },
-  heroCard: { backgroundColor: "#ffffff", borderRadius: 24, borderWidth: 1, borderColor: "#e2e8f0", padding: 16, gap: 14 },
+  topNoticeOverlay: { position: "absolute", top: 0, left: 0, right: 0, zIndex: 20, elevation: 20 },
+  heroCard: { backgroundColor: "#ffffff", borderRadius: 24, borderWidth: 1, borderColor: "#e2e8f0", padding: 16, gap: 12 },
+  heroEyebrow: { fontSize: 12, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.6, marginBottom: -2 },
   heroTop: { flexDirection: "row", gap: 14 },
   photo: { width: 76, height: 76, borderRadius: 22, backgroundColor: "#e2e8f0" },
   avatarFallback: { width: 76, height: 76, borderRadius: 22, backgroundColor: "#e2e8f0", alignItems: "center", justifyContent: "center" },

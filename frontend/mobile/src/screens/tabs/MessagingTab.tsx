@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  BackHandler,
   Image,
   Modal,
   Pressable,
@@ -31,6 +32,10 @@ import {
 } from "../../services/messagingService";
 import { formatDateLabel, formatTimeLabel } from "../../utils/format";
 
+type Props = {
+  onConversationViewChange?: (isConversationOpen: boolean) => void;
+};
+
 type Notice = { title: string; message: string; tone: "success" | "error" } | null;
 type Screen = "list" | "chat";
 type Compose = {
@@ -51,6 +56,24 @@ const EMPTY_COMPOSE: Compose = {
   teacher_type: "all",
   message: "",
 };
+
+const DEFAULT_THEME = {
+  bg: "#f8fafc",
+  card: "#ffffff",
+  cardMuted: "#f8fafc",
+  text: "#0f172a",
+  subText: "#64748b",
+  mutedText: "#94a3b8",
+  border: "#e2e8f0",
+  inputBg: "#ffffff",
+  overlay: "rgba(15, 23, 42, 0.28)",
+  icon: "#334155",
+  primary: "#0f172a",
+  primaryText: "#ffffff",
+  success: "#15803d",
+  successText: "#ffffff",
+};
+let styles = createStyles(DEFAULT_THEME);
 
 function getErrorMessage(err: unknown, fallback: string) {
   if (typeof err === "object" && err && "response" in err) {
@@ -81,14 +104,22 @@ function presenceText(conversation?: ConversationItem | null) {
 }
 
 function Avatar({ label, online, imageUrl }: { label?: string | null; online?: boolean; imageUrl?: string | null }) {
+  const { theme, isDark } = useAppTheme();
   const resolvedImage = resolveMediaUrl(imageUrl);
   return (
     <View style={styles.avatarWrap}>
-      <View style={styles.avatarCircle}>
+      <View
+        style={[
+          styles.avatarCircle,
+          {
+            backgroundColor: isDark ? theme.cardMuted : theme.primary,
+          },
+        ]}
+      >
         {resolvedImage ? (
           <Image source={{ uri: resolvedImage }} style={styles.avatarImage} />
         ) : (
-          <Text style={styles.avatarText}>{firstLetter(label)}</Text>
+          <Text style={[styles.avatarText, { color: isDark ? theme.text : theme.primaryText }]}>{firstLetter(label)}</Text>
         )}
       </View>
       <View style={[styles.presenceDot, online ? styles.presenceOnline : styles.presenceOffline]} />
@@ -96,8 +127,9 @@ function Avatar({ label, online, imageUrl }: { label?: string | null; online?: b
   );
 }
 
-export default function MessagingTab() {
+export default function MessagingTab({ onConversationViewChange }: Props) {
   const { theme, isDark } = useAppTheme();
+  styles = useMemo(() => createStyles(theme), [theme]);
   const insets = useSafeAreaInsets();
   const user = useAuthStore((state) => state.user);
   const isSuperAdmin = Array.isArray(user?.roles) && user.roles.includes("super_admin");
@@ -313,6 +345,20 @@ export default function MessagingTab() {
   }, [activeConversationId, screen]);
 
   useEffect(() => {
+    onConversationViewChange?.(screen === "chat");
+    return () => onConversationViewChange?.(false);
+  }, [onConversationViewChange, screen]);
+
+  useEffect(() => {
+    if (screen !== "chat") return undefined;
+    const subscription = BackHandler.addEventListener("hardwareBackPress", () => {
+      setScreen("list");
+      return true;
+    });
+    return () => subscription.remove();
+  }, [screen]);
+
+  useEffect(() => {
     const timer = setInterval(() => {
       void loadConversations(true);
       if (screen === "chat" && activeConversationId) {
@@ -467,27 +513,35 @@ export default function MessagingTab() {
   return (
     <>
       {screen === "list" ? (
-        <View style={[styles.root, { backgroundColor: theme.bg }]}>
+        <View style={[styles.screen, { backgroundColor: theme.bg }]}>
+          <TopNotice notice={notice} style={styles.topNoticeOverlay} />
           <ScrollView
             style={styles.root}
             contentContainerStyle={styles.content}
             refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void onRefresh()} />}
             showsVerticalScrollIndicator={false}
           >
-            <TopNotice notice={notice} />
-
-            {isSuperAdmin ? (
-              <View style={styles.topActionRow}>
-                <Pressable style={styles.topActionBtn} onPress={() => setComposeOpen(true)}>
-                  <Ionicons name="create-outline" size={18} color="#fff" />
-                  <Text style={styles.topActionText}>New Conversation</Text>
-                </Pressable>
+            <View style={styles.innerContent}>
+              <View style={styles.heroCard}>
+                <View style={styles.heroCopy}>
+                  <Text style={styles.heroEyebrow}>Overview</Text>
+                  <Text style={styles.heroTitle}>Messaging</Text>
+                  <Text style={styles.heroSubtitle}>
+                    Review conversations, continue live chat threads, and send new messages.
+                  </Text>
+                </View>
+                {isSuperAdmin ? (
+                  <View style={styles.heroPrimaryActions}>
+                    <Pressable style={styles.topActionBtn} onPress={() => setComposeOpen(true)}>
+                      <Ionicons name="create-outline" size={18} color={theme.successText} />
+                      <Text style={styles.topActionText}>New Conversation</Text>
+                    </Pressable>
+                  </View>
+                ) : null}
               </View>
-            ) : null}
 
-            <>
               <View style={[styles.searchWrap, { borderColor: theme.border, backgroundColor: theme.card }]}>
-                <Ionicons name="search-outline" size={18} color={theme.subText} />
+                <Ionicons name="search-outline" size={16} color={theme.icon} />
                 <TextInput
                   value={search}
                   onChangeText={setSearch}
@@ -519,93 +573,92 @@ export default function MessagingTab() {
                         <Text style={[styles.rowTitle, { color: theme.text }]} numberOfLines={1}>
                           {conversation.name || conversation.type}
                         </Text>
-                        <Text style={[styles.rowTime, { color: theme.subText }]}>
-                          {conversation.last_message_at ? formatTimeLabel(conversation.last_message_at) : ""}
-                        </Text>
+                        {Number(conversation.unread || 0) > 0 ? <Text style={styles.unread}>{conversation.unread}</Text> : null}
                       </View>
                       <Text style={[styles.rowPreview, { color: theme.subText }]} numberOfLines={1}>
                         {conversation.last_message || "No messages yet"}
                       </Text>
-                      <View style={styles.rowTop}>
-                        <Text style={[styles.rowMeta, { color: theme.subText }]} numberOfLines={1}>
-                          {presenceText(conversation)}
-                        </Text>
-                        {Number(conversation.unread || 0) > 0 ? <Text style={styles.unread}>{conversation.unread}</Text> : null}
-                      </View>
                     </View>
                   </Pressable>
                 ))
               ) : (
                 <View style={[styles.emptyCard, { borderColor: theme.border, backgroundColor: theme.card }]}>
-                  <Ionicons name="chatbubble-ellipses-outline" size={22} color={theme.subText} />
+                  <Ionicons name="chatbubble-ellipses-outline" size={24} color={theme.icon} />
                   <Text style={[styles.emptyTitle, { color: theme.text }]}>No conversations</Text>
                   <Text style={[styles.emptyText, { color: theme.subText }]}>
                     {search.trim() ? "Try a different search." : "Your conversations will appear here."}
                   </Text>
                 </View>
               )}
-            </>
+            </View>
           </ScrollView>
 
         </View>
       ) : (
         <View style={[styles.chatScreen, { backgroundColor: theme.bg }]}>
-          <TopNotice notice={notice} />
-          <View style={[styles.chatHeader, { borderColor: theme.border, backgroundColor: theme.card }]}>
-            <Pressable style={[styles.iconBtn, { backgroundColor: isDark ? theme.cardMuted : theme.bg }]} onPress={() => setScreen("list")}>
-              <Ionicons name="arrow-back-outline" size={20} color={theme.icon} />
-            </Pressable>
-            <Avatar
-              label={activeConversation?.name || activeConversation?.type}
-              online={activeConversation?.online}
-              imageUrl={activeConversation?.other_user_image_url}
-            />
-            <View style={styles.chatHeaderCopy}>
-              <Text style={[styles.rowTitle, { color: theme.text }]}>{activeConversation?.name || "Chat"}</Text>
-              <Text style={[styles.rowMeta, { color: theme.subText }]}>{presenceText(activeConversation)}</Text>
+          <TopNotice notice={notice} style={styles.topNoticeOverlay} />
+          <View style={styles.chatInnerContent}>
+            <View style={styles.chatHeroCard}>
+              <Text style={styles.heroEyebrow}>Conversation</Text>
+              <View style={[styles.chatHeader, { borderColor: theme.border, backgroundColor: theme.card }]}>
+                <Pressable style={[styles.iconBtn, { backgroundColor: isDark ? theme.cardMuted : theme.bg }]} onPress={() => setScreen("list")}>
+                  <Ionicons name="arrow-back-outline" size={20} color={theme.icon} />
+                </Pressable>
+                <Avatar
+                  label={activeConversation?.name || activeConversation?.type}
+                  online={activeConversation?.online}
+                  imageUrl={activeConversation?.other_user_image_url}
+                />
+                <View style={styles.chatHeaderCopy}>
+                  <Text style={[styles.rowTitle, { color: theme.text }]}>{activeConversation?.name || "Chat"}</Text>
+                  <Text style={[styles.rowMeta, { color: theme.subText }]}>{presenceText(activeConversation)}</Text>
+                </View>
+              </View>
             </View>
-          </View>
 
-          <View style={[styles.chatMessagesPanel, { borderColor: theme.border, backgroundColor: theme.cardMuted }]}>
-            <ScrollView
-              style={styles.chatMessagesScroll}
-              contentContainerStyle={[styles.chatMessagesContent, { paddingBottom: 16 }]}
-              showsVerticalScrollIndicator={false}
-            >
-              {loadingMessages ? (
-                <View style={styles.centered}><ActivityIndicator size="small" color={theme.icon} /></View>
-              ) : messages.length ? (
-                messages.map((message) => {
-                  const mine = Number(message.sender_id) === Number(user?.id);
-                  return (
-                    <View key={message.id} style={[styles.messageRow, mine ? styles.mine : styles.other]}>
-                      {!mine ? <Avatar label={message.sender_name || message.username} imageUrl={message.sender_image_url} /> : null}
+            <View style={[styles.chatMessagesPanel, { borderColor: theme.border, backgroundColor: theme.cardMuted }]}>
+              <ScrollView
+                style={styles.chatMessagesScroll}
+                contentContainerStyle={[styles.chatMessagesContent, { paddingBottom: 16 }]}
+                showsVerticalScrollIndicator={false}
+              >
+                {loadingMessages ? (
+                  <View style={styles.centered}><ActivityIndicator size="small" color={theme.icon} /></View>
+                ) : messages.length ? (
+                  messages.map((message) => {
+                    const mine = Number(message.sender_id) === Number(user?.id);
+                    return (
+                      <View key={message.id} style={[styles.messageRow, mine ? styles.mine : styles.other]}>
+                        {!mine ? <Avatar label={message.sender_name || message.username} imageUrl={message.sender_image_url} /> : null}
                       <View style={[
                         styles.bubble,
-                        mine ? styles.bubbleMine : { backgroundColor: theme.card, borderColor: theme.border, borderWidth: 1 },
+                        mine
+                          ? { backgroundColor: theme.cardMuted, borderColor: theme.border, borderWidth: 1, borderTopRightRadius: 6 }
+                          : { backgroundColor: theme.card, borderColor: theme.border, borderWidth: 1 },
                       ]}>
-                        {!mine ? <Text style={styles.senderName}>{message.sender_name || message.username}</Text> : null}
+                        {!mine ? <Text style={[styles.senderName, { color: theme.subText }]}>{message.sender_name || message.username}</Text> : null}
                         <Text style={[styles.messageText, { color: theme.text }]}>{message.message}</Text>
                         <Text style={[styles.bubbleTime, { color: theme.subText }]}>{formatTimeLabel(message.created_at)}</Text>
                       </View>
-                    </View>
-                  );
-                })
-              ) : (
-                <View style={[styles.emptyCard, { borderColor: theme.border, backgroundColor: theme.card }]}>
-                  <Ionicons name="chatbox-outline" size={22} color={theme.subText} />
-                  <Text style={[styles.emptyTitle, { color: theme.text }]}>No messages yet</Text>
-                  <Text style={[styles.emptyText, { color: theme.subText }]}>Start the conversation with a reply below.</Text>
-                </View>
-              )}
-            </ScrollView>
+                      </View>
+                    );
+                  })
+                ) : (
+                  <View style={[styles.emptyCard, { borderColor: theme.border, backgroundColor: theme.card }]}>
+                  <Ionicons name="chatbox-outline" size={24} color={theme.icon} />
+                    <Text style={[styles.emptyTitle, { color: theme.text }]}>No messages yet</Text>
+                    <Text style={[styles.emptyText, { color: theme.subText }]}>Start the conversation with a reply below.</Text>
+                  </View>
+                )}
+              </ScrollView>
+            </View>
           </View>
 
           <View
             style={[
               styles.replyBarWrap,
               {
-                paddingBottom: Math.max(insets.bottom, 10) - 105,
+                paddingBottom: Math.max(insets.bottom, 10),
                 backgroundColor: theme.bg,
               },
             ]}
@@ -799,7 +852,7 @@ export default function MessagingTab() {
               <Pressable style={[styles.secondaryBtn, { borderColor: theme.border, backgroundColor: theme.card }]} onPress={() => setComposeOpen(false)}>
                 <Text style={[styles.secondaryText, { color: theme.text }]}>Cancel</Text>
               </Pressable>
-              <Pressable style={styles.primaryBtn} onPress={() => void sendNewMessage()} disabled={sending}>
+              <Pressable style={[styles.primaryBtn, { backgroundColor: theme.success }]} onPress={() => void sendNewMessage()} disabled={sending}>
                 <Text style={styles.primaryText}>{sending ? "Sending..." : "Send"}</Text>
               </Pressable>
             </View>
@@ -810,10 +863,29 @@ export default function MessagingTab() {
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(theme: typeof DEFAULT_THEME) {
+return StyleSheet.create({
+  screen: { flex: 1 },
   root: { flex: 1 },
-  chatScreen: { flex: 1, minHeight: 0, gap: 6 },
-  content: { gap: 12, paddingBottom: 110 },
+  chatScreen: { flex: 1, minHeight: 0 },
+  chatInnerContent: { flex: 1, gap: 12, paddingHorizontal: 14, paddingTop: 10 },
+  content: { paddingHorizontal: 14, paddingTop: 10, paddingBottom: 120 },
+  innerContent: { gap: 12 },
+  topNoticeOverlay: {
+    position: "absolute",
+    top: 10,
+    left: 14,
+    right: 14,
+    zIndex: 20,
+    elevation: 20,
+  },
+  heroCard: { borderRadius: 24, paddingVertical: 2, gap: 10 },
+  chatHeroCard: { borderRadius: 24, paddingVertical: 2, gap: 10 },
+  heroCopy: { gap: 6 },
+  heroPrimaryActions: { flexDirection: "row", gap: 10 },
+  heroEyebrow: { color: theme.subText, fontSize: 12, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.6 },
+  heroTitle: { color: theme.text, fontWeight: "800", fontSize: 22 },
+  heroSubtitle: { color: theme.subText, lineHeight: 20 },
   chatMessagesScroll: { flex: 1, minHeight: 0 },
   chatMessagesContent: { gap: 10, paddingTop: 2 },
   chatMessagesPanel: {
@@ -828,44 +900,44 @@ const styles = StyleSheet.create({
   },
   centered: { alignItems: "center", justifyContent: "center", paddingVertical: 24 },
   topActionRow: { alignItems: "flex-end" },
-  topActionBtn: { flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: "#15803d", paddingHorizontal: 14, paddingVertical: 10, borderRadius: 14 },
-  topActionText: { color: "#fff", fontWeight: "700" },
-  searchWrap: { flexDirection: "row", alignItems: "center", gap: 8, borderWidth: 1, borderRadius: 18, paddingHorizontal: 12, paddingVertical: 10 },
+  topActionBtn: { flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: theme.success, paddingHorizontal: 14, paddingVertical: 10, borderRadius: 14 },
+  topActionText: { color: theme.successText, fontWeight: "700" },
+  searchWrap: { flexDirection: "row", alignItems: "center", gap: 8, borderWidth: 1, borderRadius: 16, paddingHorizontal: 11, minHeight: 44 },
   searchInput: { flex: 1, fontSize: 14 },
   rowCard: { flexDirection: "row", gap: 12, borderWidth: 1, borderRadius: 20, padding: 12 },
-  rowBody: { flex: 1, gap: 4 },
+  rowBody: { flex: 1, gap: 4, justifyContent: "center" },
   rowTop: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 },
   rowTitle: { fontSize: 15, fontWeight: "800", flex: 1 },
   rowTime: { fontSize: 11 },
   rowPreview: { fontSize: 13 },
   rowMeta: { fontSize: 12, flex: 1 },
-  unread: { minWidth: 20, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 999, textAlign: "center", backgroundColor: "#16a34a", color: "#fff", fontSize: 11, fontWeight: "700" },
+  unread: { minWidth: 20, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 999, textAlign: "center", backgroundColor: theme.success, color: theme.successText, fontSize: 11, fontWeight: "700" },
   emptyCard: { borderWidth: 1, borderRadius: 20, paddingHorizontal: 18, paddingVertical: 24, alignItems: "center", justifyContent: "center", gap: 8 },
   emptyTitle: { fontSize: 15, fontWeight: "800" },
   avatarWrap: { width: 46, height: 46, alignItems: "center", justifyContent: "center", position: "relative" },
-  avatarCircle: { width: 42, height: 42, borderRadius: 21, backgroundColor: "#e2e8f0", alignItems: "center", justifyContent: "center" },
+  avatarCircle: { width: 42, height: 42, borderRadius: 21, alignItems: "center", justifyContent: "center" },
   avatarImage: { width: 42, height: 42, borderRadius: 21 },
-  avatarText: { color: "#0f172a", fontWeight: "800", fontSize: 16 },
-  presenceDot: { position: "absolute", right: 2, bottom: 2, width: 12, height: 12, borderRadius: 6, borderWidth: 2, borderColor: "#fff" },
+  avatarText: { color: theme.text, fontWeight: "800", fontSize: 16 },
+  presenceDot: { position: "absolute", right: 2, bottom: 2, width: 12, height: 12, borderRadius: 6, borderWidth: 2, borderColor: theme.card },
   presenceOnline: { backgroundColor: "#22c55e" },
   presenceOffline: { backgroundColor: "#ef4444" },
-  chatHeader: { flexDirection: "row", alignItems: "center", gap: 10, borderWidth: 1, borderRadius: 22, paddingHorizontal: 12, paddingVertical: 8 },
+  chatHeader: { flexDirection: "row", alignItems: "center", gap: 10, borderWidth: 1, borderRadius: 22, paddingHorizontal: 12, paddingVertical: 10 },
   iconBtn: { width: 36, height: 36, borderRadius: 12, alignItems: "center", justifyContent: "center" },
   chatHeaderCopy: { flex: 1, gap: 2 },
   messageRow: { flexDirection: "row", gap: 8 },
   mine: { justifyContent: "flex-end" },
   other: { justifyContent: "flex-start" },
   bubble: { maxWidth: "82%", borderRadius: 18, paddingHorizontal: 12, paddingVertical: 10 },
-  bubbleMine: { backgroundColor: "#dcfce7", borderTopRightRadius: 6, borderWidth: 1, borderColor: "#bbf7d0" },
-  senderName: { color: "#166534", fontSize: 11, fontWeight: "700", marginBottom: 4 },
+  bubbleMine: { borderTopRightRadius: 6 },
+  senderName: { fontSize: 11, fontWeight: "700", marginBottom: 4 },
   messageText: {},
   bubbleTime: { marginTop: 6, fontSize: 11 },
-  replyBarWrap: { paddingTop: 0, paddingHorizontal: 0, marginTop: "auto" },
+  replyBarWrap: { paddingTop: 0, paddingHorizontal: 14, marginTop: "auto" },
   replyBar: { flexDirection: "row", gap: 10, alignItems: "center", borderWidth: 1, borderRadius: 22, paddingHorizontal: 10, paddingVertical: 7 },
   replyInput: { flex: 1, borderWidth: 1, borderRadius: 16, paddingHorizontal: 14, paddingVertical: 9 },
-  sendBtn: { width: 44, height: 44, borderRadius: 22, backgroundColor: "#15803d", alignItems: "center", justifyContent: "center" },
+  sendBtn: { width: 44, height: 44, borderRadius: 22, backgroundColor: theme.success, alignItems: "center", justifyContent: "center" },
   modalOverlay: { flex: 1, justifyContent: "flex-end" },
-  modalBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(15, 23, 42, 0.28)" },
+  modalBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: theme.overlay },
   modalCard: { maxHeight: "88%", borderTopLeftRadius: 24, borderTopRightRadius: 24, borderWidth: 1, borderBottomWidth: 0, padding: 16, gap: 12 },
   modalTitle: { fontSize: 18, fontWeight: "800" },
   composeSection: { gap: 10, marginBottom: 12 },
@@ -878,7 +950,8 @@ const styles = StyleSheet.create({
   modalActions: { flexDirection: "row", gap: 10 },
   secondaryBtn: { flex: 1, borderWidth: 1, borderRadius: 12, paddingVertical: 11, alignItems: "center" },
   secondaryText: { fontWeight: "700" },
-  primaryBtn: { flex: 1, borderRadius: 12, backgroundColor: "#15803d", paddingVertical: 11, alignItems: "center" },
-  primaryText: { color: "#fff", fontWeight: "700" },
+  primaryBtn: { flex: 1, borderRadius: 12, paddingVertical: 11, alignItems: "center" },
+  primaryText: { color: theme.successText, fontWeight: "700" },
   emptyText: { textAlign: "center" },
 });
+}

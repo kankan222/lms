@@ -58,6 +58,23 @@ function renderTemplate(templateBody, data) {
   return templateBody.replace(/\{(\w+)\}/g, (_, key) => String(data[key] ?? ""));
 }
 
+function formatHumanReadableDate(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+
+  const parsed = new Date(raw);
+  if (Number.isNaN(parsed.getTime())) {
+    return raw;
+  }
+
+  return parsed.toLocaleDateString("en-US", {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
 async function resolveAcademicSessionId(explicitSessionId) {
   if (explicitSessionId) {
     const [session] = await repo.getAcademicSessionById(Number(explicitSessionId));
@@ -474,7 +491,7 @@ export async function notifyAbsentParents(sessionId, data, actor) {
       ? renderTemplate(template.body, {
           parent_name: row.parent_name || "Parent",
           student_name: row.student_name,
-          attendance_date: row.attendance_date,
+          attendance_date: formatHumanReadableDate(row.attendance_date),
           class_name: row.class_name || "-",
           section_name: row.section_name || "-",
           session_name: row.session_name || "-",
@@ -492,6 +509,13 @@ export async function notifyAbsentParents(sessionId, data, actor) {
         },
         actor.userId
       );
+
+      sent.push({
+        student_id: row.student_id,
+        student_name: row.student_name,
+        parent_user_id: row.parent_user_id,
+        parent_name: row.parent_name,
+      });
 
       const conn = await pool.getConnection();
 
@@ -521,25 +545,22 @@ export async function notifyAbsentParents(sessionId, data, actor) {
         await conn.commit();
       } catch (err) {
         await conn.rollback();
-        throw err;
+        console.error("Parent message logging failed after send", err);
       } finally {
         conn.release();
       }
 
-      await notificationService.dispatchNotificationUpdate([row.parent_user_id], {
-        type: "student_attendance_absent",
-        entityType: "attendance_session",
-        entityId: Number(sessionId),
-        title: notificationTitle,
-        body: messageBody,
-      });
-
-      sent.push({
-        student_id: row.student_id,
-        student_name: row.student_name,
-        parent_user_id: row.parent_user_id,
-        parent_name: row.parent_name,
-      });
+      try {
+        await notificationService.dispatchNotificationUpdate([row.parent_user_id], {
+          type: "student_attendance_absent",
+          entityType: "attendance_session",
+          entityId: Number(sessionId),
+          title: notificationTitle,
+          body: messageBody,
+        });
+      } catch (err) {
+        console.error("Parent notification dispatch failed after send", err);
+      }
     } catch (err) {
       failed.push({
         student_id: row.student_id,

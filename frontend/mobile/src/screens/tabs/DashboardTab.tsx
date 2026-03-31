@@ -1,7 +1,8 @@
 import { Pressable, StyleSheet, Text, View } from "react-native";
-import { Ionicons } from "@expo/vector-icons";
+import { useMemo } from "react";
 import { DashboardSummary } from "../../services/dashboardService";
 import { useAppTheme } from "../../theme/AppThemeProvider";
+import { DEFAULT_MOBILE_THEME, type MobileTheme } from "../../theme/mobileTheme";
 
 type Props = {
   summary: DashboardSummary | null;
@@ -40,25 +41,25 @@ function formatDateTime(value?: string | null) {
   });
 }
 
-function toneStyles(tone?: "default" | "success" | "warning") {
+function toneStyles(theme: MobileTheme, tone?: "default" | "success" | "warning") {
   if (tone === "success") {
     return {
-      borderColor: "#bbf7d0",
-      backgroundColor: "#f0fdf4",
-      valueColor: "#166534",
+      borderColor: theme.successBorder,
+      backgroundColor: theme.successSoft,
+      valueColor: theme.success,
     };
   }
   if (tone === "warning") {
     return {
-      borderColor: "#fde68a",
-      backgroundColor: "#fffbeb",
-      valueColor: "#92400e",
+      borderColor: theme.warningBorder,
+      backgroundColor: theme.warningSoft,
+      valueColor: theme.warningText,
     };
   }
   return {
-    borderColor: "#e2e8f0",
-    backgroundColor: "#ffffff",
-    valueColor: "#0f172a",
+    borderColor: theme.border,
+    backgroundColor: theme.card,
+    valueColor: theme.text,
   };
 }
 
@@ -90,7 +91,8 @@ function maxMetric<T extends Record<string, unknown>>(rows: T[], keys: string[])
 }
 
 export default function DashboardTab({ summary, loading, error, onRefresh }: Props) {
-  const { theme, isDark } = useAppTheme();
+  const { theme } = useAppTheme();
+  const styles = useMemo(() => createStyles(theme), [theme]);
   if (loading) {
     return (
       <View style={[styles.messageCard, { borderColor: theme.border, backgroundColor: theme.card }]}>
@@ -153,34 +155,28 @@ export default function DashboardTab({ summary, loading, error, onRefresh }: Pro
 
   return (
     <View style={styles.container}>
-      <View style={[styles.heroCard, { borderColor: isDark ? "#1d4ed8" : "#dbeafe", backgroundColor: isDark ? "#172554" : "#eff6ff" }]}>
+      <View style={styles.heroCard}>
         <View>
           <Text style={styles.heroEyebrow}>Overview</Text>
-          <Text style={[styles.heroTitle, { color: theme.text }]}>School operational overview</Text>
-          <Text style={[styles.heroText, { color: theme.subText }]}>
-            Live attendance, exam schedule, classroom presence, and recent activity from the current backend summary.
+          <Text style={styles.heroTitle}>School operational overview</Text>
+          <Text style={styles.heroText}>
+            Live attendance, exam schedule, classroom presence, and recent activity.
           </Text>
         </View>
-        {onRefresh ? (
-          <Pressable style={[styles.refreshButton, { borderColor: theme.border, backgroundColor: theme.card }]} onPress={onRefresh}>
-            <Ionicons name="refresh-outline" size={16} color={theme.text} />
-            <Text style={[styles.refreshButtonText, { color: theme.text }]}>Refresh</Text>
-          </Pressable>
-        ) : null}
       </View>
 
       <View style={styles.grid}>
         {stats.map((item) => {
-          const tone = toneStyles(item.tone);
+          const tone = toneStyles(theme, item.tone);
           return (
             <View
               key={item.key}
               style={[
                 styles.statCard,
-                { borderColor: tone.borderColor, backgroundColor: isDark ? theme.card : tone.backgroundColor },
+                { borderColor: tone.borderColor, backgroundColor: tone.backgroundColor },
               ]}
             >
-              <Text style={[styles.statLabel, { color: theme.subText }]}>{item.label}</Text>
+              <Text style={styles.statLabel}>{item.label}</Text>
               <Text style={[styles.statValue, { color: tone.valueColor }]}>{item.value}</Text>
             </View>
           );
@@ -400,52 +396,39 @@ export default function DashboardTab({ summary, loading, error, onRefresh }: Pro
   );
 }
 
-const styles = StyleSheet.create({
+let styles = createStyles(DEFAULT_MOBILE_THEME);
+
+function createStyles(theme: MobileTheme) {
+return StyleSheet.create({
   container: {
     gap: 14,
-    paddingBottom: 18,
+    paddingHorizontal: 14,
+    paddingTop: 10,
+    paddingBottom: 120,
   },
   heroCard: {
-    borderWidth: 1,
-    borderColor: "#dbeafe",
-    backgroundColor: "#eff6ff",
     borderRadius: 18,
-    padding: 16,
-    gap: 12,
+    paddingHorizontal: 0,
+    paddingVertical: 0,
+    gap: 8,
   },
   heroEyebrow: {
-    color: "#1d4ed8",
-    fontSize: 12,
-    fontWeight: "700",
+    color: theme.subText,
+    fontSize: theme.typography.fontSize.sm,
+    fontWeight: theme.typography.fontWeight.bold,
     textTransform: "uppercase",
     letterSpacing: 0.6,
   },
   heroTitle: {
-    marginTop: 6,
-    color: "#0f172a",
-    fontSize: 22,
-    fontWeight: "800",
+    marginTop: 4,
+    color: theme.text,
+    fontSize: theme.typography.fontSize["2xl"],
+    fontWeight: theme.typography.fontWeight.extrabold,
   },
   heroText: {
-    marginTop: 8,
-    color: "#475569",
-    lineHeight: 20,
-  },
-  refreshButton: {
-    alignSelf: "flex-start",
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    borderWidth: 1,
-    borderColor: "#bfdbfe",
-    backgroundColor: "#ffffff",
-    borderRadius: 999,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-  },
-  refreshButtonText: {
-    color: "#0f172a",
-    fontWeight: "600",
+    marginTop: 6,
+    color: theme.subText,
+    lineHeight: theme.typography.lineHeight.normal,
   },
   grid: {
     flexDirection: "row",
@@ -462,30 +445,30 @@ const styles = StyleSheet.create({
     padding: 12,
   },
   statLabel: {
-    color: "#64748b",
-    fontSize: 12,
+    color: theme.subText,
+    fontSize: theme.typography.fontSize.sm,
   },
   statValue: {
     marginTop: 8,
-    fontSize: 24,
-    fontWeight: "800",
+    fontSize: theme.typography.fontSize["3xl"],
+    fontWeight: theme.typography.fontWeight.extrabold,
   },
   sectionCard: {
     borderWidth: 1,
-    borderColor: "#e2e8f0",
+    borderColor: theme.border,
     borderRadius: 16,
-    backgroundColor: "#ffffff",
+    backgroundColor: theme.card,
     padding: 14,
     gap: 10,
   },
   sectionTitle: {
-    color: "#0f172a",
-    fontWeight: "800",
-    fontSize: 16,
+    color: theme.text,
+    fontWeight: theme.typography.fontWeight.extrabold,
+    fontSize: theme.typography.fontSize.lg,
   },
   sectionCaption: {
-    color: "#64748b",
-    fontSize: 12,
+    color: theme.subText,
+    fontSize: theme.typography.fontSize.sm,
     marginTop: -4,
   },
   analyticsCardWide: {
@@ -501,18 +484,18 @@ const styles = StyleSheet.create({
   attendanceCard: {
     flex: 1,
     borderWidth: 1,
-    borderColor: "#e2e8f0",
+    borderColor: theme.border,
     borderRadius: 12,
-    backgroundColor: "#f8fafc",
+    backgroundColor: theme.cardMuted,
     padding: 12,
   },
   attendanceTitle: {
-    fontWeight: "700",
-    color: "#0f172a",
+    fontWeight: theme.typography.fontWeight.bold,
+    color: theme.text,
     marginBottom: 8,
   },
   attendanceText: {
-    color: "#475569",
+    color: theme.subText,
     marginBottom: 4,
   },
   trendStack: {
@@ -527,9 +510,9 @@ const styles = StyleSheet.create({
     width: 36,
   },
   trendLabel: {
-    color: "#64748b",
-    fontSize: 12,
-    fontWeight: "700",
+    color: theme.subText,
+    fontSize: theme.typography.fontSize.sm,
+    fontWeight: theme.typography.fontWeight.bold,
   },
   trendBars: {
     flex: 1,
@@ -538,7 +521,7 @@ const styles = StyleSheet.create({
   trendMetric: {
     height: 8,
     borderRadius: 999,
-    backgroundColor: "#eef2ff",
+    backgroundColor: theme.cardMuted,
     overflow: "hidden",
   },
   trendBar: {
@@ -546,29 +529,29 @@ const styles = StyleSheet.create({
     borderRadius: 999,
   },
   trendBarPrimary: {
-    backgroundColor: "#2563eb",
+    backgroundColor: theme.info,
   },
   trendBarSuccess: {
-    backgroundColor: "#16a34a",
+    backgroundColor: theme.success,
   },
   trendBarDanger: {
-    backgroundColor: "#dc2626",
+    backgroundColor: theme.danger,
   },
   trendBarWarning: {
-    backgroundColor: "#d97706",
+    backgroundColor: theme.warning,
   },
   trendValues: {
     width: 82,
     alignItems: "flex-end",
   },
   trendValue: {
-    color: "#0f172a",
-    fontSize: 12,
-    fontWeight: "700",
+    color: theme.text,
+    fontSize: theme.typography.fontSize.sm,
+    fontWeight: theme.typography.fontWeight.bold,
   },
   trendSubValue: {
-    color: "#64748b",
-    fontSize: 11,
+    color: theme.subText,
+    fontSize: theme.typography.fontSize.xs,
     marginTop: 2,
   },
   tripleTrendBars: {
@@ -585,13 +568,13 @@ const styles = StyleSheet.create({
   trendValueCompact: {
     width: 96,
     textAlign: "right",
-    color: "#475569",
-    fontSize: 11,
-    fontWeight: "600",
+    color: theme.subText,
+    fontSize: theme.typography.fontSize.xs,
+    fontWeight: theme.typography.fontWeight.semibold,
   },
   feeStatusRow: {
     borderTopWidth: 1,
-    borderTopColor: "#f1f5f9",
+    borderTopColor: theme.border,
     paddingTop: 10,
     gap: 4,
   },
@@ -612,18 +595,18 @@ const styles = StyleSheet.create({
     borderRadius: 999,
   },
   dotSuccess: {
-    backgroundColor: "#16a34a",
+    backgroundColor: theme.success,
   },
   dotWarning: {
-    backgroundColor: "#d97706",
+    backgroundColor: theme.warning,
   },
   dotDanger: {
-    backgroundColor: "#dc2626",
+    backgroundColor: theme.danger,
   },
   feeStatusAmount: {
-    color: "#0f172a",
-    fontSize: 16,
-    fontWeight: "800",
+    color: theme.text,
+    fontSize: theme.typography.fontSize.lg,
+    fontWeight: theme.typography.fontWeight.extrabold,
   },
   listRow: {
     flexDirection: "row",
@@ -631,7 +614,7 @@ const styles = StyleSheet.create({
     alignItems: "flex-start",
     gap: 12,
     borderTopWidth: 1,
-    borderTopColor: "#f1f5f9",
+    borderTopColor: theme.border,
     paddingTop: 10,
   },
   listRowContent: {
@@ -639,18 +622,18 @@ const styles = StyleSheet.create({
     gap: 3,
   },
   listTitle: {
-    color: "#0f172a",
-    fontWeight: "700",
+    color: theme.text,
+    fontWeight: theme.typography.fontWeight.bold,
   },
   listMeta: {
-    color: "#64748b",
-    fontSize: 12,
+    color: theme.subText,
+    fontSize: theme.typography.fontSize.sm,
     lineHeight: 18,
   },
   listDate: {
-    color: "#475569",
-    fontSize: 12,
-    fontWeight: "600",
+    color: theme.subText,
+    fontSize: theme.typography.fontSize.sm,
+    fontWeight: theme.typography.fontWeight.semibold,
     textAlign: "right",
     maxWidth: 100,
   },
@@ -658,7 +641,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: 10,
     borderTopWidth: 1,
-    borderTopColor: "#f1f5f9",
+    borderTopColor: theme.border,
     paddingTop: 10,
   },
   activityDot: {
@@ -666,61 +649,62 @@ const styles = StyleSheet.create({
     height: 10,
     borderRadius: 999,
     marginTop: 5,
-    backgroundColor: "#2563eb",
+    backgroundColor: theme.info,
   },
   activityContent: {
     flex: 1,
     gap: 3,
   },
   activityTime: {
-    color: "#94a3b8",
-    fontSize: 11,
+    color: theme.mutedText,
+    fontSize: theme.typography.fontSize.xs,
   },
   presenceBadge: {
-    color: "#166534",
-    fontSize: 12,
-    fontWeight: "700",
+    color: theme.success,
+    fontSize: theme.typography.fontSize.sm,
+    fontWeight: theme.typography.fontWeight.bold,
     textAlign: "right",
     maxWidth: 110,
   },
   emptyText: {
-    color: "#64748b",
+    color: theme.subText,
   },
   messageCard: {
     borderWidth: 1,
-    borderColor: "#e2e8f0",
+    borderColor: theme.border,
     borderRadius: 16,
-    backgroundColor: "#ffffff",
+    backgroundColor: theme.card,
     padding: 16,
     gap: 8,
   },
   messageTitle: {
-    color: "#0f172a",
-    fontWeight: "700",
+    color: theme.text,
+    fontWeight: theme.typography.fontWeight.bold,
   },
   messageText: {
-    color: "#64748b",
+    color: theme.subText,
   },
   errorCard: {
-    borderColor: "#fecaca",
-    backgroundColor: "#fef2f2",
+    borderColor: theme.dangerBorder,
+    backgroundColor: theme.dangerSoft,
   },
   errorTitle: {
-    color: "#991b1b",
-    fontWeight: "800",
+    color: theme.danger,
+    fontWeight: theme.typography.fontWeight.extrabold,
   },
   errorText: {
-    color: "#b91c1c",
+    color: theme.danger,
   },
   retryButton: {
     alignSelf: "flex-start",
     borderRadius: 999,
-    backgroundColor: "#991b1b",
+    backgroundColor: theme.danger,
     paddingHorizontal: 12,
     paddingVertical: 8,
   },
   retryButtonText: {
-    color: "#ffffff",
-    fontWeight: "700",
+    color: theme.primaryText,
+    fontWeight: theme.typography.fontWeight.bold,
   },
 });
+}

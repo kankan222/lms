@@ -346,7 +346,7 @@ async function changeSelectionStatus(payload, userId, options) {
 
 export async function submitMarksForApproval(payload, userId) {
   return changeSelectionStatus(payload, userId, {
-    teacherOnly: true,
+    teacherOnly: false,
     adminOnly: false,
     currentStatuses: ["draft"],
     nextStatus: "pending",

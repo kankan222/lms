@@ -32,6 +32,7 @@ import {
 import TopNotice from "../../components/feedback/TopNotice";
 import { useAuthStore } from "../../store/authStore";
 import DateField from "../../components/form/DateField";
+import { useAppTheme } from "../../theme/AppThemeProvider";
 
 type NoticeTone = "success" | "error";
 type SettingsTabKey = "account" | "sessions" | "streams" | "security";
@@ -67,23 +68,44 @@ function TabChip({
   active: boolean;
   onPress: () => void;
 }) {
+  const { theme } = useAppTheme();
   return (
-    <Pressable style={[styles.tabChip, active && styles.tabChipActive]} onPress={onPress}>
-      <Text style={[styles.tabChipText, active && styles.tabChipTextActive]}>{label}</Text>
+    <Pressable
+      style={[
+        styles.tabChip,
+        { borderColor: theme.border, backgroundColor: theme.card },
+        active && {
+          borderColor: theme.primary,
+          backgroundColor: theme.isDark ? "#f8fafc" : theme.primary,
+        },
+      ]}
+      onPress={onPress}
+    >
+      <Text
+        style={[
+          styles.tabChipText,
+          { color: theme.subText },
+          active && { color: theme.isDark ? "#0f172a" : theme.primaryText },
+        ]}
+      >
+        {label}
+      </Text>
     </Pressable>
   );
 }
 
 function InfoRow({ label, value }: { label: string; value: string }) {
+  const { theme } = useAppTheme();
   return (
     <View style={styles.infoRow}>
-      <Text style={styles.infoLabel}>{label}</Text>
-      <Text style={styles.infoValue}>{value}</Text>
+      <Text style={[styles.infoLabel, { color: theme.subText }]}>{label}</Text>
+      <Text style={[styles.infoValue, { color: theme.text }]}>{value}</Text>
     </View>
   );
 }
 
 export default function SettingsTab() {
+  const { theme } = useAppTheme();
   const user = useAuthStore((state) => state.user);
   const canManageUsers = Boolean(user?.permissions?.includes("teacher.update"));
   const canCreateAcademic = Boolean(user?.permissions?.includes("academic.create"));
@@ -349,9 +371,9 @@ export default function SettingsTab() {
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refreshCurrentTab} />}
       showsVerticalScrollIndicator={false}
     >
-      <View style={styles.heroCard}>
-        <Text style={styles.heroTitle}>Settings</Text>
-        <Text style={styles.heroSubtitle}>
+      <View style={[styles.heroCard, { borderColor: theme.border, backgroundColor: theme.card }]}>
+        <Text style={[styles.heroTitle, { color: theme.text }]}>Settings</Text>
+        <Text style={[styles.heroSubtitle, { color: theme.subText }]}>
           Manage account, academic sessions, streams, and security tools with the live backend settings workflows.
         </Text>
       </View>
@@ -367,12 +389,12 @@ export default function SettingsTab() {
 
       {activeTab === "account" ? (
         <>
-          <View style={styles.card}>
-            <Text style={styles.sectionTitle}>Account Information</Text>
+          <View style={[styles.card, { borderColor: theme.border, backgroundColor: theme.card }]}>
+            <Text style={[styles.sectionTitle, { color: theme.text }]}>Account Information</Text>
             {accountLoading ? (
-              <ActivityIndicator size="small" color="#0f172a" />
+              <ActivityIndicator size="small" color={theme.text} />
             ) : !account ? (
-              <Text style={styles.muted}>No account details found.</Text>
+              <Text style={[styles.muted, { color: theme.subText }]}>No account details found.</Text>
             ) : (
               <>
                 <InfoRow label="Display Name" value={account.name || "-"} />
@@ -386,26 +408,26 @@ export default function SettingsTab() {
             )}
           </View>
 
-          <View style={styles.card}>
-            <Text style={styles.sectionTitle}>Change Password</Text>
+          <View style={[styles.card, { borderColor: theme.border, backgroundColor: theme.card }]}>
+            <Text style={[styles.sectionTitle, { color: theme.text }]}>Change Password</Text>
             <TextInput
-              style={styles.input}
+              style={[styles.input, { borderColor: theme.border, backgroundColor: theme.inputBg, color: theme.text }]}
               placeholder="Current password"
-              placeholderTextColor="#94a3b8"
+              placeholderTextColor={theme.mutedText}
               secureTextEntry
               value={passwordForm.current_password}
               onChangeText={(value) => setPasswordForm((prev) => ({ ...prev, current_password: value }))}
             />
             <TextInput
-              style={styles.input}
+              style={[styles.input, { borderColor: theme.border, backgroundColor: theme.inputBg, color: theme.text }]}
               placeholder="New password"
-              placeholderTextColor="#94a3b8"
+              placeholderTextColor={theme.mutedText}
               secureTextEntry
               value={passwordForm.new_password}
               onChangeText={(value) => setPasswordForm((prev) => ({ ...prev, new_password: value }))}
             />
-            <Pressable style={styles.primaryBtn} onPress={handlePasswordChange} disabled={passwordSaving}>
-              <Text style={styles.primaryBtnText}>{passwordSaving ? "Updating..." : "Update Password"}</Text>
+            <Pressable style={[styles.primaryBtn, { backgroundColor: theme.primary }]} onPress={handlePasswordChange} disabled={passwordSaving}>
+              <Text style={[styles.primaryBtnText, { color: theme.primaryText }]}>{passwordSaving ? "Updating..." : "Update Password"}</Text>
             </Pressable>
           </View>
         </>
@@ -413,12 +435,12 @@ export default function SettingsTab() {
 
       {activeTab === "sessions" ? (
         <>
-          <View style={styles.card}>
-            <Text style={styles.sectionTitle}>{editingSessionId ? "Edit Session" : "Create Session"}</Text>
+          <View style={[styles.card, { borderColor: theme.border, backgroundColor: theme.card }]}>
+            <Text style={[styles.sectionTitle, { color: theme.text }]}>{editingSessionId ? "Edit Session" : "Create Session"}</Text>
             <TextInput
-              style={styles.input}
+              style={[styles.input, { borderColor: theme.border, backgroundColor: theme.inputBg, color: theme.text }]}
               placeholder="Session name"
-              placeholderTextColor="#94a3b8"
+              placeholderTextColor={theme.mutedText}
               value={sessionForm.name}
               onChangeText={(value) => setSessionForm((prev) => ({ ...prev, name: value }))}
               editable={editingSessionId ? canUpdateAcademic : canCreateAcademic}
@@ -438,43 +460,50 @@ export default function SettingsTab() {
               disabled={!(editingSessionId ? canUpdateAcademic : canCreateAcademic)}
             />
             <Pressable
-              style={[styles.secondaryBtn, sessionForm.isActive && styles.secondaryBtnActive]}
+              style={[
+                styles.secondaryBtn,
+                { borderColor: theme.border, backgroundColor: theme.card },
+                sessionForm.isActive && {
+                  borderColor: theme.primary,
+                  backgroundColor: theme.isDark ? "#f8fafc" : theme.cardMuted,
+                },
+              ]}
               onPress={() => setSessionForm((prev) => ({ ...prev, isActive: !prev.isActive }))}
               disabled={!(editingSessionId ? canUpdateAcademic : canCreateAcademic)}
             >
-              <Text style={[styles.secondaryBtnText, sessionForm.isActive && styles.secondaryBtnTextActive]}>
+              <Text style={[styles.secondaryBtnText, { color: theme.text }, sessionForm.isActive && { color: theme.isDark ? "#0f172a" : theme.text }]}>
                 {sessionForm.isActive ? "Active Session" : "Set As Active"}
               </Text>
             </Pressable>
             <View style={styles.actionRow}>
               <Pressable
-                style={styles.primaryBtn}
+                style={[styles.primaryBtn, { backgroundColor: theme.primary }]}
                 onPress={handleSaveSession}
                 disabled={sessionSaving || !(editingSessionId ? canUpdateAcademic : canCreateAcademic)}
               >
-                <Text style={styles.primaryBtnText}>{sessionSaving ? "Saving..." : editingSessionId ? "Update Session" : "Create Session"}</Text>
+                <Text style={[styles.primaryBtnText, { color: theme.primaryText }]}>{sessionSaving ? "Saving..." : editingSessionId ? "Update Session" : "Create Session"}</Text>
               </Pressable>
               {editingSessionId ? (
-                <Pressable style={styles.secondaryBtn} onPress={resetSessionForm} disabled={sessionSaving}>
-                  <Text style={styles.secondaryBtnText}>Cancel</Text>
+                <Pressable style={[styles.secondaryBtn, { borderColor: theme.border, backgroundColor: theme.card }]} onPress={resetSessionForm} disabled={sessionSaving}>
+                  <Text style={[styles.secondaryBtnText, { color: theme.text }]}>Cancel</Text>
                 </Pressable>
               ) : null}
             </View>
           </View>
 
-          <View style={styles.card}>
-            <Text style={styles.sectionTitle}>Academic Sessions</Text>
+          <View style={[styles.card, { borderColor: theme.border, backgroundColor: theme.card }]}>
+            <Text style={[styles.sectionTitle, { color: theme.text }]}>Academic Sessions</Text>
             {sessionsLoading ? (
-              <ActivityIndicator size="small" color="#0f172a" />
+              <ActivityIndicator size="small" color={theme.text} />
             ) : sessions.length ? (
               sessions.map((session) => (
-                <View key={session.id} style={styles.listCard}>
-                  <Text style={styles.listTitle}>{session.name}</Text>
-                  <Text style={styles.muted}>{formatDate(session.start_date)} to {formatDate(session.end_date)}</Text>
-                  <Text style={styles.muted}>{session.is_active ? "Active" : "Inactive"}</Text>
+                <View key={session.id} style={[styles.listCard, { borderColor: theme.border, backgroundColor: theme.cardMuted }]}>
+                  <Text style={[styles.listTitle, { color: theme.text }]}>{session.name}</Text>
+                  <Text style={[styles.muted, { color: theme.subText }]}>{formatDate(session.start_date)} to {formatDate(session.end_date)}</Text>
+                  <Text style={[styles.muted, { color: theme.subText }]}>{session.is_active ? "Active" : "Inactive"}</Text>
                   <View style={styles.actionRow}>
                     <Pressable
-                      style={styles.secondaryBtn}
+                      style={[styles.secondaryBtn, { borderColor: theme.border, backgroundColor: theme.card }]}
                       disabled={!canUpdateAcademic || sessionSaving}
                       onPress={() => {
                         setEditingSessionId(session.id);
@@ -486,20 +515,20 @@ export default function SettingsTab() {
                         });
                       }}
                     >
-                      <Text style={styles.secondaryBtnText}>Edit</Text>
+                      <Text style={[styles.secondaryBtnText, { color: theme.text }]}>Edit</Text>
                     </Pressable>
                     <Pressable
-                      style={styles.deleteBtn}
+                      style={[styles.deleteBtn, { borderColor: theme.dangerBorder, backgroundColor: theme.dangerSoft }]}
                       disabled={!canDeleteAcademic || sessionSaving}
                       onPress={() => handleDeleteSession(session.id)}
                     >
-                      <Text style={styles.deleteBtnText}>Delete</Text>
+                      <Text style={[styles.deleteBtnText, { color: theme.danger }]}>Delete</Text>
                     </Pressable>
                   </View>
                 </View>
               ))
             ) : (
-              <Text style={styles.muted}>No academic sessions found.</Text>
+              <Text style={[styles.muted, { color: theme.subText }]}>No academic sessions found.</Text>
             )}
           </View>
         </>
@@ -507,123 +536,127 @@ export default function SettingsTab() {
 
       {activeTab === "streams" ? (
         <>
-          <View style={styles.card}>
-            <Text style={styles.sectionTitle}>{editingStreamId ? "Edit Stream" : "Create Stream"}</Text>
+          <View style={[styles.card, { borderColor: theme.border, backgroundColor: theme.card }]}>
+            <Text style={[styles.sectionTitle, { color: theme.text }]}>{editingStreamId ? "Edit Stream" : "Create Stream"}</Text>
             <TextInput
-              style={styles.input}
+              style={[styles.input, { borderColor: theme.border, backgroundColor: theme.inputBg, color: theme.text }]}
               placeholder="Stream name"
-              placeholderTextColor="#94a3b8"
+              placeholderTextColor={theme.mutedText}
               value={streamForm.name}
               onChangeText={(value) => setStreamForm({ name: value })}
               editable={editingStreamId ? canUpdateAcademic : canCreateAcademic}
             />
             <View style={styles.actionRow}>
               <Pressable
-                style={styles.primaryBtn}
+                style={[styles.primaryBtn, { backgroundColor: theme.primary }]}
                 onPress={handleSaveStream}
                 disabled={streamSaving || !(editingStreamId ? canUpdateAcademic : canCreateAcademic)}
               >
-                <Text style={styles.primaryBtnText}>{streamSaving ? "Saving..." : editingStreamId ? "Update Stream" : "Create Stream"}</Text>
+                <Text style={[styles.primaryBtnText, { color: theme.primaryText }]}>{streamSaving ? "Saving..." : editingStreamId ? "Update Stream" : "Create Stream"}</Text>
               </Pressable>
               {editingStreamId ? (
-                <Pressable style={styles.secondaryBtn} onPress={resetStreamForm} disabled={streamSaving}>
-                  <Text style={styles.secondaryBtnText}>Cancel</Text>
+                <Pressable style={[styles.secondaryBtn, { borderColor: theme.border, backgroundColor: theme.card }]} onPress={resetStreamForm} disabled={streamSaving}>
+                  <Text style={[styles.secondaryBtnText, { color: theme.text }]}>Cancel</Text>
                 </Pressable>
               ) : null}
             </View>
           </View>
 
-          <View style={styles.card}>
-            <Text style={styles.sectionTitle}>Available Streams</Text>
+          <View style={[styles.card, { borderColor: theme.border, backgroundColor: theme.card }]}>
+            <Text style={[styles.sectionTitle, { color: theme.text }]}>Available Streams</Text>
             {streamsLoading ? (
-              <ActivityIndicator size="small" color="#0f172a" />
+              <ActivityIndicator size="small" color={theme.text} />
             ) : streams.length ? (
               streams.map((stream) => (
-                <View key={stream.id} style={styles.listCard}>
-                  <Text style={styles.listTitle}>{stream.name}</Text>
-                  <Text style={styles.muted}>Stream #{stream.id}</Text>
+                <View key={stream.id} style={[styles.listCard, { borderColor: theme.border, backgroundColor: theme.cardMuted }]}>
+                  <Text style={[styles.listTitle, { color: theme.text }]}>{stream.name}</Text>
+                  <Text style={[styles.muted, { color: theme.subText }]}>Stream #{stream.id}</Text>
                   <View style={styles.actionRow}>
                     <Pressable
-                      style={styles.secondaryBtn}
+                      style={[styles.secondaryBtn, { borderColor: theme.border, backgroundColor: theme.card }]}
                       disabled={!canUpdateAcademic || streamSaving}
                       onPress={() => {
                         setEditingStreamId(stream.id);
                         setStreamForm({ name: stream.name || "" });
                       }}
                     >
-                      <Text style={styles.secondaryBtnText}>Edit</Text>
+                      <Text style={[styles.secondaryBtnText, { color: theme.text }]}>Edit</Text>
                     </Pressable>
                     <Pressable
-                      style={styles.deleteBtn}
+                      style={[styles.deleteBtn, { borderColor: theme.dangerBorder, backgroundColor: theme.dangerSoft }]}
                       disabled={!canDeleteAcademic || streamSaving}
                       onPress={() => handleDeleteStream(stream.id)}
                     >
-                      <Text style={styles.deleteBtnText}>Delete</Text>
+                      <Text style={[styles.deleteBtnText, { color: theme.danger }]}>Delete</Text>
                     </Pressable>
                   </View>
                 </View>
               ))
             ) : (
-              <Text style={styles.muted}>No streams found.</Text>
+              <Text style={[styles.muted, { color: theme.subText }]}>No streams found.</Text>
             )}
           </View>
         </>
       ) : null}
 
       {activeTab === "security" ? (
-        <View style={styles.card}>
-          <Text style={styles.sectionTitle}>Security</Text>
+        <View style={[styles.card, { borderColor: theme.border, backgroundColor: theme.card }]}>
+          <Text style={[styles.sectionTitle, { color: theme.text }]}>Security</Text>
           {!canManageUsers ? (
-            <Text style={styles.muted}>
+            <Text style={[styles.muted, { color: theme.subText }]}>
               Additional security tools require elevated user-management permissions. You can still change your own password in the Account tab.
             </Text>
           ) : (
             <>
               <TextInput
-                style={styles.input}
+                style={[styles.input, { borderColor: theme.border, backgroundColor: theme.inputBg, color: theme.text }]}
                 placeholder="Search username, email, phone"
-                placeholderTextColor="#94a3b8"
+                placeholderTextColor={theme.mutedText}
                 value={securityForm.search}
                 onChangeText={(value) => setSecurityForm((prev) => ({ ...prev, search: value }))}
               />
               <TextInput
-                style={styles.input}
+                style={[styles.input, { borderColor: theme.border, backgroundColor: theme.inputBg, color: theme.text }]}
                 placeholder="New password"
-                placeholderTextColor="#94a3b8"
+                placeholderTextColor={theme.mutedText}
                 secureTextEntry
                 value={securityForm.new_password}
                 onChangeText={(value) => setSecurityForm((prev) => ({ ...prev, new_password: value }))}
               />
               <Pressable
-                style={styles.primaryBtn}
+                style={[styles.primaryBtn, { backgroundColor: theme.primary }]}
                 onPress={handleAdminResetPassword}
                 disabled={securitySaving}
               >
-                <Text style={styles.primaryBtnText}>{securitySaving ? "Resetting..." : "Reset Password"}</Text>
+                <Text style={[styles.primaryBtnText, { color: theme.primaryText }]}>{securitySaving ? "Resetting..." : "Reset Password"}</Text>
               </Pressable>
 
               <View style={styles.userList}>
                 {usersLoading ? (
-                  <ActivityIndicator size="small" color="#0f172a" />
+                  <ActivityIndicator size="small" color={theme.text} />
                 ) : filteredUsers.length ? (
                   filteredUsers.slice(0, 12).map((userRow) => (
                     <Pressable
                       key={userRow.id}
                       style={[
                         styles.userRow,
-                        String(securityForm.user_id) === String(userRow.id) && styles.userRowActive,
+                        { borderColor: theme.border, backgroundColor: theme.cardMuted },
+                        String(securityForm.user_id) === String(userRow.id) && {
+                          borderColor: theme.primary,
+                          backgroundColor: theme.isDark ? "#f8fafc" : theme.card,
+                        },
                       ]}
                       onPress={() => setSecurityForm((prev) => ({ ...prev, user_id: String(userRow.id) }))}
                     >
-                      <Text style={styles.listTitle}>
+                      <Text style={[styles.listTitle, { color: String(securityForm.user_id) === String(userRow.id) && theme.isDark ? "#0f172a" : theme.text }]}>
                         {userRow.teacher_name || userRow.parent_name || userRow.username || `User #${userRow.id}`}
                       </Text>
-                      <Text style={styles.muted}>{userRow.email || userRow.phone || "No email/phone"}</Text>
-                      <Text style={styles.muted}>{userRow.roles || "-"}</Text>
+                      <Text style={[styles.muted, { color: String(securityForm.user_id) === String(userRow.id) && theme.isDark ? "#334155" : theme.subText }]}>{userRow.email || userRow.phone || "No email/phone"}</Text>
+                      <Text style={[styles.muted, { color: String(securityForm.user_id) === String(userRow.id) && theme.isDark ? "#334155" : theme.subText }]}>{userRow.roles || "-"}</Text>
                     </Pressable>
                   ))
                 ) : (
-                  <Text style={styles.muted}>No users found for this search.</Text>
+                  <Text style={[styles.muted, { color: theme.subText }]}>No users found for this search.</Text>
                 )}
               </View>
             </>
@@ -635,7 +668,7 @@ export default function SettingsTab() {
 }
 
 const styles = StyleSheet.create({
-  container: { gap: 14, paddingBottom: 24 },
+  container: { gap: 14, paddingBottom: 120 },
   heroCard: { borderWidth: 1, borderColor: "#e2e8f0", borderRadius: 24, backgroundColor: "#ffffff", padding: 18, gap: 6 },
   heroTitle: { color: "#0f172a", fontWeight: "800", fontSize: 22 },
   heroSubtitle: { color: "#64748b", lineHeight: 20 },

@@ -112,6 +112,10 @@ export default function Attendance() {
   const [approvedLoading, setApprovedLoading] = useState(false);
   const [selectedApprovedId, setSelectedApprovedId] = useState(null);
   const [selectedApproved, setSelectedApproved] = useState(null);
+  const [notifyFilters, setNotifyFilters] = useState({
+    class_id: "",
+    section_id: "",
+  });
   const [dailyRows, setDailyRows] = useState([]);
   const [dailyLoading, setDailyLoading] = useState(false);
   const [selectedDaily, setSelectedDaily] = useState(null);
@@ -608,7 +612,7 @@ export default function Attendance() {
       const sentCount = res?.data?.sent_count || 0;
       const failedCount = res?.data?.failed_count || 0;
       setNotice({
-        title: "Parent Messages Sent",
+        title: sentCount > 0 ? "Parent Messages Sent" : "Parent Messages Failed",
         message:
           failedCount > 0
             ? `${sentCount} messages sent. ${failedCount} failed.`
@@ -661,6 +665,51 @@ export default function Attendance() {
 
     return classSections.filter((section) => allowedSectionIds.has(String(section.id)));
   }, [entryScopeMap, form.class_id, form.session_id, selectedClass]);
+  const notifyFilterClasses = useMemo(() => {
+    const uniqueClasses = new Map();
+    approvedRows.forEach((row) => {
+      const key = String(row.class_id || "");
+      if (!key || uniqueClasses.has(key)) return;
+      uniqueClasses.set(key, {
+        id: Number(row.class_id),
+        name: row.class_name || `Class ${key}`,
+      });
+    });
+    return [...uniqueClasses.values()];
+  }, [approvedRows]);
+  const notifyFilterSections = useMemo(() => {
+    const uniqueSections = new Map();
+    approvedRows
+      .filter(
+        (row) =>
+          !notifyFilters.class_id || String(row.class_id) === String(notifyFilters.class_id)
+      )
+      .forEach((row) => {
+        const key = String(row.section_id || "");
+        if (!key || uniqueSections.has(key)) return;
+        uniqueSections.set(key, {
+          id: Number(row.section_id),
+          name: row.section_name || `Section ${key}`,
+        });
+      });
+    return [...uniqueSections.values()];
+  }, [approvedRows, notifyFilters.class_id]);
+  const filteredApprovedRows = useMemo(
+    () =>
+      approvedRows.filter((row) => {
+        if (notifyFilters.class_id && String(row.class_id) !== String(notifyFilters.class_id)) {
+          return false;
+        }
+        if (
+          notifyFilters.section_id &&
+          String(row.section_id) !== String(notifyFilters.section_id)
+        ) {
+          return false;
+        }
+        return true;
+      }),
+    [approvedRows, notifyFilters.class_id, notifyFilters.section_id]
+  );
   const pendingFilterClasses = useMemo(() => {
     if (entryScopeMap.restricted) {
       const uniqueClasses = new Map();
@@ -688,6 +737,27 @@ export default function Attendance() {
     });
     return [...uniqueClasses.values()];
   }, [entryScopeMap, pendingRows]);
+
+  useEffect(() => {
+    if (!notifyFilters.class_id) {
+      if (notifyFilters.section_id) {
+        setNotifyFilters((prev) => ({ ...prev, section_id: "" }));
+      }
+      return;
+    }
+    if (!notifyFilterSections.some((item) => String(item.id) === String(notifyFilters.section_id))) {
+      setNotifyFilters((prev) => ({ ...prev, section_id: "" }));
+    }
+  }, [notifyFilters.class_id, notifyFilters.section_id, notifyFilterSections]);
+
+  useEffect(() => {
+    if (!selectedApprovedId) return;
+    if (!filteredApprovedRows.some((row) => Number(row.id) === Number(selectedApprovedId))) {
+      setSelectedApprovedId(null);
+      setSelectedApproved(null);
+      setNotifyForm((prev) => ({ ...prev, student_ids: [] }));
+    }
+  }, [filteredApprovedRows, selectedApprovedId]);
   const pendingFilterSections = useMemo(() => {
     if (entryScopeMap.restricted) {
       const uniqueSections = new Map();
@@ -1601,6 +1671,45 @@ export default function Attendance() {
                   </Button>
                 </div>
 
+                <div className="grid gap-3 md:grid-cols-2">
+                  <div className="grid gap-2">
+                    <Label htmlFor="notify-class-filter">Class</Label>
+                    <select
+                      id="notify-class-filter"
+                      className={FIELD_CLASSNAME}
+                      value={notifyFilters.class_id}
+                      onChange={(e) =>
+                        setNotifyFilters({ class_id: e.target.value, section_id: "" })
+                      }
+                    >
+                      <option value="">All classes</option>
+                      {notifyFilterClasses.map((item) => (
+                        <option key={item.id} value={item.id}>
+                          {item.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="grid gap-2">
+                    <Label htmlFor="notify-section-filter">Section</Label>
+                    <select
+                      id="notify-section-filter"
+                      className={FIELD_CLASSNAME}
+                      value={notifyFilters.section_id}
+                      onChange={(e) =>
+                        setNotifyFilters((prev) => ({ ...prev, section_id: e.target.value }))
+                      }
+                    >
+                      <option value="">All sections</option>
+                      {notifyFilterSections.map((item) => (
+                        <option key={item.id} value={item.id}>
+                          {item.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
                 <div className="rounded-xl border">
                   <table className="w-full text-sm">
                     <thead className="border-b bg-secondary">
@@ -1613,7 +1722,7 @@ export default function Attendance() {
                       </tr>
                     </thead>
                     <tbody>
-                      {approvedRows.map((row) => (
+                      {filteredApprovedRows.map((row) => (
                         <tr key={row.id} className="border-b">
                           <td className="px-3 py-2">{formatReadableDate(row.date)}</td>
                           <td className="px-3 py-2">{row.class_name || "-"}</td>
@@ -1632,10 +1741,10 @@ export default function Attendance() {
                         </tr>
                       ))}
 
-                      {!approvedLoading && approvedRows.length === 0 ? (
+                      {!approvedLoading && filteredApprovedRows.length === 0 ? (
                         <tr>
                           <td colSpan={5} className="px-3 py-8 text-center text-muted-foreground">
-                            No approved absence sessions are available for parent messaging.
+                            No approved absence sessions match the selected filters.
                           </td>
                         </tr>
                       ) : null}

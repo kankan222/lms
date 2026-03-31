@@ -527,7 +527,7 @@ function InfoRow({ label, value }: { label: string; value: string }) {
 }
 
 const styles = StyleSheet.create({
-  container: { gap: 14, paddingBottom: 24 },
+  container: { gap: 14, paddingBottom: 120 },
   heroCard: { borderWidth: 1, borderColor: "#e2e8f0", borderRadius: 24, backgroundColor: "#ffffff", padding: 18, gap: 6 },
   heroTitle: { color: "#0f172a", fontWeight: "800", fontSize: 22 },
   heroSubtitle: { color: "#64748b", lineHeight: 20 },

@@ -12,6 +12,8 @@ import {
 } from "../../../services/teachersService";
 import { formatDateLabel } from "../../../utils/format";
 import DateField from "../../../components/form/DateField";
+import TopNotice from "../../../components/feedback/TopNotice";
+import { useAppTheme } from "../../../theme/AppThemeProvider";
 
 type Props = {
   teacherId: number | null;
@@ -19,6 +21,7 @@ type Props = {
 };
 
 type TabKey = "overview" | "assignments" | "attendance" | "security";
+type Notice = { title: string; message: string; tone: "success" | "error" } | null;
 
 function getErrorMessage(err: unknown, fallback: string) {
   if (typeof err === "object" && err && "response" in err) {
@@ -41,26 +44,46 @@ function statusPalette(status: string) {
 }
 
 function FilterChip({ label, active, onPress }: { label: string; active: boolean; onPress: () => void }) {
-  return <Pressable style={[styles.filterChip, active && styles.filterChipActive]} onPress={onPress}><Text style={[styles.filterChipText, active && styles.filterChipTextActive]}>{label}</Text></Pressable>;
+  const { theme } = useAppTheme();
+  return <Pressable style={[styles.filterChip, { borderColor: theme.border, backgroundColor: theme.cardMuted }, active && { borderColor: theme.primary, backgroundColor: theme.primary }]} onPress={onPress}><Text style={[styles.filterChipText, { color: theme.subText }, active && { color: theme.primaryText }]}>{label}</Text></Pressable>;
 }
 
 function SummaryCard({ label, value, tone = "default" }: { label: string; value: string | number; tone?: "default" | "blue" | "green" | "violet" }) {
+  const { theme } = useAppTheme();
   const palette = tone === "blue"
-    ? { borderColor: "#bfdbfe", backgroundColor: "#eff6ff", color: "#1d4ed8" }
+    ? {
+        borderColor: theme.isDark ? "#1d4ed8" : "#bfdbfe",
+        backgroundColor: theme.isDark ? "#172554" : "#eff6ff",
+        color: theme.isDark ? "#bfdbfe" : "#1d4ed8",
+      }
     : tone === "green"
-      ? { borderColor: "#bbf7d0", backgroundColor: "#f0fdf4", color: "#15803d" }
+      ? {
+          borderColor: theme.isDark ? "#15803d" : "#bbf7d0",
+          backgroundColor: theme.isDark ? "#14532d" : "#f0fdf4",
+          color: theme.isDark ? "#bbf7d0" : "#15803d",
+        }
       : tone === "violet"
-        ? { borderColor: "#ddd6fe", backgroundColor: "#f5f3ff", color: "#6d28d9" }
-        : { borderColor: "#e2e8f0", backgroundColor: "#ffffff", color: "#0f172a" };
-  return <View style={[styles.summaryCard, { borderColor: palette.borderColor, backgroundColor: palette.backgroundColor }]}><Text style={[styles.summaryValue, { color: palette.color }]}>{value}</Text><Text style={styles.summaryLabel}>{label}</Text></View>;
+        ? {
+            borderColor: theme.isDark ? "#7c3aed" : "#ddd6fe",
+            backgroundColor: theme.isDark ? "#3b0764" : "#f5f3ff",
+            color: theme.isDark ? "#ddd6fe" : "#6d28d9",
+          }
+        : {
+            borderColor: theme.isDark ? "#475569" : "#e2e8f0",
+            backgroundColor: theme.isDark ? "#1e293b" : "#ffffff",
+            color: theme.isDark ? "#f8fafc" : "#0f172a",
+          };
+  return <View style={[styles.summaryCard, { borderColor: palette.borderColor, backgroundColor: palette.backgroundColor }]}><Text style={[styles.summaryValue, { color: palette.color }]}>{value}</Text><Text style={[styles.summaryLabel, { color: theme.subText }]}>{label}</Text></View>;
 }
 
 function SectionCard({ title: heading, hint, children }: { title: string; hint?: string; children: React.ReactNode }) {
-  return <View style={styles.sectionCard}><View style={styles.rowBetween}><Text style={styles.sectionTitle}>{heading}</Text>{hint ? <Text style={styles.sectionHint}>{hint}</Text> : null}</View>{children}</View>;
+  const { theme } = useAppTheme();
+  return <View style={[styles.sectionCard, { backgroundColor: theme.card, borderColor: theme.border }]}><View style={styles.rowBetween}><Text style={[styles.sectionTitle, { color: theme.text }]}>{heading}</Text>{hint ? <Text style={[styles.sectionHint, { color: theme.subText }]}>{hint}</Text> : null}</View>{children}</View>;
 }
 
 function InfoRow({ label, value }: { label: string; value: string }) {
-  return <View style={styles.infoRow}><Text style={styles.infoLabel}>{label}</Text><Text style={styles.infoValue}>{value}</Text></View>;
+  const { theme } = useAppTheme();
+  return <View style={[styles.infoRow, { borderColor: theme.border, backgroundColor: theme.cardMuted }]}><Text style={[styles.infoLabel, { color: theme.subText }]}>{label}</Text><Text style={[styles.infoValue, { color: theme.text }]}>{value}</Text></View>;
 }
 
 function StatusChip({ value }: { value: string }) {
@@ -69,6 +92,7 @@ function StatusChip({ value }: { value: string }) {
 }
 
 export default function TeacherDetailsModule({ teacherId, canManageTeachers }: Props) {
+  const { theme } = useAppTheme();
   const [teacher, setTeacher] = useState<TeacherItem | null>(null);
   const [assignments, setAssignments] = useState<TeacherAssignment[]>([]);
   const [attendance, setAttendance] = useState<TeacherAttendanceRow[]>([]);
@@ -78,6 +102,13 @@ export default function TeacherDetailsModule({ teacherId, canManageTeachers }: P
   const [attendanceFilters, setAttendanceFilters] = useState({ startDate: "", endDate: "" });
   const [passwordForm, setPasswordForm] = useState({ newPassword: "", confirmPassword: "" });
   const [resetting, setResetting] = useState(false);
+  const [notice, setNotice] = useState<Notice>(null);
+
+  useEffect(() => {
+    if (!notice) return undefined;
+    const timer = setTimeout(() => setNotice(null), 3200);
+    return () => clearTimeout(timer);
+  }, [notice]);
 
   useEffect(() => {
     if (!teacherId) return;
@@ -154,29 +185,31 @@ export default function TeacherDetailsModule({ teacherId, canManageTeachers }: P
     try {
       await adminResetPassword({ user_id: teacher.user_id, new_password: passwordForm.newPassword });
       setPasswordForm({ newPassword: "", confirmPassword: "" });
-      Alert.alert("Password updated", "Teacher password has been reset successfully.");
+      setNotice({ title: "Password updated", message: "Teacher password has been reset successfully.", tone: "success" });
     } catch (err: unknown) {
-      Alert.alert("Reset failed", getErrorMessage(err, "Failed to reset password."));
+      setNotice({ title: "Reset failed", message: getErrorMessage(err, "Failed to reset password."), tone: "error" });
     } finally {
       setResetting(false);
     }
   }
 
-  if (!teacherId) return <Text style={styles.emptyText}>Select a teacher to view details.</Text>;
-  if (loading) return <View style={styles.centered}><ActivityIndicator size="large" color="#0f172a" /></View>;
+  if (!teacherId) return <Text style={[styles.emptyText, { color: theme.subText }]}>Select a teacher to view details.</Text>;
+  if (loading) return <View style={styles.centered}><ActivityIndicator size="large" color={theme.text} /></View>;
   if (error) return <View style={styles.errorCard}><Text style={styles.errorTitle}>Teacher unavailable</Text><Text style={styles.errorText}>{error}</Text></View>;
-  if (!teacher) return <Text style={styles.emptyText}>Teacher not found.</Text>;
+  if (!teacher) return <Text style={[styles.emptyText, { color: theme.subText }]}>Teacher not found.</Text>;
 
   return (
     <View style={styles.root}>
-      <View style={styles.heroCard}>
+      <TopNotice notice={notice} style={styles.topNoticeOverlay} />
+      <View style={[styles.heroCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+        <Text style={[styles.heroEyebrow, { color: theme.subText }]}>Overview</Text>
         <View style={styles.heroTop}>
-          {photoUri ? <Image source={{ uri: photoUri }} style={styles.photo} /> : <View style={styles.avatarFallback}><Text style={styles.avatarText}>{(teacher.name || "T").slice(0, 1).toUpperCase()}</Text></View>}
+          {photoUri ? <Image source={{ uri: photoUri }} style={[styles.photo, { backgroundColor: theme.cardMuted }]} /> : <View style={[styles.avatarFallback, { backgroundColor: theme.cardMuted }]}><Text style={[styles.avatarText, { color: theme.text }]}>{(teacher.name || "T").slice(0, 1).toUpperCase()}</Text></View>}
           <View style={styles.heroCopy}>
-            <Text style={styles.title}>{teacher.name}</Text>
-            <Text style={styles.subtitle}>{fmtScope(teacher.class_scope)}</Text>
+            <Text style={[styles.title, { color: theme.text }]}>{teacher.name}</Text>
+            <Text style={[styles.subtitle, { color: theme.subText }]}>{fmtScope(teacher.class_scope)}</Text>
             <Text style={styles.heroMeta}>Employee ID {teacher.employee_id || "-"} • Phone {teacher.phone || "-"}</Text>
-            <Text style={styles.heroMeta}>Email {teacher.email || "-"}</Text>
+            <Text style={[styles.heroMeta, { color: theme.subText }]}>Email {teacher.email || "-"}</Text>
           </View>
         </View>
         <View style={styles.summaryGrid}>
@@ -210,11 +243,11 @@ export default function TeacherDetailsModule({ teacherId, canManageTeachers }: P
           {assignments.length ? (
             <>
               <View style={styles.assignmentGroup}>
-                <Text style={styles.groupTitle}>Assigned Classes & Sections</Text>
+                <Text style={[styles.groupTitle, { color: theme.text }]}>Assigned Classes & Sections</Text>
                 <View style={styles.assignmentChipWrap}>
                   {assignedClassSections.map((item) => (
-                    <View key={item.key} style={styles.assignmentChip}>
-                      <Text style={styles.assignmentChipText}>
+                    <View key={item.key} style={[styles.assignmentChip, { borderColor: theme.border, backgroundColor: theme.cardMuted }]}>
+                      <Text style={[styles.assignmentChipText, { color: theme.subText }]}>
                         {item.className} / {item.sectionName}
                       </Text>
                     </View>
@@ -223,23 +256,23 @@ export default function TeacherDetailsModule({ teacherId, canManageTeachers }: P
               </View>
 
               <View style={styles.assignmentGroup}>
-                <Text style={styles.groupTitle}>Assigned Subjects</Text>
+                <Text style={[styles.groupTitle, { color: theme.text }]}>Assigned Subjects</Text>
                 <View style={styles.assignmentChipWrap}>
                   {assignedSubjects.map((item) => (
-                    <View key={item.key} style={styles.assignmentChip}>
-                      <Text style={styles.assignmentChipText}>{item.subjectName}</Text>
+                    <View key={item.key} style={[styles.assignmentChip, { borderColor: theme.border, backgroundColor: theme.cardMuted }]}>
+                      <Text style={[styles.assignmentChipText, { color: theme.subText }]}>{item.subjectName}</Text>
                     </View>
                   ))}
                 </View>
               </View>
 
               <View style={styles.assignmentGroup}>
-                <Text style={styles.groupTitle}>Assignment Details</Text>
+                <Text style={[styles.groupTitle, { color: theme.text }]}>Assignment Details</Text>
                 {assignments.map((assignment) => (
-                  <View key={assignment.id} style={styles.listCard}>
-                    <Text style={styles.listTitle}>{assignment.class} / {assignment.section}</Text>
-                    <Text style={styles.listMeta}>Subject: {assignment.subject}</Text>
-                    <Text style={styles.listMeta}>Session: {assignment.session}</Text>
+                  <View key={assignment.id} style={[styles.listCard, { borderColor: theme.border, backgroundColor: theme.cardMuted }]}>
+                    <Text style={[styles.listTitle, { color: theme.text }]}>{assignment.class} / {assignment.section}</Text>
+                    <Text style={[styles.listMeta, { color: theme.subText }]}>Subject: {assignment.subject}</Text>
+                    <Text style={[styles.listMeta, { color: theme.subText }]}>Session: {assignment.session}</Text>
                   </View>
                 ))}
               </View>
@@ -260,29 +293,29 @@ export default function TeacherDetailsModule({ teacherId, canManageTeachers }: P
                 <DateField value={attendanceFilters.endDate} onChange={(value) => setAttendanceFilters((prev) => ({ ...prev, endDate: value }))} placeholder="To date" />
               </View>
             </View>
-            <Pressable style={styles.secondaryBtn} onPress={() => setAttendanceFilters({ startDate: "", endDate: "" })}><Text style={styles.secondaryBtnText}>Reset Filters</Text></Pressable>
+            <Pressable style={[styles.secondaryBtn, { borderColor: theme.border, backgroundColor: theme.card }]} onPress={() => setAttendanceFilters({ startDate: "", endDate: "" })}><Text style={[styles.secondaryBtnText, { color: theme.text }]}>Reset Filters</Text></Pressable>
           </View>
           {attendance.length ? attendance.map((row) => (
-            <View key={row.id} style={styles.listCard}>
+            <View key={row.id} style={[styles.listCard, { borderColor: theme.border, backgroundColor: theme.cardMuted }]}>
               <View style={styles.rowBetween}>
-                <Text style={styles.listTitle}>{formatDateLabel(row.attendance_date)}</Text>
+                <Text style={[styles.listTitle, { color: theme.text }]}>{formatDateLabel(row.attendance_date)}</Text>
                 <StatusChip value={row.status} />
               </View>
-              <Text style={styles.listMeta}>Check in: {row.check_in ? formatDateLabel(row.check_in) : "-"}</Text>
-              <Text style={styles.listMeta}>Check out: {row.check_out ? formatDateLabel(row.check_out) : "-"}</Text>
-              <Text style={styles.listMeta}>Worked hours: {String(row.worked_hours || "-")}</Text>
+              <Text style={[styles.listMeta, { color: theme.subText }]}>Check in: {row.check_in ? formatDateLabel(row.check_in) : "-"}</Text>
+              <Text style={[styles.listMeta, { color: theme.subText }]}>Check out: {row.check_out ? formatDateLabel(row.check_out) : "-"}</Text>
+              <Text style={[styles.listMeta, { color: theme.subText }]}>Worked hours: {String(row.worked_hours || "-")}</Text>
             </View>
-          )) : <Text style={styles.emptyText}>No attendance records found for this teacher.</Text>}
+          )) : <Text style={[styles.emptyText, { color: theme.subText }]}>No attendance records found for this teacher.</Text>}
         </SectionCard>
       ) : null}
 
       {activeTab === "security" && canManageTeachers && teacher.user_id ? (
         <SectionCard title="Security" hint="Admin reset">
-          <Text style={styles.inputLabel}>New password</Text>
-          <TextInput style={styles.input} value={passwordForm.newPassword} onChangeText={(value) => setPasswordForm((prev) => ({ ...prev, newPassword: value }))} secureTextEntry placeholder="Minimum 6 characters" placeholderTextColor="#94a3b8" />
-          <Text style={styles.inputLabel}>Confirm password</Text>
-          <TextInput style={styles.input} value={passwordForm.confirmPassword} onChangeText={(value) => setPasswordForm((prev) => ({ ...prev, confirmPassword: value }))} secureTextEntry placeholder="Repeat password" placeholderTextColor="#94a3b8" />
-          <Pressable style={[styles.successBtn, resetting && styles.btnDisabled]} disabled={resetting} onPress={handleResetPassword}><Text style={styles.successBtnText}>{resetting ? "Updating..." : "Reset Password"}</Text></Pressable>
+          <Text style={[styles.inputLabel, { color: theme.text }]}>New password</Text>
+          <TextInput style={[styles.input, { borderColor: theme.border, backgroundColor: theme.inputBg, color: theme.text }]} value={passwordForm.newPassword} onChangeText={(value) => setPasswordForm((prev) => ({ ...prev, newPassword: value }))} secureTextEntry placeholder="Minimum 6 characters" placeholderTextColor={theme.mutedText} />
+          <Text style={[styles.inputLabel, { color: theme.text }]}>Confirm password</Text>
+          <TextInput style={[styles.input, { borderColor: theme.border, backgroundColor: theme.inputBg, color: theme.text }]} value={passwordForm.confirmPassword} onChangeText={(value) => setPasswordForm((prev) => ({ ...prev, confirmPassword: value }))} secureTextEntry placeholder="Repeat password" placeholderTextColor={theme.mutedText} />
+          <Pressable style={[styles.successBtn, { backgroundColor: theme.success }, resetting && styles.btnDisabled]} disabled={resetting} onPress={handleResetPassword}><Text style={[styles.successBtnText, { color: theme.successText }]}>{resetting ? "Updating..." : "Reset Password"}</Text></Pressable>
         </SectionCard>
       ) : null}
     </View>
@@ -290,9 +323,11 @@ export default function TeacherDetailsModule({ teacherId, canManageTeachers }: P
 }
 
 const styles = StyleSheet.create({
-  root: { gap: 14, paddingBottom: 8 },
+  root: { position: "relative", gap: 14, paddingBottom: 8 },
   centered: { minHeight: 240, alignItems: "center", justifyContent: "center" },
-  heroCard: { backgroundColor: "#ffffff", borderRadius: 24, borderWidth: 1, borderColor: "#e2e8f0", padding: 16, gap: 14 },
+  topNoticeOverlay: { position: "absolute", top: 0, left: 0, right: 0, zIndex: 20, elevation: 20 },
+  heroCard: { backgroundColor: "#ffffff", borderRadius: 24, borderWidth: 1, borderColor: "#e2e8f0", padding: 16, gap: 12 },
+  heroEyebrow: { fontSize: 12, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.6, marginBottom: -2 },
   heroTop: { flexDirection: "row", gap: 14 },
   photo: { width: 76, height: 76, borderRadius: 22, backgroundColor: "#e2e8f0" },
   avatarFallback: { width: 76, height: 76, borderRadius: 22, backgroundColor: "#e2e8f0", alignItems: "center", justifyContent: "center" },
@@ -304,11 +339,11 @@ const styles = StyleSheet.create({
   summaryGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
   summaryCard: { width: "48%", minHeight: 88, borderWidth: 1, borderRadius: 18, paddingHorizontal: 14, paddingVertical: 12, justifyContent: "space-between" },
   summaryValue: { fontSize: 22, fontWeight: "800" },
-  summaryLabel: { color: "#64748b", fontSize: 12, fontWeight: "700" },
+  summaryLabel: { fontSize: 12, fontWeight: "700" },
   tabsRow: { gap: 8, paddingBottom: 2 },
-  filterChip: { borderWidth: 1, borderColor: "#cbd5e1", borderRadius: 999, paddingHorizontal: 12, paddingVertical: 8, backgroundColor: "#f8fafc" },
+  filterChip: { borderWidth: 1, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 8 },
   filterChipActive: { borderColor: "#0f172a", backgroundColor: "#0f172a" },
-  filterChipText: { color: "#475569", fontWeight: "700", fontSize: 12 },
+  filterChipText: { fontWeight: "700", fontSize: 12 },
   filterChipTextActive: { color: "#ffffff" },
   sectionCard: { backgroundColor: "#ffffff", borderRadius: 22, borderWidth: 1, borderColor: "#e2e8f0", padding: 16, gap: 12 },
   rowBetween: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 10 },

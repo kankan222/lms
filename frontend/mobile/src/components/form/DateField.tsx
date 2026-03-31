@@ -82,7 +82,7 @@ export default function DateField({
       <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
         <View style={styles.overlay}>
           <Pressable style={[styles.backdrop, { backgroundColor: theme.overlay }]} onPress={() => setOpen(false)} />
-          <View style={[styles.modalCard, { backgroundColor: theme.card }]}>
+          <View style={[styles.modalCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
             <View style={styles.modalHeader}>
               <Text style={[styles.modalTitle, { color: theme.text }]}>{label || placeholder}</Text>
               <View style={styles.headerActions}>
@@ -114,8 +114,19 @@ export default function DateField({
                   {years.map((year) => {
                     const active = draftYear === year;
                     return (
-                      <Pressable key={year} style={[styles.optionChip, { borderColor: theme.border, backgroundColor: theme.inputBg }, active && styles.optionChipActive]} onPress={() => setDraftYear(year)}>
-                        <Text style={[styles.optionText, { color: theme.text }, active && styles.optionTextActive]}>{year}</Text>
+                      <Pressable
+                        key={year}
+                        style={[
+                          styles.optionChip,
+                          { borderColor: theme.border, backgroundColor: theme.inputBg },
+                          active && {
+                            borderColor: theme.primary,
+                            backgroundColor: theme.isDark ? "#f8fafc" : theme.cardMuted,
+                          },
+                        ]}
+                        onPress={() => setDraftYear(year)}
+                      >
+                        <Text style={[styles.optionText, { color: active && theme.isDark ? "#0f172a" : theme.text }]}>{year}</Text>
                       </Pressable>
                     );
                   })}
@@ -127,8 +138,19 @@ export default function DateField({
                   {months.map((month) => {
                     const active = draftMonth === month;
                     return (
-                      <Pressable key={month} style={[styles.optionChip, { borderColor: theme.border, backgroundColor: theme.inputBg }, active && styles.optionChipActive]} onPress={() => setDraftMonth(month)}>
-                        <Text style={[styles.optionText, { color: theme.text }, active && styles.optionTextActive]}>{pad(month)}</Text>
+                      <Pressable
+                        key={month}
+                        style={[
+                          styles.optionChip,
+                          { borderColor: theme.border, backgroundColor: theme.inputBg },
+                          active && {
+                            borderColor: theme.primary,
+                            backgroundColor: theme.isDark ? "#f8fafc" : theme.cardMuted,
+                          },
+                        ]}
+                        onPress={() => setDraftMonth(month)}
+                      >
+                        <Text style={[styles.optionText, { color: active && theme.isDark ? "#0f172a" : theme.text }]}>{pad(month)}</Text>
                       </Pressable>
                     );
                   })}
@@ -140,8 +162,19 @@ export default function DateField({
                   {days.map((day) => {
                     const active = draftDay === day;
                     return (
-                      <Pressable key={day} style={[styles.optionChip, { borderColor: theme.border, backgroundColor: theme.inputBg }, active && styles.optionChipActive]} onPress={() => setDraftDay(day)}>
-                        <Text style={[styles.optionText, { color: theme.text }, active && styles.optionTextActive]}>{pad(day)}</Text>
+                      <Pressable
+                        key={day}
+                        style={[
+                          styles.optionChip,
+                          { borderColor: theme.border, backgroundColor: theme.inputBg },
+                          active && {
+                            borderColor: theme.primary,
+                            backgroundColor: theme.isDark ? "#f8fafc" : theme.cardMuted,
+                          },
+                        ]}
+                        onPress={() => setDraftDay(day)}
+                      >
+                        <Text style={[styles.optionText, { color: active && theme.isDark ? "#0f172a" : theme.text }]}>{pad(day)}</Text>
                       </Pressable>
                     );
                   })}
@@ -178,6 +211,7 @@ const styles = StyleSheet.create({
   overlay: { flex: 1, justifyContent: "flex-end" },
   backdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(15, 23, 42, 0.28)" },
   modalCard: {
+    borderWidth: 1,
     backgroundColor: "#fff",
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
@@ -212,7 +246,5 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     alignItems: "center",
   },
-  optionChipActive: { borderColor: "#0f172a", backgroundColor: "#0f172a" },
   optionText: { color: "#334155", fontWeight: "700" },
-  optionTextActive: { color: "#fff" },
 });

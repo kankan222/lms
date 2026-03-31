@@ -1,12 +1,16 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { StyleSheet, Text, View, Pressable } from "react-native";
 import { useAuthStore } from "../store/authStore";
 import { getDashboardSummary } from "../services/dashboardService";
+import { useAppTheme } from "../theme/AppThemeProvider";
+import { type MobileTheme } from "../theme/mobileTheme";
 
 export default function DashboardScreen() {
   const user = useAuthStore((state) => state.user);
   const logout = useAuthStore((state) => state.logout);
   const [totalStudents, setTotalStudents] = useState<number | null>(null);
+  const { theme } = useAppTheme();
+  const styles = useMemo(() => createStyles(theme), [theme]);
 
   useEffect(() => {
     (async () => {
@@ -46,43 +50,44 @@ export default function DashboardScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(theme: MobileTheme) {
+return StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: "#f8fafc",
+    backgroundColor: theme.bg,
   },
   container: {
     flex: 1,
     padding: 24,
   },
   title: {
-    fontSize: 26,
-    fontWeight: "700",
-    color: "#0f172a",
+    fontSize: theme.typography.fontSize["3xl"],
+    fontWeight: theme.typography.fontWeight.bold,
+    color: theme.text,
   },
   subtitle: {
     marginTop: 6,
-    color: "#64748b",
+    color: theme.subText,
   },
   card: {
     marginTop: 24,
     borderWidth: 1,
-    borderColor: "#e2e8f0",
+    borderColor: theme.border,
     borderRadius: 12,
-    backgroundColor: "#fff",
+    backgroundColor: theme.card,
     padding: 16,
   },
   label: {
-    color: "#64748b",
-    fontSize: 12,
+    color: theme.subText,
+    fontSize: theme.typography.fontSize.sm,
     textTransform: "uppercase",
     letterSpacing: 0.4,
   },
   value: {
     marginTop: 4,
-    color: "#0f172a",
-    fontSize: 15,
-    fontWeight: "500",
+    color: theme.text,
+    fontSize: theme.typography.fontSize.md,
+    fontWeight: theme.typography.fontWeight.medium,
   },
   topSpacing: {
     marginTop: 14,
@@ -90,13 +95,14 @@ const styles = StyleSheet.create({
   logoutButton: {
     marginTop: 20,
     borderRadius: 10,
-    backgroundColor: "#dc2626",
+    backgroundColor: theme.danger,
     alignItems: "center",
     justifyContent: "center",
     height: 46,
   },
   logoutText: {
-    color: "#fff",
-    fontWeight: "600",
+    color: theme.primaryText,
+    fontWeight: theme.typography.fontWeight.semibold,
   },
 });
+}

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Pressable,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
@@ -224,6 +225,7 @@ export default function AppShellScreen() {
 
   const [activeTab, setActiveTab] = useState<TabKey>(defaultTab);
   const [isMoreOpen, setIsMoreOpen] = useState(false);
+  const [isMessagingConversationOpen, setIsMessagingConversationOpen] = useState(false);
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -271,11 +273,15 @@ export default function AppShellScreen() {
   }, [activeTab]);
   const headerBrand = roles.includes("parent")
     ? "Parent Portal"
+    : roles.includes("teacher")
+      ? "Teacher Portal"
     : roles.includes("accounts")
       ? "Accounts Portal"
       : "KKV";
   const headerSubtitle = roles.includes("parent")
     ? "Student Access"
+    : roles.includes("teacher")
+      ? title
     : roles.includes("accounts")
       ? "Finance Access"
       : title;
@@ -283,6 +289,24 @@ export default function AppShellScreen() {
   function selectTab(next: TabKey) {
     setActiveTab(next);
     setIsMoreOpen(false);
+    if (next !== "messaging") {
+      setIsMessagingConversationOpen(false);
+    }
+  }
+
+  async function refreshDashboard() {
+    if (!permissions.includes("dashboard.view") && !roles.includes("super_admin")) return;
+    setIsLoading(true);
+    setError(null);
+    try {
+      const response = await getDashboardSummary();
+      setSummary(response);
+    } catch {
+      setSummary(null);
+      setError("Could not load dashboard data.");
+    } finally {
+      setIsLoading(false);
+    }
   }
 
   function renderContent() {
@@ -293,20 +317,7 @@ export default function AppShellScreen() {
             summary={summary}
             loading={isLoading}
             error={error}
-            onRefresh={async () => {
-              if (!permissions.includes("dashboard.view") && !roles.includes("super_admin")) return;
-              setIsLoading(true);
-              setError(null);
-              try {
-                const response = await getDashboardSummary();
-                setSummary(response);
-              } catch {
-                setSummary(null);
-                setError("Could not load dashboard data.");
-              } finally {
-                setIsLoading(false);
-              }
-            }}
+            onRefresh={refreshDashboard}
           />
         );
       case "classes":
@@ -324,7 +335,7 @@ export default function AppShellScreen() {
       case "payments":
         return <PaymentsTab />;
       case "messaging":
-        return <MessagingTab />;
+        return <MessagingTab onConversationViewChange={setIsMessagingConversationOpen} />;
       case "exams":
         return <ExamsTab />;
       case "reports":
@@ -347,6 +358,7 @@ export default function AppShellScreen() {
           styles.header,
           {
             backgroundColor: theme.bg,
+            borderBottomColor: theme.border,
             paddingTop: Math.max(insets.top, 6),
             minHeight: 52 + Math.max(insets.top, 6),
           },
@@ -441,13 +453,15 @@ export default function AppShellScreen() {
         </>
       ) : null}
 
-      {activeTab === "messaging" ? (
-        <View style={styles.contentStatic}>
-          {renderContent()}
-        </View>
-      ) : (
-        <ScrollView style={styles.content} contentContainerStyle={styles.contentContainer}>
-          {activeTab === "dashboard" && isLoading ? (
+      {activeTab === "dashboard" ? (
+        <ScrollView
+          style={styles.content}
+          contentContainerStyle={styles.contentContainer}
+          showsVerticalScrollIndicator={false}
+          bounces
+          refreshControl={<RefreshControl refreshing={isLoading} onRefresh={refreshDashboard} />}
+        >
+          {isLoading ? (
             <View style={styles.centeredBlock}>
               <ActivityIndicator size="large" color={theme.icon} />
             </View>
@@ -455,49 +469,55 @@ export default function AppShellScreen() {
             renderContent()
           )}
         </ScrollView>
+      ) : (
+        <View style={styles.contentStatic}>
+          {renderContent()}
+        </View>
       )}
 
-      <View pointerEvents="box-none" style={[styles.floatingNavWrap, { paddingBottom: Math.max(insets.bottom, 10) }]}>
-        <View style={[styles.floatingNav, { backgroundColor: theme.card, borderColor: theme.border }]}>
-          {primaryTabs.map((tab) => {
-            const isMore = tab.key === "more";
-            const isActive = !isMore && activeTab === tab.key;
-            return (
-              <Pressable
-                key={tab.key}
-                style={styles.floatingNavItem}
-                onPress={() => {
-                  if (isMore) {
-                    setIsMoreOpen((prev) => !prev);
-                    return;
-                  }
-                  selectTab(tab.key as TabKey);
-                }}
-              >
-                <View style={styles.floatingIconWrap}>
-                  <Ionicons
-                    name={tab.icon}
-                    size={20}
-                    color={isActive ? theme.text : theme.subText}
-                  />
-                </View>
-                <Text
-                  style={[
-                    styles.floatingNavText,
-                    {
-                      color: isActive ? theme.text : theme.subText,
-                      fontWeight: isActive ? "700" : "500",
-                    },
-                  ]}
-                  numberOfLines={1}
+      {!isMessagingConversationOpen ? (
+        <View pointerEvents="box-none" style={[styles.floatingNavWrap, { paddingBottom: Math.max(insets.bottom, 10) }]}>
+          <View style={[styles.floatingNav, { backgroundColor: theme.card, borderColor: theme.border }]}>
+            {primaryTabs.map((tab) => {
+              const isMore = tab.key === "more";
+              const isActive = !isMore && activeTab === tab.key;
+              return (
+                <Pressable
+                  key={tab.key}
+                  style={styles.floatingNavItem}
+                  onPress={() => {
+                    if (isMore) {
+                      setIsMoreOpen((prev) => !prev);
+                      return;
+                    }
+                    selectTab(tab.key as TabKey);
+                  }}
                 >
-                  {tab.label}
-                </Text>
-              </Pressable>
-            );
-          })}
+                  <View style={styles.floatingIconWrap}>
+                    <Ionicons
+                      name={tab.icon}
+                      size={20}
+                      color={isActive ? theme.text : theme.subText}
+                    />
+                  </View>
+                  <Text
+                    style={[
+                      styles.floatingNavText,
+                      {
+                        color: isActive ? theme.text : theme.subText,
+                        fontWeight: isActive ? "700" : "500",
+                      },
+                    ]}
+                    numberOfLines={1}
+                  >
+                    {tab.label}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
         </View>
-      </View>
+      ) : null}
     </SafeAreaView>
   );
 }
@@ -510,6 +530,7 @@ const styles = StyleSheet.create({
   header: {
     height: 52,
     paddingHorizontal: 12,
+    borderBottomWidth: 1,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
@@ -605,14 +626,10 @@ const styles = StyleSheet.create({
   },
   contentStatic: {
     flex: 1,
-    paddingHorizontal: 14,
-    paddingTop: 2,
-    paddingBottom: 120,
+    backgroundColor: "transparent",
   },
   contentContainer: {
-    paddingHorizontal: 14,
-    paddingTop: 2,
-    paddingBottom: 120,
+    backgroundColor: "transparent",
   },
   centeredBlock: {
     minHeight: 240,

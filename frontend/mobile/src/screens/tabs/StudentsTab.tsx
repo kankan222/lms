@@ -1,5 +1,5 @@
 import { ReactNode, useCallback, useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, Alert, Modal, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, Alert, BackHandler, Modal, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { getClassStructure, getSessions, type ClassStructureItem } from "../../services/classesService";
 import { getExams } from "../../services/examsService";
@@ -14,6 +14,7 @@ import { useAuthStore } from "../../store/authStore";
 type SessionItem = { id: number; name: string; is_active?: number | boolean };
 type StudentScope = "school" | "hs";
 type Notice = { title: string; message: string; tone: "success" | "error" } | null;
+type DeleteTarget = { id: number; name: string } | null;
 type CreateForm = { admission_no: string; name: string; mobile: string; gender: string; dob: string; date_of_admission: string; session_id: number | null; class_id: number | null; section_id: number | null; roll_number: string; stream: string; father_name: string; father_mobile: string; mother_name: string; mother_mobile: string };
 type CreateErrorKey = keyof CreateForm | "parent_mobile";
 type EditForm = { id: number | null; admission_no: string; name: string; mobile: string; gender: string; dob: string; date_of_admission: string; session_id: number | null; class_id: number | null; section_id: number | null; roll_number: string; stream: string; class_scope: StudentScope };
@@ -27,17 +28,24 @@ const inputDate = (v?: string | null) => { const raw = String(v || "").trim(); i
 const getErr = (err: unknown, fallback: string) => typeof err === "object" && err && "response" in err ? ((err as { response?: { data?: { message?: string; error?: string } } }).response?.data?.error || (err as { response?: { data?: { message?: string; error?: string } } }).response?.data?.message || fallback) : fallback;
 const isDate = (v: string) => /^\d{4}-\d{2}-\d{2}$/.test(String(v || "").trim());
 
-function FormLabel({ label }: { label: string }) { return <Text style={styles.formLabel}>{label}</Text>; }
-function FieldError({ message }: { message?: string }) { return message ? <Text style={styles.fieldError}>{message}</Text> : null; }
+function FormLabel({ label }: { label: string }) {
+  const { theme } = useAppTheme();
+  return <Text style={[styles.formLabel, { color: theme.subText }]}>{label}</Text>;
+}
+function FieldError({ message }: { message?: string }) {
+  const { theme } = useAppTheme();
+  return message ? <Text style={[styles.fieldError, { color: theme.danger }]}>{message}</Text> : null;
+}
 
 function Sheet({ title, subtitle, onClose, children }: { title: string; subtitle?: string; onClose: () => void; children: ReactNode }) {
   const { theme, isDark } = useAppTheme();
-  return <View style={styles.modalOverlay}><Pressable style={styles.modalBackdrop} onPress={onClose} /><View style={[styles.modalCard, { backgroundColor: theme.card, borderColor: theme.border }]}><View style={styles.rowBetween}><View style={styles.sheetHeaderCopy}><Text style={[styles.modalTitle, { color: theme.text }]}>{title}</Text>{subtitle ? <Text style={[styles.sheetSubtitle, { color: theme.subText }]}>{subtitle}</Text> : null}</View><Pressable style={[styles.closeBtn, { borderColor: theme.border, backgroundColor: isDark ? theme.cardMuted : "#fff" }]} onPress={onClose}><Text style={[styles.closeBtnText, { color: theme.text }]}>Close</Text></Pressable></View><ScrollView style={styles.modalBody} showsVerticalScrollIndicator={false}>{children}</ScrollView></View></View>;
+  return <View style={styles.modalOverlay}><Pressable style={[styles.modalBackdrop, { backgroundColor: theme.overlay }]} onPress={onClose} /><View style={[styles.modalCard, { backgroundColor: theme.card, borderColor: theme.border }]}><View style={styles.rowBetween}><View style={styles.sheetHeaderCopy}><Text style={[styles.modalTitle, { color: theme.text }]}>{title}</Text>{subtitle ? <Text style={[styles.sheetSubtitle, { color: theme.subText }]}>{subtitle}</Text> : null}</View><Pressable style={[styles.closeBtn, { borderColor: theme.border, backgroundColor: isDark ? theme.cardMuted : theme.card }]} onPress={onClose}><Text style={[styles.closeBtnText, { color: theme.text }]}>Close</Text></Pressable></View><ScrollView style={styles.modalBody} showsVerticalScrollIndicator={false}>{children}</ScrollView></View></View>;
 }
 
 function CardIconAction({ icon, tone = "default", onPress }: { icon: keyof typeof Ionicons.glyphMap; tone?: "default" | "danger"; onPress: () => void }) {
+  const { theme } = useAppTheme();
   const isDanger = tone === "danger";
-  return <Pressable style={[styles.iconActionBtn, isDanger && styles.iconActionBtnDanger]} onPress={onPress}><Ionicons name={icon} size={18} color={isDanger ? "#b91c1c" : "#334155"} /></Pressable>;
+  return <Pressable style={[styles.iconActionBtn, { borderColor: isDanger ? theme.dangerBorder : theme.border, backgroundColor: isDanger ? theme.dangerSoft : theme.card }, isDanger && styles.iconActionBtnDanger]} onPress={onPress}><Ionicons name={icon} size={18} color={isDanger ? theme.danger : theme.text} /></Pressable>;
 }
 
 export default function StudentsTab() {
@@ -64,6 +72,7 @@ export default function StudentsTab() {
   const [editForm, setEditForm] = useState<EditForm>(EMPTY_EDIT);
   const [createErrors, setCreateErrors] = useState<Partial<Record<CreateErrorKey, string>>>({});
   const [editErrors, setEditErrors] = useState<Partial<Record<keyof EditForm, string>>>({});
+  const [deleteTarget, setDeleteTarget] = useState<DeleteTarget>(null);
 
   const selectedClass = useMemo(() => classes.find((x) => x.id === classId) ?? null, [classes, classId]);
   const createClass = useMemo(() => classes.find((x) => x.id === createForm.class_id) ?? null, [classes, createForm.class_id]);
@@ -81,12 +90,12 @@ export default function StudentsTab() {
     const hs = students.filter((s) => String(s.class_scope || "").toLowerCase() === "hs").length;
     const girls = students.filter((s) => String(s.gender || "").toLowerCase() === "female").length;
     return [
-      { label: "Total Students", value: total, accent: "#dbeafe", tone: "#1d4ed8" },
-      { label: "School", value: school, accent: "#dcfce7", tone: "#15803d" },
-      { label: "Higher Secondary", value: hs, accent: "#ede9fe", tone: "#6d28d9" },
-      { label: "Girls", value: girls, accent: "#fce7f3", tone: "#be185d" },
+      { label: "Total Students", value: total, accent: theme.infoSoft, border: theme.infoBorder, tone: theme.infoText },
+      { label: "School", value: school, accent: theme.successSoft, border: theme.successBorder, tone: theme.success },
+      { label: "Higher Secondary", value: hs, accent: theme.card, border: theme.border, tone: theme.text },
+      { label: "Girls", value: girls, accent: theme.warningSoft, border: theme.warningBorder, tone: theme.warningText },
     ];
-  }, [students]);
+  }, [students, theme]);
 
   const loadStudentsList = useCallback(async (mode: "initial" | "refresh" = "initial") => {
     if (mode === "refresh") setRefreshing(true); else setLoading(true);
@@ -235,28 +244,42 @@ export default function StudentsTab() {
   }
 
   function confirmDelete(student: Student) {
-    Alert.alert("Delete student", `Delete ${student.name}?`, [
-      { text: "Cancel", style: "cancel" },
-      {
-        text: "Delete",
-        style: "destructive",
-        onPress: async () => {
-          try {
-            await deleteStudent(student.id);
-            await loadStudentsList("refresh");
-            showNotice("Student Deleted", "The student has been removed.");
-          } catch (err: unknown) {
-            Alert.alert("Delete failed", getErr(err, "Failed to delete student."));
-          }
-        },
-      },
-    ]);
+    setDeleteTarget({ id: student.id, name: student.name });
+  }
+
+  async function handleDelete() {
+    if (!deleteTarget) return;
+    setSaving(true);
+    try {
+      await deleteStudent(deleteTarget.id);
+      setDeleteTarget(null);
+      await loadStudentsList("refresh");
+      showNotice("Student Deleted", "The student has been removed.");
+    } catch (err: unknown) {
+      showNotice("Delete Failed", getErr(err, "Failed to delete student."), "error");
+    } finally {
+      setSaving(false);
+    }
   }
 
   function openDetails(student: Student) {
     setSelectedStudentId(student.id);
     setDetailOpen(true);
   }
+
+  function closeDetails() {
+    setDetailOpen(false);
+    setSelectedStudentId(null);
+  }
+
+  useEffect(() => {
+    if (!detailOpen) return undefined;
+    const subscription = BackHandler.addEventListener("hardwareBackPress", () => {
+      closeDetails();
+      return true;
+    });
+    return () => subscription.remove();
+  }, [detailOpen]);
 
   function resetBrowseFilters() {
     setClassId(null);
@@ -265,9 +288,13 @@ export default function StudentsTab() {
   }
 
   return (
-    <ScrollView style={styles.root} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => loadStudentsList("refresh")} />}>
-      <View style={[styles.heroCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+    <View style={styles.screen}>
+      <TopNotice notice={notice} style={styles.topNoticeOverlay} />
+      <ScrollView style={styles.root} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => loadStudentsList("refresh")} />}>
+      <View style={styles.innerContent}>
+      <View style={styles.heroCard}>
         <View style={styles.heroCopy}>
+          <Text style={[styles.heroEyebrow, { color: theme.subText }]}>Overview</Text>
           <Text style={[styles.title, { color: theme.text }]}>Students</Text>
           <Text style={[styles.subtitle, { color: theme.subText }]}>
             {isParent
@@ -275,23 +302,16 @@ export default function StudentsTab() {
               : "Manage admissions, class placement, and parent linkage"}
           </Text>
         </View>
-        <View style={styles.heroActions}>
           <View style={styles.heroPrimaryActions}>
-            <Pressable style={[styles.iconUtilityBtn, { borderColor: theme.border, backgroundColor: isDark ? theme.cardMuted : "#fff" }]} onPress={() => loadStudentsList("refresh")}>
-              <Ionicons name="refresh-outline" size={18} color={theme.icon} />
-            </Pressable>
             {!isParent ? (
-              <Pressable style={[styles.heroPrimaryBtn, { backgroundColor: isDark ? "#e2e8f0" : "#0f172a" }]} onPress={() => { setCreateOpen(true); setCreateErrors({}); setCreateForm((p) => ({ ...p, session_id: p.session_id ?? activeSession?.id ?? null })); }}><Text style={[styles.primaryBtnText, { color: isDark ? "#0f172a" : "#fff" }]}>Add Student</Text></Pressable>
+              <Pressable style={[styles.heroPrimaryBtn, { backgroundColor: theme.primary }]} onPress={() => { setCreateOpen(true); setCreateErrors({}); setCreateForm((p) => ({ ...p, session_id: p.session_id ?? activeSession?.id ?? null })); }}><Text style={[styles.primaryBtnText, { color: theme.primaryText }]}>Add Student</Text></Pressable>
             ) : null}
           </View>
-        </View>
       </View>
-
-      <TopNotice notice={notice} />
 
       {!isParent ? (
         <View style={styles.statsGrid}>
-          {stats.map((item) => <View key={item.label} style={[styles.statCard, { backgroundColor: item.accent }]}><Text style={styles.statLabel}>{item.label}</Text><Text style={[styles.statValue, { color: item.tone }]}>{item.value}</Text></View>)}
+          {stats.map((item) => <View key={item.label} style={[styles.statCard, { backgroundColor: item.accent, borderColor: item.border }]}><Text style={[styles.statLabel, { color: theme.subText }]}>{item.label}</Text><Text style={[styles.statValue, { color: item.tone }]}>{item.value}</Text></View>)}
         </View>
       ) : null}
 
@@ -301,7 +321,7 @@ export default function StudentsTab() {
           <View style={styles.searchWrap}>
             <TextInput style={[styles.input, styles.searchInput, { borderColor: theme.border, backgroundColor: theme.inputBg, color: theme.text }]} value={search} onChangeText={setSearch} placeholder={isParent ? "Search child..." : "Search..."} placeholderTextColor={theme.mutedText} />
           </View>
-          <Pressable style={[styles.iconUtilityBtn, { borderColor: theme.border, backgroundColor: isDark ? theme.cardMuted : "#fff" }]} onPress={() => setFiltersOpen(true)}>
+          <Pressable style={[styles.iconUtilityBtn, { borderColor: theme.border, backgroundColor: theme.card }]} onPress={() => setFiltersOpen(true)}>
             <Ionicons name="options-outline" size={18} color={theme.icon} />
           </Pressable>
         </View>
@@ -320,7 +340,7 @@ export default function StudentsTab() {
             <View style={styles.rowBetween}>
               <Text style={[styles.sectionTitle, { color: theme.text }]}>Filters</Text>
               <Pressable onPress={resetBrowseFilters}>
-                <Text style={styles.resetText}>Reset</Text>
+                <Text style={[styles.resetText, { color: theme.success }]}>Reset</Text>
               </Pressable>
             </View>
             <SelectField
@@ -354,7 +374,7 @@ export default function StudentsTab() {
               disabled={!selectedClass}
             />
             <View style={styles.rowActions}>
-              <Pressable style={[styles.secondaryBtn, { borderColor: theme.border, backgroundColor: isDark ? theme.cardMuted : "#fff" }]} onPress={() => setFiltersOpen(false)}>
+              <Pressable style={[styles.secondaryBtn, { borderColor: theme.border, backgroundColor: theme.card }]} onPress={() => setFiltersOpen(false)}>
                 <Text style={[styles.secondaryBtnText, { color: theme.text }]}>Apply</Text>
               </Pressable>
             </View>
@@ -427,7 +447,7 @@ export default function StudentsTab() {
           <SelectField label="Class *" value={createForm.class_id === null ? "" : String(createForm.class_id)} onChange={(value) => setCreateForm((p) => ({ ...p, class_id: value ? Number(value) : null, section_id: null, stream: "" }))} options={classes.map((item) => ({ label: item.name, value: String(item.id) }))} placeholder="Choose class" /><FieldError message={createErrors.class_id} />
           <SelectField label="Section *" value={createForm.section_id === null ? "" : String(createForm.section_id)} onChange={(value) => setCreateForm((p) => ({ ...p, section_id: value ? Number(value) : null }))} options={(createClass?.sections || []).map((section) => ({ label: `${section.name}${section.medium ? ` (${section.medium})` : ""}`, value: String(section.id) }))} placeholder="Choose section" disabled={!createClass} /><FieldError message={createErrors.section_id} />
           {createClass?.class_scope === "hs" ? <><SelectField label="Stream *" value={createForm.stream} onChange={(value) => setCreateForm((p) => ({ ...p, stream: value }))} options={STREAM_OPTIONS.map((item) => ({ label: item, value: item }))} placeholder="Choose stream" /><FieldError message={createErrors.stream} /></> : null}
-          <View style={styles.rowActions}><Pressable style={[styles.secondaryBtn, { borderColor: theme.border, backgroundColor: isDark ? theme.cardMuted : "#fff" }]} onPress={() => setCreateOpen(false)}><Text style={[styles.secondaryBtnText, { color: theme.text }]}>Cancel</Text></Pressable><Pressable style={styles.successBtn} onPress={handleCreate} disabled={saving}><Text style={styles.successBtnText}>{saving ? "Saving..." : "Save"}</Text></Pressable></View>
+          <View style={styles.rowActions}><Pressable style={[styles.secondaryBtn, { borderColor: theme.border, backgroundColor: theme.card }]} onPress={() => setCreateOpen(false)}><Text style={[styles.secondaryBtnText, { color: theme.text }]}>Cancel</Text></Pressable><Pressable style={[styles.successBtn, { backgroundColor: theme.success, borderColor: theme.successBorder }]} onPress={handleCreate} disabled={saving}><Text style={[styles.successBtnText, { color: theme.successText }]}>{saving ? "Saving..." : "Save"}</Text></Pressable></View>
         </Sheet>
       </Modal>
 
@@ -447,26 +467,54 @@ export default function StudentsTab() {
           <SelectField label="Section *" value={editForm.section_id === null ? "" : String(editForm.section_id)} onChange={(value) => setEditForm((p) => ({ ...p, section_id: value ? Number(value) : null }))} options={(editClass?.sections || []).map((section) => ({ label: `${section.name}${section.medium ? ` (${section.medium})` : ""}`, value: String(section.id) }))} placeholder="Choose section" disabled={!editClass} /><FieldError message={editErrors.section_id} />
           <FormLabel label="Roll number *" /><TextInput style={[styles.input, { borderColor: theme.border, backgroundColor: theme.inputBg, color: theme.text }]} value={editForm.roll_number} onChangeText={(v) => setEditForm((p) => ({ ...p, roll_number: v }))} placeholderTextColor={theme.mutedText} /><FieldError message={editErrors.roll_number} />
           {editForm.class_scope === "hs" ? <><SelectField label="Stream *" value={editForm.stream} onChange={(value) => setEditForm((p) => ({ ...p, stream: value }))} options={STREAM_OPTIONS.map((item) => ({ label: item, value: item }))} placeholder="Choose stream" /><FieldError message={editErrors.stream} /></> : null}
-          <View style={styles.rowActions}><Pressable style={[styles.secondaryBtn, { borderColor: theme.border, backgroundColor: isDark ? theme.cardMuted : "#fff" }]} onPress={() => setEditOpen(false)}><Text style={[styles.secondaryBtnText, { color: theme.text }]}>Cancel</Text></Pressable><Pressable style={styles.successBtn} onPress={handleUpdate} disabled={saving}><Text style={styles.successBtnText}>{saving ? "Saving..." : "Update"}</Text></Pressable></View>
+          <View style={styles.rowActions}><Pressable style={[styles.secondaryBtn, { borderColor: theme.border, backgroundColor: theme.card }]} onPress={() => setEditOpen(false)}><Text style={[styles.secondaryBtnText, { color: theme.text }]}>Cancel</Text></Pressable><Pressable style={[styles.successBtn, { backgroundColor: theme.success, borderColor: theme.successBorder }]} onPress={handleUpdate} disabled={saving}><Text style={[styles.successBtnText, { color: theme.successText }]}>{saving ? "Saving..." : "Update"}</Text></Pressable></View>
         </Sheet>
       </Modal>
 
-      <Modal visible={detailOpen} transparent animationType="slide" onRequestClose={() => setDetailOpen(false)}>
-        <Sheet title="Student Details" subtitle="Detailed record, marks, and linked data." onClose={() => setDetailOpen(false)}>
+      <Modal visible={detailOpen} transparent animationType="slide" onRequestClose={closeDetails}>
+        <Sheet title="Student Details" subtitle="Detailed record, marks, and linked data." onClose={closeDetails}>
           <StudentDetailsModule studentId={selectedStudentId} exams={exams} />
         </Sheet>
       </Modal>
+
+      <Modal visible={deleteTarget !== null} transparent animationType="fade" onRequestClose={() => setDeleteTarget(null)}>
+        <View style={styles.modalOverlay}>
+          <Pressable style={[styles.modalBackdrop, { backgroundColor: theme.overlay }]} onPress={() => setDeleteTarget(null)} />
+          <View style={[styles.confirmCard, { backgroundColor: theme.card, borderColor: theme.dangerBorder }]}>
+            <View style={[styles.confirmIcon, { backgroundColor: theme.dangerSoft, borderColor: theme.dangerBorder }]}>
+              <Text style={[styles.confirmIconText, { color: theme.danger }]}>×</Text>
+            </View>
+            <Text style={[styles.confirmTitle, { color: theme.text }]}>Delete Student</Text>
+            <Text style={[styles.confirmMessage, { color: theme.subText }]}>
+              {deleteTarget ? `This will remove ${deleteTarget.name} from the students list.` : ""}
+            </Text>
+            <View style={styles.rowActions}>
+              <Pressable style={[styles.secondaryBtn, { borderColor: theme.border, backgroundColor: theme.card }]} onPress={() => setDeleteTarget(null)} disabled={saving}>
+                <Text style={[styles.secondaryBtnText, { color: theme.text }]}>Cancel</Text>
+              </Pressable>
+              <Pressable style={[styles.deleteBtn, { backgroundColor: theme.dangerSoft, borderColor: theme.dangerBorder }, saving && styles.disabledBtn]} onPress={handleDelete} disabled={saving}>
+                <Text style={[styles.deleteBtnText, { color: theme.danger }]}>{saving ? "Deleting..." : "Delete"}</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
+      </View>
     </ScrollView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  screen: { flex: 1 },
   root: { flex: 1 },
-  content: { gap: 14, paddingBottom: 8 },
-  heroCard: { backgroundColor: "#fff", borderRadius: 24, borderWidth: 1, borderColor: "#e2e8f0", padding: 18, gap: 14 },
+  content: { gap: 14, paddingBottom: 120 },
+  innerContent: { gap: 14, paddingHorizontal: 14, paddingTop: 10 },
+  topNoticeOverlay: { position: "absolute", top: 0, left: 14, right: 14, zIndex: 20 },
+  heroCard: { borderRadius: 24, paddingVertical: 0, gap: 8 },
   heroCopy: { gap: 6 },
-  heroActions: { gap: 10 },
   heroPrimaryActions: { flexDirection: "row", gap: 10 },
+  heroEyebrow: { fontSize: 12, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.6 },
   searchRow: { flexDirection: "row", alignItems: "center", gap: 10 },
   searchWrap: { flex: 1 },
   searchInput: { marginBottom: 0 },
@@ -478,7 +526,7 @@ const styles = StyleSheet.create({
   noticeTitle: { color: "#0f172a", fontWeight: "800", marginBottom: 2 },
   noticeMessage: { color: "#475569" },
   statsGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
-  statCard: { width: "48%", minHeight: 92, borderRadius: 20, paddingHorizontal: 14, paddingVertical: 12, justifyContent: "space-between" },
+  statCard: { width: "48%", minHeight: 92, borderRadius: 20, borderWidth: 1, paddingHorizontal: 14, paddingVertical: 12, justifyContent: "space-between" },
   statLabel: { color: "#334155", fontSize: 12, fontWeight: "700" },
   statValue: { fontSize: 26, fontWeight: "800" },
   sectionCard: { backgroundColor: "#fff", borderRadius: 22, borderWidth: 1, borderColor: "#e2e8f0", padding: 16, gap: 12 },
@@ -529,7 +577,7 @@ const styles = StyleSheet.create({
   secondaryBtnText: { color: "#334155", fontWeight: "700" },
   deleteBtn: { flex: 1, backgroundColor: "#fee2e2", borderWidth: 1, borderColor: "#fecaca", paddingHorizontal: 14, paddingVertical: 11, borderRadius: 12, alignItems: "center", justifyContent: "center" },
   deleteBtnText: { color: "#b91c1c", fontWeight: "700" },
-  successBtn: { flex: 1, backgroundColor: "#15803d", paddingHorizontal: 14, paddingVertical: 11, borderRadius: 12, alignItems: "center", justifyContent: "center" },
+  successBtn: { flex: 1, borderWidth: 1, paddingHorizontal: 14, paddingVertical: 11, borderRadius: 12, alignItems: "center", justifyContent: "center" },
   successBtnText: { color: "#fff", fontWeight: "700" },
   modalOverlay: { flex: 1, justifyContent: "flex-end" },
   modalBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(15, 23, 42, 0.28)" },
@@ -546,4 +594,10 @@ const styles = StyleSheet.create({
   closeBtnText: { color: "#334155", fontWeight: "700" },
   formLabel: { color: "#334155", fontWeight: "700", marginTop: 8, marginBottom: 6 },
   fieldError: { color: "#b91c1c", marginTop: 4, marginBottom: 4, fontSize: 12 },
+  confirmCard: { marginHorizontal: 18, marginBottom: 120, borderWidth: 1, borderRadius: 24, paddingHorizontal: 18, paddingVertical: 20, gap: 12 },
+  confirmIcon: { width: 44, height: 44, borderWidth: 1, borderRadius: 16, alignItems: "center", justifyContent: "center", alignSelf: "center" },
+  confirmIconText: { fontSize: 22, fontWeight: "800" },
+  confirmTitle: { fontSize: 18, fontWeight: "800", textAlign: "center" },
+  confirmMessage: { fontSize: 14, lineHeight: 20, textAlign: "center" },
+  disabledBtn: { opacity: 0.7 },
 });

@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Animated,
   Image,
   KeyboardAvoidingView,
   Platform,
@@ -50,6 +51,40 @@ export default function LoginScreen() {
   const [submitting, setSubmitting] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const heroOpacity = useRef(new Animated.Value(0)).current;
+  const heroTranslateY = useRef(new Animated.Value(18)).current;
+  const formOpacity = useRef(new Animated.Value(0)).current;
+  const formTranslateY = useRef(new Animated.Value(28)).current;
+
+  useEffect(() => {
+    Animated.parallel([
+      Animated.timing(heroOpacity, {
+        toValue: 1,
+        duration: 320,
+        useNativeDriver: true,
+      }),
+      Animated.timing(heroTranslateY, {
+        toValue: 0,
+        duration: 320,
+        useNativeDriver: true,
+      }),
+      Animated.sequence([
+        Animated.delay(70),
+        Animated.parallel([
+          Animated.timing(formOpacity, {
+            toValue: 1,
+            duration: 360,
+            useNativeDriver: true,
+          }),
+          Animated.timing(formTranslateY, {
+            toValue: 0,
+            duration: 360,
+            useNativeDriver: true,
+          }),
+        ]),
+      ]),
+    ]).start();
+  }, [formOpacity, formTranslateY, heroOpacity, heroTranslateY]);
 
   async function handleLogin() {
     const credential = identifier.trim();
@@ -96,12 +131,29 @@ export default function LoginScreen() {
           showsVerticalScrollIndicator={false}
         >
           <View style={styles.container}>
-            <View style={styles.hero}>
+            <Animated.View
+              style={[
+                styles.hero,
+                {
+                  opacity: heroOpacity,
+                  transform: [{ translateY: heroTranslateY }],
+                },
+              ]}
+            >
               <Image source={require("../../assets/logo.png")} style={styles.logo} resizeMode="contain" />
               <Text style={[styles.title, { color: theme.text }]}>Welcome to KKV Group of Institutions</Text>
-            </View>
+            </Animated.View>
 
-            <View style={[styles.form, { borderColor: theme.border, backgroundColor: theme.card }]}>
+            <Animated.View
+              style={[
+                styles.form,
+                { borderColor: theme.border, backgroundColor: theme.card },
+                {
+                  opacity: formOpacity,
+                  transform: [{ translateY: formTranslateY }],
+                },
+              ]}
+            >
               {error ? (
                 <View style={styles.errorCard}>
                   <Text style={styles.errorTitle}>Login error</Text>
@@ -150,16 +202,17 @@ export default function LoginScreen() {
                 disabled={submitting}
                 style={({ pressed }) => [
                   styles.button,
+                  { backgroundColor: theme.primary },
                   (pressed || submitting) && styles.buttonPressed,
                 ]}
               >
                 {submitting ? (
-                  <ActivityIndicator color="#fff" />
+                  <ActivityIndicator color={theme.primaryText} />
                 ) : (
-                  <Text style={styles.buttonText}>Login</Text>
+                  <Text style={[styles.buttonText, { color: theme.primaryText }]}>Login</Text>
                 )}
               </Pressable>
-            </View>
+            </Animated.View>
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
