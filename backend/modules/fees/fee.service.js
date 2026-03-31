@@ -77,6 +77,59 @@ async function assertTeacherScopeAccess(userId, enrollment) {
   }
 }
 
+async function syncStudentLedgerForEnrollment(enrollmentId) {
+  const structure = await repo.getStructureByEnrollment(enrollmentId);
+  if (!structure) {
+    return { synced: false };
+  }
+
+  const installments = await repo.getInstallments(structure.id);
+  const existingRows = await repo.getStudentFeeSyncRows(enrollmentId);
+  const admissionRow = existingRows.find((row) => row.fee_type === "admission");
+  const installmentMap = new Map(
+    existingRows
+      .filter((row) => row.fee_type === "installment" && row.installment_id)
+      .map((row) => [Number(row.installment_id), row])
+  );
+
+  if (!admissionRow) {
+    await repo.insertAdmissionFee(enrollmentId, structure.admission_fee);
+  } else if (Number(admissionRow.paid || 0) === 0) {
+    const nextAmount = Number(structure.admission_fee || 0);
+    const currentAmount = Number(admissionRow.amount || 0);
+    if (nextAmount > 0 && currentAmount !== nextAmount) {
+      await repo.updateStudentFeeAmount(admissionRow.id, nextAmount);
+    }
+  }
+
+  for (const installment of installments) {
+    const current = installmentMap.get(Number(installment.id));
+    if (!current) {
+      await repo.insertStudentInstallment(enrollmentId, installment.id, installment.amount);
+      continue;
+    }
+
+    if (Number(current.paid || 0) !== 0) {
+      continue;
+    }
+
+    const nextAmount = Number(installment.amount || 0);
+    const currentAmount = Number(current.amount || 0);
+    if (nextAmount > 0 && currentAmount !== nextAmount) {
+      await repo.updateStudentFeeAmount(current.id, nextAmount);
+    }
+  }
+
+  return { synced: true };
+}
+
+async function syncStudentLedgersForStructure(structureId) {
+  const enrollmentIds = await repo.getActiveEnrollmentIdsForStructure(structureId);
+  for (const enrollmentId of enrollmentIds) {
+    await syncStudentLedgerForEnrollment(enrollmentId);
+  }
+}
+
 export async function createFeeStructure(data) {
   return repo.insertFeeStructure(data);
 }
@@ -96,6 +149,7 @@ export async function updateFeeStructure(id, data) {
   }
 
   await repo.updateFeeStructure(id, next);
+  await syncStudentLedgersForStructure(id);
   return { message: "Fee structure updated" };
 }
 
@@ -116,7 +170,9 @@ export async function getAllFeeStructures() {
 }
 
 export async function createInstallment(data) {
-  return repo.insertInstallment(data);
+  const result = await repo.insertInstallment(data);
+  await syncStudentLedgersForStructure(Number(data.fee_structure_id));
+  return result;
 }
 
 export async function updateInstallment(id, data) {
@@ -137,6 +193,7 @@ export async function updateInstallment(id, data) {
   }
 
   await repo.updateInstallment(id, next);
+  await syncStudentLedgersForStructure(Number(existing.fee_structure_id));
   return { message: "Installment updated" };
 }
 
@@ -315,6 +372,8 @@ export async function getStudentFeeOptions(studentId, user) {
       }
       throw err;
     }
+  } else {
+    await syncStudentLedgerForEnrollment(enrollment.id);
   }
 
   return repo.getStudentFeeOptions(enrollment.id);
@@ -362,6 +421,8 @@ export async function getMyStudentFeeOptions(studentId, user) {
       }
       throw err;
     }
+  } else {
+    await syncStudentLedgerForEnrollment(enrollment.id);
   }
 
   return repo.getStudentFeeOptions(enrollment.id);

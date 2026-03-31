@@ -279,7 +279,7 @@ export function getAttendanceDevices(){
   return query(`
     SELECT
       id,
-      name,
+      device_name AS name,
       device_code,
       location
     FROM attendance_devices
@@ -307,17 +307,21 @@ export function getTeacherAttendance(data){
 
   return query(`
     SELECT
-      id,
-      teacher_id,
-      attendance_date,
-      status,
-      check_in,
-      check_out,
-      worked_hours
-    FROM teacher_daily_attendance
-    WHERE teacher_id=?
-      AND attendance_date BETWEEN ? AND ?
-    ORDER BY attendance_date DESC
+      l.id,
+      t.name AS teacher,
+      l.teacher_id,
+      l.device_id,
+      l.punch_time,
+      l.punch_type,
+      d.device_name,
+      d.device_code,
+      d.location
+    FROM teacher_attendance_logs l
+    JOIN teachers t ON t.id = l.teacher_id
+    LEFT JOIN attendance_devices d ON d.id = l.device_id
+    WHERE l.teacher_id = ?
+      AND DATE(l.punch_time) BETWEEN ? AND ?
+    ORDER BY l.punch_time DESC
   `,[
     data.teacherId,
     data.startDate || "2000-01-01",
@@ -328,18 +332,20 @@ export function getAllTeacherAttendance({ startDate, endDate }) {
 
   return query(`
     SELECT
-      a.id,
+      l.id,
       t.name AS teacher,
-      a.teacher_id,
-      a.attendance_date,
-      a.check_in,
-      a.check_out,
-      a.status,
-      a.worked_hours
-    FROM teacher_daily_attendance a
-    JOIN teachers t ON t.id = a.teacher_id
-    WHERE a.attendance_date BETWEEN ? AND ?
-    ORDER BY a.attendance_date DESC
+      l.teacher_id,
+      l.device_id,
+      l.punch_time,
+      l.punch_type,
+      d.device_name,
+      d.device_code,
+      d.location
+    FROM teacher_attendance_logs l
+    JOIN teachers t ON t.id = l.teacher_id
+    LEFT JOIN attendance_devices d ON d.id = l.device_id
+    WHERE DATE(l.punch_time) BETWEEN ? AND ?
+    ORDER BY l.punch_time DESC
   `, [
     startDate || "2000-01-01",
     endDate || "2100-01-01"
@@ -347,16 +353,34 @@ export function getAllTeacherAttendance({ startDate, endDate }) {
 
 }
 export function generateDailyAttendance(data){
+  const attendanceDate = data.attendanceDate || data.date;
+  const checkIn = data.checkIn || null;
+  const checkOut = data.checkOut || null;
 
   return query(`
     INSERT INTO teacher_daily_attendance
-    (teacher_id,date,status,check_in,check_out)
-    VALUES (?,?,?,?,?)
+    (teacher_id,attendance_date,status,check_in,check_out,worked_hours)
+    VALUES (?,?,?,?,?,
+      CASE
+        WHEN ? IS NOT NULL AND ? IS NOT NULL
+          THEN ROUND(TIMESTAMPDIFF(MINUTE, ?, ?) / 60, 2)
+        ELSE NULL
+      END
+    )
+    ON DUPLICATE KEY UPDATE
+      status = VALUES(status),
+      check_in = VALUES(check_in),
+      check_out = VALUES(check_out),
+      worked_hours = VALUES(worked_hours)
   `,[
     data.teacherId,
-    data.date,
+    attendanceDate,
     data.status,
-    data.checkIn,
-    data.checkOut
+    checkIn,
+    checkOut,
+    checkIn,
+    checkOut,
+    checkIn,
+    checkOut
   ]);
 }

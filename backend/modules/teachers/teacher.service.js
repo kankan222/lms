@@ -290,14 +290,26 @@ export async function logTeacherAttendance(data) {
 
     await conn.beginTransaction();
 
+    const teacherId = Number(data?.teacherId || data?.teacher_id);
+    const deviceId =
+      data?.deviceId === null || data?.device_id === null
+        ? null
+        : (data?.deviceId || data?.device_id ? Number(data.deviceId || data.device_id) : null);
+    const punchTime = data?.punchTime || data?.punch_time;
+    const punchType = String(data?.punchType || data?.punch_type || "unknown").trim().toLowerCase();
+
     // ensure teacher exists
-    const teacher =
-      await repo.getTeacherById(data.teacher_id);
+    const teacher = await repo.getTeacherById(teacherId);
 
     if (!teacher)
       throw new AppError("Teacher not found", 404);
 
-    await repo.logTeacherAttendance(data, conn);
+    await repo.logTeacherAttendance({
+      teacherId,
+      deviceId,
+      punchTime,
+      punchType,
+    }, conn);
 
     await conn.commit();
 
@@ -384,7 +396,20 @@ export async function generateDailyAttendance(data) {
 
     await conn.beginTransaction();
 
-    await repo.generateDailyAttendance(data, conn);
+    const teacherId = Number(data?.teacherId || data?.teacher_id);
+    if (!teacherId) {
+      throw new AppError("teacherId is required", 400);
+    }
+
+    const teacher = await repo.getTeacherById(teacherId);
+    if (!teacher) {
+      throw new AppError("Teacher not found", 404);
+    }
+
+    await repo.generateDailyAttendance({
+      ...data,
+      teacherId,
+    }, conn);
 
     await conn.commit();
 

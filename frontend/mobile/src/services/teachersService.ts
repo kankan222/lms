@@ -62,11 +62,12 @@ export type TeacherAttendanceRow = {
   id: number;
   teacher_id: number;
   teacher?: string;
-  attendance_date: string;
-  status: string;
-  check_in?: string | null;
-  check_out?: string | null;
-  worked_hours?: string | number | null;
+  device_id?: number | null;
+  punch_time: string;
+  punch_type: string;
+  device_name?: string | null;
+  device_code?: string | null;
+  location?: string | null;
 };
 
 export type AttendanceDevice = {

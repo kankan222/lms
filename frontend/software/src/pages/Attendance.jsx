@@ -25,22 +25,21 @@ import { formatReadableDate, formatReadableDateTime } from "../lib/dateTime";
 const teacherAttendanceColumns = [
   { header: "Teacher", accessor: "teacher" },
   {
-    header: "Date",
-    accessor: "attendance_date",
-    cell: (row) => formatReadableDate(row.attendance_date),
+    header: "Punch Time",
+    accessor: "punch_time",
+    cell: (row) => formatReadableDateTime(row.punch_time),
   },
   {
-    header: "Check In",
-    accessor: "check_in",
-    cell: (row) => formatReadableDateTime(row.check_in),
+    header: "Punch Type",
+    accessor: "punch_type",
+    cell: (row) => String(row.punch_type || "-").toUpperCase(),
   },
   {
-    header: "Check Out",
-    accessor: "check_out",
-    cell: (row) => formatReadableDateTime(row.check_out),
+    header: "Device",
+    accessor: "device_name",
+    cell: (row) => row.device_name || row.device_code || "-",
   },
-  { header: "Status", accessor: "status" },
-  { header: "Worked Hours", accessor: "worked_hours" },
+  { header: "Location", accessor: "location" },
 ];
 
 const FIELD_CLASSNAME =

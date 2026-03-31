@@ -37,9 +37,9 @@ const title = (value: string) => value ? value.charAt(0).toUpperCase() + value.s
 
 function statusPalette(status: string) {
   const value = String(status || "").trim().toLowerCase();
-  if (value === "present") return { borderColor: "#bbf7d0", backgroundColor: "#f0fdf4", color: "#15803d" };
-  if (value === "absent") return { borderColor: "#fecaca", backgroundColor: "#fef2f2", color: "#b91c1c" };
-  if (value === "late") return { borderColor: "#fde68a", backgroundColor: "#fffbeb", color: "#b45309" };
+  if (value === "in") return { borderColor: "#bbf7d0", backgroundColor: "#f0fdf4", color: "#15803d" };
+  if (value === "out") return { borderColor: "#bfdbfe", backgroundColor: "#eff6ff", color: "#1d4ed8" };
+  if (value === "unknown") return { borderColor: "#fde68a", backgroundColor: "#fffbeb", color: "#b45309" };
   return { borderColor: "#cbd5e1", backgroundColor: "#f8fafc", color: "#475569" };
 }
 
@@ -139,8 +139,8 @@ export default function TeacherDetailsModule({ teacherId, canManageTeachers }: P
   }, [teacherId, attendanceFilters.startDate, attendanceFilters.endDate]);
 
   const photoUri = resolveTeacherPhotoUrl(teacher?.photo_url);
-  const attendancePresent = useMemo(() => attendance.filter((row) => String(row.status || "").toLowerCase() === "present").length, [attendance]);
-  const attendanceAbsent = useMemo(() => attendance.filter((row) => String(row.status || "").toLowerCase() === "absent").length, [attendance]);
+  const punchInCount = useMemo(() => attendance.filter((row) => String(row.punch_type || "").toLowerCase() === "in").length, [attendance]);
+  const punchOutCount = useMemo(() => attendance.filter((row) => String(row.punch_type || "").toLowerCase() === "out").length, [attendance]);
   const assignedClassSections = useMemo(
     () =>
       Array.from(
@@ -214,8 +214,8 @@ export default function TeacherDetailsModule({ teacherId, canManageTeachers }: P
         </View>
         <View style={styles.summaryGrid}>
           <SummaryCard label="Assignments" value={assignments.length} tone="blue" />
-          <SummaryCard label="Present Days" value={attendancePresent} tone="green" />
-          <SummaryCard label="Absent Days" value={attendanceAbsent} tone="violet" />
+          <SummaryCard label="Punch In" value={punchInCount} tone="green" />
+          <SummaryCard label="Punch Out" value={punchOutCount} tone="violet" />
           <SummaryCard label="Scope" value={fmtScope(teacher.class_scope)} />
         </View>
       </View>
@@ -282,7 +282,7 @@ export default function TeacherDetailsModule({ teacherId, canManageTeachers }: P
       ) : null}
 
       {activeTab === "attendance" ? (
-        <SectionCard title="Attendance History" hint={`${attendance.length} records`}>
+        <SectionCard title="Attendance Logs" hint={`${attendance.length} records`}>
           <View style={styles.filterBlock}>
             <Text style={styles.inputLabel}>Date range</Text>
             <View style={styles.inputRow}>
@@ -298,12 +298,12 @@ export default function TeacherDetailsModule({ teacherId, canManageTeachers }: P
           {attendance.length ? attendance.map((row) => (
             <View key={row.id} style={[styles.listCard, { borderColor: theme.border, backgroundColor: theme.cardMuted }]}>
               <View style={styles.rowBetween}>
-                <Text style={[styles.listTitle, { color: theme.text }]}>{formatDateLabel(row.attendance_date)}</Text>
-                <StatusChip value={row.status} />
+                <Text style={[styles.listTitle, { color: theme.text }]}>{formatDateLabel(row.punch_time)}</Text>
+                <StatusChip value={row.punch_type} />
               </View>
-              <Text style={[styles.listMeta, { color: theme.subText }]}>Check in: {row.check_in ? formatDateLabel(row.check_in) : "-"}</Text>
-              <Text style={[styles.listMeta, { color: theme.subText }]}>Check out: {row.check_out ? formatDateLabel(row.check_out) : "-"}</Text>
-              <Text style={[styles.listMeta, { color: theme.subText }]}>Worked hours: {String(row.worked_hours || "-")}</Text>
+              <Text style={[styles.listMeta, { color: theme.subText }]}>Punch time: {formatDateLabel(row.punch_time)}</Text>
+              <Text style={[styles.listMeta, { color: theme.subText }]}>Device: {row.device_name || row.device_code || "-"}</Text>
+              <Text style={[styles.listMeta, { color: theme.subText }]}>Location: {row.location || "-"}</Text>
             </View>
           )) : <Text style={[styles.emptyText, { color: theme.subText }]}>No attendance records found for this teacher.</Text>}
         </SectionCard>

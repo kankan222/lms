@@ -820,7 +820,7 @@ export default function AttendanceTab() {
 
       {activeTab === "logs" ? <SectionCard title="Teacher Logs" hint={`${filteredTeacherLogs.length} records`}>
         <TextInput style={styles.input} value={teacherSearch} onChangeText={setTeacherSearch} placeholder="Search teacher name" placeholderTextColor="#94a3b8" />
-        {teacherLogsLoading ? <ActivityIndicator size="large" color="#0f172a" /> : filteredTeacherLogs.length ? filteredTeacherLogs.map((row) => <View key={row.id} style={styles.sessionCard}><View style={styles.rowBetween}><Text style={styles.sessionTitle}>{row.teacher}</Text><StatusBadge status={row.status} /></View><Text style={styles.detailText}>Date: {formatDate(row.attendance_date)}</Text><Text style={styles.detailText}>Check In: {formatDateTime(row.check_in)}</Text><Text style={styles.detailText}>Check Out: {formatDateTime(row.check_out)}</Text><Text style={styles.detailText}>Worked Hours: {row.worked_hours || "-"}</Text></View>) : <Text style={styles.emptyText}>No teacher attendance records found.</Text>}
+        {teacherLogsLoading ? <ActivityIndicator size="large" color="#0f172a" /> : filteredTeacherLogs.length ? filteredTeacherLogs.map((row) => <View key={row.id} style={styles.sessionCard}><View style={styles.rowBetween}><Text style={styles.sessionTitle}>{row.teacher}</Text><StatusBadge status={row.punch_type} /></View><Text style={styles.detailText}>Punch Time: {formatDateTime(row.punch_time)}</Text><Text style={styles.detailText}>Device: {row.device_name || row.device_code || "-"}</Text><Text style={styles.detailText}>Location: {row.location || "-"}</Text></View>) : <Text style={styles.emptyText}>No teacher attendance records found.</Text>}
       </SectionCard> : null}
       </View>
     </ScrollView>

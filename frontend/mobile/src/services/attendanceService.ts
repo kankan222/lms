@@ -10,11 +10,12 @@ export type TeacherAttendanceItem = {
   id: number;
   teacher: string;
   teacher_id: number;
-  attendance_date: string;
-  check_in: string | null;
-  check_out: string | null;
-  status: string;
-  worked_hours: string | null;
+  device_id?: number | null;
+  punch_time: string;
+  punch_type: string;
+  device_name?: string | null;
+  device_code?: string | null;
+  location?: string | null;
 };
 
 export type StudentAttendanceStatus = "present" | "absent";

@@ -612,32 +612,30 @@ export default function TeacherDetails() {
       <div className="mt-5">
         <h3 className="text-lg font-semibold">Attendance</h3>
         <Table>
-          <TableCaption>A list of your recent attendance</TableCaption>
+          <TableCaption>A list of recent machine punch logs</TableCaption>
           <TableHeader>
             <TableRow>
-              <TableHead>Date</TableHead>
-              <TableHead>Check In</TableHead>
-              <TableHead>Check Out</TableHead>
-              <TableHead>Status</TableHead>
+              <TableHead>Punch Time</TableHead>
+              <TableHead>Punch Type</TableHead>
               <TableHead>Device</TableHead>
+              <TableHead>Location</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {paginatedAttendance.map((attendance) => (
               <TableRow key={attendance.id}>
                 <TableCell className="font-medium">
-                  {formatReadableDate(attendance.attendance_date)}
+                  {formatReadableDateTime(attendance.punch_time)}
                 </TableCell>
-                <TableCell>{formatReadableDateTime(attendance.check_in)}</TableCell>
-                <TableCell>{formatReadableDateTime(attendance.check_out)}</TableCell>
-                <TableCell>{attendance.status}</TableCell>
-                <TableCell>{attendance.worked_hours}</TableCell>
+                <TableCell>{String(attendance.punch_type || "-").toUpperCase()}</TableCell>
+                <TableCell>{attendance.device_name || attendance.device_code || "-"}</TableCell>
+                <TableCell>{attendance.location || "-"}</TableCell>
               </TableRow>
             ))}
           </TableBody>
           <TableFooter>
             <TableRow>
-              <TableCell colSpan={5}>
+              <TableCell colSpan={4}>
                 <Pagination>
                   <PaginationContent>
                     <PaginationItem>

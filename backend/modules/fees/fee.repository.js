@@ -127,6 +127,33 @@ export async function insertStudentInstallment(enrollmentId, installmentId, amou
     amount
   ]);
 }
+
+export async function getStudentFeeSyncRows(enrollmentId) {
+  const sql = `
+    SELECT
+      sf.id,
+      sf.enrollment_id,
+      sf.installment_id,
+      sf.fee_type,
+      sf.amount,
+      sf.status,
+      COALESCE(SUM(p.amount_paid), 0) AS paid
+    FROM student_fees sf
+    LEFT JOIN payments p
+      ON p.student_fee_id = sf.id
+    WHERE sf.enrollment_id = ?
+    GROUP BY sf.id, sf.enrollment_id, sf.installment_id, sf.fee_type, sf.amount, sf.status
+  `;
+
+  return query(sql, [enrollmentId]);
+}
+
+export async function updateStudentFeeAmount(studentFeeId, amount) {
+  return execute(
+    `UPDATE student_fees SET amount = ? WHERE id = ?`,
+    [amount, studentFeeId]
+  );
+}
 export async function getStudentLedger(enrollmentId) {
 
   const sql = `
@@ -354,6 +381,23 @@ export async function getStructureByEnrollment(enrollmentId) {
   `;
   const rows = await query(sql, [enrollmentId]);
   return rows[0];
+}
+
+export async function getActiveEnrollmentIdsForStructure(structureId) {
+  const rows = await query(
+    `
+      SELECT se.id
+      FROM student_enrollments se
+      JOIN fee_structures fs
+        ON fs.class_id = se.class_id
+       AND fs.session_id = se.session_id
+      WHERE fs.id = ?
+        AND se.status = 'active'
+    `,
+    [structureId]
+  );
+
+  return rows.map((row) => Number(row.id));
 }
 
 export async function getEnrollmentSummary(enrollmentId) {
