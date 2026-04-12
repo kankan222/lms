@@ -216,6 +216,7 @@ export default function Student() {
   const [bulkFile, setBulkFile] = useState(null);
   const [bulkMessage, setBulkMessage] = useState("");
   const [bulkFailures, setBulkFailures] = useState([]);
+  const [bulkUploading, setBulkUploading] = useState(false);
   const [bulkOpen, setBulkOpen] = useState(false);
   const [notice, setNotice] = useState(null);
   const [refreshing, setRefreshing] = useState(false);
@@ -688,6 +689,8 @@ export default function Student() {
   }
 
   async function handleBulkUpload() {
+    if (bulkUploading) return;
+
     setBulkMessage("");
     setBulkFailures([]);
 
@@ -696,6 +699,7 @@ export default function Student() {
       return;
     }
 
+    setBulkUploading(true);
     try {
       const rawCsv = await bulkFile.text();
       const normalizedCsv = transformBulkCsvToBackendFormat(rawCsv);
@@ -703,13 +707,16 @@ export default function Student() {
         type: "text/csv"
       });
       const result = await bulkUploadStudents(uploadFile);
+      if (!result || typeof result !== "object") {
+        throw new Error("Unexpected bulk upload response from server.");
+      }
+
       const createdCount = Number(result?.createdCount || 0);
       const failedCount = Number(result?.failedCount || 0);
       const totalRows = Number(result?.totalRows || createdCount + failedCount);
       const failures = Array.isArray(result?.failures) ? result.failures : [];
 
       setBulkFile(null);
-      await refreshStudents();
 
       if (failedCount > 0) {
         setBulkFailures(failures);
@@ -719,16 +726,20 @@ export default function Student() {
           `${createdCount} student(s) uploaded, ${failedCount} failed. See row errors in the dialog.`,
           "error"
         );
+        await refreshStudents();
         return;
       }
 
       setBulkMessage("Bulk upload completed successfully.");
       setBulkOpen(false);
       showNotice("Bulk Upload Complete", "Students uploaded successfully.");
+      await refreshStudents();
     } catch (err) {
       setBulkMessage(err?.message || "Bulk upload failed.");
       setBulkFailures([]);
       showNotice("Bulk Upload Failed", err?.message || "Bulk upload failed.", "error");
+    } finally {
+      setBulkUploading(false);
     }
   }
 
@@ -900,7 +911,9 @@ export default function Student() {
                             ))}
                           </div>
                         ) : null}
-                        <Button onClick={handleBulkUpload}>Upload</Button>
+                        <Button onClick={handleBulkUpload} disabled={bulkUploading}>
+                          {bulkUploading ? "Uploading..." : "Upload"}
+                        </Button>
                       </div>
                     </DialogContent>
                   </Dialog>
