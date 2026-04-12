@@ -181,6 +181,8 @@ async function resolveParent(conn, parent) {
     return null; // no parent provided
   }
 
+  const normalizedEmail = String(parent.email || "").trim() || null;
+
   const existingUser = await repo.findUserByPhone(conn, parent.mobile);
 
   if (existingUser) {
@@ -203,7 +205,7 @@ async function resolveParent(conn, parent) {
 
   const userId = await repo.createUser(conn, {
     phone: parent.mobile,
-    email: parent.email ?? null,
+    email: normalizedEmail,
     password_hash: passwordHash,
   });
 
@@ -328,4 +330,3 @@ export async function bulkCreateStudents(rows = []) {
     studentIds: createdIds
   };
 }
-

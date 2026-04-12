@@ -1867,7 +1867,7 @@ export default function Attendance() {
           </TabsContent>
         ) : null}
 
-        {canManageTeachers ? (
+        {canViewTeacherLogs ? (
           <TabsContent value="teacher-logs" className="mt-4">
             <DataTable
               columns={teacherAttendanceColumns}

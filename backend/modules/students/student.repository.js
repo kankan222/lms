@@ -31,11 +31,12 @@ export async function findUserByPhone(conn, phone) {
 }
 
 export async function createUser(conn, user) {
+  const normalizedEmail = String(user.email || "").trim() || null;
 
   const [result] = await conn.execute(
     `INSERT INTO users (phone, email, password_hash)
      VALUES (?, ?, ?)`,
-    [user.phone, user.email, user.password_hash]
+    [user.phone, normalizedEmail, user.password_hash]
   );
 
   return result.insertId;
