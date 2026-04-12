@@ -103,7 +103,7 @@ export async function bulkUploadStudents(req, res, next) {
     const headers = parseCsvLine(lines[0]);
     const rows = lines.slice(1).map((line) => mapCsvRow(headers, parseCsvLine(line)));
 
-    const payloads = rows.map((row) => ({
+    const payloads = rows.map((row, index) => ({
       student: {
         admission_no: row.admission_no,
         name: row.name,
@@ -135,11 +135,17 @@ export async function bulkUploadStudents(req, res, next) {
         email: row.mother_email,
         occupation: row.mother_occupation,
         qualification: row.mother_qualification
-      }
+      },
+      _meta: {
+        rowNo: index + 2,
+        admissionNo: row.admission_no || null,
+        studentName: row.name || null,
+      },
     }));
 
     const result = await studentService.bulkCreateStudents(payloads);
-    res.status(201).json(result);
+    const statusCode = result.failedCount > 0 ? 207 : 201;
+    res.status(statusCode).json(result);
   } catch (err) {
     next(err);
   }

@@ -148,12 +148,18 @@ export async function createStudent(payload) {
     const fatherId = await resolveParent(conn, father);
     const motherId = await resolveParent(conn, mother);
 
-    if (fatherId) {
-      await repo.linkParent(conn, studentId, fatherId, "father");
-    }
+    // student_parents has PK (student_id, parent_id). If both guardians resolve
+    // to the same parent (e.g. same phone), link once as guardian.
+    if (fatherId && motherId && fatherId === motherId) {
+      await repo.linkParent(conn, studentId, fatherId, "guardian");
+    } else {
+      if (fatherId) {
+        await repo.linkParent(conn, studentId, fatherId, "father");
+      }
 
-    if (motherId) {
-      await repo.linkParent(conn, studentId, motherId, "mother");
+      if (motherId) {
+        await repo.linkParent(conn, studentId, motherId, "mother");
+      }
     }
 
     await repo.insertEnrollment(conn, {
@@ -302,14 +308,27 @@ export async function updateStudent(id, data) {
 }
 
 export async function deleteStudent(id) {
+  const studentId = Number(id);
+  if (!Number.isInteger(studentId) || studentId <= 0) {
+    throw new AppError("Invalid student id", 400);
+  }
+
+  const conn = await pool.getConnection();
   try {
-    return await repo.deleteStudent(id);
-  } catch (err) {
-    if (err?.code === "ER_ROW_IS_REFERENCED_2" || err?.code === "ER_ROW_IS_REFERENCED") {
-      throw new AppError("Student cannot be deleted because enrollment, marks, fee, or parent records already exist", 400);
+    await conn.beginTransaction();
+
+    const result = await repo.deleteStudentExclusive(conn, studentId);
+    if (!result?.deleted) {
+      throw new AppError("Student not found", 404);
     }
 
+    await conn.commit();
+    return { message: "deleted" };
+  } catch (err) {
+    await conn.rollback();
     throw err;
+  } finally {
+    conn.release();
   }
 }
 
@@ -318,15 +337,35 @@ export async function searchParent(phone) {
 }
 
 export async function bulkCreateStudents(rows = []) {
-  const createdIds = [];
+  const successes = [];
+  const failures = [];
 
   for (const row of rows) {
-    const result = await createStudent(row);
-    createdIds.push(result.studentId);
+    const meta = row?._meta || {};
+
+    try {
+      const result = await createStudent(row);
+      successes.push({
+        rowNo: meta.rowNo ?? null,
+        studentId: result.studentId,
+        admissionNo: meta.admissionNo || row?.student?.admission_no || null,
+        name: meta.studentName || row?.student?.name || null,
+      });
+    } catch (err) {
+      failures.push({
+        rowNo: meta.rowNo ?? null,
+        admissionNo: meta.admissionNo || row?.student?.admission_no || null,
+        name: meta.studentName || row?.student?.name || null,
+        message: err?.message || "Unknown error",
+      });
+    }
   }
 
   return {
-    createdCount: createdIds.length,
-    studentIds: createdIds
+    totalRows: rows.length,
+    createdCount: successes.length,
+    failedCount: failures.length,
+    successes,
+    failures,
   };
 }

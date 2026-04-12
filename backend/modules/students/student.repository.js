@@ -33,8 +33,15 @@ export async function findUserByPhone(conn, phone) {
 export async function createUser(conn, user) {
   const [result] = await conn.execute(
     `INSERT INTO users (phone, email, password_hash)
-     VALUES (?, NULLIF(TRIM(?), ''), ?)`,
-    [user.phone, user.email ?? null, user.password_hash]
+     VALUES (
+       ?,
+       COALESCE(
+         NULLIF(TRIM(?), ''),
+         CONCAT('parent+', REPLACE(?, ' ', ''), '@placeholder.local')
+       ),
+       ?
+     )`,
+    [user.phone, user.email ?? null, user.phone ?? "", user.password_hash]
   );
 
   return result.insertId;
@@ -81,7 +88,9 @@ export async function linkParent(conn, studentId, parentId, relationship) {
   await conn.execute(
     `INSERT INTO student_parents
      (student_id, parent_id, relationship)
-     VALUES (?, ?, ?)`,
+     VALUES (?, ?, ?)
+     ON DUPLICATE KEY UPDATE
+       relationship = VALUES(relationship)`,
     [studentId, parentId, relationship]
   );
 }
@@ -326,6 +335,244 @@ export async function deleteStudent(id) {
     `DELETE FROM students WHERE id=?`,
     [id]
   );
+}
+
+async function getExistingTables(conn, tableNames = []) {
+  if (!tableNames.length) {
+    return new Set();
+  }
+
+  const placeholders = tableNames.map(() => "?").join(",");
+  const [rows] = await conn.execute(
+    `SELECT TABLE_NAME
+     FROM information_schema.TABLES
+     WHERE TABLE_SCHEMA = DATABASE()
+       AND TABLE_NAME IN (${placeholders})`,
+    tableNames
+  );
+
+  return new Set(rows.map((row) => row.TABLE_NAME));
+}
+
+export async function deleteStudentExclusive(conn, studentId) {
+  const tableSet = await getExistingTables(conn, [
+    "students",
+    "student_parents",
+    "parents",
+    "student_enrollments",
+    "student_fees",
+    "payments",
+    "fee_receipts",
+    "marks_entries",
+    "invoices",
+    "student_documents",
+    "student_attendance",
+    "student_attendance_parent_messages",
+    "roles",
+    "user_roles",
+  ]);
+
+  if (!tableSet.has("students")) {
+    return { deleted: false };
+  }
+
+  const [studentRows] = await conn.execute(
+    `SELECT id
+     FROM students
+     WHERE id = ?
+     LIMIT 1`,
+    [studentId]
+  );
+
+  if (!studentRows.length) {
+    return { deleted: false };
+  }
+
+  let parentIds = [];
+  if (tableSet.has("student_parents")) {
+    const [parentRows] = await conn.execute(
+      `SELECT parent_id
+       FROM student_parents
+       WHERE student_id = ?`,
+      [studentId]
+    );
+
+    parentIds = parentRows
+      .map((row) => Number(row.parent_id))
+      .filter((value) => Number.isInteger(value) && value > 0);
+  }
+
+  let enrollmentIds = [];
+  if (tableSet.has("student_enrollments")) {
+    const [enrollmentRows] = await conn.execute(
+      `SELECT id
+       FROM student_enrollments
+       WHERE student_id = ?`,
+      [studentId]
+    );
+
+    enrollmentIds = enrollmentRows
+      .map((row) => Number(row.id))
+      .filter((value) => Number.isInteger(value) && value > 0);
+  }
+
+  if (tableSet.has("student_attendance_parent_messages")) {
+    await conn.execute(
+      `DELETE FROM student_attendance_parent_messages
+       WHERE student_id = ?`,
+      [studentId]
+    );
+  }
+
+  if (tableSet.has("student_attendance")) {
+    await conn.execute(
+      `DELETE FROM student_attendance
+       WHERE student_id = ?`,
+      [studentId]
+    );
+  }
+
+  if (tableSet.has("marks_entries")) {
+    await conn.execute(
+      `DELETE FROM marks_entries
+       WHERE student_id = ?`,
+      [studentId]
+    );
+  }
+
+  if (tableSet.has("student_documents")) {
+    await conn.execute(
+      `DELETE FROM student_documents
+       WHERE student_id = ?`,
+      [studentId]
+    );
+  }
+
+  if (tableSet.has("invoices")) {
+    await conn.execute(
+      `DELETE FROM invoices
+       WHERE student_id = ?`,
+      [studentId]
+    );
+  }
+
+  if (enrollmentIds.length && tableSet.has("student_fees")) {
+    const enrollmentPlaceholders = enrollmentIds.map(() => "?").join(",");
+
+    const [feeRows] = await conn.execute(
+      `SELECT id
+       FROM student_fees
+       WHERE enrollment_id IN (${enrollmentPlaceholders})`,
+      enrollmentIds
+    );
+
+    const feeIds = feeRows
+      .map((row) => Number(row.id))
+      .filter((value) => Number.isInteger(value) && value > 0);
+
+    if (feeIds.length && tableSet.has("payments")) {
+      const feePlaceholders = feeIds.map(() => "?").join(",");
+
+      if (tableSet.has("fee_receipts")) {
+        await conn.execute(
+          `DELETE fr
+           FROM fee_receipts fr
+           JOIN payments p ON p.id = fr.payment_id
+           WHERE p.student_fee_id IN (${feePlaceholders})`,
+          feeIds
+        );
+      }
+
+      await conn.execute(
+        `DELETE FROM payments
+         WHERE student_fee_id IN (${feePlaceholders})`,
+        feeIds
+      );
+    }
+
+    await conn.execute(
+      `DELETE FROM student_fees
+       WHERE enrollment_id IN (${enrollmentPlaceholders})`,
+      enrollmentIds
+    );
+  }
+
+  if (tableSet.has("student_parents")) {
+    await conn.execute(
+      `DELETE FROM student_parents
+       WHERE student_id = ?`,
+      [studentId]
+    );
+  }
+
+  if (tableSet.has("student_enrollments")) {
+    await conn.execute(
+      `DELETE FROM student_enrollments
+       WHERE student_id = ?`,
+      [studentId]
+    );
+  }
+
+  await conn.execute(
+    `DELETE FROM students
+     WHERE id = ?`,
+    [studentId]
+  );
+
+  if (parentIds.length && tableSet.has("parents")) {
+    const parentPlaceholders = parentIds.map(() => "?").join(",");
+    const [orphanParentRows] = tableSet.has("student_parents")
+      ? await conn.execute(
+        `SELECT p.id, p.user_id
+         FROM parents p
+         LEFT JOIN student_parents sp ON sp.parent_id = p.id
+         WHERE p.id IN (${parentPlaceholders})
+         GROUP BY p.id, p.user_id
+         HAVING COUNT(sp.student_id) = 0`,
+        parentIds
+      )
+      : await conn.execute(
+        `SELECT id, user_id
+         FROM parents
+         WHERE id IN (${parentPlaceholders})`,
+        parentIds
+      );
+
+    const orphanParentIds = orphanParentRows
+      .map((row) => Number(row.id))
+      .filter((value) => Number.isInteger(value) && value > 0);
+
+    const orphanParentUserIds = orphanParentRows
+      .map((row) => Number(row.user_id))
+      .filter((value) => Number.isInteger(value) && value > 0);
+
+    if (orphanParentIds.length) {
+      const orphanParentPlaceholders = orphanParentIds.map(() => "?").join(",");
+      await conn.execute(
+        `DELETE FROM parents
+         WHERE id IN (${orphanParentPlaceholders})`,
+        orphanParentIds
+      );
+    }
+
+    if (
+      orphanParentUserIds.length &&
+      tableSet.has("user_roles") &&
+      tableSet.has("roles")
+    ) {
+      const userPlaceholders = orphanParentUserIds.map(() => "?").join(",");
+      await conn.execute(
+        `DELETE ur
+         FROM user_roles ur
+         JOIN roles r ON r.id = ur.role_id
+         WHERE r.name = 'parent'
+           AND ur.user_id IN (${userPlaceholders})`,
+        orphanParentUserIds
+      );
+    }
+  }
+
+  return { deleted: true };
 }
 
 export async function searchParent(phone) {

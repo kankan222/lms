@@ -215,6 +215,7 @@ export default function Student() {
   const [errors, setErrors] = useState({});
   const [bulkFile, setBulkFile] = useState(null);
   const [bulkMessage, setBulkMessage] = useState("");
+  const [bulkFailures, setBulkFailures] = useState([]);
   const [bulkOpen, setBulkOpen] = useState(false);
   const [notice, setNotice] = useState(null);
   const [refreshing, setRefreshing] = useState(false);
@@ -602,10 +603,8 @@ export default function Student() {
     ];
 
     const outRows = [];
-    const errors = [];
 
-    lines.slice(1).forEach((line, idx) => {
-      const rowNo = idx + 2;
+    lines.slice(1).forEach((line) => {
       const values = parseCsvLine(line);
 
       const classToken = getCell(values, "class", "class_name", "class_id");
@@ -618,9 +617,8 @@ export default function Student() {
         classObj = classByName.get(normalizeName(classToken)) || null;
         classId = classObj ? String(classObj.id) : "";
       }
-      if (!classId) {
-        errors.push(`Row ${rowNo}: Invalid class '${classToken}'.`);
-        return;
+      if (!classId && isNumericId(classToken)) {
+        classId = String(classToken).trim();
       }
 
       const sectionToken = getCell(values, "section", "section_name", "section_id");
@@ -635,9 +633,8 @@ export default function Student() {
         ) || null;
         sectionId = sectionObj ? String(sectionObj.id) : "";
       }
-      if (!sectionId) {
-        errors.push(`Row ${rowNo}: Invalid section '${sectionToken}' for class '${classObj?.name || classToken}'.`);
-        return;
+      if (!sectionId && isNumericId(sectionToken)) {
+        sectionId = String(sectionToken).trim();
       }
 
       const sessionToken = getCell(values, "session", "session_name", "session_id");
@@ -647,21 +644,14 @@ export default function Student() {
       } else {
         sessionId = String(sessionByName.get(normalizeName(sessionToken))?.id || "");
       }
-      if (!sessionId) {
-        errors.push(`Row ${rowNo}: Invalid session '${sessionToken}'.`);
-        return;
+      if (!sessionId && isNumericId(sessionToken)) {
+        sessionId = String(sessionToken).trim();
       }
 
       const inputMedium = getCell(values, "medium");
       const sectionMedium = String(sectionObj?.medium || "").trim();
       const medium = String(inputMedium || "").trim() || sectionMedium;
-      const classScope = String(classObj?.class_scope || "school").trim().toLowerCase();
       const stream = getCell(values, "stream", "stream_name", "stream_id");
-
-      if (classScope === "hs" && !String(stream || "").trim()) {
-        errors.push(`Row ${rowNo}: Stream is required for higher secondary class '${classObj?.name || classToken}'.`);
-        return;
-      }
 
       outRows.push({
         admission_no: getCell(values, "admission_no"),
@@ -690,10 +680,6 @@ export default function Student() {
       });
     });
 
-    if (errors.length) {
-      throw new Error(errors.slice(0, 5).join(" "));
-    }
-
     const outputLines = [
       outputHeaders.join(","),
       ...outRows.map((row) => outputHeaders.map((h) => csvEscape(row[h])).join(","))
@@ -703,6 +689,7 @@ export default function Student() {
 
   async function handleBulkUpload() {
     setBulkMessage("");
+    setBulkFailures([]);
 
     if (!bulkFile) {
       setBulkMessage("Select a CSV file first.");
@@ -715,14 +702,32 @@ export default function Student() {
       const uploadFile = new File([normalizedCsv], bulkFile.name || "students-upload.csv", {
         type: "text/csv"
       });
-      await bulkUploadStudents(uploadFile);
+      const result = await bulkUploadStudents(uploadFile);
+      const createdCount = Number(result?.createdCount || 0);
+      const failedCount = Number(result?.failedCount || 0);
+      const totalRows = Number(result?.totalRows || createdCount + failedCount);
+      const failures = Array.isArray(result?.failures) ? result.failures : [];
+
       setBulkFile(null);
       await refreshStudents();
+
+      if (failedCount > 0) {
+        setBulkFailures(failures);
+        setBulkMessage(`Uploaded ${createdCount}/${totalRows}. ${failedCount} row(s) failed.`);
+        showNotice(
+          "Bulk Upload Partial",
+          `${createdCount} student(s) uploaded, ${failedCount} failed. See row errors in the dialog.`,
+          "error"
+        );
+        return;
+      }
+
       setBulkMessage("Bulk upload completed successfully.");
       setBulkOpen(false);
       showNotice("Bulk Upload Complete", "Students uploaded successfully.");
     } catch (err) {
       setBulkMessage(err?.message || "Bulk upload failed.");
+      setBulkFailures([]);
       showNotice("Bulk Upload Failed", err?.message || "Bulk upload failed.", "error");
     }
   }
@@ -851,6 +856,7 @@ export default function Student() {
                       if (!nextOpen) {
                         setBulkFile(null);
                         setBulkMessage("");
+                        setBulkFailures([]);
                       }
                     }}
                   >
@@ -865,7 +871,11 @@ export default function Student() {
                         <Input
                           type="file"
                           accept=".csv,text/csv"
-                          onChange={(e) => setBulkFile(e.target.files?.[0] || null)}
+                          onChange={(e) => {
+                            setBulkFile(e.target.files?.[0] || null);
+                            setBulkMessage("");
+                            setBulkFailures([]);
+                          }}
                         />
                         <p className="text-xs text-muted-foreground">
                           Use names for session, class, and section. Scope is derived automatically from the selected class. Keep `stream` blank for School classes and fill it only for Higher Secondary rows.
@@ -881,6 +891,15 @@ export default function Student() {
                             {bulkMessage}
                           </p>
                         )}
+                        {bulkFailures.length > 0 ? (
+                          <div className="max-h-44 overflow-auto rounded-md border p-2 text-xs">
+                            {bulkFailures.slice(0, 50).map((item, index) => (
+                              <p key={`${item.rowNo || "row"}-${index}`} className="mb-1 last:mb-0">
+                                Row {item.rowNo || "-"} ({item.admissionNo || item.name || "Unknown"}): {item.message}
+                              </p>
+                            ))}
+                          </div>
+                        ) : null}
                         <Button onClick={handleBulkUpload}>Upload</Button>
                       </div>
                     </DialogContent>
