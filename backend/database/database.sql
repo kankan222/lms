@@ -282,6 +282,21 @@ CREATE TABLE attendance_devices (
     location VARCHAR(150),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE TABLE teacher_device_users (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    device_id BIGINT NOT NULL,
+    device_user_id VARCHAR(50) NOT NULL,
+    teacher_id BIGINT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+    UNIQUE KEY uniq_device_user (device_id, device_user_id),
+    INDEX idx_tdu_teacher (teacher_id),
+
+    FOREIGN KEY (device_id) REFERENCES attendance_devices(id) ON DELETE CASCADE,
+    FOREIGN KEY (teacher_id) REFERENCES teachers(id) ON DELETE CASCADE
+);
 -- ATTENDANCE LOGS
 CREATE TABLE teacher_attendance_logs (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,

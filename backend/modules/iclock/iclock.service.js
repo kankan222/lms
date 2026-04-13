@@ -185,21 +185,32 @@ export async function handleIncomingPacket({ headers, body }) {
     return;
   }
 
-  const teacherId = await repo.getTeacherIdForDeviceUser(packet.deviceUserId);
-  if (!teacherId) {
-    console.log("ICLOCK NO TEACHER MAPPING:", {
-      deviceUserId: packet.deviceUserId,
-      hint: "Set teachers.employee_id equal to device user_id.",
-    });
-    return;
-  }
-
   const deviceId = await repo.getDeviceIdByCode(packet.deviceCode);
   if (!deviceId) {
     console.log("ICLOCK NO DEVICE MAPPING:", {
       deviceCode: packet.deviceCode,
       hint: "Create attendance_devices row with matching device_code.",
     });
+  }
+
+  const mapping = await repo.getTeacherMappingForDeviceUser({
+    deviceUserId: packet.deviceUserId,
+    deviceId,
+  });
+  const teacherId = mapping?.teacherId ? Number(mapping.teacherId) : null;
+  if (!teacherId) {
+    const hint =
+      mapping?.source === "device_user_unmapped"
+        ? "Map this device user in teacher_device_users (device_id + device_user_id -> teacher_id)."
+        : "Set teachers.employee_id equal to device user_id, or configure teacher_device_users mapping.";
+    console.log("ICLOCK NO TEACHER MAPPING:", {
+      deviceCode: packet.deviceCode,
+      deviceId: deviceId || null,
+      deviceUserId: packet.deviceUserId,
+      mappingSource: mapping?.source || "none",
+      hint,
+    });
+    return;
   }
 
   const alreadyExists = await repo.attendanceLogExists({
@@ -226,6 +237,7 @@ export async function handleIncomingPacket({ headers, body }) {
   console.log("ICLOCK ATTENDANCE STORED:", {
     teacherId,
     deviceId,
+    mappingSource: mapping?.source || "unknown",
     punchTime: packet.punchTime,
     punchType: packet.punchType,
     ioMode: packet.ioMode,
