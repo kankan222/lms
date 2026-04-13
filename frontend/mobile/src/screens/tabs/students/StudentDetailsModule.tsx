@@ -224,6 +224,12 @@ export default function StudentDetailsModule({ studentId, exams }: Props) {
 
   const father = useMemo(() => student?.parents?.find((parent) => String(parent.relationship || "").toLowerCase() === "father"), [student]);
   const mother = useMemo(() => student?.parents?.find((parent) => String(parent.relationship || "").toLowerCase() === "mother"), [student]);
+  const guardian = useMemo(
+    () => student?.parents?.find((parent) => String(parent.relationship || "").toLowerCase() === "guardian"),
+    [student]
+  );
+  const fatherDisplay = father || guardian || null;
+  const motherDisplay = mother || guardian || null;
   const photoUri = resolvePhoto(student?.photo_url);
   const totalDue = useMemo(() => feeItems.reduce((sum, item) => sum + Number(item.remaining || 0), 0), [feeItems]);
   const totalPaid = useMemo(() => payments.reduce((sum, item) => sum + Number(item.amount_paid || 0), 0), [payments]);
@@ -297,18 +303,18 @@ export default function StudentDetailsModule({ studentId, exams }: Props) {
       {activeTab === "parents" ? (
         <View style={styles.twoColumn}>
           <SectionCard title="Father">
-            <InfoRow label="Name" value={father?.name || "-"} />
-            <InfoRow label="Phone" value={father?.mobile || "-"} />
-            <InfoRow label="Email" value={father?.email || "-"} />
-            <InfoRow label="Occupation" value={father?.occupation || "-"} />
-            <InfoRow label="Qualification" value={father?.qualification || "-"} />
+            <InfoRow label="Name" value={fatherDisplay?.name || "-"} />
+            <InfoRow label="Phone" value={fatherDisplay?.mobile || "-"} />
+            <InfoRow label="Email" value={fatherDisplay?.email || "-"} />
+            <InfoRow label="Occupation" value={fatherDisplay?.occupation || "-"} />
+            <InfoRow label="Qualification" value={fatherDisplay?.qualification || "-"} />
           </SectionCard>
           <SectionCard title="Mother">
-            <InfoRow label="Name" value={mother?.name || "-"} />
-            <InfoRow label="Phone" value={mother?.mobile || "-"} />
-            <InfoRow label="Email" value={mother?.email || "-"} />
-            <InfoRow label="Occupation" value={mother?.occupation || "-"} />
-            <InfoRow label="Qualification" value={mother?.qualification || "-"} />
+            <InfoRow label="Name" value={motherDisplay?.name || "-"} />
+            <InfoRow label="Phone" value={motherDisplay?.mobile || "-"} />
+            <InfoRow label="Email" value={motherDisplay?.email || "-"} />
+            <InfoRow label="Occupation" value={motherDisplay?.occupation || "-"} />
+            <InfoRow label="Qualification" value={motherDisplay?.qualification || "-"} />
           </SectionCard>
         </View>
       ) : null}

@@ -242,13 +242,28 @@ const StudentDetails = () => {
   }
 
   const father = useMemo(
-    () => student?.parents?.find((p) => p.relationship === "father"),
+    () =>
+      student?.parents?.find(
+        (p) => String(p.relationship || "").trim().toLowerCase() === "father"
+      ),
     [student]
   );
   const mother = useMemo(
-    () => student?.parents?.find((p) => p.relationship === "mother"),
+    () =>
+      student?.parents?.find(
+        (p) => String(p.relationship || "").trim().toLowerCase() === "mother"
+      ),
     [student]
   );
+  const guardian = useMemo(
+    () =>
+      student?.parents?.find(
+        (p) => String(p.relationship || "").trim().toLowerCase() === "guardian"
+      ),
+    [student]
+  );
+  const fatherDisplay = father || guardian || null;
+  const motherDisplay = mother || guardian || null;
 
   if (loading) {
     return <div>Loading...</div>;
@@ -382,20 +397,20 @@ const StudentDetails = () => {
           <div className="grid gap-4 md:grid-cols-2">
             <div className="rounded-lg border bg-card p-4 space-y-1">
               <h3 className="font-medium">Father</h3>
-              <p className="text-sm">Name: {father?.name || "-"}</p>
-              <p className="text-sm">Phone: {father?.mobile || "-"}</p>
-              <p className="text-sm">Email: {father?.email || "-"}</p>
-              <p className="text-sm">Occupation: {father?.occupation || "-"}</p>
-              <p className="text-sm">Qualification: {father?.qualification || "-"}</p>
+              <p className="text-sm">Name: {fatherDisplay?.name || "-"}</p>
+              <p className="text-sm">Phone: {fatherDisplay?.mobile || "-"}</p>
+              <p className="text-sm">Email: {fatherDisplay?.email || "-"}</p>
+              <p className="text-sm">Occupation: {fatherDisplay?.occupation || "-"}</p>
+              <p className="text-sm">Qualification: {fatherDisplay?.qualification || "-"}</p>
             </div>
 
             <div className="rounded-lg border bg-card p-4 space-y-1">
               <h3 className="font-medium">Mother</h3>
-              <p className="text-sm">Name: {mother?.name || "-"}</p>
-              <p className="text-sm">Phone: {mother?.mobile || "-"}</p>
-              <p className="text-sm">Email: {mother?.email || "-"}</p>
-              <p className="text-sm">Occupation: {mother?.occupation || "-"}</p>
-              <p className="text-sm">Qualification: {mother?.qualification || "-"}</p>
+              <p className="text-sm">Name: {motherDisplay?.name || "-"}</p>
+              <p className="text-sm">Phone: {motherDisplay?.mobile || "-"}</p>
+              <p className="text-sm">Email: {motherDisplay?.email || "-"}</p>
+              <p className="text-sm">Occupation: {motherDisplay?.occupation || "-"}</p>
+              <p className="text-sm">Qualification: {motherDisplay?.qualification || "-"}</p>
             </div>
           </div>
         </TabsContent>
