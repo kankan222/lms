@@ -112,6 +112,15 @@ export async function updateUserEmailIfEmpty(conn, userId, email) {
   );
 }
 
+export async function updateUserEmail(conn, userId, email) {
+  await conn.execute(
+    `UPDATE users
+     SET email = NULLIF(TRIM(?), '')
+     WHERE id = ?`,
+    [email ?? null, userId]
+  );
+}
+
 export async function updateParentProfileIfMissing(conn, parentId, parent) {
   await conn.execute(
     `UPDATE parents
@@ -121,6 +130,27 @@ export async function updateParentProfileIfMissing(conn, parentId, parent) {
        occupation = COALESCE(NULLIF(TRIM(occupation), ''), NULLIF(TRIM(?), '')),
        mobile = COALESCE(NULLIF(TRIM(mobile), ''), NULLIF(TRIM(?), '')),
        email = COALESCE(NULLIF(TRIM(email), ''), NULLIF(TRIM(?), ''))
+     WHERE id = ?`,
+    [
+      parent?.name ?? null,
+      parent?.qualification ?? null,
+      parent?.occupation ?? null,
+      parent?.mobile ?? null,
+      parent?.email ?? null,
+      parentId,
+    ]
+  );
+}
+
+export async function updateParentProfile(conn, parentId, parent) {
+  await conn.execute(
+    `UPDATE parents
+     SET
+       name = COALESCE(NULLIF(TRIM(?), ''), name),
+       qualification = COALESCE(NULLIF(TRIM(?), ''), qualification),
+       occupation = COALESCE(NULLIF(TRIM(?), ''), occupation),
+       mobile = COALESCE(NULLIF(TRIM(?), ''), mobile),
+       email = COALESCE(NULLIF(TRIM(?), ''), email)
      WHERE id = ?`,
     [
       parent?.name ?? null,
@@ -352,6 +382,14 @@ export async function getStudentById(id) {
     ...student,
     parents: parentRows
   };
+}
+
+export async function deleteStudentParentLinks(conn, studentId) {
+  await conn.execute(
+    `DELETE FROM student_parents
+     WHERE student_id = ?`,
+    [studentId]
+  );
 }
 
 export async function updateStudent(id, data) {

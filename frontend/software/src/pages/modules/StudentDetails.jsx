@@ -1,7 +1,7 @@
 import { useEffect, useEffectEvent, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
 import TopBar from "../../components/TopBar";
-import { getStudent } from "../../api/students.api";
+import { getStudent, updateStudent as updateStudentApi } from "../../api/students.api";
 import { getStudentAttendanceSessions } from "../../api/attendance.api";
 import {
   getMyPayments,
@@ -72,10 +72,19 @@ function approvalStatusColor(status) {
   return "bg-muted text-muted-foreground";
 }
 
+const EMPTY_PARENT = {
+  name: "",
+  mobile: "",
+  email: "",
+  occupation: "",
+  qualification: "",
+};
+
 const StudentDetails = () => {
   const { id } = useParams();
-  const { hasRole } = usePermissions();
+  const { hasRole, can } = usePermissions();
   const isParent = hasRole("parent");
+  const canEditParents = !isParent && can("student.update");
   const [student, setStudent] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -98,6 +107,14 @@ const StudentDetails = () => {
     date_from: "",
     date_to: "",
   });
+  const [isEditingParents, setIsEditingParents] = useState(false);
+  const [parentDraft, setParentDraft] = useState({
+    father: { ...EMPTY_PARENT },
+    mother: { ...EMPTY_PARENT },
+  });
+  const [parentSaveError, setParentSaveError] = useState("");
+  const [parentSaveMessage, setParentSaveMessage] = useState("");
+  const [savingParents, setSavingParents] = useState(false);
 
   const loadStudent = useEffectEvent(async () => {
     setLoading(true);
@@ -265,6 +282,140 @@ const StudentDetails = () => {
   const fatherDisplay = father || guardian || null;
   const motherDisplay = mother || guardian || null;
 
+  useEffect(() => {
+    setParentDraft({
+      father: {
+        name: String(fatherDisplay?.name || "").trim(),
+        mobile: String(fatherDisplay?.mobile || "").trim(),
+        email: String(fatherDisplay?.email || "").trim(),
+        occupation: String(fatherDisplay?.occupation || "").trim(),
+        qualification: String(fatherDisplay?.qualification || "").trim(),
+      },
+      mother: {
+        name: String(motherDisplay?.name || "").trim(),
+        mobile: String(motherDisplay?.mobile || "").trim(),
+        email: String(motherDisplay?.email || "").trim(),
+        occupation: String(motherDisplay?.occupation || "").trim(),
+        qualification: String(motherDisplay?.qualification || "").trim(),
+      },
+    });
+  }, [
+    student?.id,
+    fatherDisplay?.name,
+    fatherDisplay?.mobile,
+    fatherDisplay?.email,
+    fatherDisplay?.occupation,
+    fatherDisplay?.qualification,
+    motherDisplay?.name,
+    motherDisplay?.mobile,
+    motherDisplay?.email,
+    motherDisplay?.occupation,
+    motherDisplay?.qualification,
+  ]);
+
+  function updateParentDraft(role, field, value) {
+    setParentDraft((prev) => ({
+      ...prev,
+      [role]: {
+        ...prev[role],
+        [field]: value,
+      },
+    }));
+  }
+
+  function validateParentDraft() {
+    const fatherMobile = String(parentDraft?.father?.mobile || "").trim();
+    const motherMobile = String(parentDraft?.mother?.mobile || "").trim();
+    const fatherName = String(parentDraft?.father?.name || "").trim();
+    const motherName = String(parentDraft?.mother?.name || "").trim();
+    const fatherEmail = String(parentDraft?.father?.email || "").trim();
+    const motherEmail = String(parentDraft?.mother?.email || "").trim();
+
+    if (!fatherMobile && !motherMobile) {
+      return "At least one parent phone is required.";
+    }
+    if (fatherMobile && !/^\d{10}$/.test(fatherMobile)) {
+      return "Father phone must be 10 digits.";
+    }
+    if (motherMobile && !/^\d{10}$/.test(motherMobile)) {
+      return "Mother phone must be 10 digits.";
+    }
+    if (fatherMobile && !fatherName) {
+      return "Father name is required when father phone is provided.";
+    }
+    if (motherMobile && !motherName) {
+      return "Mother name is required when mother phone is provided.";
+    }
+    if (fatherEmail && !/^\S+@\S+\.\S+$/.test(fatherEmail)) {
+      return "Father email is invalid.";
+    }
+    if (motherEmail && !/^\S+@\S+\.\S+$/.test(motherEmail)) {
+      return "Mother email is invalid.";
+    }
+    return "";
+  }
+
+  async function handleSaveParents() {
+    if (!student?.id || savingParents) return;
+    setParentSaveError("");
+    setParentSaveMessage("");
+
+    const validation = validateParentDraft();
+    if (validation) {
+      setParentSaveError(validation);
+      return;
+    }
+
+    setSavingParents(true);
+    try {
+      await updateStudentApi(student.id, {
+        father: {
+          name: String(parentDraft?.father?.name || "").trim(),
+          mobile: String(parentDraft?.father?.mobile || "").trim(),
+          email: String(parentDraft?.father?.email || "").trim(),
+          occupation: String(parentDraft?.father?.occupation || "").trim(),
+          qualification: String(parentDraft?.father?.qualification || "").trim(),
+        },
+        mother: {
+          name: String(parentDraft?.mother?.name || "").trim(),
+          mobile: String(parentDraft?.mother?.mobile || "").trim(),
+          email: String(parentDraft?.mother?.email || "").trim(),
+          occupation: String(parentDraft?.mother?.occupation || "").trim(),
+          qualification: String(parentDraft?.mother?.qualification || "").trim(),
+        },
+      });
+      setIsEditingParents(false);
+      setParentSaveMessage("Parent details updated.");
+      await loadStudent();
+    } catch (err) {
+      setParentSaveError(err?.message || "Failed to update parent details.");
+    } finally {
+      setSavingParents(false);
+    }
+  }
+
+  function handleCancelParentEdit() {
+    setIsEditingParents(false);
+    setParentSaveError("");
+    setParentSaveMessage("");
+    setParentDraft({
+      father: {
+        name: String(fatherDisplay?.name || "").trim(),
+        mobile: String(fatherDisplay?.mobile || "").trim(),
+        email: String(fatherDisplay?.email || "").trim(),
+        occupation: String(fatherDisplay?.occupation || "").trim(),
+        qualification: String(fatherDisplay?.qualification || "").trim(),
+      },
+      mother: {
+        name: String(motherDisplay?.name || "").trim(),
+        mobile: String(motherDisplay?.mobile || "").trim(),
+        email: String(motherDisplay?.email || "").trim(),
+        occupation: String(motherDisplay?.occupation || "").trim(),
+        qualification: String(motherDisplay?.qualification || "").trim(),
+      },
+    });
+  }
+
   if (loading) {
     return <div>Loading...</div>;
   }
@@ -394,23 +545,142 @@ const StudentDetails = () => {
         </TabsContent>
 
         <TabsContent value="parents" className="mt-4">
+          {canEditParents ? (
+            <div className="mb-3 flex flex-wrap items-center gap-2">
+              {!isEditingParents ? (
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setIsEditingParents(true);
+                    setParentSaveError("");
+                    setParentSaveMessage("");
+                  }}
+                >
+                  Edit Parent Details
+                </Button>
+              ) : (
+                <>
+                  <Button onClick={handleSaveParents} disabled={savingParents}>
+                    {savingParents ? "Saving..." : "Save Parent Details"}
+                  </Button>
+                  <Button variant="outline" onClick={handleCancelParentEdit} disabled={savingParents}>
+                    Cancel
+                  </Button>
+                </>
+              )}
+            </div>
+          ) : null}
+
+          {parentSaveError ? (
+            <p className="mb-3 text-sm text-red-700 dark:text-red-200">{parentSaveError}</p>
+          ) : null}
+          {parentSaveMessage ? (
+            <p className="mb-3 text-sm text-emerald-700 dark:text-emerald-200">{parentSaveMessage}</p>
+          ) : null}
+
           <div className="grid gap-4 md:grid-cols-2">
             <div className="rounded-lg border bg-card p-4 space-y-1">
               <h3 className="font-medium">Father</h3>
-              <p className="text-sm">Name: {fatherDisplay?.name || "-"}</p>
-              <p className="text-sm">Phone: {fatherDisplay?.mobile || "-"}</p>
-              <p className="text-sm">Email: {fatherDisplay?.email || "-"}</p>
-              <p className="text-sm">Occupation: {fatherDisplay?.occupation || "-"}</p>
-              <p className="text-sm">Qualification: {fatherDisplay?.qualification || "-"}</p>
+              {isEditingParents ? (
+                <div className="space-y-2">
+                  <div>
+                    <p className="text-xs text-muted-foreground">Name</p>
+                    <Input
+                      value={parentDraft?.father?.name || ""}
+                      onChange={(e) => updateParentDraft("father", "name", e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground">Phone</p>
+                    <Input
+                      value={parentDraft?.father?.mobile || ""}
+                      inputMode="numeric"
+                      onChange={(e) => updateParentDraft("father", "mobile", e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground">Email</p>
+                    <Input
+                      value={parentDraft?.father?.email || ""}
+                      onChange={(e) => updateParentDraft("father", "email", e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground">Occupation</p>
+                    <Input
+                      value={parentDraft?.father?.occupation || ""}
+                      onChange={(e) => updateParentDraft("father", "occupation", e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground">Qualification</p>
+                    <Input
+                      value={parentDraft?.father?.qualification || ""}
+                      onChange={(e) => updateParentDraft("father", "qualification", e.target.value)}
+                    />
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <p className="text-sm">Name: {fatherDisplay?.name || "-"}</p>
+                  <p className="text-sm">Phone: {fatherDisplay?.mobile || "-"}</p>
+                  <p className="text-sm">Email: {fatherDisplay?.email || "-"}</p>
+                  <p className="text-sm">Occupation: {fatherDisplay?.occupation || "-"}</p>
+                  <p className="text-sm">Qualification: {fatherDisplay?.qualification || "-"}</p>
+                </>
+              )}
             </div>
 
             <div className="rounded-lg border bg-card p-4 space-y-1">
               <h3 className="font-medium">Mother</h3>
-              <p className="text-sm">Name: {motherDisplay?.name || "-"}</p>
-              <p className="text-sm">Phone: {motherDisplay?.mobile || "-"}</p>
-              <p className="text-sm">Email: {motherDisplay?.email || "-"}</p>
-              <p className="text-sm">Occupation: {motherDisplay?.occupation || "-"}</p>
-              <p className="text-sm">Qualification: {motherDisplay?.qualification || "-"}</p>
+              {isEditingParents ? (
+                <div className="space-y-2">
+                  <div>
+                    <p className="text-xs text-muted-foreground">Name</p>
+                    <Input
+                      value={parentDraft?.mother?.name || ""}
+                      onChange={(e) => updateParentDraft("mother", "name", e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground">Phone</p>
+                    <Input
+                      value={parentDraft?.mother?.mobile || ""}
+                      inputMode="numeric"
+                      onChange={(e) => updateParentDraft("mother", "mobile", e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground">Email</p>
+                    <Input
+                      value={parentDraft?.mother?.email || ""}
+                      onChange={(e) => updateParentDraft("mother", "email", e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground">Occupation</p>
+                    <Input
+                      value={parentDraft?.mother?.occupation || ""}
+                      onChange={(e) => updateParentDraft("mother", "occupation", e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground">Qualification</p>
+                    <Input
+                      value={parentDraft?.mother?.qualification || ""}
+                      onChange={(e) => updateParentDraft("mother", "qualification", e.target.value)}
+                    />
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <p className="text-sm">Name: {motherDisplay?.name || "-"}</p>
+                  <p className="text-sm">Phone: {motherDisplay?.mobile || "-"}</p>
+                  <p className="text-sm">Email: {motherDisplay?.email || "-"}</p>
+                  <p className="text-sm">Occupation: {motherDisplay?.occupation || "-"}</p>
+                  <p className="text-sm">Qualification: {motherDisplay?.qualification || "-"}</p>
+                </>
+              )}
             </div>
           </div>
         </TabsContent>

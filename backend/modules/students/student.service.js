@@ -14,6 +14,110 @@ function hasParentDetails(parent = {}) {
   );
 }
 
+function normalizeParentInput(parent = {}) {
+  return {
+    name: String(parent?.name || "").trim(),
+    mobile: String(parent?.mobile || "").trim(),
+    email: String(parent?.email || "").trim(),
+    occupation: String(parent?.occupation || "").trim(),
+    qualification: String(parent?.qualification || "").trim(),
+  };
+}
+
+function mergeParentInput(base = {}, patch = {}) {
+  const next = {
+    name: base?.name ?? "",
+    mobile: base?.mobile ?? "",
+    email: base?.email ?? "",
+    occupation: base?.occupation ?? "",
+    qualification: base?.qualification ?? "",
+  };
+
+  if (!patch || typeof patch !== "object") {
+    return normalizeParentInput(next);
+  }
+
+  const keys = ["name", "mobile", "email", "occupation", "qualification"];
+  for (const key of keys) {
+    if (Object.prototype.hasOwnProperty.call(patch, key)) {
+      next[key] = patch[key];
+    }
+  }
+
+  return normalizeParentInput(next);
+}
+
+function getParentByRelationship(student, relationship) {
+  const rel = String(relationship || "").trim().toLowerCase();
+  return (
+    student?.parents?.find(
+      (parent) => String(parent?.relationship || "").trim().toLowerCase() === rel
+    ) || null
+  );
+}
+
+function getParentDisplay(student, relationship) {
+  const exact = getParentByRelationship(student, relationship);
+  if (exact) return exact;
+  return getParentByRelationship(student, "guardian");
+}
+
+function buildParentSnapshot(student, relationship) {
+  const parent = getParentDisplay(student, relationship);
+  if (!parent) {
+    return normalizeParentInput({});
+  }
+
+  return normalizeParentInput({
+    name: parent?.name ?? "",
+    mobile: parent?.mobile ?? "",
+    email: parent?.email ?? "",
+    occupation: parent?.occupation ?? "",
+    qualification: parent?.qualification ?? "",
+  });
+}
+
+function validateParentUpdatePayload(father, mother) {
+  const fatherHasDetails = hasParentDetails(father);
+  const motherHasDetails = hasParentDetails(mother);
+
+  if (!father.mobile && !mother.mobile) {
+    throw new AppError("At least one parent phone is required", 400);
+  }
+
+  if (fatherHasDetails && !father.mobile) {
+    throw new AppError("Father phone is required when father details are provided", 400);
+  }
+
+  if (motherHasDetails && !mother.mobile) {
+    throw new AppError("Mother phone is required when mother details are provided", 400);
+  }
+
+  if (father.mobile && !/^\d{10}$/.test(father.mobile)) {
+    throw new AppError("Father phone must be 10 digits", 400);
+  }
+
+  if (mother.mobile && !/^\d{10}$/.test(mother.mobile)) {
+    throw new AppError("Mother phone must be 10 digits", 400);
+  }
+
+  if (father.mobile && !father.name) {
+    throw new AppError("Father name is required when father phone is provided", 400);
+  }
+
+  if (mother.mobile && !mother.name) {
+    throw new AppError("Mother name is required when mother phone is provided", 400);
+  }
+
+  if (father.email && !EMAIL_REGEX.test(father.email)) {
+    throw new AppError("Father email is invalid", 400);
+  }
+
+  if (mother.email && !EMAIL_REGEX.test(mother.email)) {
+    throw new AppError("Mother email is invalid", 400);
+  }
+}
+
 function normalizeRelationship(value) {
   return String(value || "").trim().toLowerCase();
 }
@@ -268,7 +372,8 @@ export async function createStudent(payload) {
   }
 }
 
-async function resolveParent(conn, parent) {
+async function resolveParent(conn, parent, options = {}) {
+  const { overwriteProfile = false, overwriteEmail = false } = options;
   const normalizedMobile = String(parent?.mobile || "").trim();
   if (!normalizedMobile) {
     return null; // no parent provided
@@ -280,20 +385,30 @@ async function resolveParent(conn, parent) {
 
   if (existingUser) {
     if (normalizedEmail) {
-      await repo.updateUserEmailIfEmpty(conn, existingUser.id, normalizedEmail);
+      if (overwriteEmail) {
+        await repo.updateUserEmail(conn, existingUser.id, normalizedEmail);
+      } else {
+        await repo.updateUserEmailIfEmpty(conn, existingUser.id, normalizedEmail);
+      }
     }
 
     await repo.assignParentRole(conn, existingUser.id);
 
     const parentProfile = await repo.findParentByUser(conn, existingUser.id);
     if (parentProfile?.id) {
-      await repo.updateParentProfileIfMissing(conn, parentProfile.id, {
+      const parentUpdatePayload = {
         name: parent.name ?? null,
         qualification: parent.qualification ?? null,
         occupation: parent.occupation ?? null,
         mobile: normalizedMobile,
         email: normalizedEmail,
-      });
+      };
+
+      if (overwriteProfile) {
+        await repo.updateParentProfile(conn, parentProfile.id, parentUpdatePayload);
+      } else {
+        await repo.updateParentProfileIfMissing(conn, parentProfile.id, parentUpdatePayload);
+      }
 
       return parentProfile.id;
     }
@@ -328,6 +443,59 @@ async function resolveParent(conn, parent) {
   });
 
   return parentId;
+}
+
+async function replaceStudentParentLinks(studentId, father, mother) {
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    await repo.deleteStudentParentLinks(conn, studentId);
+
+    if (father.mobile && mother.mobile && father.mobile === mother.mobile) {
+      const sharedParent = {
+        mobile: father.mobile,
+        name: father.name || mother.name || null,
+        email: father.email || mother.email || null,
+        occupation: father.occupation || mother.occupation || null,
+        qualification: father.qualification || mother.qualification || null,
+      };
+
+      const sharedParentId = await resolveParent(conn, sharedParent, {
+        overwriteProfile: true,
+        overwriteEmail: true,
+      });
+
+      if (sharedParentId) {
+        await repo.linkParent(conn, studentId, sharedParentId, "guardian", {
+          father_name: father.name || null,
+          mother_name: mother.name || null,
+        });
+      }
+    } else {
+      const fatherId = await resolveParent(conn, father, {
+        overwriteProfile: true,
+        overwriteEmail: true,
+      });
+      const motherId = await resolveParent(conn, mother, {
+        overwriteProfile: true,
+        overwriteEmail: true,
+      });
+
+      if (fatherId) {
+        await repo.linkParent(conn, studentId, fatherId, "father");
+      }
+      if (motherId) {
+        await repo.linkParent(conn, studentId, motherId, "mother");
+      }
+    }
+
+    await conn.commit();
+  } catch (err) {
+    await conn.rollback();
+    throw err;
+  } finally {
+    conn.release();
+  }
 }
 export async function getStudents(filters = {}) {
   return repo.getStudents(filters);
@@ -407,6 +575,21 @@ export async function updateStudent(id, data) {
       ...enrollmentData,
       stream_id: enrollmentMeta.stream_id,
     });
+  }
+
+  const hasParentUpdate =
+    Object.prototype.hasOwnProperty.call(data || {}, "father") ||
+    Object.prototype.hasOwnProperty.call(data || {}, "mother");
+
+  if (hasParentUpdate) {
+    const existingFather = buildParentSnapshot(existing, "father");
+    const existingMother = buildParentSnapshot(existing, "mother");
+
+    const father = mergeParentInput(existingFather, data?.father || {});
+    const mother = mergeParentInput(existingMother, data?.mother || {});
+
+    validateParentUpdatePayload(father, mother);
+    await replaceStudentParentLinks(Number(id), father, mother);
   }
 
   return { message: "updated" };
