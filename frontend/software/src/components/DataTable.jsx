@@ -12,7 +12,7 @@ export default function DataTable({
   page = 1,
   totalPages: serverTotalPages = 1,
   totalRows = 0,
-  rowsPerPage: serverRowsPerPage = 5,
+  rowsPerPage: rowsPerPageProp = 5,
   onPageChange,
   onRowsPerPageChange,
   onEdit,
@@ -21,13 +21,40 @@ export default function DataTable({
   renderActions
 }) {
   const [search] = useState("");
-  const [currentPage, setCurrentPage] = useState(1);
-  const [rowsPerPage, setRowsPerPage] = useState(rowsPerPageOptions[0]);
+  const normalizedInitialPage = Number(page);
+  const normalizedInitialRowsPerPage = Number(rowsPerPageProp);
+
+  const [currentPage, setCurrentPage] = useState(
+    Number.isInteger(normalizedInitialPage) && normalizedInitialPage > 0
+      ? normalizedInitialPage
+      : 1
+  );
+  const [rowsPerPage, setRowsPerPage] = useState(
+    Number.isInteger(normalizedInitialRowsPerPage) && normalizedInitialRowsPerPage > 0
+      ? normalizedInitialRowsPerPage
+      : rowsPerPageOptions[0]
+  );
   const [selectedRows, setSelectedRows] = useState([]);
   const showActions = onEdit || onDelete || renderActions;
   const isServerPagination = paginationMode === "server";
-  const effectiveCurrentPage = isServerPagination ? page : currentPage;
-  const effectiveRowsPerPage = isServerPagination ? serverRowsPerPage : rowsPerPage;
+  const isClientPageControlled = !isServerPagination && typeof onPageChange === "function";
+  const isClientRowsPerPageControlled =
+    !isServerPagination && typeof onRowsPerPageChange === "function";
+
+  const normalizedPage = Number(page);
+  const normalizedRowsPerPage = Number(rowsPerPageProp);
+
+  const effectiveCurrentPage = isServerPagination
+    ? normalizedPage
+    : isClientPageControlled
+      ? normalizedPage
+      : currentPage;
+
+  const effectiveRowsPerPage = isServerPagination
+    ? normalizedRowsPerPage
+    : isClientRowsPerPageControlled
+      ? normalizedRowsPerPage
+      : rowsPerPage;
 
   // Filtering
   const filteredData = useMemo(() => {
@@ -40,12 +67,17 @@ export default function DataTable({
   // Pagination
   const totalPages = isServerPagination
     ? serverTotalPages
-    : Math.ceil(filteredData.length / rowsPerPage);
+    : Math.ceil(filteredData.length / effectiveRowsPerPage);
+  const safeTotalPages = Math.max(totalPages || 1, 1);
+  const safeCurrentPage = Math.min(
+    Math.max(Number(effectiveCurrentPage) || 1, 1),
+    safeTotalPages
+  );
   const paginatedData = isServerPagination
     ? filteredData
     : filteredData.slice(
-        (currentPage - 1) * rowsPerPage,
-        currentPage * rowsPerPage,
+        (safeCurrentPage - 1) * effectiveRowsPerPage,
+        safeCurrentPage * effectiveRowsPerPage,
       );
   const totalRowsCount = isServerPagination ? totalRows : filteredData.length;
 
@@ -241,8 +273,17 @@ export default function DataTable({
                 if (isServerPagination) {
                   onRowsPerPageChange?.(nextValue);
                 } else {
-                  setRowsPerPage(nextValue);
-                  setCurrentPage(1);
+                  if (isClientRowsPerPageControlled) {
+                    onRowsPerPageChange?.(nextValue);
+                  } else {
+                    setRowsPerPage(nextValue);
+                  }
+
+                  if (isClientPageControlled) {
+                    onPageChange?.(1);
+                  } else {
+                    setCurrentPage(1);
+                  }
                 }
               }}
             >
@@ -254,16 +295,17 @@ export default function DataTable({
             </select>
           </div>
           <span className="text-sm text-muted-foreground">
-            Page {effectiveCurrentPage} of {totalPages || 1}
+            Page {safeCurrentPage} of {safeTotalPages}
           </span>
           <div className="flex gap-2 items-center">
             <button
-              disabled={effectiveCurrentPage === 1}
+              disabled={safeCurrentPage === 1}
               onClick={() => {
-                if (isServerPagination) {
-                  onPageChange?.(Math.max(effectiveCurrentPage - 1, 1));
+                const nextPage = Math.max(safeCurrentPage - 1, 1);
+                if (isServerPagination || isClientPageControlled) {
+                  onPageChange?.(nextPage);
                 } else {
-                  setCurrentPage((prev) => prev - 1);
+                  setCurrentPage(nextPage);
                 }
               }}
               className="rounded-lg border px-3 py-1 transition-colors disabled:opacity-50 hover:bg-muted"
@@ -272,12 +314,13 @@ export default function DataTable({
             </button>
 
             <button
-              disabled={effectiveCurrentPage >= (totalPages || 1)}
+              disabled={safeCurrentPage >= safeTotalPages}
               onClick={() => {
-                if (isServerPagination) {
-                  onPageChange?.(Math.min(effectiveCurrentPage + 1, totalPages || 1));
+                const nextPage = Math.min(safeCurrentPage + 1, safeTotalPages);
+                if (isServerPagination || isClientPageControlled) {
+                  onPageChange?.(nextPage);
                 } else {
-                  setCurrentPage((prev) => prev + 1);
+                  setCurrentPage(nextPage);
                 }
               }}
               className="rounded-lg border px-3 py-1 transition-colors disabled:opacity-50 hover:bg-muted"

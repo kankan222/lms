@@ -147,6 +147,22 @@ function formatDateInputValue(value) {
 
 const FIELD_CLASSNAME =
   "w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground shadow-xs outline-hidden transition focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] disabled:cursor-not-allowed disabled:opacity-60";
+const TABLE_ROWS_PER_PAGE_OPTIONS = [5, 10, 20];
+const STUDENTS_TABLE_PAGE_KEY = "students.table.page";
+const STUDENTS_TABLE_ROWS_KEY = "students.table.rows";
+
+function readStoredNumber(key, fallback, allowed = null) {
+  if (typeof window === "undefined") return fallback;
+
+  const parsed = Number(window.sessionStorage.getItem(key));
+  if (!Number.isInteger(parsed) || parsed <= 0) return fallback;
+
+  if (Array.isArray(allowed) && allowed.length > 0 && !allowed.includes(parsed)) {
+    return fallback;
+  }
+
+  return parsed;
+}
 
 async function fetchStudentsData({ classId, sectionId, classes, sessions }) {
   const res = await getStudents({
@@ -209,6 +225,12 @@ export default function Student() {
   const [sessions, setSessions] = useState([]);
   const [classId, setClassId] = useState("");
   const [sectionId, setSectionId] = useState("");
+  const [tablePage, setTablePage] = useState(() =>
+    readStoredNumber(STUDENTS_TABLE_PAGE_KEY, 1)
+  );
+  const [tableRowsPerPage, setTableRowsPerPage] = useState(() =>
+    readStoredNumber(STUDENTS_TABLE_ROWS_KEY, TABLE_ROWS_PER_PAGE_OPTIONS[0], TABLE_ROWS_PER_PAGE_OPTIONS)
+  );
   const [open, setOpen] = useState(false);
   const [editingStudent, setEditingStudent] = useState(null);
   const [deletingStudent, setDeletingStudent] = useState(null);
@@ -308,6 +330,17 @@ export default function Student() {
     }, 3500);
     return () => window.clearTimeout(timeoutId);
   }, [notice]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.sessionStorage.setItem(STUDENTS_TABLE_PAGE_KEY, String(tablePage));
+    window.sessionStorage.setItem(STUDENTS_TABLE_ROWS_KEY, String(tableRowsPerPage));
+  }, [tablePage, tableRowsPerPage]);
+
+  useEffect(() => {
+    const totalPages = Math.max(1, Math.ceil(students.length / Math.max(tableRowsPerPage, 1)));
+    setTablePage((prev) => Math.min(prev, totalPages));
+  }, [students.length, tableRowsPerPage]);
 
   function validateCreatePayload(payload) {
     const next = {};
@@ -667,16 +700,34 @@ export default function Student() {
         medium,
         stream,
         roll_number: getCell(values, "roll_number"),
-        father_name: getCell(values, "father_name"),
-        father_mobile: getCell(values, "father_mobile"),
-        father_email: getCell(values, "father_email"),
-        father_occupation: getCell(values, "father_occupation"),
-        father_qualification: getCell(values, "father_qualification"),
-        mother_name: getCell(values, "mother_name"),
-        mother_mobile: getCell(values, "mother_mobile"),
-        mother_email: getCell(values, "mother_email"),
-        mother_occupation: getCell(values, "mother_occupation"),
-        mother_qualification: getCell(values, "mother_qualification"),
+        father_name: getCell(values, "father_name", "father name"),
+        father_mobile: getCell(
+          values,
+          "father_mobile",
+          "father_mobile_no",
+          "father_phone",
+          "father phone",
+          "father_mobile_number",
+          "father contact",
+          "father_contact"
+        ),
+        father_email: getCell(values, "father_email", "father email", "father_mail"),
+        father_occupation: getCell(values, "father_occupation", "father occupation"),
+        father_qualification: getCell(values, "father_qualification", "father qualification"),
+        mother_name: getCell(values, "mother_name", "mother name"),
+        mother_mobile: getCell(
+          values,
+          "mother_mobile",
+          "mother_mobile_no",
+          "mother_phone",
+          "mother phone",
+          "mother_mobile_number",
+          "mother contact",
+          "mother_contact"
+        ),
+        mother_email: getCell(values, "mother_email", "mother email", "mother_mail"),
+        mother_occupation: getCell(values, "mother_occupation", "mother occupation"),
+        mother_qualification: getCell(values, "mother_qualification", "mother qualification"),
         photo_url: getCell(values, "photo_url")
       });
     });
@@ -812,6 +863,7 @@ export default function Student() {
                       onChange={(e) => {
                         setClassId(e.target.value);
                         setSectionId("");
+                        setTablePage(1);
                       }}
                     >
                       <option value="">All Classes</option>
@@ -828,7 +880,10 @@ export default function Student() {
                     <select
                       className={FIELD_CLASSNAME}
                       value={sectionId}
-                      onChange={(e) => setSectionId(e.target.value)}
+                      onChange={(e) => {
+                        setSectionId(e.target.value);
+                        setTablePage(1);
+                      }}
                       disabled={!classId}
                     >
                       <option value="">All Sections</option>
@@ -847,6 +902,7 @@ export default function Student() {
                     onClick={() => {
                       setClassId("");
                       setSectionId("");
+                      setTablePage(1);
                     }}
                   >
                     Reset Filters
@@ -948,6 +1004,21 @@ export default function Student() {
       <DataTable
         columns={columns}
         data={students}
+        rowsPerPageOptions={TABLE_ROWS_PER_PAGE_OPTIONS}
+        page={tablePage}
+        rowsPerPage={tableRowsPerPage}
+        onPageChange={(nextPage) => {
+          const parsed = Number(nextPage);
+          setTablePage(Number.isInteger(parsed) && parsed > 0 ? parsed : 1);
+        }}
+        onRowsPerPageChange={(nextRows) => {
+          const parsed = Number(nextRows);
+          const safeRows = TABLE_ROWS_PER_PAGE_OPTIONS.includes(parsed)
+            ? parsed
+            : TABLE_ROWS_PER_PAGE_OPTIONS[0];
+          setTableRowsPerPage(safeRows);
+          setTablePage(1);
+        }}
         tableClassName="table-fixed"
         tableWrapperClassName="overflow-hidden"
         onRowClick={handleRowClick}

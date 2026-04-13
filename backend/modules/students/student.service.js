@@ -2,6 +2,18 @@ import * as repo from "./student.repository.js";
 import bcrypt from "bcrypt";
 import { pool } from "../../database/pool.js";
 import AppError from "../../core/errors/AppError.js";
+
+const EMAIL_REGEX = /^\S+@\S+\.\S+$/;
+
+function hasParentDetails(parent = {}) {
+  return Boolean(
+    String(parent?.name || "").trim() ||
+      String(parent?.email || "").trim() ||
+      String(parent?.occupation || "").trim() ||
+      String(parent?.qualification || "").trim()
+  );
+}
+
 function normalizeDateInput(value, fieldLabel) {
   if (value === undefined || value === null || String(value).trim() === "") {
     return null;
@@ -105,9 +117,22 @@ function validateCreatePayload(payload) {
 
   const fatherMobile = String(payload?.father?.mobile || "").trim();
   const motherMobile = String(payload?.mother?.mobile || "").trim();
+  const fatherHasDetails = hasParentDetails(payload?.father);
+  const motherHasDetails = hasParentDetails(payload?.mother);
+
+  const fatherEmail = String(payload?.father?.email || "").trim();
+  const motherEmail = String(payload?.mother?.email || "").trim();
 
   if (!fatherMobile && !motherMobile) {
     throw new AppError("At least one parent phone is required", 400);
+  }
+
+  if (fatherHasDetails && !fatherMobile) {
+    throw new AppError("Father phone is required when father details are provided", 400);
+  }
+
+  if (motherHasDetails && !motherMobile) {
+    throw new AppError("Mother phone is required when mother details are provided", 400);
   }
 
   if (fatherMobile && !/^\d{10}$/.test(fatherMobile)) {
@@ -124,6 +149,14 @@ function validateCreatePayload(payload) {
 
   if (motherMobile && !String(payload?.mother?.name || "").trim()) {
     throw new AppError("Mother name is required when mother phone is provided", 400);
+  }
+
+  if (fatherEmail && !EMAIL_REGEX.test(fatherEmail)) {
+    throw new AppError("Father email is invalid", 400);
+  }
+
+  if (motherEmail && !EMAIL_REGEX.test(motherEmail)) {
+    throw new AppError("Mother email is invalid", 400);
   }
 }
 
@@ -183,19 +216,32 @@ export async function createStudent(payload) {
 }
 
 async function resolveParent(conn, parent) {
-  if (!parent || !parent.mobile) {
+  const normalizedMobile = String(parent?.mobile || "").trim();
+  if (!normalizedMobile) {
     return null; // no parent provided
   }
 
   const normalizedEmail = String(parent.email || "").trim() || null;
 
-  const existingUser = await repo.findUserByPhone(conn, parent.mobile);
+  const existingUser = await repo.findUserByPhone(conn, normalizedMobile);
 
   if (existingUser) {
+    if (normalizedEmail) {
+      await repo.updateUserEmailIfEmpty(conn, existingUser.id, normalizedEmail);
+    }
+
     await repo.assignParentRole(conn, existingUser.id);
 
     const parentProfile = await repo.findParentByUser(conn, existingUser.id);
     if (parentProfile?.id) {
+      await repo.updateParentProfileIfMissing(conn, parentProfile.id, {
+        name: parent.name ?? null,
+        qualification: parent.qualification ?? null,
+        occupation: parent.occupation ?? null,
+        mobile: normalizedMobile,
+        email: normalizedEmail,
+      });
+
       return parentProfile.id;
     }
 
@@ -204,13 +250,15 @@ async function resolveParent(conn, parent) {
       name: parent.name ?? null,
       qualification: parent.qualification ?? null,
       occupation: parent.occupation ?? null,
+      mobile: normalizedMobile,
+      email: normalizedEmail,
     });
   }
 
   const passwordHash = await bcrypt.hash("2025-26", 10);
 
   const userId = await repo.createUser(conn, {
-    phone: parent.mobile,
+    phone: normalizedMobile,
     email: normalizedEmail,
     password_hash: passwordHash,
   });
@@ -222,6 +270,8 @@ async function resolveParent(conn, parent) {
     name: parent.name ?? null,
     qualification: parent.qualification ?? null,
     occupation: parent.occupation ?? null,
+    mobile: normalizedMobile,
+    email: normalizedEmail,
   });
 
   return parentId;

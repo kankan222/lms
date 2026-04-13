@@ -33,15 +33,8 @@ export async function findUserByPhone(conn, phone) {
 export async function createUser(conn, user) {
   const [result] = await conn.execute(
     `INSERT INTO users (phone, email, password_hash)
-     VALUES (
-       ?,
-       COALESCE(
-         NULLIF(TRIM(?), ''),
-         CONCAT('parent+', REPLACE(?, ' ', ''), '@placeholder.local')
-       ),
-       ?
-     )`,
-    [user.phone, user.email ?? null, user.phone ?? "", user.password_hash]
+     VALUES (?, NULLIF(TRIM(?), ''), ?)`,
+    [user.phone, user.email ?? null, user.password_hash]
   );
 
   return result.insertId;
@@ -60,13 +53,15 @@ export async function createParent(conn, parent) {
 
   const [result] = await conn.execute(
     `INSERT INTO parents
-     (user_id, name, qualification, occupation)
-     VALUES (?, ?, ?, ?)`,
+     (user_id, name, qualification, occupation, mobile, email)
+     VALUES (?, ?, ?, ?, ?, ?)`,
     [
       parent.user_id,
       parent.name,
       parent.qualification,
-      parent.occupation
+      parent.occupation,
+      parent.mobile ?? null,
+      parent.email ?? null
     ]
   );
 
@@ -81,6 +76,37 @@ export async function findParentByUser(conn, userId) {
   );
 
   return rows[0];
+}
+
+export async function updateUserEmailIfEmpty(conn, userId, email) {
+  await conn.execute(
+    `UPDATE users
+     SET email = NULLIF(TRIM(?), '')
+     WHERE id = ?
+       AND (email IS NULL OR TRIM(email) = '')`,
+    [email ?? null, userId]
+  );
+}
+
+export async function updateParentProfileIfMissing(conn, parentId, parent) {
+  await conn.execute(
+    `UPDATE parents
+     SET
+       name = COALESCE(NULLIF(TRIM(name), ''), NULLIF(TRIM(?), '')),
+       qualification = COALESCE(NULLIF(TRIM(qualification), ''), NULLIF(TRIM(?), '')),
+       occupation = COALESCE(NULLIF(TRIM(occupation), ''), NULLIF(TRIM(?), '')),
+       mobile = COALESCE(NULLIF(TRIM(mobile), ''), NULLIF(TRIM(?), '')),
+       email = COALESCE(NULLIF(TRIM(email), ''), NULLIF(TRIM(?), ''))
+     WHERE id = ?`,
+    [
+      parent?.name ?? null,
+      parent?.qualification ?? null,
+      parent?.occupation ?? null,
+      parent?.mobile ?? null,
+      parent?.email ?? null,
+      parentId,
+    ]
+  );
 }
 
 export async function linkParent(conn, studentId, parentId, relationship) {
