@@ -509,6 +509,8 @@ CREATE TABLE `student_parents` (
   `student_id` bigint NOT NULL,
   `parent_id` bigint NOT NULL,
   `relationship` enum('father','mother','guardian') DEFAULT NULL,
+  `father_name` varchar(150) DEFAULT NULL,
+  `mother_name` varchar(150) DEFAULT NULL,
   PRIMARY KEY (`student_id`,`parent_id`),
   KEY `parent_id` (`parent_id`),
   CONSTRAINT `student_parents_ibfk_1` FOREIGN KEY (`student_id`) REFERENCES `students` (`id`) ON DELETE CASCADE,

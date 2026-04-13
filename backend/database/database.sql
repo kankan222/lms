@@ -196,6 +196,8 @@ CREATE TABLE student_parents (
     student_id BIGINT,
     parent_id BIGINT,
     relationship ENUM('father','mother','guardian'),
+    father_name VARCHAR(150),
+    mother_name VARCHAR(150),
 
     PRIMARY KEY(student_id,parent_id),
 

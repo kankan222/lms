@@ -14,6 +14,56 @@ function hasParentDetails(parent = {}) {
   );
 }
 
+function normalizeRelationship(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function expandGuardianParentRows(student) {
+  const parents = Array.isArray(student?.parents) ? student.parents : [];
+  if (!parents.length) return student;
+
+  const hasFather = parents.some((parent) => normalizeRelationship(parent.relationship) === "father");
+  const hasMother = parents.some((parent) => normalizeRelationship(parent.relationship) === "mother");
+
+  const expandedParents = [];
+
+  for (const parent of parents) {
+    const relationship = normalizeRelationship(parent.relationship);
+    if (relationship !== "guardian") {
+      expandedParents.push(parent);
+      continue;
+    }
+
+    const fatherName = String(parent?.father_name || "").trim();
+    const motherName = String(parent?.mother_name || "").trim();
+
+    if (!hasFather && (fatherName || motherName)) {
+      expandedParents.push({
+        ...parent,
+        relationship: "father",
+        name: fatherName || parent.name,
+      });
+    }
+
+    if (!hasMother && (fatherName || motherName)) {
+      expandedParents.push({
+        ...parent,
+        relationship: "mother",
+        name: motherName || parent.name,
+      });
+    }
+
+    if (!fatherName && !motherName) {
+      expandedParents.push(parent);
+    }
+  }
+
+  return {
+    ...student,
+    parents: expandedParents,
+  };
+}
+
 function normalizeDateInput(value, fieldLabel) {
   if (value === undefined || value === null || String(value).trim() === "") {
     return null;
@@ -184,7 +234,10 @@ export async function createStudent(payload) {
     // student_parents has PK (student_id, parent_id). If both guardians resolve
     // to the same parent (e.g. same phone), link once as guardian.
     if (fatherId && motherId && fatherId === motherId) {
-      await repo.linkParent(conn, studentId, fatherId, "guardian");
+      await repo.linkParent(conn, studentId, fatherId, "guardian", {
+        father_name: father?.name ?? null,
+        mother_name: mother?.name ?? null,
+      });
     } else {
       if (fatherId) {
         await repo.linkParent(conn, studentId, fatherId, "father");
@@ -281,7 +334,9 @@ export async function getStudents(filters = {}) {
 }
 
 export async function getStudentById(id) {
-  return repo.getStudentById(id);
+  const student = await repo.getStudentById(id);
+  if (!student) return null;
+  return expandGuardianParentRows(student);
 }
 
 export async function getStudentsForActor(filters = {}, actorUserId) {

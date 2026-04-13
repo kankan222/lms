@@ -1,5 +1,29 @@
 import {pool} from "../../database/pool.js";
 
+let supportsGuardianRoleNameColumnsCache;
+
+async function supportsGuardianRoleNameColumns(db) {
+  if (typeof supportsGuardianRoleNameColumnsCache === "boolean") {
+    return supportsGuardianRoleNameColumnsCache;
+  }
+
+  try {
+    const [rows] = await db.execute(
+      `SELECT COUNT(*) AS total
+       FROM information_schema.COLUMNS
+       WHERE TABLE_SCHEMA = DATABASE()
+         AND TABLE_NAME = 'student_parents'
+         AND COLUMN_NAME IN ('father_name', 'mother_name')`
+    );
+
+    supportsGuardianRoleNameColumnsCache = Number(rows[0]?.total || 0) === 2;
+  } catch {
+    supportsGuardianRoleNameColumnsCache = false;
+  }
+
+  return supportsGuardianRoleNameColumnsCache;
+}
+
 export async function insertStudent(conn, student) {
 
   const [result] = await conn.execute(
@@ -109,15 +133,36 @@ export async function updateParentProfileIfMissing(conn, parentId, parent) {
   );
 }
 
-export async function linkParent(conn, studentId, parentId, relationship) {
+export async function linkParent(conn, studentId, parentId, relationship, meta = {}) {
+  const supportsRoleNameColumns = await supportsGuardianRoleNameColumns(conn);
+
+  if (!supportsRoleNameColumns) {
+    await conn.execute(
+      `INSERT INTO student_parents
+       (student_id, parent_id, relationship)
+       VALUES (?, ?, ?)
+       ON DUPLICATE KEY UPDATE
+         relationship = VALUES(relationship)`,
+      [studentId, parentId, relationship]
+    );
+    return;
+  }
 
   await conn.execute(
     `INSERT INTO student_parents
-     (student_id, parent_id, relationship)
-     VALUES (?, ?, ?)
+     (student_id, parent_id, relationship, father_name, mother_name)
+     VALUES (?, ?, ?, NULLIF(TRIM(?), ''), NULLIF(TRIM(?), ''))
      ON DUPLICATE KEY UPDATE
-       relationship = VALUES(relationship)`,
-    [studentId, parentId, relationship]
+       relationship = VALUES(relationship),
+       father_name = COALESCE(VALUES(father_name), father_name),
+       mother_name = COALESCE(VALUES(mother_name), mother_name)`,
+    [
+      studentId,
+      parentId,
+      relationship,
+      meta?.father_name ?? null,
+      meta?.mother_name ?? null,
+    ]
   );
 }
 
@@ -282,9 +327,15 @@ export async function getStudentById(id) {
   const student = rows[0];
   if (!student) return null;
 
+  const supportsRoleNameColumns = await supportsGuardianRoleNameColumns(pool);
+  const roleNameSelect = supportsRoleNameColumns
+    ? "sp.father_name, sp.mother_name"
+    : "NULL AS father_name, NULL AS mother_name";
+
   const [parentRows] = await pool.execute(
     `SELECT
       sp.relationship,
+      ${roleNameSelect},
       p.name,
       u.phone AS mobile,
       u.email,
