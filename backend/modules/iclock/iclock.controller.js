@@ -10,15 +10,21 @@ export function pollDevice(req, res) {
 }
 
 export async function receiveDevicePacket(req, res) {
+  let responseText = "OK";
+
   try {
-    await service.handleIncomingPacket({
+    const handledResponse = await service.handleIncomingPacket({
       headers: req.headers,
+      query: req.query,
       body: req.body,
     });
+    if (typeof handledResponse === "string" && handledResponse.trim()) {
+      responseText = handledResponse;
+    }
   } catch (error) {
     // Device expects text/plain response even when payload is malformed.
     console.error("ICLOCK PARSE ERROR:", error.message || error);
   }
 
-  return res.type("text/plain").send("OK");
+  return res.type("text/plain").send(responseText);
 }

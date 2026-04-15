@@ -285,6 +285,109 @@ export function getAttendanceDevices(){
     FROM attendance_devices
   `);
 }
+
+export function getAttendanceDeviceById(deviceId) {
+  return query(
+    `
+      SELECT
+        id,
+        device_name AS name,
+        device_code,
+        location
+      FROM attendance_devices
+      WHERE id = ?
+      LIMIT 1
+    `,
+    [deviceId]
+  ).then((rows) => rows[0] || null);
+}
+
+export function getAttendanceDeviceUserMappings({ deviceId } = {}) {
+  const where = [];
+  const params = [];
+
+  if (deviceId) {
+    where.push("m.device_id = ?");
+    params.push(deviceId);
+  }
+
+  const whereClause = where.length ? `WHERE ${where.join(" AND ")}` : "";
+
+  return query(
+    `
+      SELECT
+        m.id,
+        m.device_id,
+        m.device_user_id,
+        m.teacher_id,
+        m.created_at,
+        m.updated_at,
+        d.device_name,
+        d.device_code,
+        d.location,
+        t.name AS teacher_name,
+        t.employee_id
+      FROM teacher_device_users m
+      JOIN attendance_devices d ON d.id = m.device_id
+      JOIN teachers t ON t.id = m.teacher_id
+      ${whereClause}
+      ORDER BY d.device_code ASC, m.device_user_id ASC
+    `,
+    params
+  );
+}
+
+export async function getAttendanceDeviceUserMappingById(mappingId, conn) {
+  const [rows] = await conn.execute(
+    `
+      SELECT id, device_id, device_user_id, teacher_id
+      FROM teacher_device_users
+      WHERE id = ?
+      LIMIT 1
+    `,
+    [mappingId]
+  );
+
+  return rows[0] || null;
+}
+
+export async function upsertAttendanceDeviceUserMapping(data, conn) {
+  await conn.execute(
+    `
+      INSERT INTO teacher_device_users
+      (device_id, device_user_id, teacher_id)
+      VALUES (?, ?, ?)
+      ON DUPLICATE KEY UPDATE
+        teacher_id = VALUES(teacher_id)
+    `,
+    [data.deviceId, data.deviceUserId, data.teacherId]
+  );
+
+  const [rows] = await conn.execute(
+    `
+      SELECT id
+      FROM teacher_device_users
+      WHERE device_id = ?
+        AND device_user_id = ?
+      LIMIT 1
+    `,
+    [data.deviceId, data.deviceUserId]
+  );
+
+  return rows.length ? Number(rows[0].id) : null;
+}
+
+export async function deleteAttendanceDeviceUserMapping(mappingId, conn) {
+  const [result] = await conn.execute(
+    `
+      DELETE FROM teacher_device_users
+      WHERE id = ?
+    `,
+    [mappingId]
+  );
+
+  return result.affectedRows > 0;
+}
 //  DEVICE ATTENDANCE LOG
 
 export function logTeacherAttendance(data){

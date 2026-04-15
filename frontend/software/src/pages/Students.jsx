@@ -584,7 +584,12 @@ export default function Student() {
   }
 
   function normalizeName(value) {
-    return String(value || "").trim().toLowerCase();
+    return String(value || "")
+      .trim()
+      .replace(/^\uFEFF/, "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "_")
+      .replace(/^_+|_+$/g, "");
   }
 
   function transformBulkCsvToBackendFormat(csvText) {
@@ -693,7 +698,12 @@ export default function Student() {
         dob: getCell(values, "dob"),
         gender: getCell(values, "gender"),
         mobile: getCell(values, "mobile"),
-        date_of_admission: getCell(values, "date_of_admission"),
+        date_of_admission: getCell(
+          values,
+          "date_of_admission",
+          "admission_date",
+          "dateofadmission"
+        ),
         session_id: sessionId,
         class_id: classId,
         section_id: sectionId,

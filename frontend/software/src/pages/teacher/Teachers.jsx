@@ -11,6 +11,9 @@ import {
   createTeacher,
   updateTeacher,
   deleteTeacher,
+  getAttendanceDevices,
+  getAttendanceDeviceUsers,
+  upsertAttendanceDeviceUser,
 } from "../../api/teachers.api";
 
 import { Button } from "../../components/ui/button";
@@ -45,9 +48,18 @@ const columns = [
   { header: "Email", accessor: "email" },
 ];
 
+function normalizeMachineUserId(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  if (!/^\d+$/.test(raw)) return raw;
+  const normalized = raw.replace(/^0+(?=\d)/, "");
+  return normalized || "0";
+}
+
 const Teachers = () => {
   const { can } = usePermissions();
   const canManageTeachers = can("teacher.update");
+  const canManageDeviceMappings = can("teacher.assign");
   const [teachers, setTeachers] = useState([]);
 
   const [createOpen, setCreateOpen] = useState(false);
@@ -57,6 +69,7 @@ const Teachers = () => {
   const [editError, setEditError] = useState("");
   const [notice, setNotice] = useState(null);
   const [showPassword, setShowPassword] = useState(false);
+  const [attendanceDevices, setAttendanceDevices] = useState([]);
 
   const [newTeacher, setNewTeacher] = useState({
     employee_id: "",
@@ -64,6 +77,8 @@ const Teachers = () => {
     class_scope: "school",
     phone: "",
     email: "",
+    device_id: "",
+    device_user_id: "",
     photo: null,
     password: "",
   });
@@ -88,13 +103,31 @@ const Teachers = () => {
     );
   }
 
+  async function loadAttendanceDevices() {
+    try {
+      const res = await getAttendanceDevices();
+      setAttendanceDevices(Array.isArray(res?.data) ? res.data : []);
+    } catch {
+      setAttendanceDevices([]);
+    }
+  }
+
   const loadInitialTeachers = useEffectEvent(() => {
     loadTeachers();
+    if (canManageDeviceMappings) {
+      loadAttendanceDevices();
+    }
   });
 
   useEffect(() => {
     loadInitialTeachers();
   }, []);
+
+  useEffect(() => {
+    if (canManageDeviceMappings) {
+      loadAttendanceDevices();
+    }
+  }, [canManageDeviceMappings]);
 
   useEffect(() => {
     if (!notice) return undefined;
@@ -132,8 +165,53 @@ const Teachers = () => {
       errors.password = "Password must be at least 6 characters";
     }
 
+    const deviceId = String(data.device_id || "").trim();
+    const deviceUserId = normalizeMachineUserId(data.device_user_id);
+    if (canManageDeviceMappings && ((deviceId && !deviceUserId) || (!deviceId && deviceUserId))) {
+      errors.device_mapping = "Select both device and machine user ID for mapping";
+    }
+    if (canManageDeviceMappings && deviceUserId && !/^\d+$/.test(deviceUserId)) {
+      errors.device_user_id = "Machine user ID must be numeric";
+    }
+
     return errors;
   }
+
+  async function resolveCreatedTeacherId(createRes, sourceTeacher = {}) {
+    const immediateId = Number(
+      createRes?.data?.teacherId ||
+      createRes?.teacherId ||
+      createRes?.data?.id ||
+      0
+    );
+    if (immediateId > 0) return immediateId;
+
+    const fallbackRes = await getTeachers();
+    const rows = Array.isArray(fallbackRes?.data) ? fallbackRes.data : [];
+    const employeeId = String(sourceTeacher.employee_id || "").trim();
+    const name = String(sourceTeacher.name || "").trim().toLowerCase();
+    const phone = String(sourceTeacher.phone || "").trim();
+    const email = String(sourceTeacher.email || "").trim().toLowerCase();
+
+    const byEmployee =
+      employeeId
+        ? rows.find((row) => String(row.employee_id || "").trim() === employeeId)
+        : null;
+    if (byEmployee?.id) return Number(byEmployee.id);
+
+    const byContact = rows.find((row) => {
+      const rowName = String(row.name || "").trim().toLowerCase();
+      const rowPhone = String(row.phone || "").trim();
+      const rowEmail = String(row.email || "").trim().toLowerCase();
+      return (
+        rowName === name &&
+        ((phone && rowPhone === phone) || (email && rowEmail === email))
+      );
+    });
+
+    return byContact?.id ? Number(byContact.id) : 0;
+  }
+
   async function handleCreate(e) {
     e.preventDefault();
     const validation = validateTeacher(newTeacher);
@@ -155,12 +233,61 @@ const Teachers = () => {
       formData.append("photo", newTeacher.photo);
     }
 
+    const selectedDeviceId = String(newTeacher.device_id || "").trim();
+    const selectedDeviceUserId = normalizeMachineUserId(newTeacher.device_user_id);
+
+    if (canManageDeviceMappings && selectedDeviceId && selectedDeviceUserId) {
+      try {
+        const existingRes = await getAttendanceDeviceUsers({ device_id: selectedDeviceId });
+        const existingRows = Array.isArray(existingRes?.data) ? existingRes.data : [];
+        const conflict = existingRows.find(
+          (row) =>
+            normalizeMachineUserId(row.device_user_id) === selectedDeviceUserId
+        );
+        if (conflict) {
+          setErrors({
+            device_user_id: `Machine User ID already mapped to ${conflict.teacher_name || "another teacher"}.`,
+          });
+          return;
+        }
+      } catch (err) {
+        setErrors({
+          form: err?.message || "Failed to validate machine user mapping before create.",
+        });
+        return;
+      }
+    }
+
+    let createdTeacherId = 0;
     try {
-      await createTeacher(formData);
+      const createRes = await createTeacher(formData);
+      createdTeacherId = await resolveCreatedTeacherId(createRes, newTeacher);
     } catch (err) {
       showNotice("Create Failed", err?.message || "Failed to create teacher.", "error");
       setErrors({ form: err?.message || "Failed to create teacher." });
       return;
+    }
+
+    if (canManageDeviceMappings && selectedDeviceId && selectedDeviceUserId) {
+      try {
+        if (!createdTeacherId) {
+          throw new Error("Could not resolve teacher id for automatic device mapping.");
+        }
+
+        await upsertAttendanceDeviceUser({
+          device_id: Number(selectedDeviceId),
+          device_user_id: selectedDeviceUserId,
+          teacher_id: createdTeacherId,
+        });
+      } catch (err) {
+        await loadTeachers();
+        showNotice(
+          "Teacher Created, Mapping Failed",
+          err?.message || "Teacher was created, but device mapping failed. Fix in Attendance > Logs > Device User Mapping.",
+          "error"
+        );
+        return;
+      }
     }
 
     await loadTeachers();
@@ -170,6 +297,8 @@ const Teachers = () => {
       class_scope: "school",
       phone: "",
       email: "",
+      device_id: "",
+      device_user_id: "",
       photo: null,
       password: "",
     });
@@ -189,6 +318,14 @@ const Teachers = () => {
     if (phone && !/^\d{10}$/.test(phone)) next.phone = "Phone must be 10 digits";
     if (email && !/^\S+@\S+\.\S+$/.test(email)) next.email = "Invalid email";
     if (!["school", "hs"].includes(String(data.class_scope || ""))) next.class_scope = "Class scope required";
+    const deviceId = String(data.device_id || "").trim();
+    const deviceUserId = normalizeMachineUserId(data.device_user_id);
+    if (canManageDeviceMappings && ((deviceId && !deviceUserId) || (!deviceId && deviceUserId))) {
+      next.device_mapping = "Select both device and machine user ID for mapping";
+    }
+    if (canManageDeviceMappings && deviceUserId && !/^\d+$/.test(deviceUserId)) {
+      next.device_user_id = "Machine user ID must be numeric";
+    }
 
     return next;
   }
@@ -203,6 +340,31 @@ const Teachers = () => {
       return;
     }
 
+    if (canManageDeviceMappings) {
+      const selectedDeviceId = String(editingTeacher?.device_id || "").trim();
+      const selectedDeviceUserId = normalizeMachineUserId(editingTeacher?.device_user_id);
+      if (selectedDeviceId && selectedDeviceUserId) {
+        try {
+          const existingRes = await getAttendanceDeviceUsers({ device_id: selectedDeviceId });
+          const existingRows = Array.isArray(existingRes?.data) ? existingRes.data : [];
+          const conflict = existingRows.find(
+            (row) =>
+              normalizeMachineUserId(row.device_user_id) === selectedDeviceUserId &&
+              Number(row.teacher_id) !== Number(editingTeacher.id)
+          );
+          if (conflict) {
+            setEditError(
+              `Machine User ID already mapped to ${conflict.teacher_name || "another teacher"}.`
+            );
+            return;
+          }
+        } catch (err) {
+          setEditError(err?.message || "Failed to validate machine user mapping before update.");
+          return;
+        }
+      }
+    }
+
     try {
       const formData = new FormData();
       formData.append("employee_id", String(editingTeacher.employee_id || "").trim());
@@ -215,6 +377,18 @@ const Teachers = () => {
       }
 
       await updateTeacher(editingTeacher.id, formData);
+
+      if (canManageDeviceMappings) {
+        const selectedDeviceId = String(editingTeacher?.device_id || "").trim();
+        const selectedDeviceUserId = normalizeMachineUserId(editingTeacher?.device_user_id);
+        if (selectedDeviceId && selectedDeviceUserId) {
+          await upsertAttendanceDeviceUser({
+            device_id: Number(selectedDeviceId),
+            device_user_id: selectedDeviceUserId,
+            teacher_id: Number(editingTeacher.id),
+          });
+        }
+      }
     } catch (err) {
       showNotice("Update Failed", err?.message || "Failed to update teacher.", "error");
       setEditError(err?.message || "Failed to update teacher.");
@@ -238,11 +412,29 @@ const Teachers = () => {
     }
   }
 
-  function handleEdit(row) {
-    setEditingTeacher({
+  async function handleEdit(row) {
+    const nextTeacher = {
       ...row,
+      device_id: "",
+      device_user_id: "",
       photo: null,
-    });
+    };
+
+    if (canManageDeviceMappings) {
+      try {
+        const res = await getAttendanceDeviceUsers();
+        const mappings = Array.isArray(res?.data) ? res.data : [];
+        const mapping = mappings.find((item) => Number(item.teacher_id) === Number(row.id));
+        if (mapping) {
+          nextTeacher.device_id = String(mapping.device_id || "");
+          nextTeacher.device_user_id = String(mapping.device_user_id || "");
+        }
+      } catch {
+        // Keep edit usable even if mapping list fails.
+      }
+    }
+
+    setEditingTeacher(nextTeacher);
   }
 
   return (
@@ -352,6 +544,48 @@ const Teachers = () => {
                   {errors.email && (
                     <p className="text-red-500 text-xs">{errors.email}</p>
                   )}
+
+                  {canManageDeviceMappings ? (
+                    <>
+                      <Label>Attendance Device (Optional)</Label>
+                      <select
+                        className="border rounded p-2 bg-background"
+                        value={newTeacher.device_id}
+                        onChange={(e) =>
+                          setNewTeacher((prev) => ({
+                            ...prev,
+                            device_id: e.target.value,
+                          }))
+                        }
+                      >
+                        <option value="">No mapping</option>
+                        {attendanceDevices.map((device) => (
+                          <option key={device.id} value={device.id}>
+                            {device.name || device.device_name || device.device_code || `Device #${device.id}`}
+                          </option>
+                        ))}
+                      </select>
+
+                      <Label>Machine User ID (Optional)</Label>
+                      <Input
+                        value={newTeacher.device_user_id}
+                        onChange={(e) =>
+                          setNewTeacher((prev) => ({
+                            ...prev,
+                            device_user_id: e.target.value,
+                          }))
+                        }
+                        placeholder="e.g. 00000001"
+                      />
+                      {errors.device_mapping && (
+                        <p className="text-red-500 text-xs">{errors.device_mapping}</p>
+                      )}
+                      {errors.device_user_id && (
+                        <p className="text-red-500 text-xs">{errors.device_user_id}</p>
+                      )}
+                    </>
+                  ) : null}
+
                   <Label>Photo URL</Label>
                   <Input
                     type="file"
@@ -499,6 +733,41 @@ const Teachers = () => {
                   }))
                 }
               />
+
+              {canManageDeviceMappings ? (
+                <>
+                  <Label>Attendance Device (Optional)</Label>
+                  <select
+                    className="border rounded p-2 bg-background"
+                    value={editingTeacher?.device_id || ""}
+                    onChange={(e) =>
+                      setEditingTeacher((prev) => ({
+                        ...prev,
+                        device_id: e.target.value,
+                      }))
+                    }
+                  >
+                    <option value="">No mapping change</option>
+                    {attendanceDevices.map((device) => (
+                      <option key={device.id} value={device.id}>
+                        {device.name || device.device_name || device.device_code || `Device #${device.id}`}
+                      </option>
+                    ))}
+                  </select>
+
+                  <Label>Machine User ID (Optional)</Label>
+                  <Input
+                    value={editingTeacher?.device_user_id || ""}
+                    onChange={(e) =>
+                      setEditingTeacher((prev) => ({
+                        ...prev,
+                        device_user_id: e.target.value,
+                      }))
+                    }
+                    placeholder="e.g. 00000001"
+                  />
+                </>
+              ) : null}
 
               <div className="grid gap-2">
                 <Label>Current Photo</Label>

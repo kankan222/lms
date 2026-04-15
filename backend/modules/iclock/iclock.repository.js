@@ -3,6 +3,14 @@ import { query } from "../../core/db/query.js";
 const commandQueueByDevice = new Map();
 let teacherDeviceUsersTableSupportedCache = null;
 
+function normalizeMachineUserId(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  if (!/^\d+$/.test(raw)) return raw;
+  const normalized = raw.replace(/^0+(?=\d)/, "");
+  return normalized || "0";
+}
+
 export function queueDeviceCommand(deviceCode, command) {
   const key = deviceCode || "__default__";
   commandQueueByDevice.set(key, String(command || "").trim());
@@ -43,6 +51,7 @@ async function hasTeacherDeviceUsersTable() {
 export async function getTeacherMappingForDeviceUser({ deviceUserId, deviceId = null }) {
   const normalized = String(deviceUserId || "").trim();
   if (!normalized) return { teacherId: null, source: "empty" };
+  const normalizedComparable = normalizeMachineUserId(normalized);
 
   const normalizedDeviceId = Number(deviceId);
   const resolvedDeviceId =
@@ -55,18 +64,23 @@ export async function getTeacherMappingForDeviceUser({ deviceUserId, deviceId = 
   if (resolvedDeviceId && (await hasTeacherDeviceUsersTable())) {
     const mappedRows = await query(
       `
-        SELECT teacher_id
+        SELECT teacher_id, device_user_id
         FROM teacher_device_users
         WHERE device_id = ?
-          AND device_user_id = ?
-        LIMIT 1
       `,
-      [resolvedDeviceId, normalized]
+      [resolvedDeviceId]
     );
 
-    if (mappedRows.length) {
+    const matchedRow = mappedRows.find((row) => {
+      const candidate = String(row.device_user_id || "").trim();
+      if (!candidate) return false;
+      if (candidate === normalized) return true;
+      return normalizeMachineUserId(candidate) === normalizedComparable;
+    });
+
+    if (matchedRow) {
       return {
-        teacherId: Number(mappedRows[0].teacher_id),
+        teacherId: Number(matchedRow.teacher_id),
         source: "device_user_mapping",
       };
     }
@@ -97,7 +111,19 @@ export async function getTeacherMappingForDeviceUser({ deviceUserId, deviceId = 
     [normalized]
   );
 
-  if (!rows.length && /^\d+$/.test(normalized)) {
+  if (!rows.length && normalizedComparable !== normalized) {
+    rows = await query(
+      `
+        SELECT id
+        FROM teachers
+        WHERE employee_id = ?
+        LIMIT 1
+      `,
+      [normalizedComparable]
+    );
+  }
+
+  if (!rows.length && /^\d+$/.test(normalizedComparable)) {
     rows = await query(
       `
         SELECT id
@@ -105,7 +131,7 @@ export async function getTeacherMappingForDeviceUser({ deviceUserId, deviceId = 
         WHERE id = ?
         LIMIT 1
       `,
-      [Number(normalized)]
+      [Number(normalizedComparable)]
     );
   }
 
@@ -131,6 +157,51 @@ export async function getDeviceIdByCode(deviceCode) {
   );
 
   return rows.length ? Number(rows[0].id) : null;
+}
+
+export async function getDeviceById(deviceId) {
+  const normalized = Number(deviceId);
+  if (!Number.isInteger(normalized) || normalized <= 0) return null;
+
+  const rows = await query(
+    `
+      SELECT id, device_code, device_name
+      FROM attendance_devices
+      WHERE id = ?
+      LIMIT 1
+    `,
+    [normalized]
+  );
+
+  return rows.length ? rows[0] : null;
+}
+
+export async function getAllDevicesForPull() {
+  return query(
+    `
+      SELECT id, device_code, device_name
+      FROM attendance_devices
+      WHERE device_code IS NOT NULL
+        AND TRIM(device_code) <> ''
+      ORDER BY id ASC
+    `
+  );
+}
+
+export async function getLatestPunchTimeByDeviceId(deviceId) {
+  const normalized = Number(deviceId);
+  if (!Number.isInteger(normalized) || normalized <= 0) return null;
+
+  const rows = await query(
+    `
+      SELECT MAX(punch_time) AS latest_punch_time
+      FROM teacher_attendance_logs
+      WHERE device_id = ?
+    `,
+    [normalized]
+  );
+
+  return rows.length ? rows[0]?.latest_punch_time || null : null;
 }
 
 export async function attendanceLogExists({ teacherId, deviceId, punchTime }) {

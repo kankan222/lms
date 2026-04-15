@@ -25,6 +25,14 @@ function isHigherSecondaryClassName(name) {
   return false;
 }
 
+function normalizeMachineUserId(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  if (!/^\d+$/.test(raw)) return raw;
+  const normalized = raw.replace(/^0+(?=\d)/, "");
+  return normalized || "0";
+}
+
 /* ------------------ TEACHERS ------------------ */
 
 export async function createTeacher(data) {
@@ -278,6 +286,91 @@ export async function createAttendanceDevice(data) {
 
 export async function getAttendanceDevices() {
   return repo.getAttendanceDevices();
+}
+
+export async function getAttendanceDeviceUserMappings({ deviceId } = {}) {
+  const normalizedDeviceId = Number(deviceId || 0);
+  return repo.getAttendanceDeviceUserMappings({
+    deviceId: Number.isInteger(normalizedDeviceId) && normalizedDeviceId > 0
+      ? normalizedDeviceId
+      : null,
+  });
+}
+
+export async function upsertAttendanceDeviceUserMapping(data) {
+  const conn = await pool.getConnection();
+
+  try {
+    await conn.beginTransaction();
+
+    const deviceId = Number(data?.deviceId || data?.device_id);
+    const teacherId = Number(data?.teacherId || data?.teacher_id);
+    const rawDeviceUserId = String(data?.deviceUserId || data?.device_user_id || "").trim();
+    const deviceUserId = normalizeMachineUserId(rawDeviceUserId);
+
+    if (!deviceId) {
+      throw new AppError("deviceId is required", 400);
+    }
+    if (!teacherId) {
+      throw new AppError("teacherId is required", 400);
+    }
+    if (!deviceUserId) {
+      throw new AppError("deviceUserId is required", 400);
+    }
+
+    const device = await repo.getAttendanceDeviceById(deviceId);
+    if (!device) {
+      throw new AppError("Attendance device not found", 404);
+    }
+
+    const teacher = await repo.getTeacherById(teacherId);
+    if (!teacher) {
+      throw new AppError("Teacher not found", 404);
+    }
+
+    const mappingId = await repo.upsertAttendanceDeviceUserMapping(
+      {
+        deviceId,
+        teacherId,
+        deviceUserId,
+      },
+      conn
+    );
+
+    await conn.commit();
+    return { mappingId };
+  } catch (err) {
+    await conn.rollback();
+    throw err;
+  } finally {
+    conn.release();
+  }
+}
+
+export async function deleteAttendanceDeviceUserMapping(mappingId) {
+  const normalized = Number(mappingId);
+  if (!Number.isInteger(normalized) || normalized <= 0) {
+    throw new AppError("Invalid mapping id", 400);
+  }
+
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+
+    const existing = await repo.getAttendanceDeviceUserMappingById(normalized, conn);
+    if (!existing) {
+      throw new AppError("Mapping not found", 404);
+    }
+
+    await repo.deleteAttendanceDeviceUserMapping(normalized, conn);
+    await conn.commit();
+    return { success: true };
+  } catch (err) {
+    await conn.rollback();
+    throw err;
+  } finally {
+    conn.release();
+  }
 }
 
 /* ------------------ ATTENDANCE LOGS ------------------ */

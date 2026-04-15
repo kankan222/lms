@@ -1,8 +1,8 @@
 import dotenv from 'dotenv';
 dotenv.config();
 
-import cron from "node-cron"
 import { startFeeReminderJob } from "./jobs/feeReminder.job.js";
+import { startIclockPullJob } from "./jobs/iclockPull.job.js";
 
 import app from "./app.js";
 import { query } from "./core/db/query.js";
@@ -18,7 +18,8 @@ async function startServer() {
     app.listen(PORT, () => {
       console.log(`Server running on port ${PORT}`);
     });
-    startFeeReminderJob()
+    startFeeReminderJob();
+    startIclockPullJob();
   } catch (err) {
     console.error("DB Connection Failed:", err);
     process.exit(1);

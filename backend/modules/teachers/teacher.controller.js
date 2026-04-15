@@ -130,6 +130,35 @@ export async function getAttendanceDevices(req, res, next) {
   }
 }
 
+export async function getAttendanceDeviceUserMappings(req, res, next) {
+  try {
+    const data = await service.getAttendanceDeviceUserMappings({
+      deviceId: req.query.device_id || req.query.deviceId,
+    });
+    res.json({ success: true, data });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function upsertAttendanceDeviceUserMapping(req, res, next) {
+  try {
+    const result = await service.upsertAttendanceDeviceUserMapping(req.body);
+    res.json({ success: true, data: result });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function deleteAttendanceDeviceUserMapping(req, res, next) {
+  try {
+    const result = await service.deleteAttendanceDeviceUserMapping(req.params.id);
+    res.json({ success: true, data: result });
+  } catch (err) {
+    next(err);
+  }
+}
+
 /* ------------------ ATTENDANCE LOGS (DEVICE INPUT) ------------------ */
 
 export async function logTeacherAttendance(req, res, next) {

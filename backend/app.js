@@ -46,6 +46,7 @@ import staffPublicRoutes from "./modules/staff/staff.public.routes.js"
 import staffWebsiteRoutes from "./modules/staff/staff.website.routes.js"
 import contactPublicRoutes from "./modules/contact/contact.public.routes.js"
 import iclockRoutes from "./modules/iclock/iclock.routes.js"
+import iclockAdminRoutes from "./modules/iclock/iclock.admin.routes.js"
 
 import notificationRoutes from "./modules/notifications/notification.routes.js"
 
@@ -84,6 +85,7 @@ app.use("/api/v1/subjects", subjectRoutes)
 app.use("/api/v1/messages", messageRoutes)
 app.use("/api/v1/staff", staffRoutes)
 app.use("/api/v1/website", staffWebsiteRoutes)
+app.use("/api/v1/iclock", iclockAdminRoutes)
 
 
 app.use("/api/v1/notifications", notificationRoutes)

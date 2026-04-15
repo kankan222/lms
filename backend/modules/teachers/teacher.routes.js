@@ -54,6 +54,24 @@ router.get(
   controller.getAttendanceDevices
 );
 
+router.get(
+  "/attendance/device-users",
+  requirePermission("teacher.view"),
+  controller.getAttendanceDeviceUserMappings
+);
+
+router.post(
+  "/attendance/device-users",
+  requirePermission("teacher.assign"),
+  controller.upsertAttendanceDeviceUserMapping
+);
+
+router.delete(
+  "/attendance/device-users/:id",
+  requirePermission("teacher.assign"),
+  controller.deleteAttendanceDeviceUserMapping
+);
+
 /* ---------- DEVICE ATTENDANCE LOG ---------- */
 
 router.post(

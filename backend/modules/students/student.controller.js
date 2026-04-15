@@ -7,10 +7,31 @@ function parseCsvLine(line) {
     .map((value) => value.replace(/^\"|\"$/g, "").trim());
 }
 
+function normalizeCsvHeader(header) {
+  return String(header || "")
+    .trim()
+    .replace(/^\uFEFF/, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+}
+
+function mapCsvHeader(header) {
+  const normalized = normalizeCsvHeader(header);
+  if (normalized === "admission_date" || normalized === "dateofadmission") {
+    return "date_of_admission";
+  }
+  return normalized;
+}
+
 function mapCsvRow(headers, values) {
   const row = {};
   headers.forEach((header, idx) => {
-    row[header] = values[idx] ?? "";
+    const mappedHeader = mapCsvHeader(header);
+    const value = values[idx] ?? "";
+    if (!(mappedHeader in row) || !String(row[mappedHeader] || "").trim()) {
+      row[mappedHeader] = value;
+    }
   });
   return row;
 }

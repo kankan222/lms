@@ -63,3 +63,29 @@ export function getAllTeacherAttendance() {
 
   return apiRequest("/teachers/attendance/all");
 }
+
+export function getAttendanceDevices() {
+  return apiRequest("/teachers/attendance/devices");
+}
+
+export function getAttendanceDeviceUsers(params = {}) {
+  const query = new URLSearchParams();
+  if (params.device_id) {
+    query.set("device_id", params.device_id);
+  }
+  const suffix = query.toString() ? `?${query.toString()}` : "";
+  return apiRequest(`/teachers/attendance/device-users${suffix}`);
+}
+
+export function upsertAttendanceDeviceUser(data) {
+  return apiRequest("/teachers/attendance/device-users", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+export function deleteAttendanceDeviceUser(mappingId) {
+  return apiRequest(`/teachers/attendance/device-users/${mappingId}`, {
+    method: "DELETE",
+  });
+}

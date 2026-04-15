@@ -8,6 +8,49 @@ function readBodyText(body) {
   return "";
 }
 
+function safeDecode(value) {
+  const raw = String(value ?? "");
+  try {
+    return decodeURIComponent(raw.replace(/\+/g, "%20"));
+  } catch {
+    return raw;
+  }
+}
+
+function pickQueryValue(query = {}, keys = []) {
+  for (const key of keys) {
+    const value = query?.[key];
+    if (value === undefined || value === null) continue;
+
+    const normalized = Array.isArray(value) ? String(value[0] || "").trim() : String(value).trim();
+    if (normalized) return normalized;
+  }
+  return null;
+}
+
+function resolveDeviceCode(headers = {}, query = {}) {
+  return (
+    String(headers?.dev_id || "").trim() ||
+    pickQueryValue(query, ["dev_id", "device_id", "SN", "sn", "serial", "device_sn"]) ||
+    null
+  );
+}
+
+function resolveRequestCode(headers = {}, query = {}) {
+  const fromHeader = String(headers?.request_code || "").trim().toLowerCase();
+  if (fromHeader) return fromHeader;
+
+  const fromQuery =
+    pickQueryValue(query, ["request_code", "request", "rq"])?.toLowerCase() || "";
+  if (fromQuery) return fromQuery;
+
+  const table = pickQueryValue(query, ["table", "Table"])?.toLowerCase() || "";
+  if (table === "attlog") return "table_attlog";
+  if (table === "operlog") return "table_operlog";
+
+  return "";
+}
+
 function parseDevicePayload(bodyText) {
   const start = bodyText.indexOf("{");
   if (start === -1) return null;
@@ -69,25 +112,322 @@ function formatDeviceDateTime(value) {
   return `${yyyy}-${mm}-${dd} ${hh}:${mi}:${ss}`;
 }
 
+function normalizeDateTime(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return null;
+
+  const fromCompact = formatDeviceDateTime(raw);
+  if (fromCompact) return fromCompact;
+
+  if (/^\d{4}[-/]\d{2}[-/]\d{2}[ T]\d{2}:\d{2}:\d{2}$/.test(raw)) {
+    return raw.replaceAll("/", "-").replace("T", " ");
+  }
+
+  const dateOnly = raw.match(/^(\d{4})[-/](\d{2})[-/](\d{2})$/);
+  if (dateOnly) {
+    return `${dateOnly[1]}-${dateOnly[2]}-${dateOnly[3]} 00:00:00`;
+  }
+
+  if (/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}$/.test(raw)) {
+    return raw.replace("T", " ");
+  }
+
+  return null;
+}
+
 function getDeviceUserId(payload) {
   return String(payload?.user_id || payload?.PIN || payload?.UserID || "").trim() || null;
 }
 
+function parseModeList(value) {
+  return new Set(
+    String(value || "")
+      .split(",")
+      .map((item) => item.trim())
+      .filter(Boolean)
+  );
+}
+
+const DEFAULT_IN_MODES = new Set(["0", "3", "4"]);
+const DEFAULT_OUT_MODES = new Set(["1", "2", "5"]);
+
+const inModes = (() => {
+  const configured = parseModeList(process.env.ICLOCK_IO_MODE_IN);
+  return configured.size ? configured : DEFAULT_IN_MODES;
+})();
+
+const outModes = (() => {
+  const configured = parseModeList(process.env.ICLOCK_IO_MODE_OUT);
+  return configured.size ? configured : DEFAULT_OUT_MODES;
+})();
+
+function mapIoModeToPunchType(ioMode) {
+  const normalized = String(ioMode ?? "").trim();
+  if (!normalized) return "unknown";
+  if (inModes.has(normalized)) return "in";
+  if (outModes.has(normalized)) return "out";
+
+  const lower = normalized.toLowerCase();
+  if (["in", "checkin", "check_in", "i"].includes(lower)) return "in";
+  if (["out", "checkout", "check_out", "o"].includes(lower)) return "out";
+  return "unknown";
+}
+
 function normalizeGlogPayload(headers, payload) {
+  const ioMode = payload?.io_mode ?? null;
   return {
     type: "attendance",
     requestCode: "realtime_glog",
     deviceCode: String(headers?.dev_id || "").trim() || null,
     deviceUserId: getDeviceUserId(payload),
     punchTime: formatDeviceDateTime(payload?.io_time),
-    punchType: "unknown",
-    ioMode: payload?.io_mode ?? null,
+    punchType: mapIoModeToPunchType(ioMode),
+    ioMode,
     verifyMode: payload?.verify_mode ?? null,
   };
 }
 
+function normalizeAttendanceFromPayload({
+  requestCode,
+  deviceCode,
+  payload,
+}) {
+  const ioMode = payload?.io_mode ?? payload?.status ?? payload?.inout ?? null;
+  return {
+    type: "attendance",
+    requestCode: String(requestCode || "unknown"),
+    deviceCode: String(deviceCode || "").trim() || null,
+    deviceUserId: getDeviceUserId(payload),
+    punchTime: normalizeDateTime(
+      payload?.io_time ||
+      payload?.punch_time ||
+      payload?.datetime ||
+      payload?.time ||
+      payload?.atttime
+    ),
+    punchType: mapIoModeToPunchType(ioMode),
+    ioMode,
+    verifyMode: payload?.verify_mode ?? payload?.verify ?? null,
+  };
+}
+
+function parseAttendanceLineParts(line) {
+  const text = String(line || "").trim();
+  if (!text) return [];
+
+  const primary = text
+    .split(/[\t,;]+/)
+    .map((item) => String(item || "").trim())
+    .filter(Boolean);
+
+  if (primary.length >= 2) return primary;
+
+  return text
+    .split(/\s+/)
+    .map((item) => String(item || "").trim())
+    .filter(Boolean);
+}
+
+function looksLikeDateTimeToken(token) {
+  return (
+    /^\d{14}$/.test(token) ||
+    /^\d{4}[-/]\d{2}[-/]\d{2}[ T]\d{2}:\d{2}:\d{2}$/.test(token)
+  );
+}
+
+function looksLikeDateOnlyToken(token) {
+  return /^\d{4}[-/]\d{2}[-/]\d{2}$/.test(String(token || "").trim());
+}
+
+function looksLikeTimeOnlyToken(token) {
+  return /^\d{2}:\d{2}:\d{2}$/.test(String(token || "").trim());
+}
+
+function parseKeyValueMap(line) {
+  const text = String(line || "").trim();
+  if (!text || !text.includes("=")) return {};
+
+  const map = {};
+
+  const urlEncodedStyle = text.includes("&") ? new URLSearchParams(text) : null;
+  if (urlEncodedStyle) {
+    for (const [key, value] of urlEncodedStyle.entries()) {
+      const normalizedKey = String(key || "").trim().toLowerCase();
+      if (!normalizedKey) continue;
+      map[normalizedKey] = safeDecode(value);
+    }
+  }
+
+  const normalized = text.replace(/&/g, " ");
+  const regex = /([A-Za-z0-9_]+)=([\s\S]*?)(?=\s+[A-Za-z0-9_]+=|$)/g;
+  for (const match of normalized.matchAll(regex)) {
+    const key = String(match[1] || "").trim().toLowerCase();
+    const value = safeDecode(String(match[2] || "").trim());
+    if (!key) continue;
+    map[key] = value;
+  }
+
+  return map;
+}
+
+function parseFkWebKeyValueLine(line) {
+  const map = parseKeyValueMap(line);
+  if (!Object.keys(map).length) return null;
+
+  const dateToken = String(
+    map.date || map.logdate || map.io_date || ""
+  ).trim();
+  const timeToken = String(
+    map.clock || map.logtime || map.io_clock || ""
+  ).trim();
+
+  let punchTime = normalizeDateTime(
+    map.io_time || map.datetime || map.time || map.punch_time || map.atttime
+  );
+  if (!punchTime && dateToken && timeToken) {
+    punchTime = normalizeDateTime(`${dateToken} ${timeToken}`);
+  }
+
+  const deviceUserId = String(
+    map.user_id || map.userid || map.pin || map.enrollid || map.badgenumber || ""
+  ).trim();
+
+  if (!deviceUserId || !punchTime) return null;
+
+  return {
+    deviceUserId,
+    punchTime,
+    ioMode: map.io_mode || map.status || map.inout || null,
+    verifyMode: map.verify_mode || map.verify || null,
+  };
+}
+
+function parseFkWebTabLine(line) {
+  const withoutPrefix = String(line || "")
+    .replace(/^attlog[:\s]*/i, "")
+    .trim();
+  const parts = parseAttendanceLineParts(withoutPrefix);
+  if (parts.length < 2) return null;
+
+  let timeIndex = parts.findIndex((item) => looksLikeDateTimeToken(item));
+  let punchTime = timeIndex >= 0 ? normalizeDateTime(parts[timeIndex]) : null;
+  let dateTimeTokenSpan = 1;
+
+  if (!punchTime) {
+    const combinedIndex = parts.findIndex(
+      (item, index) =>
+        looksLikeDateOnlyToken(item) && looksLikeTimeOnlyToken(parts[index + 1])
+    );
+    if (combinedIndex >= 0) {
+      timeIndex = combinedIndex;
+      dateTimeTokenSpan = 2;
+      punchTime = normalizeDateTime(`${parts[combinedIndex]} ${parts[combinedIndex + 1]}`);
+    }
+  }
+
+  if (!punchTime) return null;
+
+  const candidateTokens = parts.filter(
+    (item) =>
+      !looksLikeDateTimeToken(item) &&
+      !looksLikeDateOnlyToken(item) &&
+      !looksLikeTimeOnlyToken(item) &&
+      !/^(attlog|verify|status|punch|type|date|time)$/i.test(String(item || "").trim())
+  );
+
+  const firstToken = String(candidateTokens[0] || parts[0] || "").trim();
+  const fallbackToken = String(candidateTokens[1] || parts[1] || "").trim();
+  const deviceUserId =
+    firstToken && !looksLikeDateTimeToken(firstToken)
+      ? firstToken
+      : fallbackToken && !looksLikeDateTimeToken(fallbackToken)
+        ? fallbackToken
+        : null;
+
+  if (!deviceUserId) return null;
+
+  // Most FKWeb payloads keep status/io mode near datetime.
+  const ioModeCandidates = [
+    parts[timeIndex + dateTimeTokenSpan],
+    parts[timeIndex + dateTimeTokenSpan + 1],
+    parts[3],
+    parts[2],
+  ]
+    .map((item) => String(item || "").trim())
+    .filter(Boolean);
+
+  return {
+    deviceUserId,
+    punchTime,
+    ioMode: ioModeCandidates[0] ?? null,
+    verifyMode: null,
+  };
+}
+
+function parseFkWebAttendancePayload({ bodyText, query, headers }) {
+  const table = pickQueryValue(query, ["table", "Table"])?.toLowerCase() || "";
+  if (table !== "attlog") return [];
+
+  const deviceCode = resolveDeviceCode(headers, query);
+  const lines = String(bodyText || "")
+    .replace(/\0/g, "")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  const entries = [];
+  for (const line of lines) {
+    const parsed = parseFkWebKeyValueLine(line) || parseFkWebTabLine(line);
+    if (!parsed?.deviceUserId || !parsed?.punchTime) continue;
+
+    entries.push({
+      type: "attendance",
+      requestCode: "table_attlog",
+      deviceCode,
+      deviceUserId: parsed.deviceUserId,
+      punchTime: parsed.punchTime,
+      ioMode: parsed.ioMode,
+      verifyMode: parsed.verifyMode,
+      punchType: mapIoModeToPunchType(parsed.ioMode),
+    });
+  }
+
+  if (!entries.length && lines.length) {
+    console.log("ICLOCK ATTLOG UNPARSED SAMPLE:", {
+      deviceCode,
+      query,
+      lineCount: lines.length,
+      sample: lines.slice(0, 3),
+    });
+  }
+
+  return entries;
+}
+
 const recentEventCache = new Map();
 const RECENT_TTL_MS = 10 * 60 * 1000;
+const DEFAULT_PULL_LOOKBACK_MINUTES = 5;
+const DEFAULT_PULL_WINDOW_HOURS = 24;
+const LOG_THROTTLE_MS = 30 * 1000;
+const logThrottleCache = new Map();
+
+function shouldLogWithThrottle(key, throttleMs = LOG_THROTTLE_MS) {
+  const now = Date.now();
+  const previous = logThrottleCache.get(key) || 0;
+  if (now - previous < throttleMs) return false;
+  logThrottleCache.set(key, now);
+
+  // Prevent unbounded growth in long-running dev sessions.
+  if (logThrottleCache.size > 5000) {
+    for (const [cacheKey, ts] of logThrottleCache.entries()) {
+      if (now - ts > throttleMs * 10) {
+        logThrottleCache.delete(cacheKey);
+      }
+    }
+  }
+
+  return true;
+}
 
 function pruneRecentEventCache(now) {
   for (const [key, seenAt] of recentEventCache.entries()) {
@@ -106,22 +446,209 @@ function isRecentDuplicate(eventKey) {
   return false;
 }
 
-export function getPollResponse({ headers }) {
-  const deviceCode = String(headers?.dev_id || "").trim() || null;
+function parsePositiveInt(value, fallback) {
+  const parsed = Number.parseInt(String(value ?? ""), 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+  return parsed;
+}
+
+function toDate(value) {
+  if (!value) return null;
+  if (value instanceof Date && !Number.isNaN(value.valueOf())) return value;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.valueOf()) ? null : parsed;
+}
+
+function pad2(value) {
+  return String(value).padStart(2, "0");
+}
+
+function formatCommandDateTime(value) {
+  const date = toDate(value);
+  if (!date) return null;
+  const yyyy = date.getFullYear();
+  const mm = pad2(date.getMonth() + 1);
+  const dd = pad2(date.getDate());
+  const hh = pad2(date.getHours());
+  const mi = pad2(date.getMinutes());
+  const ss = pad2(date.getSeconds());
+  return `${yyyy}-${mm}-${dd} ${hh}:${mi}:${ss}`;
+}
+
+function applyTemplate(template, placeholders) {
+  return String(template || "").replace(/\{([a-zA-Z0-9_]+)\}/g, (_match, token) => {
+    const value = placeholders[token];
+    return value === undefined || value === null ? "" : String(value);
+  });
+}
+
+async function buildPullCommandForDevice({
+  device,
+  commandTemplate,
+  fromTime,
+  toTime,
+  lookbackMinutes,
+  defaultWindowHours,
+}) {
+  const template = String(commandTemplate || "").trim();
+  if (!template) return null;
+
+  const now = toDate(toTime) || new Date();
+  const latestPunchTime = await repo.getLatestPunchTimeByDeviceId(device.id);
+  const latest = toDate(latestPunchTime);
+
+  const lookbackMs = lookbackMinutes * 60 * 1000;
+  const defaultWindowMs = defaultWindowHours * 60 * 60 * 1000;
+  const computedFrom = latest
+    ? new Date(latest.getTime() - lookbackMs)
+    : new Date(now.getTime() - defaultWindowMs);
+
+  const from = toDate(fromTime) || computedFrom;
+  const fromFormatted = formatCommandDateTime(from);
+  const toFormatted = formatCommandDateTime(now);
+  const latestFormatted = formatCommandDateTime(latest);
+
+  return applyTemplate(template, {
+    device_id: device.id,
+    device_code: device.device_code,
+    device_name: device.device_name || "",
+    from: fromFormatted,
+    to: toFormatted,
+    latest: latestFormatted || "",
+  }).trim();
+}
+
+export async function queuePullCommandForDevice({
+  deviceId,
+  commandTemplate,
+  fromTime,
+  toTime,
+}) {
+  const device = await repo.getDeviceById(deviceId);
+  if (!device) {
+    return { success: false, reason: "device_not_found" };
+  }
+
+  const lookbackMinutes = parsePositiveInt(
+    process.env.ICLOCK_PULL_LOOKBACK_MINUTES,
+    DEFAULT_PULL_LOOKBACK_MINUTES
+  );
+  const defaultWindowHours = parsePositiveInt(
+    process.env.ICLOCK_PULL_DEFAULT_WINDOW_HOURS,
+    DEFAULT_PULL_WINDOW_HOURS
+  );
+  const template = String(
+    commandTemplate || process.env.ICLOCK_PULL_COMMAND_TEMPLATE || ""
+  ).trim();
+
+  if (!template) {
+    return { success: false, reason: "missing_template" };
+  }
+
+  const command = await buildPullCommandForDevice({
+    device,
+    commandTemplate: template,
+    fromTime,
+    toTime,
+    lookbackMinutes,
+    defaultWindowHours,
+  });
+
+  if (!command) {
+    return { success: false, reason: "empty_command" };
+  }
+
+  repo.queueDeviceCommand(device.device_code, command);
+  return {
+    success: true,
+    deviceId: device.id,
+    deviceCode: device.device_code,
+    command,
+  };
+}
+
+export async function queuePullCommandsForAllDevices() {
+  const template = String(process.env.ICLOCK_PULL_COMMAND_TEMPLATE || "").trim();
+  if (!template) {
+    return {
+      queuedCount: 0,
+      skippedCount: 0,
+      reason: "missing_template",
+      items: [],
+    };
+  }
+
+  const lookbackMinutes = parsePositiveInt(
+    process.env.ICLOCK_PULL_LOOKBACK_MINUTES,
+    DEFAULT_PULL_LOOKBACK_MINUTES
+  );
+  const defaultWindowHours = parsePositiveInt(
+    process.env.ICLOCK_PULL_DEFAULT_WINDOW_HOURS,
+    DEFAULT_PULL_WINDOW_HOURS
+  );
+  const devices = await repo.getAllDevicesForPull();
+  const items = [];
+  let queuedCount = 0;
+
+  for (const device of devices) {
+    const command = await buildPullCommandForDevice({
+      device,
+      commandTemplate: template,
+      lookbackMinutes,
+      defaultWindowHours,
+    });
+
+    if (!command) {
+      items.push({
+        deviceId: device.id,
+        deviceCode: device.device_code,
+        status: "skipped",
+      });
+      continue;
+    }
+
+    repo.queueDeviceCommand(device.device_code, command);
+    queuedCount += 1;
+    items.push({
+      deviceId: device.id,
+      deviceCode: device.device_code,
+      status: "queued",
+    });
+  }
+
+  return {
+    queuedCount,
+    skippedCount: items.length - queuedCount,
+    items,
+  };
+}
+
+export function getPollResponse({ headers, query }) {
+  const deviceCode = resolveDeviceCode(headers, query);
   return repo.consumeDeviceCommand(deviceCode) || "OK";
 }
 
-export function parseIncomingPacket({ headers, body }) {
-  const requestCode = String(headers?.request_code || "").trim().toLowerCase();
+function parseIncomingPacketInternal({ headers, query, body }) {
+  const requestCode = resolveRequestCode(headers, query);
   const bodyText = readBodyText(body);
   const payload = parseDevicePayload(bodyText);
-  const deviceCode = String(headers?.dev_id || "").trim() || null;
+  const deviceCode = resolveDeviceCode(headers, query);
 
   if (requestCode === "realtime_glog") {
     return normalizeGlogPayload(headers, payload);
   }
 
   if (requestCode === "realtime_enroll_data") {
+    const asAttendance = normalizeAttendanceFromPayload({
+      requestCode,
+      deviceCode,
+      payload,
+    });
+
+    if (asAttendance.deviceUserId && asAttendance.punchTime) {
+      return asAttendance;
+    }
+
     return {
       type: "enrollment",
       requestCode,
@@ -139,12 +666,30 @@ export function parseIncomingPacket({ headers, body }) {
     };
   }
 
+  const fkWebEntries = parseFkWebAttendancePayload({
+    bodyText,
+    query,
+    headers,
+  });
+  if (fkWebEntries.length) {
+    return {
+      type: "attendance_batch",
+      requestCode: requestCode || "table_attlog",
+      deviceCode,
+      entries: fkWebEntries,
+    };
+  }
+
   return {
     type: "other",
     requestCode: requestCode || "unknown",
     deviceCode,
     hasPayload: Boolean(payload),
   };
+}
+
+export function parseIncomingPacket({ headers, query, body }) {
+  return parseIncomingPacketInternal({ headers, query, body });
 }
 
 export function logPacket(packet) {
@@ -154,6 +699,8 @@ export function logPacket(packet) {
   }
 
   if (packet.type === "enrollment") {
+    const key = `enrollment:${packet.deviceCode || "unknown"}:${packet.deviceUserId || "unknown"}`;
+    if (!shouldLogWithThrottle(key)) return;
     console.log("ICLOCK ENROLLMENT PACKET:", packet);
     return;
   }
@@ -166,23 +713,18 @@ export function logPacket(packet) {
   console.log("ICLOCK OTHER PACKET:", packet);
 }
 
-export async function handleIncomingPacket({ headers, body }) {
-  const packet = parseIncomingPacket({ headers, body });
-
-  if (packet.type !== "attendance") {
-    logPacket(packet);
-    return;
-  }
-
+async function processAttendancePacket(packet) {
   if (!packet.deviceUserId || !packet.punchTime) {
     console.log("ICLOCK ATTENDANCE INVALID:", packet);
-    return;
+    return "OK";
   }
 
   const eventKey = `${packet.deviceCode || "unknown"}|${packet.deviceUserId}|${packet.punchTime}`;
   if (isRecentDuplicate(eventKey)) {
-    console.log("ICLOCK DUPLICATE SKIPPED:", eventKey);
-    return;
+    if (shouldLogWithThrottle(`dup:${eventKey}`)) {
+      console.log("ICLOCK DUPLICATE SKIPPED:", eventKey);
+    }
+    return "OK";
   }
 
   const deviceId = await repo.getDeviceIdByCode(packet.deviceCode);
@@ -210,7 +752,7 @@ export async function handleIncomingPacket({ headers, body }) {
       mappingSource: mapping?.source || "none",
       hint,
     });
-    return;
+    return "OK";
   }
 
   const alreadyExists = await repo.attendanceLogExists({
@@ -224,7 +766,7 @@ export async function handleIncomingPacket({ headers, body }) {
       deviceId,
       punchTime: packet.punchTime,
     });
-    return;
+    return "OK";
   }
 
   await logTeacherAttendance({
@@ -243,4 +785,45 @@ export async function handleIncomingPacket({ headers, body }) {
     ioMode: packet.ioMode,
     verifyMode: packet.verifyMode,
   });
+
+  return "OK";
+}
+
+export async function handleIncomingPacket({ headers, query, body }) {
+  const packet = parseIncomingPacket({ headers, query, body });
+
+  if (packet.type === "heartbeat") {
+    logPacket(packet);
+    const command = repo.consumeDeviceCommand(packet.deviceCode);
+    if (command) {
+      console.log("ICLOCK HEARTBEAT COMMAND SENT:", {
+        deviceCode: packet.deviceCode,
+        command,
+      });
+      return command;
+    }
+    console.log("ICLOCK HEARTBEAT COMMAND SENT:", {
+      deviceCode: packet.deviceCode,
+      command: "OK",
+    });
+    return "OK";
+  }
+
+  if (packet.type === "attendance_batch") {
+    for (const entry of packet.entries || []) {
+      await processAttendancePacket(entry);
+    }
+    console.log("ICLOCK ATTLOG BATCH PROCESSED:", {
+      deviceCode: packet.deviceCode,
+      count: (packet.entries || []).length,
+    });
+    return "OK";
+  }
+
+  if (packet.type !== "attendance") {
+    logPacket(packet);
+    return "OK";
+  }
+
+  return processAttendancePacket(packet);
 }
