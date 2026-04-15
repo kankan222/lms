@@ -142,10 +142,9 @@ export default function AcademicForm({ update, errors = {} }) {
         ) : null}
 
         <Field>
-          <Label>Roll Number *</Label>
+          <Label>Roll Number</Label>
 
           <input
-            required
             className="border rounded p-2 w-full"
             onChange={(e) =>
               update("enrollment", "roll_number", e.target.value)

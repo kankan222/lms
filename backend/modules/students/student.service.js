@@ -210,6 +210,15 @@ function normalizeDateInput(value, fieldLabel) {
   throw new AppError(`${fieldLabel} must be in YYYY-MM-DD or DD/MM/YYYY format`, 400);
 }
 
+function normalizeOptionalText(value) {
+  if (value === undefined || value === null) {
+    return null;
+  }
+
+  const trimmed = String(value).trim();
+  return trimmed ? trimmed : null;
+}
+
 async function resolveEnrollmentScope(enrollment = {}) {
   const classId = Number(enrollment.class_id || 0);
   if (!classId) {
@@ -274,9 +283,6 @@ function validateCreatePayload(payload) {
   }
   if (!payload?.enrollment?.section_id) {
     throw new AppError("Section is required", 400);
-  }
-  if (!payload?.enrollment?.roll_number) {
-    throw new AppError("Roll number is required", 400);
   }
 
   const fatherMobile = String(payload?.father?.mobile || "").trim();
@@ -368,7 +374,7 @@ export async function createStudent(payload) {
       class_id: enrollment.class_id,
       section_id: enrollment.section_id,
       stream_id: enrollmentMeta.stream_id,
-      roll_number: enrollment.roll_number,
+      roll_number: normalizeOptionalText(enrollment.roll_number),
     });
 
     await conn.commit();
@@ -574,7 +580,10 @@ export async function updateStudent(id, data) {
       session_id: data.session_id ?? existing.session_id,
       class_id: data.class_id ?? existing.class_id,
       section_id: data.section_id ?? existing.section_id,
-      roll_number: data.roll_number ?? existing.roll_number,
+      roll_number:
+        data.roll_number !== undefined
+          ? normalizeOptionalText(data.roll_number)
+          : existing.roll_number,
       stream_id: data.stream_id ?? existing.stream_id ?? null,
       stream: data.stream,
     };

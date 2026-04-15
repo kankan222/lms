@@ -21,6 +21,9 @@ function mapCsvHeader(header) {
   if (normalized === "admission_date" || normalized === "dateofadmission") {
     return "date_of_admission";
   }
+  if (normalized === "roll_no" || normalized === "rollno" || normalized === "roll") {
+    return "roll_number";
+  }
   return normalized;
 }
 

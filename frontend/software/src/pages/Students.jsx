@@ -357,7 +357,6 @@ export default function Student() {
     if (!payload?.enrollment?.class_id) next.class_id = "Class is required";
     if (!payload?.enrollment?.section_id) next.section_id = "Section is required";
     if (!payload?.enrollment?.medium) next.medium = "Medium is required";
-    if (!payload?.enrollment?.roll_number) next.roll_number = "Roll number is required";
     const selectedClass = classes.find((c) => String(c.id) === String(payload?.enrollment?.class_id));
     if (selectedClass?.class_scope === "hs" && !String(payload?.enrollment?.stream || payload?.enrollment?.stream_id || "").trim()) {
       next.stream = "Stream is required for higher secondary classes";
@@ -426,7 +425,6 @@ export default function Student() {
     if (!editingStudent.session_id) localErrors.session_id = "Session is required";
     if (!editingStudent.class_id) localErrors.class_id = "Class is required";
     if (!editingStudent.section_id) localErrors.section_id = "Section is required";
-    if (!editingStudent.roll_number) localErrors.roll_number = "Roll number is required";
     if (editingStudent.raw_class_scope === "hs" && !String(editingStudent.stream_name || editingStudent.stream_id || "").trim()) {
       localErrors.stream = "Stream is required for higher secondary classes";
     }
@@ -709,7 +707,7 @@ export default function Student() {
         section_id: sectionId,
         medium,
         stream,
-        roll_number: getCell(values, "roll_number"),
+        roll_number: getCell(values, "roll_number", "roll_no", "rollno", "roll"),
         father_name: getCell(values, "father_name", "father name"),
         father_mobile: getCell(
           values,
@@ -1203,7 +1201,7 @@ export default function Student() {
               </div>
 
               <div className="grid gap-2">
-                <Label>Roll Number *</Label>
+                <Label>Roll Number</Label>
                 <Input
                   value={editingStudent?.roll_number || ""}
                   onChange={(e) =>
