@@ -146,6 +146,21 @@ export default function Attendance() {
     student_ids: [],
   });
 
+  const loadDeviceUserMappings = useCallback(async () => {
+    setDeviceUserLoading(true);
+    try {
+      const res = await getAttendanceDeviceUsers({
+        device_id: deviceUserFilterId || undefined,
+      });
+      setDeviceUserMappings(Array.isArray(res?.data) ? res.data : []);
+    } catch (err) {
+      setDeviceUserMappings([]);
+      setError(err?.message || "Failed to load device user mappings.");
+    } finally {
+      setDeviceUserLoading(false);
+    }
+  }, [deviceUserFilterId]);
+
   useEffect(() => {
     loadAcademicOptions();
     if (canViewTeacherLogs) {
@@ -337,21 +352,6 @@ export default function Attendance() {
       setError(err?.message || "Failed to load device mapping options.");
     }
   }
-
-  const loadDeviceUserMappings = useCallback(async () => {
-    setDeviceUserLoading(true);
-    try {
-      const res = await getAttendanceDeviceUsers({
-        device_id: deviceUserFilterId || undefined,
-      });
-      setDeviceUserMappings(Array.isArray(res?.data) ? res.data : []);
-    } catch (err) {
-      setDeviceUserMappings([]);
-      setError(err?.message || "Failed to load device user mappings.");
-    } finally {
-      setDeviceUserLoading(false);
-    }
-  }, [deviceUserFilterId]);
 
   async function handleSaveDeviceUserMapping() {
     const deviceId = String(deviceUserForm.device_id || "").trim();
