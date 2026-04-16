@@ -63,7 +63,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { resolveServerImageUrl } from "../../lib/serverImage";
-import { formatReadableDate, formatReadableDateTime } from "../../lib/dateTime";
+import { formatReadableDateTime } from "../../lib/dateTime";
 
 export default function TeacherDetails() {
   const { id } = useParams();

@@ -10,6 +10,9 @@ function isEnabled() {
 
 export function startIclockPullJob() {
   if (!isEnabled()) {
+    console.log("ICLOCK PULL JOB DISABLED:", {
+      ICLOCK_PULL_ENABLED: String(process.env.ICLOCK_PULL_ENABLED || ""),
+    });
     return;
   }
 
@@ -19,7 +22,7 @@ export function startIclockPullJob() {
     return;
   }
 
-  cron.schedule(cronExpr, async () => {
+  const runPullCycle = async () => {
     if (running) return;
     running = true;
     try {
@@ -37,7 +40,12 @@ export function startIclockPullJob() {
     } finally {
       running = false;
     }
-  });
+  };
+
+  // Trigger one pull cycle immediately at startup,
+  // then continue on cron cadence.
+  runPullCycle();
+  cron.schedule(cronExpr, runPullCycle);
 
   console.log("ICLOCK PULL JOB STARTED:", { cron: cronExpr });
 }

@@ -45,8 +45,7 @@ import staffRoutes from "./modules/staff/staff.routes.js"
 import staffPublicRoutes from "./modules/staff/staff.public.routes.js"
 import staffWebsiteRoutes from "./modules/staff/staff.website.routes.js"
 import contactPublicRoutes from "./modules/contact/contact.public.routes.js"
-import iclockRoutes from "./modules/iclock/iclock.routes.js"
-import iclockAdminRoutes from "./modules/iclock/iclock.admin.routes.js"
+import teacherAttendanceSyncRoutes from "./modules/teacherAttendanceSync/teacherAttendanceSync.routes.js"
 
 import notificationRoutes from "./modules/notifications/notification.routes.js"
 
@@ -61,7 +60,7 @@ import { errorHandler } from "./middleware/error.middleware.js"
 app.use("/api/v1/auth", authRoutes);
 app.use("/api/v1/public/staff", staffPublicRoutes);
 app.use("/api/v1/public/contact", contactPublicRoutes);
-app.use("/iclock", iclockRoutes);
+app.use("/sync", teacherAttendanceSyncRoutes);
 
 
 app.use(authenticate);
@@ -85,7 +84,6 @@ app.use("/api/v1/subjects", subjectRoutes)
 app.use("/api/v1/messages", messageRoutes)
 app.use("/api/v1/staff", staffRoutes)
 app.use("/api/v1/website", staffWebsiteRoutes)
-app.use("/api/v1/iclock", iclockAdminRoutes)
 
 
 app.use("/api/v1/notifications", notificationRoutes)

@@ -1,4 +1,4 @@
-import { useEffect, useEffectEvent, useMemo, useState } from "react";
+import { useCallback, useEffect, useEffectEvent, useMemo, useState } from "react";
 import TopBar from "../components/TopBar";
 import DataTable from "../components/DataTable";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -153,7 +153,6 @@ export default function Attendance() {
     }
     if (canManageDeviceMappings) {
       loadDeviceUserSetup();
-      loadDeviceUserMappings();
     }
     if (canReviewStudentAttendance) {
       loadPendingAttendance();
@@ -173,7 +172,7 @@ export default function Attendance() {
   useEffect(() => {
     if (!canManageDeviceMappings) return;
     loadDeviceUserMappings();
-  }, [canManageDeviceMappings, deviceUserFilterId]);
+  }, [canManageDeviceMappings, loadDeviceUserMappings]);
 
   useEffect(() => {
     setSelectedPendingIds((prev) =>
@@ -339,7 +338,7 @@ export default function Attendance() {
     }
   }
 
-  async function loadDeviceUserMappings() {
+  const loadDeviceUserMappings = useCallback(async () => {
     setDeviceUserLoading(true);
     try {
       const res = await getAttendanceDeviceUsers({
@@ -352,7 +351,7 @@ export default function Attendance() {
     } finally {
       setDeviceUserLoading(false);
     }
-  }
+  }, [deviceUserFilterId]);
 
   async function handleSaveDeviceUserMapping() {
     const deviceId = String(deviceUserForm.device_id || "").trim();

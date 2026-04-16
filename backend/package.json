@@ -8,6 +8,8 @@
     "test": "echo \"Error: no test specified\" && exit 1",
     "dev:local": "node scripts/run-backend-dev.js",
     "dev": "node scripts/run-backend-dev.js",
+    "sync:agent:local": "node scripts/run-attendance-sync-agent.js",
+    "sync:agent": "node scripts/run-attendance-sync-agent.js",
     "start:server": "node server.js",
     "start": "node server.js",
     "seed:admin": "node database/seeds/admin.seeds.js"

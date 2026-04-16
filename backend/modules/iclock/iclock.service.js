@@ -136,7 +136,18 @@ function normalizeDateTime(value) {
 }
 
 function getDeviceUserId(payload) {
-  return String(payload?.user_id || payload?.PIN || payload?.UserID || "").trim() || null;
+  return (
+    String(
+      payload?.user_id ||
+      payload?.userid ||
+      payload?.PIN ||
+      payload?.pin ||
+      payload?.UserID ||
+      payload?.enrollid ||
+      payload?.badgenumber ||
+      ""
+    ).trim() || null
+  );
 }
 
 function parseModeList(value) {
@@ -631,18 +642,23 @@ export function getPollResponse({ headers, query }) {
 function parseIncomingPacketInternal({ headers, query, body }) {
   const requestCode = resolveRequestCode(headers, query);
   const bodyText = readBodyText(body);
+  const keyValuePayload = parseKeyValueMap(bodyText);
   const payload = parseDevicePayload(bodyText);
   const deviceCode = resolveDeviceCode(headers, query);
+  const mergedPayload =
+    payload && typeof payload === "object"
+      ? { ...keyValuePayload, ...payload }
+      : keyValuePayload;
 
   if (requestCode === "realtime_glog") {
-    return normalizeGlogPayload(headers, payload);
+    return normalizeGlogPayload(headers, mergedPayload);
   }
 
   if (requestCode === "realtime_enroll_data") {
     const asAttendance = normalizeAttendanceFromPayload({
       requestCode,
       deviceCode,
-      payload,
+      payload: mergedPayload,
     });
 
     if (asAttendance.deviceUserId && asAttendance.punchTime) {
@@ -653,7 +669,7 @@ function parseIncomingPacketInternal({ headers, query, body }) {
       type: "enrollment",
       requestCode,
       deviceCode,
-      deviceUserId: getDeviceUserId(payload),
+      deviceUserId: getDeviceUserId(mergedPayload),
     };
   }
 
@@ -662,7 +678,11 @@ function parseIncomingPacketInternal({ headers, query, body }) {
       type: "heartbeat",
       requestCode,
       deviceCode,
-      deviceTime: payload?.fk_time || null,
+      deviceTime:
+        mergedPayload?.fk_time ||
+        mergedPayload?.time ||
+        mergedPayload?.datetime ||
+        null,
     };
   }
 

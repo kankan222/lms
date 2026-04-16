@@ -386,7 +386,9 @@ const StudentDetails = () => {
       });
       setIsEditingParents(false);
       setParentSaveMessage("Parent details updated.");
-      await loadStudent();
+      const refreshedRes = await getStudent(student.id);
+      const refreshedPayload = refreshedRes?.data ?? refreshedRes ?? null;
+      setStudent(refreshedPayload);
     } catch (err) {
       setParentSaveError(err?.message || "Failed to update parent details.");
     } finally {
