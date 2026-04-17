@@ -75,13 +75,13 @@ export function getEnrolledStudents(data) {
     `
       SELECT
         se.student_id,
-        se.roll_number,
-        s.name AS student_name,
-        c.name AS class_name,
-        c.class_scope,
-        sec.name AS section_name,
-        sec.medium,
-        sess.name AS session_name
+        MIN(se.roll_number) AS roll_number,
+        MIN(s.name) AS student_name,
+        MIN(c.name) AS class_name,
+        MIN(c.class_scope) AS class_scope,
+        MIN(sec.name) AS section_name,
+        MIN(sec.medium) AS medium,
+        MIN(sess.name) AS session_name
       FROM student_enrollments se
       JOIN students s ON s.id = se.student_id
       JOIN classes c ON c.id = se.class_id
@@ -91,7 +91,8 @@ export function getEnrolledStudents(data) {
         AND se.section_id = ?
         AND se.session_id = ?
         AND se.status = 'active'
-      ORDER BY COALESCE(se.roll_number, 999999), s.name ASC
+      GROUP BY se.student_id
+      ORDER BY COALESCE(MIN(se.roll_number), 999999), MIN(s.name) ASC
     `,
     [data.classId, data.sectionId, data.sessionId]
   );

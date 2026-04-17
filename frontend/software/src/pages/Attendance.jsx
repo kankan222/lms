@@ -56,6 +56,42 @@ function todayDate() {
   return new Date().toISOString().slice(0, 10);
 }
 
+function sectionDedupKey(section) {
+  const name = String(section?.name || "").trim().toLowerCase();
+  const medium = String(section?.medium || "").trim().toLowerCase();
+  return `${name}::${medium}`;
+}
+
+function uniqueSectionsByLabel(rows) {
+  const list = Array.isArray(rows) ? rows : [];
+  const seen = new Set();
+  const unique = [];
+
+  list.forEach((section) => {
+    const key = sectionDedupKey(section);
+    if (!key || seen.has(key)) return;
+    seen.add(key);
+    unique.push(section);
+  });
+
+  return unique;
+}
+
+function uniqueStudentsById(rows) {
+  const list = Array.isArray(rows) ? rows : [];
+  const seen = new Set();
+  const unique = [];
+
+  list.forEach((student) => {
+    const studentId = Number(student?.student_id);
+    if (!studentId || seen.has(studentId)) return;
+    seen.add(studentId);
+    unique.push(student);
+  });
+
+  return unique;
+}
+
 function SectionShell({ title, description, action, children }) {
   return (
     <div className="space-y-4 rounded-2xl border border-border/70 bg-card p-4 shadow-sm">
@@ -529,9 +565,10 @@ export default function Attendance() {
 
       const payload = res?.data || {};
       const students = Array.isArray(payload.students) ? payload.students : [];
+      const uniqueStudents = uniqueStudentsById(students);
 
       setRoster(
-        students.map((student) => ({
+        uniqueStudents.map((student) => ({
           ...student,
           status: student.status || "present",
         }))
@@ -763,7 +800,9 @@ export default function Attendance() {
   }, [classes, entryScopeMap]);
   const sections = useMemo(() => {
     const classSections = selectedClass?.sections || [];
-    if (!entryScopeMap.restricted || !form.class_id) return classSections;
+    if (!entryScopeMap.restricted || !form.class_id) {
+      return uniqueSectionsByLabel(classSections);
+    }
 
     const allowedSectionIds = new Set(
       entryScopeMap.assignments
@@ -775,7 +814,9 @@ export default function Attendance() {
         .map((row) => String(row.section_id))
     );
 
-    return classSections.filter((section) => allowedSectionIds.has(String(section.id)));
+    return uniqueSectionsByLabel(
+      classSections.filter((section) => allowedSectionIds.has(String(section.id)))
+    );
   }, [entryScopeMap, form.class_id, form.session_id, selectedClass]);
   const notifyFilterClasses = useMemo(() => {
     const uniqueClasses = new Map();
