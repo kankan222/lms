@@ -44,7 +44,7 @@ import { Label } from "@/components/ui/label";
 
 import { Book, CalendarDays, IndianRupee, Layers3, TrashIcon } from "lucide-react";
 
-import { getClasses, getSessions } from "../api/academic.api";
+import { getClasses, getSessions, getStreams } from "../api/academic.api";
 import {
   createFeeStructure,
   getAllFeeStructure,
@@ -71,6 +71,7 @@ export default function Fees() {
   const [fees, setFees] = useState([]);
   const [classes, setClasses] = useState([]);
   const [sessions, setSessions] = useState([]);
+  const [streams, setStreams] = useState([]);
   const [feeSheetOpen, setFeeSheetOpen] = useState(false);
   const [installmentSheetOpen, setInstallmentSheetOpen] = useState(false);
   const [deletingFee, setDeletingFee] = useState(null);
@@ -79,6 +80,7 @@ export default function Fees() {
   const [editingInstallment, setEditingInstallment] = useState(null);
   const [classId, setClassId] = useState("");
   const [sessionId, setSessionId] = useState("");
+  const [streamId, setStreamId] = useState("");
   const [admissionFee, setAdmissionFee] = useState("");
   const [structureId, setStructureId] = useState("");
   const [installmentName, setInstallmentName] = useState("");
@@ -106,6 +108,11 @@ export default function Fees() {
     setSessions(res?.data || []);
   }
 
+  async function loadStreams() {
+    const res = await getStreams();
+    setStreams(res?.data || []);
+  }
+
   async function loadFees() {
     const res = await getAllFeeStructure();
     const rows = res?.data || res || [];
@@ -115,6 +122,7 @@ export default function Fees() {
   const loadInitialFees = useEffectEvent(() => {
     loadClasses();
     loadSessions();
+    loadStreams();
     loadFees();
   });
 
@@ -134,8 +142,15 @@ export default function Fees() {
     e.preventDefault();
     setFeeError("");
 
+    const selectedClass = classes.find((c) => String(c.id) === String(classId));
+    const classScope = String(selectedClass?.class_scope || "school").toLowerCase();
+
     if (!classId || !sessionId || !admissionFee) {
       setFeeError("Class, session and admission fee are required.");
+      return;
+    }
+    if (classScope === "hs" && !streamId) {
+      setFeeError("Stream is required for higher secondary classes.");
       return;
     }
 
@@ -143,12 +158,14 @@ export default function Fees() {
       await createFeeStructure({
         class_id: Number(classId),
         session_id: Number(sessionId),
+        stream_id: classScope === "hs" ? Number(streamId) : null,
         admission_fee: Number(admissionFee),
       });
       await loadFees();
       setFeeSheetOpen(false);
       setClassId("");
       setSessionId("");
+      setStreamId("");
       setAdmissionFee("");
       showNotice("Fee Created", "Fee structure created successfully.");
     } catch (err) {
@@ -277,6 +294,8 @@ export default function Fees() {
 
   const selectClassName = "w-full rounded-md border border-border bg-background px-3 py-2 text-sm";
   const preventNumberInputScroll = (e) => e.currentTarget.blur();
+  const selectedClass = classes.find((c) => String(c.id) === String(classId));
+  const selectedClassScope = String(selectedClass?.class_scope || "school").toLowerCase();
 
   return (
     <>
@@ -336,7 +355,10 @@ export default function Fees() {
                       <Label>Class *</Label>
                       <select
                         value={classId}
-                        onChange={(e) => setClassId(e.target.value)}
+                        onChange={(e) => {
+                          setClassId(e.target.value);
+                          setStreamId("");
+                        }}
                         className={selectClassName}
                       >
                         <option value="">Select Class</option>
@@ -347,6 +369,24 @@ export default function Fees() {
                         ))}
                       </select>
                     </div>
+
+                    {selectedClassScope === "hs" ? (
+                      <div className="grid gap-2">
+                        <Label>Stream *</Label>
+                        <select
+                          value={streamId}
+                          onChange={(e) => setStreamId(e.target.value)}
+                          className={selectClassName}
+                        >
+                          <option value="">Select Stream</option>
+                          {streams.map((s) => (
+                            <option key={s.id} value={s.id}>
+                              {s.name}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    ) : null}
 
                     <div className="grid gap-2">
                       <Label>Session *</Label>
@@ -398,7 +438,9 @@ export default function Fees() {
                         <option value="">Select Structure</option>
                         {fees.map((f) => (
                           <option key={f.id} value={f.id}>
-                            {f.class_name} - {f.session_name}
+                            {f.class_name}
+                            {f.stream_name ? ` (${f.stream_name})` : ""}
+                            {` - ${f.session_name}`}
                           </option>
                         ))}
                       </select>
@@ -495,6 +537,9 @@ export default function Fees() {
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
                         <p className="font-semibold">{fee.class_name}</p>
+                        {fee.stream_name ? (
+                          <span className="text-sm text-muted-foreground">{fee.stream_name}</span>
+                        ) : null}
                         <span className="text-sm text-muted-foreground">{fee.session_name}</span>
                       </div>
                       <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
@@ -616,7 +661,7 @@ export default function Fees() {
             <AlertDialogTitle>Delete fee structure?</AlertDialogTitle>
             <AlertDialogDescription>
               {deletingFee
-                ? `This will delete the fee structure for ${deletingFee.class_name} (${deletingFee.session_name}).`
+                ? `This will delete the fee structure for ${deletingFee.class_name}${deletingFee.stream_name ? ` (${deletingFee.stream_name})` : ""} (${deletingFee.session_name}).`
                 : "This action cannot be undone."}
             </AlertDialogDescription>
           </AlertDialogHeader>

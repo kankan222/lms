@@ -11,8 +11,12 @@ export function createFeeStructure(data) {
 
 
 // GET FEE STRUCTURE
-export function getFeeStructure(classId, sessionId) {
-  return apiRequest(`/fees/structure/${classId}/${sessionId}`);
+export function getFeeStructure(classId, sessionId, streamId = null) {
+  const query =
+    streamId === null || streamId === undefined || streamId === ""
+      ? ""
+      : `?stream_id=${encodeURIComponent(streamId)}`;
+  return apiRequest(`/fees/structure/${classId}/${sessionId}${query}`);
 }
 
 export function getAllFeeStructure() {

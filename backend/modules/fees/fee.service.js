@@ -22,6 +22,50 @@ function normalizeDate(value, fieldName) {
   return date;
 }
 
+function parsePositiveInt(value) {
+  const num = Number(value);
+  if (!Number.isInteger(num) || num <= 0) return null;
+  return num;
+}
+
+async function resolveFeeStructurePayload(data = {}, existing = null) {
+  const classId = parsePositiveInt(data.class_id ?? existing?.class_id);
+  const sessionId = parsePositiveInt(data.session_id ?? existing?.session_id);
+  const admissionFee = Number(data.admission_fee ?? existing?.admission_fee);
+
+  if (!classId || !sessionId || !Number.isFinite(admissionFee) || admissionFee <= 0) {
+    throw new AppError("class_id, session_id and valid admission_fee are required", 400);
+  }
+
+  const classRow = await repo.getClassById(classId);
+  if (!classRow) {
+    throw new AppError("Invalid class_id", 400);
+  }
+
+  const classScope = String(classRow.class_scope || "school").trim().toLowerCase();
+  let streamIdRaw = data.stream_id ?? existing?.stream_id ?? null;
+  let streamId = null;
+
+  if (classScope === "hs") {
+    streamId = parsePositiveInt(streamIdRaw);
+    if (!streamId) {
+      throw new AppError("stream_id is required for higher secondary classes", 400);
+    }
+
+    const streamRow = await repo.getStreamById(streamId);
+    if (!streamRow) {
+      throw new AppError("Invalid stream_id", 400);
+    }
+  }
+
+  return {
+    class_id: classId,
+    session_id: sessionId,
+    stream_id: streamId,
+    admission_fee: admissionFee,
+  };
+}
+
 function csvEscape(value) {
   const str = String(value ?? "");
   if (str.includes(",") || str.includes("\"") || str.includes("\n")) {
@@ -157,7 +201,8 @@ async function syncStudentLedgersForStructure(structureId) {
 }
 
 export async function createFeeStructure(data) {
-  const result = await repo.insertFeeStructure(data);
+  const payload = await resolveFeeStructurePayload(data);
+  const result = await repo.insertFeeStructure(payload);
   const structureId = Number(result?.insertId || 0);
   if (structureId > 0) {
     await syncStudentLedgersForStructure(structureId);
@@ -169,15 +214,7 @@ export async function updateFeeStructure(id, data) {
   const existing = await repo.getFeeStructureById(id);
   if (!existing) throw new AppError("Fee structure not found", 404);
 
-  const next = {
-    class_id: Number(data.class_id ?? existing.class_id),
-    session_id: Number(data.session_id ?? existing.session_id),
-    admission_fee: Number(data.admission_fee ?? existing.admission_fee)
-  };
-
-  if (!next.class_id || !next.session_id || !next.admission_fee || next.admission_fee <= 0) {
-    throw new AppError("class_id, session_id and valid admission_fee are required", 400);
-  }
+  const next = await resolveFeeStructurePayload(data, existing);
 
   await repo.updateFeeStructure(id, next);
   await syncStudentLedgersForStructure(id);
@@ -193,8 +230,8 @@ export async function deleteFeeStructure(id) {
   return { message: "Fee structure deleted" };
 }
 
-export async function getFeeStructure(classId, sessionId) {
-  return repo.getFeeStructure(classId, sessionId);
+export async function getFeeStructure(classId, sessionId, streamId = null) {
+  return repo.getFeeStructure(classId, sessionId, streamId);
 }
 
 export async function getAllFeeStructures() {
@@ -243,8 +280,9 @@ export async function generateStudentLedger(enrollmentId) {
   const structure = await repo.getStructureByEnrollment(enrollmentId);
   if (!structure) {
     const enrollment = await repo.getEnrollmentSummary(enrollmentId);
+    const streamContext = enrollment?.stream_name ? ` / ${enrollment.stream_name}` : "";
     const context = enrollment
-      ? `${enrollment.class_name} / ${enrollment.session_name}`
+      ? `${enrollment.class_name}${streamContext} / ${enrollment.session_name}`
       : `enrollment ${enrollmentId}`;
     throw new AppError(`Fee structure not found for ${context}`, 404);
   }

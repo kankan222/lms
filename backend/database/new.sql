@@ -17,15 +17,18 @@ CREATE TABLE fee_structures (
     id INT AUTO_INCREMENT PRIMARY KEY,
     class_id INT NOT NULL,
     session_id INT NOT NULL,
+    stream_id INT NULL,
+    stream_id_dedupe INT AS (IFNULL(stream_id, 0)) STORED,
 
     admission_fee DECIMAL(10,2) DEFAULT 0,
 
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 
-    UNIQUE KEY unique_class_session (class_id, session_id),
+    UNIQUE KEY unique_class_session_stream (class_id, session_id, stream_id_dedupe),
 
     FOREIGN KEY (class_id) REFERENCES classes(id),
-    FOREIGN KEY (session_id) REFERENCES academic_sessions(id)
+    FOREIGN KEY (session_id) REFERENCES academic_sessions(id),
+    FOREIGN KEY (stream_id) REFERENCES streams(id)
 );
 -- Installment Definitions
 CREATE TABLE fee_installments (

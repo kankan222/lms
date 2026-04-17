@@ -16,6 +16,7 @@ import TopNotice from "../../components/feedback/TopNotice";
 import { useAuthStore } from "../../store/authStore";
 import { useAppTheme } from "../../theme/AppThemeProvider";
 import { getClassStructure, getSessions } from "../../services/classesService";
+import { getStreams, StreamItem } from "../../services/settingsService";
 import DateField from "../../components/form/DateField";
 import SelectField from "../../components/form/SelectField";
 import {
@@ -56,6 +57,7 @@ type DeleteTarget =
 type FeeFormState = {
   class_id: number | null;
   session_id: number | null;
+  stream_id: number | null;
   admission_fee: string;
 };
 
@@ -69,6 +71,7 @@ type InstallmentFormState = {
 const EMPTY_FEE_FORM: FeeFormState = {
   class_id: null,
   session_id: null,
+  stream_id: null,
   admission_fee: "",
 };
 
@@ -193,6 +196,7 @@ type FeeModalProps = {
   saving: boolean;
   classes: ClassItem[];
   sessions: SessionItem[];
+  streams: StreamItem[];
   activeSessionId: number | null;
   form: FeeFormState;
   editing: boolean;
@@ -208,6 +212,7 @@ function FeeStructureModal({
   saving,
   classes,
   sessions,
+  streams,
   activeSessionId,
   form,
   editing,
@@ -216,6 +221,8 @@ function FeeStructureModal({
   onChange,
 }: FeeModalProps) {
   const { theme } = useAppTheme();
+  const selectedClass = classes.find((item) => item.id === form.class_id) || null;
+  const isHsClass = selectedClass?.class_scope === "hs";
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <View style={styles.modalOverlay}>
@@ -238,10 +245,25 @@ function FeeStructureModal({
                 <SelectField
                   label="Class *"
                   value={form.class_id === null ? "" : String(form.class_id)}
-                  onChange={(value) => onChange({ ...form, class_id: value ? Number(value) : null })}
+                  onChange={(value) =>
+                    onChange({
+                      ...form,
+                      class_id: value ? Number(value) : null,
+                      stream_id: null,
+                    })
+                  }
                   options={classes.map((item) => ({ label: item.name, value: String(item.id) }))}
                   placeholder="Choose class"
                 />
+                {isHsClass ? (
+                  <SelectField
+                    label="Stream *"
+                    value={form.stream_id === null ? "" : String(form.stream_id)}
+                    onChange={(value) => onChange({ ...form, stream_id: value ? Number(value) : null })}
+                    options={streams.map((item) => ({ label: item.name, value: String(item.id) }))}
+                    placeholder="Choose stream"
+                  />
+                ) : null}
 
                 <SelectField
                   label="Session *"
@@ -321,7 +343,9 @@ function InstallmentModal({
                           {item.class_name}
                         </Text>
                         <Text style={[styles.dueSubText, { color: theme.subText }, active && [styles.dueTextActive, { color: theme.primaryText }]]}>
-                          {item.session_name} - Admission Rs {Number(item.admission_fee || 0)}
+                          {item.session_name}
+                          {item.stream_name ? ` - ${item.stream_name}` : ""}
+                          {` - Admission Rs ${Number(item.admission_fee || 0)}`}
                         </Text>
                       </Pressable>
                     );
@@ -384,6 +408,7 @@ export default function FeesTab() {
   const [fees, setFees] = useState<FeeStructure[]>([]);
   const [classes, setClasses] = useState<ClassItem[]>([]);
   const [sessions, setSessions] = useState<SessionItem[]>([]);
+  const [streams, setStreams] = useState<StreamItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -429,7 +454,7 @@ export default function FeesTab() {
     return feesWithScope.filter((fee) => {
       const matchesSearch =
         !query ||
-        `${fee.class_name || ""} ${fee.session_name || ""} ${fee.admission_fee || ""}`
+        `${fee.class_name || ""} ${fee.stream_name || ""} ${fee.session_name || ""} ${fee.admission_fee || ""}`
           .toLowerCase()
           .includes(query);
       const matchesScope = !scopeFilter || fee.class_scope === scopeFilter;
@@ -513,9 +538,10 @@ export default function FeesTab() {
     else setLoading(true);
 
     try {
-      const [classRows, sessionRows, feeRows] = await Promise.all([
+      const [classRows, sessionRows, streamRows, feeRows] = await Promise.all([
         getClassStructure(),
         getSessions(),
+        getStreams(),
         getAllFeeStructures(),
       ]);
 
@@ -534,11 +560,18 @@ export default function FeesTab() {
           is_active: item.is_active,
         })),
       );
+      setStreams(
+        (streamRows || []).map((item) => ({
+          id: Number(item.id),
+          name: item.name,
+        })),
+      );
       setFees(feeRows || []);
     } catch (err: unknown) {
       Alert.alert("Load failed", getErrorMessage(err, "Could not load fee data."));
       setClasses([]);
       setSessions([]);
+      setStreams([]);
       setFees([]);
     } finally {
       if (mode === "refresh") setRefreshing(false);
@@ -555,6 +588,7 @@ export default function FeesTab() {
     setFeeForm({
       class_id: null,
       session_id: activeSession?.id ?? null,
+      stream_id: null,
       admission_fee: "",
     });
   }
@@ -577,10 +611,14 @@ export default function FeesTab() {
     const matchedSession =
       sessions.find((item) => Number(item.id) === Number(fee.session_id)) ||
       sessions.find((item) => item.name === fee.session_name);
+    const matchedStream =
+      streams.find((item) => Number(item.id) === Number(fee.stream_id)) ||
+      streams.find((item) => item.name === fee.stream_name);
 
     setFeeForm({
       class_id: matchedClass?.id ?? null,
       session_id: matchedSession?.id ?? null,
+      stream_id: matchedStream?.id ?? null,
       admission_fee: String(fee.admission_fee ?? ""),
     });
     setFeeModalOpen(true);
@@ -626,15 +664,23 @@ export default function FeesTab() {
     if (!editingFeeId && (!feeForm.class_id || !feeForm.session_id)) {
       return Alert.alert("Validation", "Class and session are required.");
     }
+    if (!editingFeeId) {
+      const selectedClass = classes.find((item) => item.id === feeForm.class_id) || null;
+      if (selectedClass?.class_scope === "hs" && !feeForm.stream_id) {
+        return Alert.alert("Validation", "Stream is required for higher secondary classes.");
+      }
+    }
 
     setSaving(true);
     try {
       if (editingFeeId) {
         await updateFeeStructure(editingFeeId, { admission_fee: amount });
       } else {
+        const selectedClass = classes.find((item) => item.id === feeForm.class_id) || null;
         await createFeeStructure({
           class_id: Number(feeForm.class_id),
           session_id: Number(feeForm.session_id),
+          stream_id: selectedClass?.class_scope === "hs" ? Number(feeForm.stream_id) : null,
           admission_fee: amount,
         });
       }
@@ -660,7 +706,7 @@ export default function FeesTab() {
     setDeleteTarget({
       type: "fee",
       id: fee.id,
-      name: `${fee.class_name} (${fee.session_name})`,
+      name: `${fee.class_name}${fee.stream_name ? ` (${fee.stream_name})` : ""} (${fee.session_name})`,
     });
   }
 
@@ -912,6 +958,7 @@ export default function FeesTab() {
                       <View style={styles.feeTitleWrap}>
                         <Text style={styles.feeTitle}>{fee.class_name}</Text>
                         <Text style={styles.metaCompact}>{fee.session_name}</Text>
+                        {fee.stream_name ? <Text style={styles.metaCompact}>{fee.stream_name}</Text> : null}
                       </View>
                       <ScopeBadge scope={fee.class_scope} />
                     </View>
@@ -998,6 +1045,7 @@ export default function FeesTab() {
         saving={saving}
         classes={classes}
         sessions={sessions}
+        streams={streams}
         activeSessionId={activeSession?.id ?? null}
         form={feeForm}
         editing={Boolean(editingFeeId)}

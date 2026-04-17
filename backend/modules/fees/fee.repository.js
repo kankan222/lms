@@ -5,28 +5,35 @@ export async function insertFeeStructure(data, conn) {
 
   const sql = `
     INSERT INTO fee_structures
-    (class_id, session_id, admission_fee)
-    VALUES (?,?,?)
+    (class_id, session_id, stream_id, admission_fee)
+    VALUES (?,?,?,?)
   `;
 
   const result = await execute(sql, [
     data.class_id,
     data.session_id,
+    data.stream_id ?? null,
     data.admission_fee
   ]);
 
   return result;
 }
-export async function getFeeStructure(classId, sessionId) {
+export async function getFeeStructure(classId, sessionId, streamId = null) {
 
   const sql = `
-  SELECT *
-  FROM fee_structures
+  SELECT
+    fs.*,
+    c.class_scope,
+    st.name AS stream_name
+  FROM fee_structures fs
+  JOIN classes c ON c.id = fs.class_id
+  LEFT JOIN streams st ON st.id = fs.stream_id
   WHERE class_id = ?
   AND session_id = ?
+  AND (stream_id <=> ?)
   `;
 
-  const rows = await query(sql, [classId, sessionId]);
+  const rows = await query(sql, [classId, sessionId, streamId]);
 
   return rows[0];
 }
@@ -35,13 +42,19 @@ export async function getAllFeeStructures() {
   const sql = `
     SELECT
       fs.id,
+      fs.class_id,
+      fs.session_id,
+      fs.stream_id,
       fs.admission_fee,
       c.name AS class_name,
-      s.name AS session_name
+      c.class_scope,
+      s.name AS session_name,
+      st.name AS stream_name
     FROM fee_structures fs
     JOIN classes c ON fs.class_id = c.id
     JOIN academic_sessions s ON fs.session_id = s.id
-    ORDER BY c.name
+    LEFT JOIN streams st ON st.id = fs.stream_id
+    ORDER BY c.name, st.name, s.name
   `;
 
   const rows = await query(sql);
@@ -80,10 +93,10 @@ export async function getInstallmentById(id) {
 export async function updateFeeStructure(id, data) {
   const sql = `
     UPDATE fee_structures
-    SET class_id = ?, session_id = ?, admission_fee = ?
+    SET class_id = ?, session_id = ?, stream_id = ?, admission_fee = ?
     WHERE id = ?
   `;
-  return execute(sql, [data.class_id, data.session_id, data.admission_fee, id]);
+  return execute(sql, [data.class_id, data.session_id, data.stream_id ?? null, data.admission_fee, id]);
 }
 
 export async function deleteFeeStructure(id) {
@@ -187,6 +200,7 @@ export async function deleteUnpaidStudentFeesForStructure(structureId) {
       JOIN fee_structures fs
         ON fs.class_id = se.class_id
        AND fs.session_id = se.session_id
+       AND fs.stream_id <=> se.stream_id
       LEFT JOIN (
         SELECT student_fee_id, COALESCE(SUM(amount_paid), 0) AS paid
         FROM payments
@@ -293,7 +307,7 @@ export async function getParentStudentIdsByUser(userId) {
 
 export async function getFeeStructureById(id) {
   const rows = await query(
-    `SELECT id, class_id, session_id, admission_fee
+    `SELECT id, class_id, session_id, stream_id, admission_fee
      FROM fee_structures
      WHERE id = ?
      LIMIT 1`,
@@ -415,13 +429,17 @@ export async function getStructureByEnrollment(enrollmentId) {
     SELECT
       fs.*,
       c.name AS class_name,
-      ses.name AS session_name
+      c.class_scope,
+      ses.name AS session_name,
+      st.name AS stream_name
     FROM student_enrollments e
     JOIN fee_structures fs
     ON fs.class_id = e.class_id
     AND fs.session_id = e.session_id
+    AND fs.stream_id <=> e.stream_id
     JOIN classes c ON c.id = e.class_id
     JOIN academic_sessions ses ON ses.id = e.session_id
+    LEFT JOIN streams st ON st.id = e.stream_id
     WHERE e.id = ?
   `;
   const rows = await query(sql, [enrollmentId]);
@@ -436,6 +454,7 @@ export async function getActiveEnrollmentIdsForStructure(structureId) {
       JOIN fee_structures fs
         ON fs.class_id = se.class_id
        AND fs.session_id = se.session_id
+       AND fs.stream_id <=> se.stream_id
       WHERE fs.id = ?
         AND se.status = 'active'
     `,
@@ -451,11 +470,15 @@ export async function getEnrollmentSummary(enrollmentId) {
       e.id,
       e.class_id,
       e.session_id,
+      e.stream_id,
       c.name AS class_name,
-      ses.name AS session_name
+      c.class_scope,
+      ses.name AS session_name,
+      st.name AS stream_name
      FROM student_enrollments e
      JOIN classes c ON c.id = e.class_id
      JOIN academic_sessions ses ON ses.id = e.session_id
+     LEFT JOIN streams st ON st.id = e.stream_id
      WHERE e.id = ?
      LIMIT 1`,
     [enrollmentId]
@@ -493,9 +516,14 @@ export async function getAllFeeStructuresWithInstallments() {
   const sql = `
   SELECT
     fs.id AS structure_id,
+    fs.class_id,
+    fs.session_id,
+    fs.stream_id,
     fs.admission_fee,
     c.name AS class_name,
+    c.class_scope,
     s.name AS session_name,
+    st.name AS stream_name,
     fi.id AS installment_id,
     fi.installment_name,
     fi.amount,
@@ -503,9 +531,10 @@ export async function getAllFeeStructuresWithInstallments() {
   FROM fee_structures fs
   JOIN classes c ON fs.class_id = c.id
   JOIN academic_sessions s ON fs.session_id = s.id
+  LEFT JOIN streams st ON fs.stream_id = st.id
   LEFT JOIN fee_installments fi
   ON fi.fee_structure_id = fs.id
-  ORDER BY c.name, fi.installment_name
+  ORDER BY c.name, st.name, s.name, fi.installment_name
   `;
 
   const rows = await query(sql);
@@ -517,9 +546,14 @@ export async function getAllFeeStructuresWithInstallments() {
     if (!map[row.structure_id]) {
       map[row.structure_id] = {
         id: row.structure_id,
+        class_id: row.class_id,
+        session_id: row.session_id,
+        stream_id: row.stream_id,
         admission_fee: row.admission_fee,
         class_name: row.class_name,
+        class_scope: row.class_scope,
         session_name: row.session_name,
+        stream_name: row.stream_name,
         installments: []
       };
     }
@@ -535,6 +569,28 @@ export async function getAllFeeStructuresWithInstallments() {
   }
 
   return Object.values(map);
+}
+
+export async function getClassById(id) {
+  const rows = await query(
+    `SELECT id, class_scope
+     FROM classes
+     WHERE id = ?
+     LIMIT 1`,
+    [id]
+  );
+  return rows[0] || null;
+}
+
+export async function getStreamById(id) {
+  const rows = await query(
+    `SELECT id, name
+     FROM streams
+     WHERE id = ?
+     LIMIT 1`,
+    [id]
+  );
+  return rows[0] || null;
 }
 export async function getPaymentReceipt(paymentId){
 

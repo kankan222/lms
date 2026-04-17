@@ -17,9 +17,11 @@ export type FeeStructure = {
   id: number;
   class_id?: number;
   session_id?: number;
+  stream_id?: number | null;
   admission_fee: number;
   class_name: string;
   session_name: string;
+  stream_name?: string | null;
   class_scope?: "school" | "hs" | string | null;
   installments: FeeInstallment[];
 };
@@ -27,6 +29,7 @@ export type FeeStructure = {
 export type CreateFeeStructurePayload = {
   class_id: number;
   session_id: number;
+  stream_id?: number | null;
   admission_fee: number;
 };
 

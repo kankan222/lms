@@ -220,13 +220,17 @@ CREATE TABLE `fee_structures` (
   `id` int NOT NULL AUTO_INCREMENT,
   `class_id` int NOT NULL,
   `session_id` int NOT NULL,
+  `stream_id` int DEFAULT NULL,
+  `stream_id_dedupe` int GENERATED ALWAYS AS (ifnull(`stream_id`,0)) STORED,
   `admission_fee` decimal(10,2) DEFAULT '0.00',
   `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
-  UNIQUE KEY `unique_class_session` (`class_id`,`session_id`),
+  UNIQUE KEY `unique_class_session_stream` (`class_id`,`session_id`,`stream_id_dedupe`),
   KEY `session_id` (`session_id`),
+  KEY `idx_fee_structures_stream_id` (`stream_id`),
   CONSTRAINT `fee_structures_ibfk_1` FOREIGN KEY (`class_id`) REFERENCES `classes` (`id`),
-  CONSTRAINT `fee_structures_ibfk_2` FOREIGN KEY (`session_id`) REFERENCES `academic_sessions` (`id`)
+  CONSTRAINT `fee_structures_ibfk_2` FOREIGN KEY (`session_id`) REFERENCES `academic_sessions` (`id`),
+  CONSTRAINT `fee_structures_ibfk_3` FOREIGN KEY (`stream_id`) REFERENCES `streams` (`id`)
 ) ENGINE=InnoDB AUTO_INCREMENT=13 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `invoices`;

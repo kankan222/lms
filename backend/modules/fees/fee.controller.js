@@ -3,7 +3,7 @@ import * as feeService from "./fee.service.js";
 function mapFeeError(err, res) {
   if (err?.code === "ER_DUP_ENTRY") {
     return res.status(400).json({
-      message: "Fee structure already exists for this class and session"
+      message: "Fee structure already exists for this class, session, and stream (for HS classes)"
     });
   }
   if (err?.code === "ER_ROW_IS_REFERENCED_2") {
@@ -51,6 +51,7 @@ export async function deleteFeeStructure(req, res) {
 export async function getFeeStructure(req, res) {
 
   const { classId, sessionId } = req.params;
+  const streamIdRaw = req.query?.stream_id;
 
   if (!classId || !sessionId) {
     return res.status(400).json({
@@ -58,9 +59,20 @@ export async function getFeeStructure(req, res) {
     });
   }
 
+  const streamId =
+    streamIdRaw === undefined || streamIdRaw === null || String(streamIdRaw).trim() === ""
+      ? null
+      : Number(streamIdRaw);
+
+  if (streamId !== null && (!Number.isInteger(streamId) || streamId <= 0)) {
+    return res.status(400).json({
+      message: "stream_id must be a positive integer when provided"
+    });
+  }
+
   try {
 
-    const data = await feeService.getFeeStructure(classId, sessionId);
+    const data = await feeService.getFeeStructure(classId, sessionId, streamId);
 
     res.json(data);
 
