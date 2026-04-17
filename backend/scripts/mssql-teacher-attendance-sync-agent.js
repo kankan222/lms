@@ -9,6 +9,7 @@ const DEFAULT_BATCH_SIZE = 200;
 const MAX_BATCH_SIZE = 1000;
 const REQUEST_TIMEOUT_MS = 15000;
 const DEFAULT_SOURCE_TABLE = "dbo.Tran_MachineRawPunch";
+const DEFAULT_PUNCH_TIME_COLUMNS = ["PunchDateTime", "PunchDatetime", "DateTime", "Dateime1"];
 
 const DEFAULT_IN_PAYCODES = new Set(["in", "checkin", "check_in", "i", "0", "1"]);
 const DEFAULT_OUT_PAYCODES = new Set(["out", "checkout", "check_out", "o", "2"]);
@@ -133,6 +134,15 @@ function parseSourceTable(value) {
   };
 }
 
+function parseColumnIdentifier(value, envName) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(raw)) {
+    throw new Error(`${envName} must be a valid SQL column name`);
+  }
+  return raw;
+}
+
 function parseServerAndInstance(value) {
   const raw = String(value || "").trim();
   if (!raw) {
@@ -222,13 +232,56 @@ function normalizePunchType(payCode, inPaycodes, outPaycodes) {
   return "unknown";
 }
 
+async function resolvePunchTimeColumn({ sourceTable, mssqlConfig }) {
+  const connectedPool = await getPool(mssqlConfig);
+  const request = connectedPool.request();
+  request.input("schema", mssql.NVarChar, sourceTable.schema);
+  request.input("table", mssql.NVarChar, sourceTable.table);
+
+  const result = await request.query(`
+    SELECT COLUMN_NAME
+    FROM INFORMATION_SCHEMA.COLUMNS
+    WHERE TABLE_SCHEMA = @schema
+      AND TABLE_NAME = @table
+  `);
+
+  const availableColumns = Array.isArray(result?.recordset)
+    ? result.recordset
+        .map((row) => String(row?.COLUMN_NAME || "").trim())
+        .filter(Boolean)
+    : [];
+
+  const availableByLower = new Map(
+    availableColumns.map((name) => [name.toLowerCase(), name])
+  );
+
+  const configuredColumn = parseColumnIdentifier(
+    process.env.MSSQL_SOURCE_PUNCH_TIME_COLUMN,
+    "MSSQL_SOURCE_PUNCH_TIME_COLUMN"
+  );
+
+  const candidates = configuredColumn
+    ? [configuredColumn]
+    : DEFAULT_PUNCH_TIME_COLUMNS;
+
+  for (const candidate of candidates) {
+    const actual = availableByLower.get(String(candidate).toLowerCase());
+    if (actual) return actual;
+  }
+
+  throw new Error(
+    `No supported punch-time column found on ${sourceTable.schema}.${sourceTable.table}. ` +
+      `Checked: ${candidates.join(", ")}. Available: ${availableColumns.join(", ")}`
+  );
+}
+
 function normalizeRows(rows, config) {
   return rows
     .map((row) => {
       const sourceLogId = Number(row?.Tran_MachineRawPunchId);
       if (!Number.isInteger(sourceLogId) || sourceLogId <= 0) return null;
 
-      const punchTime = formatDateTime(row?.PunchDateTime || row?.DateTime);
+      const punchTime = formatDateTime(row?.PunchTime);
       if (!punchTime) return null;
 
       const teacherEmployeeId = String(row?.CardNo || "").trim() || null;
@@ -260,10 +313,9 @@ async function fetchPendingRows({ afterId, batchSize, sourceTable, mssqlConfig }
     SELECT TOP (@batchSize)
       [Tran_MachineRawPunchId],
       [CardNo],
-      [PunchDateTime],
+      ${sourceTable.punchTimeColumnQuoted} AS [PunchTime],
       [PayCode],
-      [MachineNo],
-      [DateTime]
+      [MachineNo]
     FROM ${sourceTable.qualifiedName}
     WHERE [Tran_MachineRawPunchId] > @afterId
     ORDER BY [Tran_MachineRawPunchId] ASC
@@ -417,6 +469,9 @@ export async function startMssqlTeacherAttendanceSyncAgent() {
   const mssqlConfig = createMssqlConfig();
   const inPaycodes = parseCommaSet(process.env.MSSQL_SOURCE_IN_PAYCODES, DEFAULT_IN_PAYCODES);
   const outPaycodes = parseCommaSet(process.env.MSSQL_SOURCE_OUT_PAYCODES, DEFAULT_OUT_PAYCODES);
+  const punchTimeColumn = await resolvePunchTimeColumn({ sourceTable, mssqlConfig });
+  sourceTable.punchTimeColumn = punchTimeColumn;
+  sourceTable.punchTimeColumnQuoted = `[${punchTimeColumn}]`;
 
   const config = {
     siteId,
@@ -438,6 +493,7 @@ export async function startMssqlTeacherAttendanceSyncAgent() {
     batchSize: config.batchSize,
     stateFilePath: config.stateFilePath,
     sourceTable: `${sourceTable.schema}.${sourceTable.table}`,
+    punchTimeColumn,
     mssqlServer: mssqlConfig.server,
     mssqlDatabase: mssqlConfig.database,
     mssqlInstance: mssqlConfig.options.instanceName || null,
@@ -448,4 +504,3 @@ export async function startMssqlTeacherAttendanceSyncAgent() {
     runSyncCycle(config);
   }, intervalSeconds * 1000);
 }
-
