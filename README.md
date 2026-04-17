@@ -104,15 +104,3 @@ Guidelines:
 - treat migrations as the authoritative schema history
 - some local databases may lag behind newer migrations, so apply required migrations before testing newer features
 
-## Development Notes
-
-- `LOCAL_CONTEXT.md` is the local working memory file for recent implementation details and handoff notes
-- avoid committing real `.env` files
-- avoid destructive git operations in a dirty worktree
-- prefer targeted checks over full-repo lint/test runs when the repo already has unrelated noise
-
-## References
-
-- `LOCAL_CONTEXT.md`
-- `backend/apis.md`
-- `backend/serverSetup.md`

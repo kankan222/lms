@@ -85,9 +85,35 @@ async function syncStudentLedgerForEnrollment(enrollmentId) {
 
   const installments = await repo.getInstallments(structure.id);
   const existingRows = await repo.getStudentFeeSyncRows(enrollmentId);
-  const admissionRow = existingRows.find((row) => row.fee_type === "admission");
+  const activeInstallmentIds = new Set(
+    installments
+      .map((row) => Number(row.id))
+      .filter((value) => Number.isInteger(value) && value > 0)
+  );
+
+  // Remove stale installment rows only when no payment is attached.
+  for (const row of existingRows) {
+    if (row.fee_type !== "installment") continue;
+    const installmentId = Number(row.installment_id || 0);
+    const isLinkedToActiveInstallment = activeInstallmentIds.has(installmentId);
+    const hasPayment = Number(row.paid || 0) > 0;
+
+    if (!isLinkedToActiveInstallment && !hasPayment) {
+      await repo.deleteStudentFee(row.id);
+    }
+  }
+
+  const activeRows = existingRows.filter((row) => {
+    if (row.fee_type !== "installment") return true;
+    const installmentId = Number(row.installment_id || 0);
+    const isLinkedToActiveInstallment = activeInstallmentIds.has(installmentId);
+    const hasPayment = Number(row.paid || 0) > 0;
+    return isLinkedToActiveInstallment || hasPayment;
+  });
+
+  const admissionRow = activeRows.find((row) => row.fee_type === "admission");
   const installmentMap = new Map(
-    existingRows
+    activeRows
       .filter((row) => row.fee_type === "installment" && row.installment_id)
       .map((row) => [Number(row.installment_id), row])
   );
@@ -131,7 +157,12 @@ async function syncStudentLedgersForStructure(structureId) {
 }
 
 export async function createFeeStructure(data) {
-  return repo.insertFeeStructure(data);
+  const result = await repo.insertFeeStructure(data);
+  const structureId = Number(result?.insertId || 0);
+  if (structureId > 0) {
+    await syncStudentLedgersForStructure(structureId);
+  }
+  return result;
 }
 
 export async function updateFeeStructure(id, data) {
@@ -157,6 +188,7 @@ export async function deleteFeeStructure(id) {
   const existing = await repo.getFeeStructureById(id);
   if (!existing) throw new AppError("Fee structure not found", 404);
 
+  await repo.deleteUnpaidStudentFeesForStructure(id);
   await repo.deleteFeeStructure(id);
   return { message: "Fee structure deleted" };
 }
@@ -201,7 +233,9 @@ export async function deleteInstallment(id) {
   const existing = await repo.getInstallmentById(id);
   if (!existing) throw new AppError("Installment not found", 404);
 
+  await repo.deleteUnpaidStudentFeesForInstallment(id);
   await repo.deleteInstallment(id);
+  await syncStudentLedgersForStructure(Number(existing.fee_structure_id));
   return { message: "Installment deleted" };
 }
 

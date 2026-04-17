@@ -154,6 +154,51 @@ export async function updateStudentFeeAmount(studentFeeId, amount) {
     [amount, studentFeeId]
   );
 }
+
+export async function deleteStudentFee(studentFeeId) {
+  return execute(`DELETE FROM student_fees WHERE id = ?`, [studentFeeId]);
+}
+
+export async function deleteUnpaidStudentFeesForInstallment(installmentId) {
+  return execute(
+    `
+      DELETE sf
+      FROM student_fees sf
+      LEFT JOIN (
+        SELECT student_fee_id, COALESCE(SUM(amount_paid), 0) AS paid
+        FROM payments
+        GROUP BY student_fee_id
+      ) paid_map
+        ON paid_map.student_fee_id = sf.id
+      WHERE sf.installment_id = ?
+        AND COALESCE(paid_map.paid, 0) = 0
+    `,
+    [installmentId]
+  );
+}
+
+export async function deleteUnpaidStudentFeesForStructure(structureId) {
+  return execute(
+    `
+      DELETE sf
+      FROM student_fees sf
+      JOIN student_enrollments se
+        ON se.id = sf.enrollment_id
+      JOIN fee_structures fs
+        ON fs.class_id = se.class_id
+       AND fs.session_id = se.session_id
+      LEFT JOIN (
+        SELECT student_fee_id, COALESCE(SUM(amount_paid), 0) AS paid
+        FROM payments
+        GROUP BY student_fee_id
+      ) paid_map
+        ON paid_map.student_fee_id = sf.id
+      WHERE fs.id = ?
+        AND COALESCE(paid_map.paid, 0) = 0
+    `,
+    [structureId]
+  );
+}
 export async function getStudentLedger(enrollmentId) {
 
   const sql = `

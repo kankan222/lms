@@ -150,6 +150,8 @@ const FIELD_CLASSNAME =
 const TABLE_ROWS_PER_PAGE_OPTIONS = [5, 10, 20];
 const STUDENTS_TABLE_PAGE_KEY = "students.table.page";
 const STUDENTS_TABLE_ROWS_KEY = "students.table.rows";
+const STUDENTS_FILTER_CLASS_KEY = "students.filter.classId";
+const STUDENTS_FILTER_SECTION_KEY = "students.filter.sectionId";
 
 function readStoredNumber(key, fallback, allowed = null) {
   if (typeof window === "undefined") return fallback;
@@ -162,6 +164,12 @@ function readStoredNumber(key, fallback, allowed = null) {
   }
 
   return parsed;
+}
+
+function readStoredString(key, fallback = "") {
+  if (typeof window === "undefined") return fallback;
+  const value = String(window.sessionStorage.getItem(key) || "").trim();
+  return value || fallback;
 }
 
 async function fetchStudentsData({ classId, sectionId, classes, sessions }) {
@@ -223,8 +231,8 @@ export default function Student() {
   const [students, setStudents] = useState([]);
   const [classes, setClasses] = useState([]);
   const [sessions, setSessions] = useState([]);
-  const [classId, setClassId] = useState("");
-  const [sectionId, setSectionId] = useState("");
+  const [classId, setClassId] = useState(() => readStoredString(STUDENTS_FILTER_CLASS_KEY));
+  const [sectionId, setSectionId] = useState(() => readStoredString(STUDENTS_FILTER_SECTION_KEY));
   const [tablePage, setTablePage] = useState(() =>
     readStoredNumber(STUDENTS_TABLE_PAGE_KEY, 1)
   );
@@ -243,6 +251,7 @@ export default function Student() {
   const [notice, setNotice] = useState(null);
   const [refreshing, setRefreshing] = useState(false);
   const [lastUpdatedAt, setLastUpdatedAt] = useState(null);
+  const [hasLoadedStudents, setHasLoadedStudents] = useState(false);
 
   const STREAM_OPTIONS = [
     { value: "Arts", label: "Arts" },
@@ -259,6 +268,7 @@ export default function Student() {
     try {
       const enriched = await fetchStudentsData({ classId, sectionId, classes, sessions });
       setStudents(enriched);
+      setHasLoadedStudents(true);
       setLastUpdatedAt(new Date().toISOString());
     } finally {
       setRefreshing(false);
@@ -294,6 +304,7 @@ export default function Student() {
       const enriched = await fetchStudentsData({ classId, sectionId, classes, sessions });
       if (cancelled) return;
       setStudents(enriched);
+      setHasLoadedStudents(true);
     }
 
     run();
@@ -338,9 +349,16 @@ export default function Student() {
   }, [tablePage, tableRowsPerPage]);
 
   useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.sessionStorage.setItem(STUDENTS_FILTER_CLASS_KEY, String(classId || ""));
+    window.sessionStorage.setItem(STUDENTS_FILTER_SECTION_KEY, String(sectionId || ""));
+  }, [classId, sectionId]);
+
+  useEffect(() => {
+    if (!hasLoadedStudents) return;
     const totalPages = Math.max(1, Math.ceil(students.length / Math.max(tableRowsPerPage, 1)));
     setTablePage((prev) => Math.min(prev, totalPages));
-  }, [students.length, tableRowsPerPage]);
+  }, [students.length, tableRowsPerPage, hasLoadedStudents]);
 
   function validateCreatePayload(payload) {
     const next = {};
