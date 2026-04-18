@@ -1,6 +1,7 @@
 import { query } from "../../core/db/query.js";
 
 let ensureSyncTablePromise = null;
+let teacherDeviceUsersTableSupportedCache = null;
 
 function safeJsonStringify(value) {
   try {
@@ -8,6 +9,14 @@ function safeJsonStringify(value) {
   } catch {
     return null;
   }
+}
+
+function normalizeMachineUserId(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  if (!/^\d+$/.test(raw)) return raw;
+  const normalized = raw.replace(/^0+(?=\d)/, "");
+  return normalized || "0";
 }
 
 export async function ensureSyncTable() {
@@ -103,6 +112,108 @@ export async function findTeacherIdByEmployeeId(employeeId) {
   return rows.length ? Number(rows[0].id) : null;
 }
 
+async function hasTeacherDeviceUsersTable() {
+  if (typeof teacherDeviceUsersTableSupportedCache === "boolean") {
+    return teacherDeviceUsersTableSupportedCache;
+  }
+
+  try {
+    const rows = await query(
+      `
+        SELECT 1
+        FROM information_schema.TABLES
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = 'teacher_device_users'
+        LIMIT 1
+      `
+    );
+    teacherDeviceUsersTableSupportedCache = rows.length > 0;
+  } catch {
+    teacherDeviceUsersTableSupportedCache = false;
+  }
+
+  return teacherDeviceUsersTableSupportedCache;
+}
+
+export async function getTeacherMappingForDeviceUser({ deviceUserId, deviceId = null }) {
+  const normalized = String(deviceUserId || "").trim();
+  if (!normalized) return { teacherId: null, source: "empty" };
+  const normalizedComparable = normalizeMachineUserId(normalized);
+
+  const normalizedDeviceId = Number(deviceId);
+  const resolvedDeviceId =
+    Number.isInteger(normalizedDeviceId) && normalizedDeviceId > 0
+      ? normalizedDeviceId
+      : null;
+
+  if (resolvedDeviceId && (await hasTeacherDeviceUsersTable())) {
+    const mappedRows = await query(
+      `
+        SELECT teacher_id, device_user_id
+        FROM teacher_device_users
+        WHERE device_id = ?
+      `,
+      [resolvedDeviceId]
+    );
+
+    const matchedRow = mappedRows.find((row) => {
+      const candidate = String(row.device_user_id || "").trim();
+      if (!candidate) return false;
+      if (candidate === normalized) return true;
+      return normalizeMachineUserId(candidate) === normalizedComparable;
+    });
+
+    if (matchedRow) {
+      return {
+        teacherId: Number(matchedRow.teacher_id),
+        source: "device_user_mapping",
+      };
+    }
+
+    const deviceHasMappings = await query(
+      `
+        SELECT 1
+        FROM teacher_device_users
+        WHERE device_id = ?
+        LIMIT 1
+      `,
+      [resolvedDeviceId]
+    );
+
+    if (deviceHasMappings.length) {
+      return { teacherId: null, source: "device_user_unmapped" };
+    }
+  }
+
+  let rows = await query(
+    `
+      SELECT id
+      FROM teachers
+      WHERE employee_id = ?
+      LIMIT 1
+    `,
+    [normalized]
+  );
+
+  if (!rows.length && normalizedComparable !== normalized) {
+    rows = await query(
+      `
+        SELECT id
+        FROM teachers
+        WHERE employee_id = ?
+        LIMIT 1
+      `,
+      [normalizedComparable]
+    );
+  }
+
+  if (rows.length) {
+    return { teacherId: Number(rows[0].id), source: "legacy_global_mapping" };
+  }
+
+  return { teacherId: null, source: "none" };
+}
+
 export async function teacherExists(teacherId) {
   const normalized = Number(teacherId);
   if (!Number.isInteger(normalized) || normalized <= 0) return false;
@@ -168,4 +279,3 @@ export async function insertTeacherAttendanceLog({
     [teacherId, deviceId, punchTime, punchType]
   );
 }
-

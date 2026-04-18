@@ -83,17 +83,23 @@ function normalizeRecord(record, index) {
   };
 }
 
-async function resolveTeacherId({ teacherId, teacherEmployeeId }, cache) {
-  const cacheKey = `${teacherId || ""}|${teacherEmployeeId || ""}`;
+async function resolveTeacherId({ teacherId, teacherEmployeeId, deviceId }, cache) {
+  const cacheKey = `${deviceId || ""}|${teacherId || ""}|${teacherEmployeeId || ""}`;
   if (cache.has(cacheKey)) return cache.get(cacheKey);
 
   let resolvedTeacherId = null;
+  let mappingSource = "none";
 
   if (teacherEmployeeId) {
-    resolvedTeacherId = await repo.findTeacherIdByEmployeeId(teacherEmployeeId);
+    const mapping = await repo.getTeacherMappingForDeviceUser({
+      deviceUserId: teacherEmployeeId,
+      deviceId,
+    });
+    resolvedTeacherId = mapping.teacherId || null;
+    mappingSource = mapping.source || "none";
   }
 
-  if (!resolvedTeacherId && teacherId) {
+  if (!resolvedTeacherId && mappingSource !== "device_user_unmapped" && teacherId) {
     const exists = await repo.teacherExists(teacherId);
     if (exists) resolvedTeacherId = teacherId;
   }
@@ -157,10 +163,20 @@ export async function ingestAttendanceLogs({ siteId, records }) {
 
     maxSourceLogId = Math.max(maxSourceLogId || 0, normalized.sourceLogId);
 
+    const resolvedDeviceId = await resolveDeviceId(normalized.deviceCode, deviceCache);
+
+    const resolvedTeacherId = await resolveTeacherId(
+      {
+        ...normalized,
+        deviceId: resolvedDeviceId,
+      },
+      teacherCache
+    );
+
     await repo.upsertSyncEvent({
       siteId: normalizedSiteId,
       sourceLogId: normalized.sourceLogId,
-      teacherId: normalized.teacherId,
+      teacherId: resolvedTeacherId,
       teacherEmployeeId: normalized.teacherEmployeeId,
       deviceCode: normalized.deviceCode,
       punchTime: normalized.punchTime,
@@ -168,13 +184,11 @@ export async function ingestAttendanceLogs({ siteId, records }) {
       rawPayload: normalized.rawPayload,
     });
 
-    const resolvedTeacherId = await resolveTeacherId(normalized, teacherCache);
     if (!resolvedTeacherId) {
       unmappedTeacherCount += 1;
       continue;
     }
 
-    const resolvedDeviceId = await resolveDeviceId(normalized.deviceCode, deviceCache);
     const alreadyExists = await repo.attendanceLogExists({
       teacherId: resolvedTeacherId,
       deviceId: resolvedDeviceId,
@@ -213,4 +227,3 @@ export async function ingestAttendanceLogs({ siteId, records }) {
     maxSourceLogId,
   };
 }
-
