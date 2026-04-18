@@ -30,6 +30,7 @@ const TeacherDetails = lazy(() => import("../pages/teacher/TeacherDetails"));
 const Fees = lazy(() => import("../pages/Fees"));
 const Payments = lazy(() => import("../pages/Payments"));
 const Attendance = lazy(() => import("../pages/Attendance"));
+const TeacherDeviceMapping = lazy(() => import("../pages/TeacherDeviceMapping"));
 const Messaging = lazy(() => import("../pages/Messaging"));
 const Exams = lazy(() => import("../pages/Exams"));
 const Reports = lazy(() => import("../pages/Reports"));
@@ -95,13 +96,22 @@ export const appRoutes = [
       protected : true,
       permission: "teacher.view",
     },
-      {
+    {
       title: "Attendance",
       icon: Hand,
       path: "/attendance",
       element: <Attendance/>,
       protected : true,
       permission: "attendance.take",
+    },
+    {
+      title: "Device Mapping",
+      icon: Hand,
+      path: "/teacher-device-mapping",
+      element: <TeacherDeviceMapping />,
+      protected: true,
+      permission: "teacher.assign",
+      hideForRoles: ["teacher"],
     },
     {
       title: "Fees",

@@ -283,7 +283,7 @@ const Teachers = () => {
         await loadTeachers();
         showNotice(
           "Teacher Created, Mapping Failed",
-          err?.message || "Teacher was created, but device mapping failed. Fix in Attendance > Logs > Device User Mapping.",
+          err?.message || "Teacher was created, but device mapping failed. Fix in Device Mapping page.",
           "error"
         );
         return;

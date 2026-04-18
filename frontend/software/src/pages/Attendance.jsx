@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useEffectEvent, useMemo, useState } from "react";
+import { useEffect, useEffectEvent, useMemo, useState } from "react";
 import TopBar from "../components/TopBar";
 import DataTable from "../components/DataTable";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -6,14 +6,7 @@ import { Button } from "../components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import {
-  deleteAttendanceDeviceUser,
-  getAllTeacherAttendance,
-  getAttendanceDevices,
-  getAttendanceDeviceUsers,
-  getTeachers,
-  upsertAttendanceDeviceUser,
-} from "../api/teachers.api";
+import { getAllTeacherAttendance } from "../api/teachers.api";
 import { getClassStructure, getSessions } from "../api/academic.api";
 import {
   getAbsenceMessageTemplates,
@@ -111,7 +104,6 @@ export default function Attendance() {
   const { can, hasRole } = usePermissions();
   const isTeacher = hasRole("teacher");
   const canManageTeachers = can("teacher.update");
-  const canManageDeviceMappings = can("teacher.assign");
   const canViewTeacherLogs = can("teacher.view");
   const canReviewStudentAttendance = can("student_attendance.review") || can("marks.approve");
   const canNotifyParents = can("student_attendance.notify");
@@ -119,18 +111,6 @@ export default function Attendance() {
 
   const [teacherAttendance, setTeacherAttendance] = useState([]);
   const [teacherLoading, setTeacherLoading] = useState(false);
-  const [attendanceDevices, setAttendanceDevices] = useState([]);
-  const [teacherOptions, setTeacherOptions] = useState([]);
-  const [deviceUserMappings, setDeviceUserMappings] = useState([]);
-  const [deviceUserLoading, setDeviceUserLoading] = useState(false);
-  const [deviceUserSaving, setDeviceUserSaving] = useState(false);
-  const [deletingDeviceUserId, setDeletingDeviceUserId] = useState(null);
-  const [deviceUserFilterId, setDeviceUserFilterId] = useState("");
-  const [deviceUserForm, setDeviceUserForm] = useState({
-    device_id: "",
-    device_user_id: "",
-    teacher_id: "",
-  });
 
   const [classes, setClasses] = useState([]);
   const [sessions, setSessions] = useState([]);
@@ -182,28 +162,10 @@ export default function Attendance() {
     student_ids: [],
   });
 
-  const loadDeviceUserMappings = useCallback(async () => {
-    setDeviceUserLoading(true);
-    try {
-      const res = await getAttendanceDeviceUsers({
-        device_id: deviceUserFilterId || undefined,
-      });
-      setDeviceUserMappings(Array.isArray(res?.data) ? res.data : []);
-    } catch (err) {
-      setDeviceUserMappings([]);
-      setError(err?.message || "Failed to load device user mappings.");
-    } finally {
-      setDeviceUserLoading(false);
-    }
-  }, [deviceUserFilterId]);
-
   useEffect(() => {
     loadAcademicOptions();
     if (canViewTeacherLogs) {
       loadTeacherAttendance();
-    }
-    if (canManageDeviceMappings) {
-      loadDeviceUserSetup();
     }
     if (canReviewStudentAttendance) {
       loadPendingAttendance();
@@ -212,18 +174,13 @@ export default function Attendance() {
       loadApprovedAttendance();
       loadMessageTemplates();
     }
-  }, [canViewTeacherLogs, canManageDeviceMappings, canReviewStudentAttendance, canNotifyParents]);
+  }, [canViewTeacherLogs, canReviewStudentAttendance, canNotifyParents]);
 
   useEffect(() => {
     if (!notice) return undefined;
     const timeoutId = window.setTimeout(() => setNotice(null), 3500);
     return () => window.clearTimeout(timeoutId);
   }, [notice]);
-
-  useEffect(() => {
-    if (!canManageDeviceMappings) return;
-    loadDeviceUserMappings();
-  }, [canManageDeviceMappings, loadDeviceUserMappings]);
 
   useEffect(() => {
     setSelectedPendingIds((prev) =>
@@ -371,76 +328,6 @@ export default function Attendance() {
       setError(err?.message || "Failed to load teacher attendance.");
     } finally {
       setTeacherLoading(false);
-    }
-  }
-
-  async function loadDeviceUserSetup() {
-    try {
-      const [deviceRes, teacherRes] = await Promise.all([
-        getAttendanceDevices(),
-        getTeachers(),
-      ]);
-      setAttendanceDevices(Array.isArray(deviceRes?.data) ? deviceRes.data : []);
-      setTeacherOptions(Array.isArray(teacherRes?.data) ? teacherRes.data : []);
-    } catch (err) {
-      setAttendanceDevices([]);
-      setTeacherOptions([]);
-      setError(err?.message || "Failed to load device mapping options.");
-    }
-  }
-
-  async function handleSaveDeviceUserMapping() {
-    const deviceId = String(deviceUserForm.device_id || "").trim();
-    const teacherId = String(deviceUserForm.teacher_id || "").trim();
-    const deviceUserId = String(deviceUserForm.device_user_id || "").trim();
-
-    if (!deviceId || !teacherId || !deviceUserId) {
-      setError("Device, machine user ID, and teacher are required for mapping.");
-      return;
-    }
-
-    setDeviceUserSaving(true);
-    setError("");
-
-    try {
-      await upsertAttendanceDeviceUser({
-        device_id: Number(deviceId),
-        teacher_id: Number(teacherId),
-        device_user_id: deviceUserId,
-      });
-
-      setDeviceUserForm((prev) => ({
-        ...prev,
-        device_user_id: "",
-      }));
-      setNotice({
-        title: "Mapping Saved",
-        message: "Device user mapping saved successfully.",
-      });
-      await loadDeviceUserMappings();
-    } catch (err) {
-      setError(err?.message || "Failed to save device user mapping.");
-    } finally {
-      setDeviceUserSaving(false);
-    }
-  }
-
-  async function handleDeleteDeviceUserMapping(mappingId) {
-    if (!mappingId || deletingDeviceUserId) return;
-
-    setDeletingDeviceUserId(mappingId);
-    setError("");
-    try {
-      await deleteAttendanceDeviceUser(mappingId);
-      setNotice({
-        title: "Mapping Deleted",
-        message: "Device user mapping removed.",
-      });
-      await loadDeviceUserMappings();
-    } catch (err) {
-      setError(err?.message || "Failed to delete device user mapping.");
-    } finally {
-      setDeletingDeviceUserId(null);
     }
   }
 
@@ -1051,7 +938,7 @@ export default function Attendance() {
             <TabsTrigger value="parent-messages">Notify</TabsTrigger>
           ) : null}
           {canViewTeacherLogs ? (
-            <TabsTrigger value="teacher-logs">Logs</TabsTrigger>
+            <TabsTrigger value="teacher-logs">Teacher Logs</TabsTrigger>
           ) : null}
         </TabsList>
 
@@ -2023,140 +1910,6 @@ export default function Attendance() {
 
         {canViewTeacherLogs ? (
           <TabsContent value="teacher-logs" className="mt-4 space-y-4">
-            {canManageDeviceMappings ? (
-              <SectionShell
-                title="Device User Mapping"
-                description="Map each machine user ID per device to the correct teacher."
-                action={(
-                  <Button
-                    variant="outline"
-                    onClick={() => {
-                      loadDeviceUserSetup();
-                      loadDeviceUserMappings();
-                    }}
-                    disabled={deviceUserLoading}
-                  >
-                    {deviceUserLoading ? "Refreshing..." : "Refresh"}
-                  </Button>
-                )}
-              >
-                <div className="grid gap-3 md:grid-cols-4">
-                  <div className="grid gap-2">
-                    <Label>Device</Label>
-                    <select
-                      className={FIELD_CLASSNAME}
-                      value={deviceUserForm.device_id}
-                      onChange={(e) =>
-                        setDeviceUserForm((prev) => ({ ...prev, device_id: e.target.value }))
-                      }
-                    >
-                      <option value="">Select device</option>
-                      {attendanceDevices.map((device) => (
-                        <option key={device.id} value={device.id}>
-                          {device.device_name || device.device_code || `Device #${device.id}`}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div className="grid gap-2">
-                    <Label>Machine User ID</Label>
-                    <Input
-                      value={deviceUserForm.device_user_id}
-                      onChange={(e) =>
-                        setDeviceUserForm((prev) => ({ ...prev, device_user_id: e.target.value }))
-                      }
-                      placeholder="e.g. 00000001"
-                    />
-                  </div>
-
-                  <div className="grid gap-2">
-                    <Label>Teacher</Label>
-                    <select
-                      className={FIELD_CLASSNAME}
-                      value={deviceUserForm.teacher_id}
-                      onChange={(e) =>
-                        setDeviceUserForm((prev) => ({ ...prev, teacher_id: e.target.value }))
-                      }
-                    >
-                      <option value="">Select teacher</option>
-                      {teacherOptions.map((teacher) => (
-                        <option key={teacher.id} value={teacher.id}>
-                          {teacher.name} ({teacher.employee_id || `ID ${teacher.id}`})
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div className="flex items-end">
-                    <Button onClick={handleSaveDeviceUserMapping} disabled={deviceUserSaving}>
-                      {deviceUserSaving ? "Saving..." : "Save Mapping"}
-                    </Button>
-                  </div>
-                </div>
-
-                <div className="grid gap-2 md:max-w-sm">
-                  <Label>Filter By Device</Label>
-                  <select
-                    className={FIELD_CLASSNAME}
-                    value={deviceUserFilterId}
-                    onChange={(e) => setDeviceUserFilterId(e.target.value)}
-                  >
-                    <option value="">All devices</option>
-                    {attendanceDevices.map((device) => (
-                      <option key={device.id} value={device.id}>
-                        {device.device_name || device.device_code || `Device #${device.id}`}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div className="rounded-xl border">
-                  <table className="w-full text-sm">
-                    <thead className="border-b bg-secondary">
-                      <tr>
-                        <th className="px-3 py-2 text-left">Device</th>
-                        <th className="px-3 py-2 text-left">Machine User ID</th>
-                        <th className="px-3 py-2 text-left">Teacher</th>
-                        <th className="px-3 py-2 text-left">Updated</th>
-                        <th className="px-3 py-2 text-left">Action</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {deviceUserMappings.map((row) => (
-                        <tr key={row.id} className="border-b">
-                          <td className="px-3 py-2">{row.device_name || row.device_code || "-"}</td>
-                          <td className="px-3 py-2">{row.device_user_id || "-"}</td>
-                          <td className="px-3 py-2">
-                            {row.teacher_name || "-"} {row.employee_id ? `(${row.employee_id})` : ""}
-                          </td>
-                          <td className="px-3 py-2">{formatReadableDateTime(row.updated_at)}</td>
-                          <td className="px-3 py-2">
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="sm"
-                              onClick={() => handleDeleteDeviceUserMapping(row.id)}
-                              disabled={deletingDeviceUserId === row.id}
-                            >
-                              {deletingDeviceUserId === row.id ? "Deleting..." : "Delete"}
-                            </Button>
-                          </td>
-                        </tr>
-                      ))}
-                      {!deviceUserLoading && deviceUserMappings.length === 0 ? (
-                        <tr>
-                          <td colSpan={5} className="px-3 py-8 text-center text-muted-foreground">
-                            No device user mappings found.
-                          </td>
-                        </tr>
-                      ) : null}
-                    </tbody>
-                  </table>
-                </div>
-              </SectionShell>
-            ) : null}
-
             <DataTable
               columns={teacherAttendanceColumns}
               data={teacherAttendance}
