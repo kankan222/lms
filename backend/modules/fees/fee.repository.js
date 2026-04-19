@@ -1,26 +1,55 @@
 import { query, execute } from "../../core/db/query.js";
 import { pool } from "../../database/pool.js";
 
+let supportsFeeStructuresStreamIdCache;
+
+async function supportsFeeStructuresStreamId() {
+  if (typeof supportsFeeStructuresStreamIdCache === "boolean") {
+    return supportsFeeStructuresStreamIdCache;
+  }
+
+  const rows = await query(
+    `
+      SELECT COUNT(*) AS total
+      FROM information_schema.COLUMNS
+      WHERE TABLE_SCHEMA = DATABASE()
+        AND TABLE_NAME = 'fee_structures'
+        AND COLUMN_NAME = 'stream_id'
+    `
+  );
+
+  supportsFeeStructuresStreamIdCache = Number(rows[0]?.total || 0) > 0;
+  return supportsFeeStructuresStreamIdCache;
+}
+
 export async function insertFeeStructure(data, conn) {
+  const hasStreamId = await supportsFeeStructuresStreamId();
 
-  const sql = `
-    INSERT INTO fee_structures
-    (class_id, session_id, stream_id, admission_fee)
-    VALUES (?,?,?,?)
-  `;
+  const sql = hasStreamId
+    ? `
+      INSERT INTO fee_structures
+      (class_id, session_id, stream_id, admission_fee)
+      VALUES (?,?,?,?)
+    `
+    : `
+      INSERT INTO fee_structures
+      (class_id, session_id, admission_fee)
+      VALUES (?,?,?)
+    `;
 
-  const result = await execute(sql, [
-    data.class_id,
-    data.session_id,
-    data.stream_id ?? null,
-    data.admission_fee
-  ]);
+  const params = hasStreamId
+    ? [data.class_id, data.session_id, data.stream_id ?? null, data.admission_fee]
+    : [data.class_id, data.session_id, data.admission_fee];
+
+  const result = await execute(sql, params);
 
   return result;
 }
 export async function getFeeStructure(classId, sessionId, streamId = null) {
+  const hasStreamId = await supportsFeeStructuresStreamId();
 
-  const sql = `
+  const sql = hasStreamId
+    ? `
   SELECT
     fs.*,
     c.class_scope,
@@ -31,15 +60,28 @@ export async function getFeeStructure(classId, sessionId, streamId = null) {
   WHERE class_id = ?
   AND session_id = ?
   AND (stream_id <=> ?)
+  `
+    : `
+  SELECT
+    fs.*,
+    NULL AS stream_id,
+    c.class_scope,
+    NULL AS stream_name
+  FROM fee_structures fs
+  JOIN classes c ON c.id = fs.class_id
+  WHERE class_id = ?
+  AND session_id = ?
   `;
 
-  const rows = await query(sql, [classId, sessionId, streamId]);
+  const rows = await query(sql, hasStreamId ? [classId, sessionId, streamId] : [classId, sessionId]);
 
   return rows[0];
 }
 export async function getAllFeeStructures() {
+  const hasStreamId = await supportsFeeStructuresStreamId();
 
-  const sql = `
+  const sql = hasStreamId
+    ? `
     SELECT
       fs.id,
       fs.class_id,
@@ -55,6 +97,22 @@ export async function getAllFeeStructures() {
     JOIN academic_sessions s ON fs.session_id = s.id
     LEFT JOIN streams st ON st.id = fs.stream_id
     ORDER BY c.name, st.name, s.name
+  `
+    : `
+    SELECT
+      fs.id,
+      fs.class_id,
+      fs.session_id,
+      NULL AS stream_id,
+      fs.admission_fee,
+      c.name AS class_name,
+      c.class_scope,
+      s.name AS session_name,
+      NULL AS stream_name
+    FROM fee_structures fs
+    JOIN classes c ON fs.class_id = c.id
+    JOIN academic_sessions s ON fs.session_id = s.id
+    ORDER BY c.name, s.name
   `;
 
   const rows = await query(sql);
@@ -91,12 +149,25 @@ export async function getInstallmentById(id) {
 }
 
 export async function updateFeeStructure(id, data) {
-  const sql = `
-    UPDATE fee_structures
-    SET class_id = ?, session_id = ?, stream_id = ?, admission_fee = ?
-    WHERE id = ?
-  `;
-  return execute(sql, [data.class_id, data.session_id, data.stream_id ?? null, data.admission_fee, id]);
+  const hasStreamId = await supportsFeeStructuresStreamId();
+
+  const sql = hasStreamId
+    ? `
+      UPDATE fee_structures
+      SET class_id = ?, session_id = ?, stream_id = ?, admission_fee = ?
+      WHERE id = ?
+    `
+    : `
+      UPDATE fee_structures
+      SET class_id = ?, session_id = ?, admission_fee = ?
+      WHERE id = ?
+    `;
+
+  const params = hasStreamId
+    ? [data.class_id, data.session_id, data.stream_id ?? null, data.admission_fee, id]
+    : [data.class_id, data.session_id, data.admission_fee, id];
+
+  return execute(sql, params);
 }
 
 export async function deleteFeeStructure(id) {
@@ -191,8 +262,10 @@ export async function deleteUnpaidStudentFeesForInstallment(installmentId) {
 }
 
 export async function deleteUnpaidStudentFeesForStructure(structureId) {
+  const hasStreamId = await supportsFeeStructuresStreamId();
   return execute(
-    `
+    hasStreamId
+      ? `
       DELETE sf
       FROM student_fees sf
       JOIN student_enrollments se
@@ -201,6 +274,23 @@ export async function deleteUnpaidStudentFeesForStructure(structureId) {
         ON fs.class_id = se.class_id
        AND fs.session_id = se.session_id
        AND fs.stream_id <=> se.stream_id
+      LEFT JOIN (
+        SELECT student_fee_id, COALESCE(SUM(amount_paid), 0) AS paid
+        FROM payments
+        GROUP BY student_fee_id
+      ) paid_map
+        ON paid_map.student_fee_id = sf.id
+      WHERE fs.id = ?
+        AND COALESCE(paid_map.paid, 0) = 0
+    `
+      : `
+      DELETE sf
+      FROM student_fees sf
+      JOIN student_enrollments se
+        ON se.id = sf.enrollment_id
+      JOIN fee_structures fs
+        ON fs.class_id = se.class_id
+       AND fs.session_id = se.session_id
       LEFT JOIN (
         SELECT student_fee_id, COALESCE(SUM(amount_paid), 0) AS paid
         FROM payments
@@ -306,8 +396,14 @@ export async function getParentStudentIdsByUser(userId) {
 }
 
 export async function getFeeStructureById(id) {
+  const hasStreamId = await supportsFeeStructuresStreamId();
   const rows = await query(
-    `SELECT id, class_id, session_id, stream_id, admission_fee
+    hasStreamId
+      ? `SELECT id, class_id, session_id, stream_id, admission_fee
+     FROM fee_structures
+     WHERE id = ?
+     LIMIT 1`
+      : `SELECT id, class_id, session_id, NULL AS stream_id, admission_fee
      FROM fee_structures
      WHERE id = ?
      LIMIT 1`,
@@ -425,7 +521,9 @@ export async function getStudentsForPayment(filters = {}) {
 }
 
 export async function getStructureByEnrollment(enrollmentId) {
-  const sql = `
+  const hasStreamId = await supportsFeeStructuresStreamId();
+  const sql = hasStreamId
+    ? `
     SELECT
       fs.*,
       c.name AS class_name,
@@ -441,20 +539,48 @@ export async function getStructureByEnrollment(enrollmentId) {
     JOIN academic_sessions ses ON ses.id = e.session_id
     LEFT JOIN streams st ON st.id = e.stream_id
     WHERE e.id = ?
+  `
+    : `
+    SELECT
+      fs.*,
+      NULL AS stream_id,
+      c.name AS class_name,
+      c.class_scope,
+      ses.name AS session_name,
+      st.name AS stream_name
+    FROM student_enrollments e
+    JOIN fee_structures fs
+    ON fs.class_id = e.class_id
+    AND fs.session_id = e.session_id
+    JOIN classes c ON c.id = e.class_id
+    JOIN academic_sessions ses ON ses.id = e.session_id
+    LEFT JOIN streams st ON st.id = e.stream_id
+    WHERE e.id = ?
   `;
   const rows = await query(sql, [enrollmentId]);
   return rows[0];
 }
 
 export async function getActiveEnrollmentIdsForStructure(structureId) {
+  const hasStreamId = await supportsFeeStructuresStreamId();
   const rows = await query(
-    `
+    hasStreamId
+      ? `
       SELECT se.id
       FROM student_enrollments se
       JOIN fee_structures fs
         ON fs.class_id = se.class_id
        AND fs.session_id = se.session_id
        AND fs.stream_id <=> se.stream_id
+      WHERE fs.id = ?
+        AND se.status = 'active'
+    `
+      : `
+      SELECT se.id
+      FROM student_enrollments se
+      JOIN fee_structures fs
+        ON fs.class_id = se.class_id
+       AND fs.session_id = se.session_id
       WHERE fs.id = ?
         AND se.status = 'active'
     `,
@@ -512,8 +638,10 @@ export async function updateFeeStatus(studentFeeId) {
 }
 
 export async function getAllFeeStructuresWithInstallments() {
+  const hasStreamId = await supportsFeeStructuresStreamId();
 
-  const sql = `
+  const sql = hasStreamId
+    ? `
   SELECT
     fs.id AS structure_id,
     fs.class_id,
@@ -535,6 +663,28 @@ export async function getAllFeeStructuresWithInstallments() {
   LEFT JOIN fee_installments fi
   ON fi.fee_structure_id = fs.id
   ORDER BY c.name, st.name, s.name, fi.installment_name
+  `
+    : `
+  SELECT
+    fs.id AS structure_id,
+    fs.class_id,
+    fs.session_id,
+    NULL AS stream_id,
+    fs.admission_fee,
+    c.name AS class_name,
+    c.class_scope,
+    s.name AS session_name,
+    NULL AS stream_name,
+    fi.id AS installment_id,
+    fi.installment_name,
+    fi.amount,
+    fi.due_date
+  FROM fee_structures fs
+  JOIN classes c ON fs.class_id = c.id
+  JOIN academic_sessions s ON fs.session_id = s.id
+  LEFT JOIN fee_installments fi
+  ON fi.fee_structure_id = fs.id
+  ORDER BY c.name, s.name, fi.installment_name
   `;
 
   const rows = await query(sql);

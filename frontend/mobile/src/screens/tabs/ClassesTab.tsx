@@ -245,7 +245,6 @@ export default function ClassesTab() {
     if (!["school", "hs"].includes(form.class_scope)) {
       return { ok: false, message: "Class scope is required." };
     }
-    if (!sections.length) return { ok: false, message: "At least one section is required." };
     if (sections.some((section) => section.medium !== "English" && section.medium !== "Assamese")) {
       return { ok: false, message: "Each section must have a medium." };
     }
@@ -639,7 +638,7 @@ function ClassFormModal({
               })}
             </View>
 
-            <Text style={[styles.inputLabel, styles.spaceTop, { color: theme.subText }]}>Sections *</Text>
+            <Text style={[styles.inputLabel, styles.spaceTop, { color: theme.subText }]}>Sections (Optional)</Text>
             {form.sections.map((section, index) => (
               <View key={`section-${index}`} style={styles.sectionRow}>
                 <TextInput

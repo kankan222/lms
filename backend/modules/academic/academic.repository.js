@@ -1,5 +1,57 @@
 import { query } from "../../core/db/query.js";
 import { pool } from "../../database/pool.js";
+
+let sectionReferenceColumnsCache;
+
+function escapeIdentifier(value) {
+  return `\`${String(value || "").replace(/`/g, "``")}\``;
+}
+
+async function getSectionReferenceColumns(conn) {
+  if (Array.isArray(sectionReferenceColumnsCache)) {
+    return sectionReferenceColumnsCache;
+  }
+
+  const [rows] = await conn.query(
+    `
+      SELECT TABLE_NAME AS table_name, COLUMN_NAME AS column_name
+      FROM information_schema.KEY_COLUMN_USAGE
+      WHERE TABLE_SCHEMA = DATABASE()
+        AND REFERENCED_TABLE_SCHEMA = DATABASE()
+        AND REFERENCED_TABLE_NAME = 'sections'
+        AND REFERENCED_COLUMN_NAME = 'id'
+      ORDER BY TABLE_NAME, COLUMN_NAME
+    `
+  );
+
+  sectionReferenceColumnsCache = (rows || [])
+    .map((row) => ({
+      tableName: String(row?.table_name || "").trim(),
+      columnName: String(row?.column_name || "").trim(),
+    }))
+    .filter((row) => row.tableName && row.columnName && row.tableName !== "sections");
+
+  return sectionReferenceColumnsCache;
+}
+
+async function findSectionUsage(conn, sectionId) {
+  const references = await getSectionReferenceColumns(conn);
+
+  for (const ref of references) {
+    const sql = `
+      SELECT 1 AS linked
+      FROM ${escapeIdentifier(ref.tableName)}
+      WHERE ${escapeIdentifier(ref.columnName)} = ?
+      LIMIT 1
+    `;
+    const [rows] = await conn.query(sql, [sectionId]);
+    if (Array.isArray(rows) && rows.length) {
+      return ref;
+    }
+  }
+
+  return null;
+}
 export async function createSession(data) {
   const sql = `
     INSERT INTO academic_sessions
@@ -72,17 +124,20 @@ export async function getClasses() {
   SELECT
   c.id,
   c.name,
-  c.class_scope,
+  c.scope_id,
+  COALESCE(sc.code, c.class_scope, 'school') AS class_scope,
+  sc.name AS scope_name,
   c.medium,
   IFNULL(GROUP_CONCAT(DISTINCT sec.name ORDER BY sec.name), '') AS sections,
   IFNULL(GROUP_CONCAT(DISTINCT CONCAT(sec.name, ':', sec.medium) ORDER BY sec.name), '') AS section_mediums,
   IFNULL(GROUP_CONCAT(DISTINCT sub.name ORDER BY sub.name), '') AS subjects
 FROM classes c
+LEFT JOIN scopes sc ON sc.id = c.scope_id
 LEFT JOIN sections sec ON sec.class_id = c.id
 LEFT JOIN class_subjects cs ON cs.class_id = c.id
 LEFT JOIN subjects sub ON sub.id = cs.subject_id
 WHERE c.is_active = TRUE
-GROUP BY c.id, c.name, c.class_scope, c.medium
+GROUP BY c.id, c.name, c.scope_id, COALESCE(sc.code, c.class_scope, 'school'), sc.name, c.medium
 ORDER BY c.id
   `);
 }
@@ -91,7 +146,9 @@ export async function getClassStructure() {
     SELECT
       c.id AS class_id,
       c.name AS class_name,
-      c.class_scope AS class_scope,
+      c.scope_id AS scope_id,
+      COALESCE(sc.code, c.class_scope, 'school') AS class_scope,
+      sc.name AS scope_name,
       c.medium AS class_medium,
       s.id AS section_id,
       s.name AS section_name,
@@ -99,6 +156,7 @@ export async function getClassStructure() {
       sub.id AS subject_id,
       sub.name AS subject_name
     FROM classes c
+    LEFT JOIN scopes sc ON sc.id = c.scope_id
     LEFT JOIN sections s ON s.class_id = c.id
     LEFT JOIN class_subjects cs ON cs.class_id = c.id
     LEFT JOIN subjects sub ON sub.id = cs.subject_id
@@ -106,21 +164,58 @@ export async function getClassStructure() {
     ORDER BY c.id
   `);
 }
-export async function createClass(name, classScope, sections = []) {
+export async function listScopes() {
+  return query(`
+    SELECT id, code, name, is_active
+    FROM scopes
+    WHERE is_active = TRUE
+    ORDER BY id ASC
+  `);
+}
+
+export async function getScopeByCode(code) {
+  const rows = await query(
+    `
+      SELECT id, code, name
+      FROM scopes
+      WHERE code = ?
+      LIMIT 1
+    `,
+    [code]
+  );
+  return rows[0] || null;
+}
+
+export async function getScopeById(id) {
+  const rows = await query(
+    `
+      SELECT id, code, name
+      FROM scopes
+      WHERE id = ?
+      LIMIT 1
+    `,
+    [id]
+  );
+  return rows[0] || null;
+}
+
+export async function createClass(name, scope, sections = [], mediums = []) {
   const conn = await pool.getConnection();
 
   try {
     await conn.beginTransaction();
 
-    const mediumValue = Array.isArray(sections)
-      ? [...new Set(sections.map((s) => String(s?.medium || "").trim()).filter(Boolean))].join(",")
-      : "";
-    if (!mediumValue.trim()) {
-      throw new Error("Each section must have a medium");
-    }
+    const sectionMediums = Array.isArray(sections)
+      ? sections.map((s) => String(s?.medium || "").trim()).filter(Boolean)
+      : [];
+    const explicitMediums = Array.isArray(mediums)
+      ? mediums.map((m) => String(m || "").trim()).filter(Boolean)
+      : [];
+    const mediumValue = [...new Set([...sectionMediums, ...explicitMediums])].join(",");
+
     const [result] = await conn.query(
-      `INSERT INTO classes (name, class_scope, medium, is_active) VALUES (?, ?, ?, TRUE)`,
-      [name, classScope, mediumValue]
+      `INSERT INTO classes (name, class_scope, scope_id, medium, is_active) VALUES (?, ?, ?, ?, TRUE)`,
+      [name, scope.code, scope.id, mediumValue]
     );
 
     const classId = result.insertId;
@@ -143,26 +238,25 @@ export async function createClass(name, classScope, sections = []) {
     conn.release();
   }
 }
-export async function updateClass(id, name, classScope, sections = []) {
+export async function updateClass(id, name, scope, sections = [], mediums = []) {
   const conn = await pool.getConnection();
 
   try {
     await conn.beginTransaction();
 
-    const mediumValue = Array.isArray(sections)
-      ? [...new Set(sections.map((s) => String(s?.medium || "").trim()).filter(Boolean))].join(",")
-      : "";
-    if (!mediumValue.trim()) {
-      throw new Error("Each section must have a medium");
-    }
+    const sectionMediums = Array.isArray(sections)
+      ? sections.map((s) => String(s?.medium || "").trim()).filter(Boolean)
+      : [];
+    const explicitMediums = Array.isArray(mediums)
+      ? mediums.map((m) => String(m || "").trim()).filter(Boolean)
+      : [];
+    const mediumValue = [...new Set([...sectionMediums, ...explicitMediums])].join(",");
+
     await conn.query(
-      `UPDATE classes SET name=?, class_scope=?, medium=? WHERE id=?`,
-      [name, classScope, mediumValue, id]
+      `UPDATE classes SET name=?, class_scope=?, scope_id=?, medium=? WHERE id=?`,
+      [name, scope.code, scope.id, mediumValue, id]
     );
 
-    // Non-destructive section sync:
-    // keep existing sections (they may be referenced by enrollments/exams/assignments)
-    // and insert only new section names.
     const [existingSections] = await conn.query(
       `SELECT id, name, medium FROM sections WHERE class_id=?`,
       [id]
@@ -180,15 +274,34 @@ export async function updateClass(id, name, classScope, sections = []) {
         medium: String(s?.medium || "").trim(),
       }))
       .filter((s) => s.name && s.medium);
+    const incomingNameSet = new Set(normalizedIncoming.map((s) => s.name.toLowerCase()));
+
+    for (const existing of existingSections) {
+      const key = String(existing?.name || "").trim().toLowerCase();
+      if (!key || incomingNameSet.has(key)) {
+        continue;
+      }
+
+      const usage = await findSectionUsage(conn, existing.id);
+      if (usage) {
+        throw new Error(
+          `Cannot remove section "${existing.name}" because it is linked to ${usage.tableName}.${usage.columnName}. Reassign linked records first.`
+        );
+      }
+
+      await conn.query(`DELETE FROM sections WHERE id=?`, [existing.id]);
+      existingByName.delete(key);
+    }
 
     for (const sec of normalizedIncoming) {
       const key = sec.name.toLowerCase();
       const existing = existingByName.get(key);
       if (!existing) {
-        await conn.query(
+        const [insertResult] = await conn.query(
           `INSERT INTO sections (class_id, name, medium) VALUES (?, ?, ?)`,
           [id, sec.name, sec.medium]
         );
+        existingByName.set(key, { id: insertResult.insertId, medium: sec.medium });
       } else if (String(existing.medium || "") !== sec.medium) {
         await conn.query(
           `UPDATE sections SET medium=? WHERE id=?`,

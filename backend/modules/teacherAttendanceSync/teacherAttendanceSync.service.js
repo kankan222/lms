@@ -17,6 +17,14 @@ function normalizeTeacherId(value) {
   return normalized;
 }
 
+function normalizeMachineUserId(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  if (!/^\d+$/.test(raw)) return raw;
+  const normalized = raw.replace(/^0+(?=\d)/, "");
+  return normalized || "0";
+}
+
 function normalizePunchType(value) {
   const raw = String(value || "unknown").trim().toLowerCase();
   if (raw === "in" || raw === "out" || raw === "unknown") return raw;
@@ -97,6 +105,24 @@ async function resolveTeacherId({ teacherId, teacherEmployeeId, deviceId }, cach
     });
     resolvedTeacherId = mapping.teacherId || null;
     mappingSource = mapping.source || "none";
+
+    if (resolvedTeacherId && mapping.shouldAutoMap && deviceId) {
+      try {
+        await repo.upsertTeacherDeviceUserMapping({
+          deviceId,
+          deviceUserId: normalizeMachineUserId(teacherEmployeeId),
+          teacherId: resolvedTeacherId,
+        });
+        mappingSource = `${mappingSource}:auto_mapped`;
+      } catch (error) {
+        console.warn("ATTENDANCE SYNC AUTO-MAP UPSERT FAILED:", {
+          deviceId,
+          teacherEmployeeId,
+          teacherId: resolvedTeacherId,
+          reason: error?.message || String(error),
+        });
+      }
+    }
   }
 
   if (!resolvedTeacherId && mappingSource !== "device_user_unmapped" && teacherId) {

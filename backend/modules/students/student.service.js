@@ -219,6 +219,32 @@ function normalizeOptionalText(value) {
   return trimmed ? trimmed : null;
 }
 
+function normalizeOptionalId(value) {
+  if (value === undefined || value === null) {
+    return null;
+  }
+
+  const raw = String(value).trim();
+  if (!raw) {
+    return null;
+  }
+
+  const parsed = Number(raw);
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    return null;
+  }
+
+  return parsed;
+}
+
+function normalizeRequiredId(value, label) {
+  const parsed = Number(String(value ?? "").trim());
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    throw new AppError(`${label} is required`, 400);
+  }
+  return parsed;
+}
+
 async function resolveEnrollmentScope(enrollment = {}) {
   const classId = Number(enrollment.class_id || 0);
   if (!classId) {
@@ -281,9 +307,6 @@ function validateCreatePayload(payload) {
   if (!payload?.enrollment?.class_id) {
     throw new AppError("Class is required", 400);
   }
-  if (!payload?.enrollment?.section_id) {
-    throw new AppError("Section is required", 400);
-  }
 
   const fatherMobile = String(payload?.father?.mobile || "").trim();
   const motherMobile = String(payload?.mother?.mobile || "").trim();
@@ -344,7 +367,16 @@ export async function createStudent(payload) {
       dob: normalizeDateInput(student?.dob, "Student DOB"),
       date_of_admission: normalizeDateInput(student?.date_of_admission, "Date of admission"),
     };
-    const enrollmentMeta = await resolveEnrollmentScope(enrollment);
+    const normalizedEnrollment = {
+      ...enrollment,
+      session_id: normalizeRequiredId(enrollment?.session_id, "Session"),
+      class_id: normalizeRequiredId(enrollment?.class_id, "Class"),
+      section_id: normalizeOptionalId(enrollment?.section_id),
+      stream_id: normalizeOptionalId(enrollment?.stream_id),
+      stream: normalizeOptionalText(enrollment?.stream),
+      roll_number: normalizeOptionalText(enrollment?.roll_number),
+    };
+    const enrollmentMeta = await resolveEnrollmentScope(normalizedEnrollment);
 
     const studentId = await repo.insertStudent(conn, normalizedStudent);
 
@@ -370,11 +402,11 @@ export async function createStudent(payload) {
 
     await repo.insertEnrollment(conn, {
       student_id: studentId,
-      session_id: enrollment.session_id,
-      class_id: enrollment.class_id,
-      section_id: enrollment.section_id,
+      session_id: normalizedEnrollment.session_id,
+      class_id: normalizedEnrollment.class_id,
+      section_id: normalizedEnrollment.section_id,
       stream_id: enrollmentMeta.stream_id,
-      roll_number: normalizeOptionalText(enrollment.roll_number),
+      roll_number: normalizedEnrollment.roll_number,
     });
 
     await conn.commit();
@@ -577,15 +609,27 @@ export async function updateStudent(id, data) {
 
   if (hasEnrollmentUpdate) {
     const enrollmentData = {
-      session_id: data.session_id ?? existing.session_id,
-      class_id: data.class_id ?? existing.class_id,
-      section_id: data.section_id ?? existing.section_id,
+      session_id:
+        data.session_id !== undefined
+          ? normalizeRequiredId(data.session_id, "Session")
+          : existing.session_id,
+      class_id:
+        data.class_id !== undefined
+          ? normalizeRequiredId(data.class_id, "Class")
+          : existing.class_id,
+      section_id:
+        data.section_id !== undefined
+          ? normalizeOptionalId(data.section_id)
+          : existing.section_id,
       roll_number:
         data.roll_number !== undefined
           ? normalizeOptionalText(data.roll_number)
           : existing.roll_number,
-      stream_id: data.stream_id ?? existing.stream_id ?? null,
-      stream: data.stream,
+      stream_id:
+        data.stream_id !== undefined
+          ? normalizeOptionalId(data.stream_id)
+          : existing.stream_id ?? null,
+      stream: data.stream !== undefined ? normalizeOptionalText(data.stream) : existing.stream,
     };
 
     const enrollmentMeta = await resolveEnrollmentScope(enrollmentData);
@@ -649,9 +693,17 @@ export async function bulkCreateStudents(rows = []) {
 
   for (const row of rows) {
     const meta = row?._meta || {};
+    const normalizedRow = {
+      ...row,
+      enrollment: {
+        ...(row?.enrollment || {}),
+        section_id: normalizeOptionalId(row?.enrollment?.section_id),
+        stream_id: normalizeOptionalId(row?.enrollment?.stream_id),
+      },
+    };
 
     try {
-      const result = await createStudent(row);
+      const result = await createStudent(normalizedRow);
       successes.push({
         rowNo: meta.rowNo ?? null,
         studentId: result.studentId,
@@ -659,6 +711,39 @@ export async function bulkCreateStudents(rows = []) {
         name: meta.studentName || row?.student?.name || null,
       });
     } catch (err) {
+      const errorMessage = String(err?.message || "");
+      const canRetryWithoutSection =
+        Boolean(normalizedRow?.enrollment?.section_id) &&
+        /(section|section_id|foreign key|child row)/i.test(errorMessage);
+
+      if (canRetryWithoutSection) {
+        try {
+          const retryResult = await createStudent({
+            ...normalizedRow,
+            enrollment: {
+              ...(normalizedRow.enrollment || {}),
+              section_id: null,
+            },
+          });
+
+          successes.push({
+            rowNo: meta.rowNo ?? null,
+            studentId: retryResult.studentId,
+            admissionNo: meta.admissionNo || row?.student?.admission_no || null,
+            name: meta.studentName || row?.student?.name || null,
+          });
+          continue;
+        } catch (retryErr) {
+          failures.push({
+            rowNo: meta.rowNo ?? null,
+            admissionNo: meta.admissionNo || row?.student?.admission_no || null,
+            name: meta.studentName || row?.student?.name || null,
+            message: retryErr?.message || "Unknown error",
+          });
+          continue;
+        }
+      }
+
       failures.push({
         rowNo: meta.rowNo ?? null,
         admissionNo: meta.admissionNo || row?.student?.admission_no || null,

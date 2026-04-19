@@ -66,7 +66,7 @@ export type CreateStudentPayload = {
   enrollment: {
     session_id: number;
     class_id: number;
-    section_id: number;
+    section_id?: number | null;
     medium?: string;
     roll_number: string | number;
     stream?: string;

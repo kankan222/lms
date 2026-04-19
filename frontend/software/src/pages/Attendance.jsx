@@ -19,6 +19,7 @@ import {
   reviewStudentAttendance,
   submitStudentAttendance,
 } from "../api/attendance.api";
+import TeacherDeviceMapping from "./TeacherDeviceMapping";
 import { usePermissions } from "../hooks/usePermissions";
 import { formatReadableDate, formatReadableDateTime } from "../lib/dateTime";
 
@@ -105,6 +106,7 @@ export default function Attendance() {
   const isTeacher = hasRole("teacher");
   const canManageTeachers = can("teacher.update");
   const canViewTeacherLogs = can("teacher.view");
+  const canManageDeviceMappings = can("teacher.assign");
   const canReviewStudentAttendance = can("student_attendance.review") || can("marks.approve");
   const canNotifyParents = can("student_attendance.notify");
   const [activeTab, setActiveTab] = useState("student-attendance");
@@ -895,6 +897,7 @@ export default function Attendance() {
     (canReviewStudentAttendance ? 1 : 0) +
     (canNotifyParents ? 1 : 0) +
     (canViewTeacherLogs ? 1 : 0) +
+    (canManageDeviceMappings ? 1 : 0) +
     (isTeacher ? 2 : 0);
 
   return (
@@ -939,6 +942,9 @@ export default function Attendance() {
           ) : null}
           {canViewTeacherLogs ? (
             <TabsTrigger value="teacher-logs">Teacher Logs</TabsTrigger>
+          ) : null}
+          {canManageDeviceMappings ? (
+            <TabsTrigger value="device-mapping">Device Mapping</TabsTrigger>
           ) : null}
         </TabsList>
 
@@ -1917,6 +1923,12 @@ export default function Attendance() {
             {teacherLoading ? (
               <p className="mt-3 text-sm text-muted-foreground">Loading teacher attendance...</p>
             ) : null}
+          </TabsContent>
+        ) : null}
+
+        {canManageDeviceMappings ? (
+          <TabsContent value="device-mapping" className="mt-4 space-y-4">
+            <TeacherDeviceMapping embedded />
           </TabsContent>
         ) : null}
       </Tabs>

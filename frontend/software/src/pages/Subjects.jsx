@@ -444,19 +444,24 @@ const Subjects = () => {
 
       </div>
 
-      {/* EDIT SHEET */}
+      {/* EDIT DIALOG */}
 
-      <Sheet
+      <Dialog
         open={!!editingSubject}
-        onOpenChange={() => setEditingSubject(null)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setEditError("");
+            setEditingSubject(null);
+          }
+        }}
       >
-        <SheetContent>
+        <DialogContent>
 
           <form onSubmit={handleUpdate}>
 
-            <SheetHeader>
-              <SheetTitle>Edit Subject</SheetTitle>
-            </SheetHeader>
+            <DialogHeader>
+              <DialogTitle>Edit Subject</DialogTitle>
+            </DialogHeader>
 
             <div className="grid gap-4 py-4">
 
@@ -487,14 +492,14 @@ const Subjects = () => {
             </div>
             {editError && <p className="text-sm text-red-600">{editError}</p>}
 
-            <SheetFooter>
+            <DialogFooter>
               <Button type="submit">Save</Button>
-            </SheetFooter>
+            </DialogFooter>
 
           </form>
 
-        </SheetContent>
-      </Sheet>
+        </DialogContent>
+      </Dialog>
 
       <AlertDialog
         open={!!deletingSubject}

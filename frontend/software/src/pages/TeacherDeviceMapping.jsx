@@ -32,7 +32,7 @@ function SectionShell({ title, description, action, children }) {
   );
 }
 
-export default function TeacherDeviceMapping() {
+export default function TeacherDeviceMapping({ embedded = false } = {}) {
   const { can } = usePermissions();
   const canManageDeviceMappings = can("teacher.assign");
 
@@ -155,22 +155,31 @@ export default function TeacherDeviceMapping() {
 
   return (
     <>
-      <div className="pointer-events-none fixed top-6 right-6 z-50 w-full max-w-sm">
-        {notice && (
-          <Alert className="pointer-events-auto overflow-hidden border shadow-xl">
+      {notice ? (
+        embedded ? (
+          <Alert className="overflow-hidden border shadow-sm">
             <AlertTitle>{notice.title}</AlertTitle>
             <AlertDescription>{notice.message}</AlertDescription>
           </Alert>
-        )}
-      </div>
+        ) : (
+          <div className="pointer-events-none fixed top-6 right-6 z-50 w-full max-w-sm">
+            <Alert className="pointer-events-auto overflow-hidden border shadow-xl">
+              <AlertTitle>{notice.title}</AlertTitle>
+              <AlertDescription>{notice.message}</AlertDescription>
+            </Alert>
+          </div>
+        )
+      ) : null}
 
-      <TopBar
-        title="Teacher Device Mapping"
-        subTitle="Map each machine user ID per device to the correct teacher."
-      />
+      {!embedded ? (
+        <TopBar
+          title="Teacher Device Mapping"
+          subTitle="Map each machine user ID per device to the correct teacher."
+        />
+      ) : null}
 
       {!canManageDeviceMappings ? (
-        <div className="mt-4">
+        <div className={embedded ? "" : "mt-4"}>
           <Alert>
             <AlertTitle>Permission Required</AlertTitle>
             <AlertDescription>
@@ -179,7 +188,7 @@ export default function TeacherDeviceMapping() {
           </Alert>
         </div>
       ) : (
-        <div className="mt-4">
+        <div className={embedded ? "" : "mt-4"}>
           <SectionShell
             title="Device User Mapping"
             description="Use this page to maintain machine user to teacher mappings."

@@ -15,10 +15,19 @@ import {
   getAttendanceDeviceUsers,
   upsertAttendanceDeviceUser,
 } from "../../api/teachers.api";
+import { getScopes } from "../../api/academic.api";
 
 import { Button } from "../../components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Popover,
+  PopoverContent,
+  PopoverDescription,
+  PopoverHeader,
+  PopoverTitle,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 
 import {
   Dialog,
@@ -48,12 +57,34 @@ const columns = [
   { header: "Email", accessor: "email" },
 ];
 
+const DEFAULT_SCOPE_OPTIONS = [
+  { code: "school", name: "School" },
+  { code: "hs", name: "Higher Secondary" },
+];
+
 function normalizeMachineUserId(value) {
   const raw = String(value || "").trim();
   if (!raw) return "";
   if (!/^\d+$/.test(raw)) return raw;
   const normalized = raw.replace(/^0+(?=\d)/, "");
   return normalized || "0";
+}
+
+function resolveScopeCode(scopeCode, scopeName = "") {
+  const code = String(scopeCode || "").trim().toLowerCase();
+  if (code === "hs" || code === "school") return code;
+  if (code.includes("higher secondary")) return "hs";
+  if (code.includes("school")) return "school";
+
+  const name = String(scopeName || "").trim().toLowerCase();
+  if (name.includes("higher secondary")) return "hs";
+  if (name.includes("school")) return "school";
+
+  return "school";
+}
+
+function formatScopeLabel(scopeCode) {
+  return resolveScopeCode(scopeCode) === "hs" ? "Higher Secondary" : "School";
 }
 
 const Teachers = () => {
@@ -70,6 +101,8 @@ const Teachers = () => {
   const [notice, setNotice] = useState(null);
   const [showPassword, setShowPassword] = useState(false);
   const [attendanceDevices, setAttendanceDevices] = useState([]);
+  const [scopeOptions, setScopeOptions] = useState(DEFAULT_SCOPE_OPTIONS);
+  const [scopeFilter, setScopeFilter] = useState("all");
 
   const [newTeacher, setNewTeacher] = useState({
     employee_id: "",
@@ -84,6 +117,12 @@ const Teachers = () => {
   });
 
   const navigate = useNavigate();
+  const allowedScopeCodes = scopeOptions.map((item) => item.code);
+  const filteredTeachers = teachers.filter((row) =>
+    scopeFilter === "all" ? true : resolveScopeCode(row.class_scope, row.scope_name) === scopeFilter,
+  );
+  const activeFilterCount = scopeFilter === "all" ? 0 : 1;
+
   function handleRowClick(row) {
     navigate(`/teachers/${row.id}`);
   }
@@ -97,10 +136,29 @@ const Teachers = () => {
     setTeachers(
       rows.map((row) => ({
         ...row,
-        class_scope: row.class_scope || "school",
-        scope: row.class_scope === "hs" ? "Higher Secondary" : "School",
+        class_scope: resolveScopeCode(row.class_scope, row.scope_name || row.scope),
+        scope: formatScopeLabel(resolveScopeCode(row.class_scope, row.scope_name || row.scope)),
       })),
     );
+  }
+
+  async function loadScopeOptions() {
+    try {
+      const res = await getScopes();
+      const rows = Array.isArray(res?.data) ? res.data : [];
+      const mapped = rows
+        .map((row) => {
+          const code = resolveScopeCode(row.code, row.name);
+          const name = String(row.name || "").trim() || formatScopeLabel(code);
+          return { code, name };
+        })
+        .filter((row) => row.code === "school" || row.code === "hs");
+
+      const deduped = Array.from(new Map(mapped.map((row) => [row.code, row])).values());
+      setScopeOptions(deduped.length ? deduped : DEFAULT_SCOPE_OPTIONS);
+    } catch {
+      setScopeOptions(DEFAULT_SCOPE_OPTIONS);
+    }
   }
 
   async function loadAttendanceDevices() {
@@ -113,6 +171,7 @@ const Teachers = () => {
   }
 
   const loadInitialTeachers = useEffectEvent(() => {
+    loadScopeOptions();
     loadTeachers();
     if (canManageDeviceMappings) {
       loadAttendanceDevices();
@@ -157,7 +216,7 @@ const Teachers = () => {
     if (email && !/^\S+@\S+\.\S+$/.test(email)) {
       errors.email = "Invalid email";
     }
-    if (!["school", "hs"].includes(String(data.class_scope || ""))) {
+    if (!allowedScopeCodes.includes(String(data.class_scope || "").trim().toLowerCase())) {
       errors.class_scope = "Class scope required";
     }
 
@@ -226,7 +285,7 @@ const Teachers = () => {
     formData.append("name", newTeacher.name);
     formData.append("phone", newTeacher.phone.trim());
     formData.append("email", newTeacher.email.trim());
-    formData.append("class_scope", newTeacher.class_scope || "school");
+    formData.append("class_scope", resolveScopeCode(newTeacher.class_scope));
     formData.append("password", newTeacher.password);
 
     if (newTeacher.photo) {
@@ -283,7 +342,7 @@ const Teachers = () => {
         await loadTeachers();
         showNotice(
           "Teacher Created, Mapping Failed",
-          err?.message || "Teacher was created, but device mapping failed. Fix in Device Mapping page.",
+          err?.message || "Teacher was created, but device mapping failed. Fix in Attendance > Device Mapping tab.",
           "error"
         );
         return;
@@ -317,7 +376,9 @@ const Teachers = () => {
     if (!phone && !email) next.contact = "Provide either phone or email";
     if (phone && !/^\d{10}$/.test(phone)) next.phone = "Phone must be 10 digits";
     if (email && !/^\S+@\S+\.\S+$/.test(email)) next.email = "Invalid email";
-    if (!["school", "hs"].includes(String(data.class_scope || ""))) next.class_scope = "Class scope required";
+    if (!allowedScopeCodes.includes(String(data.class_scope || "").trim().toLowerCase())) {
+      next.class_scope = "Class scope required";
+    }
     const deviceId = String(data.device_id || "").trim();
     const deviceUserId = normalizeMachineUserId(data.device_user_id);
     if (canManageDeviceMappings && ((deviceId && !deviceUserId) || (!deviceId && deviceUserId))) {
@@ -371,7 +432,7 @@ const Teachers = () => {
       formData.append("name", String(editingTeacher.name || "").trim());
       formData.append("phone", String(editingTeacher.phone || "").trim());
       formData.append("email", String(editingTeacher.email || "").trim());
-      formData.append("class_scope", editingTeacher.class_scope || "school");
+      formData.append("class_scope", resolveScopeCode(editingTeacher.class_scope));
       if (editingTeacher.photo) {
         formData.append("photo", editingTeacher.photo);
       }
@@ -415,6 +476,7 @@ const Teachers = () => {
   async function handleEdit(row) {
     const nextTeacher = {
       ...row,
+      class_scope: resolveScopeCode(row.class_scope, row.scope_name || row.scope),
       device_id: "",
       device_user_id: "",
       photo: null,
@@ -463,183 +525,228 @@ const Teachers = () => {
         title={canManageTeachers ? "Teachers" : "My Profile"}
         subTitle={canManageTeachers ? "Manage all teachers" : "View your teacher profile"}
         action={canManageTeachers ? (
-          <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-            <DialogTrigger asChild>
-              <Button>Add Teacher</Button>
-            </DialogTrigger>
-
-            <DialogContent className="max-h-[85vh] overflow-y-auto">
-              <form onSubmit={handleCreate} className="px-1">
-                <DialogHeader>
-                  <DialogTitle className="mb-5 text-center">Add Teacher</DialogTitle>
-                </DialogHeader>
-
-                <div className="grid gap-3 py-4">
-                  <Label>Employee ID</Label>
-                  <Input
-                    value={newTeacher.employee_id}
-                    onChange={(e) =>
-                      setNewTeacher((prev) => ({
-                        ...prev,
-                        employee_id: e.target.value,
-                      }))
-                    }
-                  />
-                  <Label>Name *</Label>
-                  <Input
-                    value={newTeacher.name}
-                    onChange={(e) =>
-                      setNewTeacher((prev) => ({
-                        ...prev,
-                        name: e.target.value,
-                      }))
-                    }
-                  />
-                  {errors.name && (
-                    <p className="text-red-500 text-xs">{errors.name}</p>
-                  )}
-                  <Label>Phone</Label>
-                  <Input
-                    value={newTeacher.phone}
-                    onChange={(e) =>
-                      setNewTeacher((prev) => ({
-                        ...prev,
-                        phone: e.target.value,
-                      }))
-                    }
-                  />
-                  {errors.phone && (
-                    <p className="text-red-500 text-xs">{errors.phone}</p>
-                  )}
-                  {errors.contact && (
-                    <p className="text-red-500 text-xs">{errors.contact}</p>
-                  )}
-                  <Label>Class Scope *</Label>
+          <div className="flex gap-2">
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button variant="outline">
+                  {activeFilterCount ? `Filters (${activeFilterCount})` : "Filters"}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent align="end" className="w-80 space-y-4">
+                <PopoverHeader>
+                  <PopoverTitle>Filter Teachers</PopoverTitle>
+                  <PopoverDescription>
+                    Narrow the teachers list by scope.
+                  </PopoverDescription>
+                </PopoverHeader>
+                <div className="grid gap-1.5">
+                  <Label htmlFor="teachers-scope-filter">Scope</Label>
                   <select
-                    className="border rounded p-2 bg-background"
-                    value={newTeacher.class_scope}
-                    onChange={(e) =>
-                      setNewTeacher((prev) => ({
-                        ...prev,
-                        class_scope: e.target.value,
-                      }))
-                    }
+                    id="teachers-scope-filter"
+                    className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+                    value={scopeFilter}
+                    onChange={(e) => setScopeFilter(e.target.value)}
                   >
-                    <option value="school">School</option>
-                    <option value="hs">Higher Secondary</option>
+                    <option value="all">All</option>
+                    {scopeOptions.map((scope) => (
+                      <option key={scope.code} value={scope.code}>
+                        {scope.name}
+                      </option>
+                    ))}
                   </select>
-                  {errors.class_scope && (
-                    <p className="text-red-500 text-xs">{errors.class_scope}</p>
-                  )}
-                  <Label>Email</Label>
-                  <Input
-                    value={newTeacher.email}
-                    onChange={(e) =>
-                      setNewTeacher((prev) => ({
-                        ...prev,
-                        email: e.target.value,
-                      }))
-                    }
-                  />
-                  {errors.email && (
-                    <p className="text-red-500 text-xs">{errors.email}</p>
-                  )}
+                </div>
+                <div className="flex justify-end">
+                  <Button
+                    variant="ghost"
+                    onClick={() => setScopeFilter("all")}
+                    disabled={scopeFilter === "all"}
+                  >
+                    Reset Filters
+                  </Button>
+                </div>
+              </PopoverContent>
+            </Popover>
+            <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+              <DialogTrigger asChild>
+                <Button>Add Teacher</Button>
+              </DialogTrigger>
 
-                  {canManageDeviceMappings ? (
-                    <>
-                      <Label>Attendance Device (Optional)</Label>
-                      <select
-                        className="border rounded p-2 bg-background"
-                        value={newTeacher.device_id}
-                        onChange={(e) =>
-                          setNewTeacher((prev) => ({
-                            ...prev,
-                            device_id: e.target.value,
-                          }))
-                        }
-                      >
-                        <option value="">No mapping</option>
-                        {attendanceDevices.map((device) => (
-                          <option key={device.id} value={device.id}>
-                            {device.name || device.device_name || device.device_code || `Device #${device.id}`}
-                          </option>
-                        ))}
-                      </select>
+              <DialogContent className="max-h-[85vh] overflow-y-auto">
+                <form onSubmit={handleCreate} className="px-1">
+                  <DialogHeader>
+                    <DialogTitle className="mb-5 text-center">Add Teacher</DialogTitle>
+                  </DialogHeader>
 
-                      <Label>Machine User ID (Optional)</Label>
-                      <Input
-                        value={newTeacher.device_user_id}
-                        onChange={(e) =>
-                          setNewTeacher((prev) => ({
-                            ...prev,
-                            device_user_id: e.target.value,
-                          }))
-                        }
-                        placeholder="e.g. 00000001"
-                      />
-                      {errors.device_mapping && (
-                        <p className="text-red-500 text-xs">{errors.device_mapping}</p>
-                      )}
-                      {errors.device_user_id && (
-                        <p className="text-red-500 text-xs">{errors.device_user_id}</p>
-                      )}
-                    </>
-                  ) : null}
-
-                  <Label>Photo URL</Label>
-                  <Input
-                    type="file"
-                    accept="image/*"
-                    onChange={(e) =>
-                      setNewTeacher((prev) => ({
-                        ...prev,
-                        photo: e.target.files[0],
-                      }))
-                    }
-                  />
-                  <Label>Password *</Label>
-                  <div className="relative">
+                  <div className="grid gap-3 py-4">
+                    <Label>Employee ID</Label>
                     <Input
-                      type={showPassword ? "text" : "password"}
-                      value={newTeacher.password}
+                      value={newTeacher.employee_id}
                       onChange={(e) =>
                         setNewTeacher((prev) => ({
                           ...prev,
-                          password: e.target.value,
+                          employee_id: e.target.value,
                         }))
                       }
-                      className="pr-10"
                     />
-                    <button
-                      type="button"
-                      onClick={() => setShowPassword((prev) => !prev)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                      aria-label={showPassword ? "Hide password" : "Show password"}
+                    <Label>Name *</Label>
+                    <Input
+                      value={newTeacher.name}
+                      onChange={(e) =>
+                        setNewTeacher((prev) => ({
+                          ...prev,
+                          name: e.target.value,
+                        }))
+                      }
+                    />
+                    {errors.name && (
+                      <p className="text-red-500 text-xs">{errors.name}</p>
+                    )}
+                    <Label>Phone</Label>
+                    <Input
+                      value={newTeacher.phone}
+                      onChange={(e) =>
+                        setNewTeacher((prev) => ({
+                          ...prev,
+                          phone: e.target.value,
+                        }))
+                      }
+                    />
+                    {errors.phone && (
+                      <p className="text-red-500 text-xs">{errors.phone}</p>
+                    )}
+                    {errors.contact && (
+                      <p className="text-red-500 text-xs">{errors.contact}</p>
+                    )}
+                    <Label>Class Scope *</Label>
+                    <select
+                      className="border rounded p-2 bg-background"
+                      value={newTeacher.class_scope}
+                      onChange={(e) =>
+                        setNewTeacher((prev) => ({
+                          ...prev,
+                          class_scope: e.target.value,
+                        }))
+                      }
                     >
-                      {showPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
-                    </button>
-                  </div>
-                  {errors.password && (
-                    <p className="text-red-500 text-xs">{errors.password}</p>
-                  )}
-                  {errors.form && (
-                    <p className="text-red-500 text-xs">{errors.form}</p>
-                  )}
-                </div>
+                      {scopeOptions.map((scope) => (
+                        <option key={scope.code} value={scope.code}>
+                          {scope.name}
+                        </option>
+                      ))}
+                    </select>
+                    {errors.class_scope && (
+                      <p className="text-red-500 text-xs">{errors.class_scope}</p>
+                    )}
+                    <Label>Email</Label>
+                    <Input
+                      value={newTeacher.email}
+                      onChange={(e) =>
+                        setNewTeacher((prev) => ({
+                          ...prev,
+                          email: e.target.value,
+                        }))
+                      }
+                    />
+                    {errors.email && (
+                      <p className="text-red-500 text-xs">{errors.email}</p>
+                    )}
 
-                <DialogFooter>
-                  <Button type="submit">Save</Button>
-                </DialogFooter>
-              </form>
-            </DialogContent>
-          </Dialog>
+                    {canManageDeviceMappings ? (
+                      <>
+                        <Label>Attendance Device (Optional)</Label>
+                        <select
+                          className="border rounded p-2 bg-background"
+                          value={newTeacher.device_id}
+                          onChange={(e) =>
+                            setNewTeacher((prev) => ({
+                              ...prev,
+                              device_id: e.target.value,
+                            }))
+                          }
+                        >
+                          <option value="">No mapping</option>
+                          {attendanceDevices.map((device) => (
+                            <option key={device.id} value={device.id}>
+                              {device.name || device.device_name || device.device_code || `Device #${device.id}`}
+                            </option>
+                          ))}
+                        </select>
+
+                        <Label>Machine User ID (Optional)</Label>
+                        <Input
+                          value={newTeacher.device_user_id}
+                          onChange={(e) =>
+                            setNewTeacher((prev) => ({
+                              ...prev,
+                              device_user_id: e.target.value,
+                            }))
+                          }
+                          placeholder="e.g. 00000001"
+                        />
+                        {errors.device_mapping && (
+                          <p className="text-red-500 text-xs">{errors.device_mapping}</p>
+                        )}
+                        {errors.device_user_id && (
+                          <p className="text-red-500 text-xs">{errors.device_user_id}</p>
+                        )}
+                      </>
+                    ) : null}
+
+                    <Label>Photo URL</Label>
+                    <Input
+                      type="file"
+                      accept="image/*"
+                      onChange={(e) =>
+                        setNewTeacher((prev) => ({
+                          ...prev,
+                          photo: e.target.files[0],
+                        }))
+                      }
+                    />
+                    <Label>Password *</Label>
+                    <div className="relative">
+                      <Input
+                        type={showPassword ? "text" : "password"}
+                        value={newTeacher.password}
+                        onChange={(e) =>
+                          setNewTeacher((prev) => ({
+                            ...prev,
+                            password: e.target.value,
+                          }))
+                        }
+                        className="pr-10"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowPassword((prev) => !prev)}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                        aria-label={showPassword ? "Hide password" : "Show password"}
+                      >
+                        {showPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+                      </button>
+                    </div>
+                    {errors.password && (
+                      <p className="text-red-500 text-xs">{errors.password}</p>
+                    )}
+                    {errors.form && (
+                      <p className="text-red-500 text-xs">{errors.form}</p>
+                    )}
+                  </div>
+
+                  <DialogFooter>
+                    <Button type="submit">Save</Button>
+                  </DialogFooter>
+                </form>
+              </DialogContent>
+            </Dialog>
+          </div>
         ) : null}
       />
 
       {canManageTeachers ? (
         <DataTable
           columns={columns}
-          data={teachers}
+          data={filteredTeachers}
           onEdit={handleEdit}
           onDelete={setDeletingTeacher}
           onRowClick={handleRowClick}
@@ -654,7 +761,7 @@ const Teachers = () => {
                   <p>Employee ID: {teachers[0].employee_id || "-"}</p>
                   <p>Phone: {teachers[0].phone || "-"}</p>
                   <p>Email: {teachers[0].email || "-"}</p>
-                  <p>Scope: {teachers[0].class_scope === "hs" ? "Higher Secondary" : "School"}</p>
+                  <p>Scope: {formatScopeLabel(teachers[0].class_scope)}</p>
                 </div>
               </div>
               <div>
@@ -719,8 +826,11 @@ const Teachers = () => {
                   }))
                 }
               >
-                <option value="school">School</option>
-                <option value="hs">Higher Secondary</option>
+                {scopeOptions.map((scope) => (
+                  <option key={scope.code} value={scope.code}>
+                    {scope.name}
+                  </option>
+                ))}
               </select>
 
               <Label>Email</Label>

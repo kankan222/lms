@@ -57,6 +57,15 @@ export async function getStreams(req, res, next) {
   }
 }
 
+export async function getScopes(req, res, next) {
+  try {
+    const data = await service.getScopes();
+    res.json({ success: true, data });
+  } catch (err) {
+    next(err);
+  }
+}
+
 export async function createStream(req, res, next) {
   try {
     await service.createStream(req.body);

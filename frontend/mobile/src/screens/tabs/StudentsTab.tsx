@@ -22,6 +22,14 @@ type EditForm = { id: number | null; admission_no: string; name: string; mobile:
 const EMPTY_CREATE: CreateForm = { admission_no: "", name: "", mobile: "", gender: "", dob: "", date_of_admission: "", session_id: null, class_id: null, section_id: null, roll_number: "", stream: "", father_name: "", father_mobile: "", mother_name: "", mother_mobile: "" };
 const EMPTY_EDIT: EditForm = { id: null, admission_no: "", name: "", mobile: "", gender: "", dob: "", date_of_admission: "", session_id: null, class_id: null, section_id: null, roll_number: "", stream: "", class_scope: "school" };
 const STREAM_OPTIONS = ["Arts", "Commerce", "Science"] as const;
+const resolveScopeCodeFromClass = (item?: { class_scope?: string | null; scope_name?: string | null } | null): StudentScope => {
+  const code = String(item?.class_scope || "").trim().toLowerCase();
+  if (code === "hs" || code === "school") return code;
+  const scopeName = String(item?.scope_name || "").trim().toLowerCase();
+  if (scopeName.includes("higher secondary")) return "hs";
+  if (scopeName.includes("school")) return "school";
+  return "school";
+};
 const fmtScope = (v?: string | null) => String(v || "").trim().toLowerCase() === "hs" ? "Higher Secondary" : "School";
 const fmtDate = (v?: string | null) => { if (!v) return "-"; const d = new Date(v); return Number.isNaN(d.getTime()) ? String(v) : d.toLocaleDateString(); };
 const inputDate = (v?: string | null) => { const raw = String(v || "").trim(); if (!raw) return ""; if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw; const m = raw.match(/^(\d{4}-\d{2}-\d{2})/); if (m) return m[1]; const d = new Date(raw); return Number.isNaN(d.getTime()) ? "" : d.toISOString().slice(0, 10); };
@@ -125,10 +133,9 @@ export default function StudentsTab() {
     if (form.date_of_admission.trim() && !isDate(form.date_of_admission)) e.date_of_admission = "Admission date must be YYYY-MM-DD.";
     if (!form.session_id) e.session_id = "Session is required.";
     if (!form.class_id) e.class_id = "Class is required.";
-    if (!form.section_id) e.section_id = "Section is required.";
     if (!form.roll_number.trim()) e.roll_number = "Roll number is required.";
     const chosen = classes.find((x) => x.id === form.class_id);
-    if (chosen?.class_scope === "hs" && !form.stream.trim()) e.stream = "Stream is required for higher secondary classes.";
+    if (resolveScopeCodeFromClass(chosen) === "hs" && !form.stream.trim()) e.stream = "Stream is required for higher secondary classes.";
     if (!form.father_mobile.trim() && !form.mother_mobile.trim()) e.parent_mobile = "Enter at least one parent phone number.";
     if (form.father_mobile.trim() && !form.father_name.trim()) e.father_name = "Father name is required when father phone is entered.";
     if (form.father_mobile.trim() && !/^\d{10}$/.test(form.father_mobile.trim())) e.father_mobile = "Father phone must be 10 digits.";
@@ -146,7 +153,6 @@ export default function StudentsTab() {
     if (form.date_of_admission.trim() && !isDate(form.date_of_admission)) e.date_of_admission = "Admission date must be YYYY-MM-DD.";
     if (!form.session_id) e.session_id = "Session is required.";
     if (!form.class_id) e.class_id = "Class is required.";
-    if (!form.section_id) e.section_id = "Section is required.";
     if (!form.roll_number.trim()) e.roll_number = "Roll number is required.";
     if (form.class_scope === "hs" && !form.stream.trim()) e.stream = "Stream is required for higher secondary classes.";
     return e;
@@ -170,7 +176,7 @@ export default function StudentsTab() {
         enrollment: {
           session_id: Number(createForm.session_id),
           class_id: Number(createForm.class_id),
-          section_id: Number(createForm.section_id),
+          section_id: createForm.section_id ? Number(createForm.section_id) : undefined,
           medium: String((classes.find((x) => x.id === createForm.class_id)?.sections || []).find((s) => s.id === createForm.section_id)?.medium || "").trim() || undefined,
           roll_number: createForm.roll_number.trim(),
           stream: createForm.stream.trim() || undefined,
@@ -205,7 +211,10 @@ export default function StudentsTab() {
       section_id: student.section_id || null,
       roll_number: String(student.roll_number || ""),
       stream: student.stream_name || "",
-      class_scope: (student.class_scope || matched?.class_scope || "school") as StudentScope,
+      class_scope: resolveScopeCodeFromClass({
+        class_scope: student.class_scope || matched?.class_scope,
+        scope_name: (student as Student & { scope_name?: string | null }).scope_name || matched?.scope_name,
+      }),
     });
     setEditErrors({});
     setEditOpen(true);
@@ -227,7 +236,7 @@ export default function StudentsTab() {
         date_of_admission: editForm.date_of_admission.trim() || undefined,
         session_id: Number(editForm.session_id),
         class_id: Number(editForm.class_id),
-        section_id: Number(editForm.section_id),
+        section_id: editForm.section_id ? Number(editForm.section_id) : undefined,
         roll_number: editForm.roll_number.trim(),
         stream: editForm.class_scope === "hs" ? editForm.stream.trim() || undefined : "",
       });
@@ -387,7 +396,10 @@ export default function StudentsTab() {
           const matched = classes.find((x) => x.id === student.class_id) || classes.find((x) => x.name?.toLowerCase() === String(student.class || "").toLowerCase()) || null;
           const matchedSection = (matched?.sections || []).find((section) => String(section.id) === String(student.section_id || ""));
           const medium = student.medium || matchedSection?.medium || "Not set";
-          const scopeLabel = fmtScope(student.class_scope || matched?.class_scope || "school");
+          const scopeLabel = fmtScope(resolveScopeCodeFromClass({
+            class_scope: student.class_scope || matched?.class_scope,
+            scope_name: (student as Student & { scope_name?: string | null }).scope_name || matched?.scope_name,
+          }));
           return (
             <Pressable key={student.id} style={[styles.studentCard, { backgroundColor: theme.card, borderColor: theme.border }]} onPress={() => openDetails(student)}>
               <View style={styles.cardTop}>
@@ -409,7 +421,10 @@ export default function StudentsTab() {
                 </View>
                 <View style={styles.metaLine}>
                   <Text style={[styles.detailText, styles.metaLineText, { color: theme.subText }]}>Medium: {medium}</Text>
-                  {String(student.class_scope || matched?.class_scope || "school").toLowerCase() === "hs" ? <Text style={[styles.detailText, styles.metaLineText, { color: theme.subText }]}>Stream: {student.stream_name || "-"}</Text> : null}
+                  {resolveScopeCodeFromClass({
+                    class_scope: student.class_scope || matched?.class_scope,
+                    scope_name: (student as Student & { scope_name?: string | null }).scope_name || matched?.scope_name,
+                  }) === "hs" ? <Text style={[styles.detailText, styles.metaLineText, { color: theme.subText }]}>Stream: {student.stream_name || "-"}</Text> : null}
                 </View>
                 <View style={styles.metaLine}>
                   <Text style={[styles.detailText, styles.metaLineText, { color: theme.subText }]}>Phone: {student.phone || student.mobile || "-"}</Text>
@@ -445,8 +460,8 @@ export default function StudentsTab() {
           <FormLabel label="Mother phone" /><TextInput style={[styles.input, { borderColor: theme.border, backgroundColor: theme.inputBg, color: theme.text }]} value={createForm.mother_mobile} onChangeText={(v) => setCreateForm((p) => ({ ...p, mother_mobile: v }))} keyboardType="phone-pad" placeholderTextColor={theme.mutedText} /><FieldError message={createErrors.mother_mobile} /><FieldError message={createErrors.parent_mobile} />
           <SelectField label="Session *" value={createForm.session_id === null ? "" : String(createForm.session_id)} onChange={(value) => setCreateForm((p) => ({ ...p, session_id: value ? Number(value) : null }))} options={sessions.map((item) => ({ label: item.name, value: String(item.id) }))} placeholder="Choose session" /><FieldError message={createErrors.session_id} />
           <SelectField label="Class *" value={createForm.class_id === null ? "" : String(createForm.class_id)} onChange={(value) => setCreateForm((p) => ({ ...p, class_id: value ? Number(value) : null, section_id: null, stream: "" }))} options={classes.map((item) => ({ label: item.name, value: String(item.id) }))} placeholder="Choose class" /><FieldError message={createErrors.class_id} />
-          <SelectField label="Section *" value={createForm.section_id === null ? "" : String(createForm.section_id)} onChange={(value) => setCreateForm((p) => ({ ...p, section_id: value ? Number(value) : null }))} options={(createClass?.sections || []).map((section) => ({ label: `${section.name}${section.medium ? ` (${section.medium})` : ""}`, value: String(section.id) }))} placeholder="Choose section" disabled={!createClass} /><FieldError message={createErrors.section_id} />
-          {createClass?.class_scope === "hs" ? <><SelectField label="Stream *" value={createForm.stream} onChange={(value) => setCreateForm((p) => ({ ...p, stream: value }))} options={STREAM_OPTIONS.map((item) => ({ label: item, value: item }))} placeholder="Choose stream" /><FieldError message={createErrors.stream} /></> : null}
+          <SelectField label="Section (Optional)" value={createForm.section_id === null ? "" : String(createForm.section_id)} onChange={(value) => setCreateForm((p) => ({ ...p, section_id: value ? Number(value) : null }))} options={(createClass?.sections || []).map((section) => ({ label: `${section.name}${section.medium ? ` (${section.medium})` : ""}`, value: String(section.id) }))} placeholder="Choose section" disabled={!createClass} />
+          {resolveScopeCodeFromClass(createClass) === "hs" ? <><SelectField label="Stream *" value={createForm.stream} onChange={(value) => setCreateForm((p) => ({ ...p, stream: value }))} options={STREAM_OPTIONS.map((item) => ({ label: item, value: item }))} placeholder="Choose stream" /><FieldError message={createErrors.stream} /></> : null}
           <View style={styles.rowActions}><Pressable style={[styles.secondaryBtn, { borderColor: theme.border, backgroundColor: theme.card }]} onPress={() => setCreateOpen(false)}><Text style={[styles.secondaryBtnText, { color: theme.text }]}>Cancel</Text></Pressable><Pressable style={[styles.successBtn, { backgroundColor: theme.success, borderColor: theme.successBorder }]} onPress={handleCreate} disabled={saving}><Text style={[styles.successBtnText, { color: theme.successText }]}>{saving ? "Saving..." : "Save"}</Text></Pressable></View>
         </Sheet>
       </Modal>
@@ -462,9 +477,10 @@ export default function StudentsTab() {
           <SelectField label="Session *" value={editForm.session_id === null ? "" : String(editForm.session_id)} onChange={(value) => setEditForm((p) => ({ ...p, session_id: value ? Number(value) : null }))} options={sessions.map((item) => ({ label: item.name, value: String(item.id) }))} placeholder="Choose session" /><FieldError message={editErrors.session_id} />
           <SelectField label="Class *" value={editForm.class_id === null ? "" : String(editForm.class_id)} onChange={(value) => {
             const item = classes.find((row) => String(row.id) === String(value));
-            setEditForm((p) => ({ ...p, class_id: value ? Number(value) : null, section_id: null, class_scope: ((item?.class_scope || "school") as StudentScope), stream: item?.class_scope === "hs" ? p.stream : "" }));
+            const scope = resolveScopeCodeFromClass(item);
+            setEditForm((p) => ({ ...p, class_id: value ? Number(value) : null, section_id: null, class_scope: scope, stream: scope === "hs" ? p.stream : "" }));
           }} options={classes.map((item) => ({ label: item.name, value: String(item.id) }))} placeholder="Choose class" /><FieldError message={editErrors.class_id} />
-          <SelectField label="Section *" value={editForm.section_id === null ? "" : String(editForm.section_id)} onChange={(value) => setEditForm((p) => ({ ...p, section_id: value ? Number(value) : null }))} options={(editClass?.sections || []).map((section) => ({ label: `${section.name}${section.medium ? ` (${section.medium})` : ""}`, value: String(section.id) }))} placeholder="Choose section" disabled={!editClass} /><FieldError message={editErrors.section_id} />
+          <SelectField label="Section (Optional)" value={editForm.section_id === null ? "" : String(editForm.section_id)} onChange={(value) => setEditForm((p) => ({ ...p, section_id: value ? Number(value) : null }))} options={(editClass?.sections || []).map((section) => ({ label: `${section.name}${section.medium ? ` (${section.medium})` : ""}`, value: String(section.id) }))} placeholder="Choose section" disabled={!editClass} />
           <FormLabel label="Roll number *" /><TextInput style={[styles.input, { borderColor: theme.border, backgroundColor: theme.inputBg, color: theme.text }]} value={editForm.roll_number} onChangeText={(v) => setEditForm((p) => ({ ...p, roll_number: v }))} placeholderTextColor={theme.mutedText} /><FieldError message={editErrors.roll_number} />
           {editForm.class_scope === "hs" ? <><SelectField label="Stream *" value={editForm.stream} onChange={(value) => setEditForm((p) => ({ ...p, stream: value }))} options={STREAM_OPTIONS.map((item) => ({ label: item, value: item }))} placeholder="Choose stream" /><FieldError message={editErrors.stream} /></> : null}
           <View style={styles.rowActions}><Pressable style={[styles.secondaryBtn, { borderColor: theme.border, backgroundColor: theme.card }]} onPress={() => setEditOpen(false)}><Text style={[styles.secondaryBtnText, { color: theme.text }]}>Cancel</Text></Pressable><Pressable style={[styles.successBtn, { backgroundColor: theme.success, borderColor: theme.successBorder }]} onPress={handleUpdate} disabled={saving}><Text style={[styles.successBtnText, { color: theme.successText }]}>{saving ? "Saving..." : "Update"}</Text></Pressable></View>

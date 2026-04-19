@@ -12,7 +12,9 @@ export type SectionMedium = "English" | "Assamese";
 export type ClassItem = {
   id: number;
   name: string;
+  scope_id?: number | null;
   class_scope?: ClassScope;
+  scope_name?: string | null;
   medium?: string | null;
   mediums?: SectionMedium[];
   sections: string;
@@ -34,7 +36,9 @@ export type ClassStructureSubject = {
 export type ClassStructureItem = {
   id: number;
   name: string;
+  scope_id?: number | null;
   class_scope?: ClassScope;
+  scope_name?: string | null;
   medium?: string | null;
   mediums?: SectionMedium[];
   sections: ClassStructureSection[];
@@ -82,5 +86,17 @@ export async function getClassStructure() {
 
 export async function getSessions() {
   const response = await api.get<ApiEnvelope<SessionItem[]>>("/academic/sessions");
+  return response.data.data ?? [];
+}
+
+export type ScopeItem = {
+  id: number;
+  code: ClassScope | string;
+  name: string;
+  is_active?: number | boolean;
+};
+
+export async function getScopes() {
+  const response = await api.get<ApiEnvelope<ScopeItem[]>>("/academic/scopes");
   return response.data.data ?? [];
 }

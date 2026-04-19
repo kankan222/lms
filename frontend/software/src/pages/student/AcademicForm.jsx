@@ -10,6 +10,17 @@ const STREAM_OPTIONS = [
   { value: "Science", label: "Science" },
 ];
 
+function resolveScopeCodeFromClass(classItem) {
+  const code = String(classItem?.class_scope || "").trim().toLowerCase();
+  if (code === "hs" || code === "school") return code;
+
+  const scopeName = String(classItem?.scope_name || "").trim().toLowerCase();
+  if (scopeName.includes("higher secondary")) return "hs";
+  if (scopeName.includes("school")) return "school";
+
+  return "school";
+}
+
 export default function AcademicForm({ update, errors = {} }) {
   const [sessions, setSessions] = useState([]);
   const [classes, setClasses] = useState([]);
@@ -88,10 +99,9 @@ export default function AcademicForm({ update, errors = {} }) {
         </Field>
 
         <Field>
-          <Label>Section *</Label>
+          <Label>Section (Optional)</Label>
 
           <select
-            required
             className="border rounded p-2 w-full"
             disabled={!classId}
             onChange={(e) => {
@@ -111,14 +121,12 @@ export default function AcademicForm({ update, errors = {} }) {
             ))}
 
           </select>
-          {errors.section_id && <p className="text-xs text-red-500">{errors.section_id}</p>}
           {selectedSection?.medium && (
             <p className="text-xs text-muted-foreground">Medium: {selectedSection.medium}</p>
           )}
-          {errors.medium && <p className="text-xs text-red-500">{errors.medium}</p>}
         </Field>
 
-        {selectedClass?.class_scope === "hs" ? (
+        {resolveScopeCodeFromClass(selectedClass) === "hs" ? (
           <Field>
             <Label>Stream *</Label>
 

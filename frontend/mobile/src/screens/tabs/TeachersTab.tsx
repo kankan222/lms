@@ -5,12 +5,13 @@ import * as ImagePicker from "expo-image-picker";
 import TopNotice from "../../components/feedback/TopNotice";
 import { useAuthStore } from "../../store/authStore";
 import { assignTeacher, createTeacher, deleteTeacher, getTeacherAssignments, getTeachers, removeAssignment, resolveTeacherPhotoUrl, TeacherAssignment, TeacherItem, updateTeacher } from "../../services/teachersService";
-import { ClassStructureItem, getClassStructure, getSessions, SessionItem } from "../../services/classesService";
+import { ClassStructureItem, getClassStructure, getScopes, getSessions, SessionItem } from "../../services/classesService";
 import TeacherDetailsModule from "./teachers/TeacherDetailsModule";
 import { useAppTheme } from "../../theme/AppThemeProvider";
 
 type TeacherScope = "school" | "hs";
 type ScopeFilter = "all" | TeacherScope;
+type ScopeOption = { code: TeacherScope; name: string };
 type Notice = { title: string; message: string; tone: "success" | "error" } | null;
 type DeleteTarget = { id: number; name: string } | null;
 type TeacherPhoto = { uri: string; name?: string; type?: string } | null;
@@ -18,14 +19,28 @@ type TeacherForm = { id?: number | null; employee_id: string; name: string; phon
 type AssignmentForm = { class_id: number | null; section_id: number | null; subject_id: number | null; session_id: number | null };
 type AssignmentSelections = { sections: number[]; subjects: number[] };
 
+const DEFAULT_SCOPE_OPTIONS: ScopeOption[] = [
+  { code: "school", name: "School" },
+  { code: "hs", name: "Higher Secondary" },
+];
 const EMPTY_CREATE: TeacherForm = { employee_id: "", name: "", phone: "", email: "", class_scope: "school", password: "", photo: null, photo_preview: null };
 const EMPTY_EDIT: TeacherForm = { id: null, employee_id: "", name: "", phone: "", email: "", class_scope: "school", photo: null, photo_preview: null };
 const EMPTY_ASSIGNMENT: AssignmentForm = { class_id: null, section_id: null, subject_id: null, session_id: null };
 
 const getErrorMessage = (err: unknown, fallback: string) => typeof err === "object" && err && "response" in err ? ((err as { response?: { data?: { message?: string; error?: string } } }).response?.data?.error || (err as { response?: { data?: { message?: string; error?: string } } }).response?.data?.message || fallback) : fallback;
-const formatScope = (scope?: string | null) => scope === "hs" ? "Higher Secondary" : "School";
-function isHsClassName(name: string) { const value = String(name || "").trim().toLowerCase(); return Boolean(value && (value.includes("higher secondary") || /\bhs\b/.test(value) || /\b(11|12|xi|xii)\b/.test(value) || value.includes("1st year") || value.includes("2nd year"))); }
-function matchesScope(item: ClassStructureItem, scope: TeacherScope) { const resolved = item.class_scope ?? (isHsClassName(item.name) ? "hs" : "school"); return scope === "hs" ? resolved === "hs" : resolved !== "hs"; }
+function resolveScopeCode(scopeCode?: string | null, scopeName?: string | null): TeacherScope {
+  const code = String(scopeCode || "").trim().toLowerCase();
+  if (code === "hs" || code === "school") return code;
+  if (code.includes("higher secondary")) return "hs";
+  if (code.includes("school")) return "school";
+
+  const name = String(scopeName || "").trim().toLowerCase();
+  if (name.includes("higher secondary")) return "hs";
+  if (name.includes("school")) return "school";
+  return "school";
+}
+function formatScopeLabel(scopeCode?: string | null) { return resolveScopeCode(scopeCode) === "hs" ? "Higher Secondary" : "School"; }
+function matchesScope(item: ClassStructureItem, scope: TeacherScope) { return resolveScopeCode(item.class_scope, item.scope_name) === scope; }
 function deriveAssignmentSelections(rows: TeacherAssignment[], classId: number | null, sessionId: number | null): AssignmentSelections {
   const scopedRows = rows.filter((row) => {
     const matchesClass = classId ? Number(row.class_id) === Number(classId) : true;
@@ -39,7 +54,7 @@ function deriveAssignmentSelections(rows: TeacherAssignment[], classId: number |
   };
 }
 
-function validateTeacher(form: TeacherForm, requirePassword = false) {
+function validateTeacher(form: TeacherForm, allowedScopeCodes: TeacherScope[], requirePassword = false) {
   const name = String(form.name || "").trim();
   const phone = String(form.phone || "").trim();
   const email = String(form.email || "").trim();
@@ -47,7 +62,7 @@ function validateTeacher(form: TeacherForm, requirePassword = false) {
   if (!phone && !email) return "Provide either phone or email.";
   if (phone && !/^\d{10}$/.test(phone)) return "Phone must be 10 digits.";
   if (email && !/^\S+@\S+\.\S+$/.test(email)) return "Valid email required.";
-  if (!["school", "hs"].includes(String(form.class_scope || ""))) return "Class scope is required.";
+  if (!allowedScopeCodes.includes(resolveScopeCode(form.class_scope))) return "Class scope is required.";
   if (requirePassword && String(form.password || "").length < 6) return "Password must be at least 6 characters.";
   return null;
 }
@@ -108,6 +123,7 @@ export default function TeachersTab() {
   const [teachers, setTeachers] = useState<TeacherItem[]>([]);
   const [classStructure, setClassStructure] = useState<ClassStructureItem[]>([]);
   const [sessions, setSessions] = useState<SessionItem[]>([]);
+  const [scopeOptions, setScopeOptions] = useState<ScopeOption[]>(DEFAULT_SCOPE_OPTIONS);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -130,39 +146,64 @@ export default function TeachersTab() {
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget>(null);
   const [assignments, setAssignments] = useState<TeacherAssignment[]>([]);
 
+  const allowedScopeCodes = useMemo(() => scopeOptions.map((item) => item.code), [scopeOptions]);
+  const defaultScopeCode = allowedScopeCodes[0] ?? "school";
+  const scopeLabelByCode = useMemo(() => Object.fromEntries(scopeOptions.map((item) => [item.code, item.name])) as Record<TeacherScope, string>, [scopeOptions]);
+  const getScopeLabel = useCallback(
+    (scopeCode?: string | null, scopeName?: string | null) => {
+      const resolved = resolveScopeCode(scopeCode, scopeName);
+      return scopeLabelByCode[resolved] || String(scopeName || "").trim() || formatScopeLabel(resolved);
+    },
+    [scopeLabelByCode],
+  );
+  const scopeFilterOptions = useMemo(() => [{ code: "all", name: "All" } as const, ...scopeOptions], [scopeOptions]);
   const activeSession = useMemo(() => sessions.find((s) => Number(s.is_active) === 1 || s.is_active === true) ?? null, [sessions]);
   const filteredTeachers = useMemo(() => {
     const query = search.trim().toLowerCase();
     return teachers.filter((teacher) => {
       const matchesQuery = !query || [teacher.name, teacher.employee_id, teacher.phone, teacher.email].join(" ").toLowerCase().includes(query);
-      const matches = scopeFilter === "all" || (teacher.class_scope ?? "school") === scopeFilter;
+      const matches = scopeFilter === "all" || resolveScopeCode(teacher.class_scope, teacher.scope_name) === scopeFilter;
       return matchesQuery && matches;
     });
   }, [teachers, search, scopeFilter]);
   const selfTeacher = !canManageTeachers ? teachers[0] ?? null : null;
-  const filteredAssignmentClasses = useMemo(() => classStructure.filter((item) => matchesScope(item, (selectedTeacher?.class_scope ?? "school") as TeacherScope)), [classStructure, selectedTeacher?.class_scope]);
+  const filteredAssignmentClasses = useMemo(() => classStructure.filter((item) => matchesScope(item, resolveScopeCode(selectedTeacher?.class_scope, selectedTeacher?.scope_name))), [classStructure, selectedTeacher?.class_scope, selectedTeacher?.scope_name]);
   const selectedClass = useMemo(() => filteredAssignmentClasses.find((item) => item.id === assignmentForm.class_id) ?? null, [filteredAssignmentClasses, assignmentForm.class_id]);
   const stats = useMemo(() => {
-    const school = teachers.filter((t) => (t.class_scope ?? "school") === "school").length;
-    const hs = teachers.filter((t) => (t.class_scope ?? "school") === "hs").length;
+    const school = teachers.filter((t) => resolveScopeCode(t.class_scope, t.scope_name) === "school").length;
+    const hs = teachers.filter((t) => resolveScopeCode(t.class_scope, t.scope_name) === "hs").length;
     const withPhone = teachers.filter((t) => String(t.phone || "").trim()).length;
     return [
       { label: "Total Teachers", value: teachers.length, accent: theme.infoSoft, border: theme.infoBorder, tone: theme.infoText },
-      { label: "School", value: school, accent: theme.successSoft, border: theme.successBorder, tone: theme.success },
-      { label: "Higher Secondary", value: hs, accent: theme.card, border: theme.border, tone: theme.text },
+      { label: getScopeLabel("school"), value: school, accent: theme.successSoft, border: theme.successBorder, tone: theme.success },
+      { label: getScopeLabel("hs"), value: hs, accent: theme.card, border: theme.border, tone: theme.text },
       { label: "Phone Linked", value: withPhone, accent: theme.warningSoft, border: theme.warningBorder, tone: theme.warningText },
     ];
-  }, [teachers, theme]);
+  }, [teachers, theme, getScopeLabel]);
 
   const loadData = useCallback(async (mode: "initial" | "refresh" = "initial") => {
     if (mode === "refresh") setRefreshing(true); else setLoading(true);
     setError(null);
     try {
-      const [teacherRows, structureRows, sessionRows] = await Promise.all([getTeachers(), getClassStructure(), getSessions()]);
-      setTeachers(teacherRows.map((teacher) => ({ ...teacher, class_scope: (teacher.class_scope ?? "school") as TeacherScope })));
+      const [teacherRows, structureRows, sessionRows, scopeRows] = await Promise.all([getTeachers(), getClassStructure(), getSessions(), getScopes()]);
+      const mappedScopeOptions = Array.from(
+        new Map(
+          scopeRows
+            .filter((row) => row.is_active === undefined || row.is_active === null || Number(row.is_active) === 1 || row.is_active === true)
+            .map((row) => {
+              const code = resolveScopeCode(row.code, row.name);
+              return { code, name: String(row.name || "").trim() || formatScopeLabel(code) };
+            })
+            .filter((row) => row.code === "school" || row.code === "hs")
+            .map((row) => [row.code, row] as const),
+        ).values(),
+      );
+      setScopeOptions(mappedScopeOptions.length ? mappedScopeOptions : DEFAULT_SCOPE_OPTIONS);
+      setTeachers(teacherRows.map((teacher) => ({ ...teacher, class_scope: resolveScopeCode(teacher.class_scope, teacher.scope_name) })));
       setClassStructure(structureRows);
       setSessions(sessionRows);
     } catch (err: unknown) {
+      setScopeOptions(DEFAULT_SCOPE_OPTIONS);
       setError(getErrorMessage(err, "Could not load teachers."));
     } finally {
       if (mode === "refresh") setRefreshing(false); else setLoading(false);
@@ -172,6 +213,13 @@ export default function TeachersTab() {
   useEffect(() => { loadData(); }, [loadData]);
   useEffect(() => { if (activeSession && assignmentForm.session_id === null) setAssignmentForm((prev) => ({ ...prev, session_id: activeSession.id })); }, [activeSession, assignmentForm.session_id]);
   useEffect(() => { if (!notice) return undefined; const timer = setTimeout(() => setNotice(null), 3200); return () => clearTimeout(timer); }, [notice]);
+  useEffect(() => {
+    const fallbackScope = allowedScopeCodes[0] ?? "school";
+    if (!allowedScopeCodes.length) return;
+    if (!allowedScopeCodes.includes(createForm.class_scope)) setCreateForm((prev) => ({ ...prev, class_scope: fallbackScope }));
+    if (editForm.id && !allowedScopeCodes.includes(editForm.class_scope)) setEditForm((prev) => ({ ...prev, class_scope: fallbackScope }));
+    if (scopeFilter !== "all" && !allowedScopeCodes.includes(scopeFilter)) setScopeFilter("all");
+  }, [allowedScopeCodes, createForm.class_scope, editForm.class_scope, editForm.id, scopeFilter]);
 
   function showNotice(title: string, message: string, tone: "success" | "error" = "success") { setNotice({ title, message, tone }); }
 
@@ -210,13 +258,13 @@ export default function TeachersTab() {
   }
 
   async function handleCreate() {
-    const validation = validateTeacher(createForm, true);
+    const validation = validateTeacher(createForm, allowedScopeCodes, true);
     if (validation) return Alert.alert("Validation", validation);
     setSaving(true);
     try {
       await createTeacher({ employee_id: createForm.employee_id.trim(), name: createForm.name.trim(), phone: createForm.phone.trim(), email: createForm.email.trim(), class_scope: createForm.class_scope, password: String(createForm.password || ""), photo: createForm.photo });
       setCreateOpen(false);
-      setCreateForm(EMPTY_CREATE);
+      setCreateForm({ ...EMPTY_CREATE, class_scope: defaultScopeCode });
       await loadData("refresh");
       showNotice("Teacher Created", "Teacher record created successfully.");
     } catch (err: unknown) {
@@ -227,19 +275,19 @@ export default function TeachersTab() {
   }
 
   function openEdit(teacher: TeacherItem) {
-    setEditForm({ id: teacher.id, employee_id: teacher.employee_id ?? "", name: teacher.name ?? "", phone: teacher.phone ?? "", email: teacher.email ?? "", class_scope: (teacher.class_scope ?? "school") as TeacherScope, photo: null, photo_preview: resolveTeacherPhotoUrl(teacher.photo_url) });
+    setEditForm({ id: teacher.id, employee_id: teacher.employee_id ?? "", name: teacher.name ?? "", phone: teacher.phone ?? "", email: teacher.email ?? "", class_scope: resolveScopeCode(teacher.class_scope, teacher.scope_name), photo: null, photo_preview: resolveTeacherPhotoUrl(teacher.photo_url) });
     setEditOpen(true);
   }
 
   async function handleEdit() {
-    const validation = validateTeacher(editForm, false);
+    const validation = validateTeacher(editForm, allowedScopeCodes, false);
     if (validation) return Alert.alert("Validation", validation);
     if (!editForm.id) return;
     setSaving(true);
     try {
       await updateTeacher(editForm.id, { employee_id: editForm.employee_id.trim(), name: editForm.name.trim(), phone: editForm.phone.trim(), email: editForm.email.trim(), class_scope: editForm.class_scope, photo: editForm.photo });
       setEditOpen(false);
-      setEditForm(EMPTY_EDIT);
+      setEditForm({ ...EMPTY_EDIT, class_scope: defaultScopeCode });
       await loadData("refresh");
       showNotice("Teacher Updated", "Teacher record updated successfully.");
     } catch (err: unknown) {
@@ -364,11 +412,11 @@ export default function TeachersTab() {
           <View style={styles.rowBetween}><Text style={[styles.sectionTitle, { color: theme.text }]}>Teacher Directory</Text><Text style={[styles.hint, { color: theme.subText }]}>{filteredTeachers.length} visible</Text></View>
           <FormInput label="Search" value={search} onChangeText={setSearch} placeholder="Name, employee ID, phone or email" autoCapitalize="none" />
           <Text style={[styles.inputLabel, { color: theme.subText }]}>Scope</Text>
-          <View style={styles.filterRow}>{(["all", "school", "hs"] as ScopeFilter[]).map((scope) => <Pressable key={scope} style={[styles.filterChip, { borderColor: theme.border, backgroundColor: theme.cardMuted }, scopeFilter === scope && { borderColor: theme.primary, backgroundColor: theme.isDark ? "#f8fafc" : theme.primary }]} onPress={() => setScopeFilter(scope)}><Text style={[styles.filterChipText, { color: theme.subText }, scopeFilter === scope && { color: theme.isDark ? "#0f172a" : theme.primaryText }]}>{scope === "all" ? "All" : formatScope(scope)}</Text></Pressable>)}</View>
+          <View style={styles.filterRow}>{scopeFilterOptions.map((scope) => <Pressable key={scope.code} style={[styles.filterChip, { borderColor: theme.border, backgroundColor: theme.cardMuted }, scopeFilter === scope.code && { borderColor: theme.primary, backgroundColor: theme.isDark ? "#f8fafc" : theme.primary }]} onPress={() => setScopeFilter(scope.code as ScopeFilter)}><Text style={[styles.filterChipText, { color: theme.subText }, scopeFilter === scope.code && { color: theme.isDark ? "#0f172a" : theme.primaryText }]}>{scope.name}</Text></Pressable>)}</View>
         </View> : null}
 
         {selfTeacher ? <View style={[styles.teacherCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
-          <View style={styles.cardTop}><View style={[styles.avatarBadge, { backgroundColor: theme.cardMuted }]}>{resolveTeacherPhotoUrl(selfTeacher.photo_url) ? <Image source={{ uri: resolveTeacherPhotoUrl(selfTeacher.photo_url)! }} style={styles.avatarImage} /> : <Text style={[styles.avatarText, { color: theme.text }]}>{selfTeacher.name?.slice(0, 1)?.toUpperCase() || "T"}</Text>}</View><View style={styles.cardCopy}><Text style={[styles.teacherName, { color: theme.text }]}>{selfTeacher.name}</Text><Text style={[styles.teacherMeta, { color: theme.subText }]}>{formatScope(selfTeacher.class_scope)}</Text></View></View>
+          <View style={styles.cardTop}><View style={[styles.avatarBadge, { backgroundColor: theme.cardMuted }]}>{resolveTeacherPhotoUrl(selfTeacher.photo_url) ? <Image source={{ uri: resolveTeacherPhotoUrl(selfTeacher.photo_url)! }} style={styles.avatarImage} /> : <Text style={[styles.avatarText, { color: theme.text }]}>{selfTeacher.name?.slice(0, 1)?.toUpperCase() || "T"}</Text>}</View><View style={styles.cardCopy}><Text style={[styles.teacherName, { color: theme.text }]}>{selfTeacher.name}</Text><Text style={[styles.teacherMeta, { color: theme.subText }]}>{getScopeLabel(selfTeacher.class_scope, selfTeacher.scope_name)}</Text></View></View>
           <View style={styles.detailList}><Text style={[styles.detailText, { color: theme.subText }]}>Employee ID: {selfTeacher.employee_id || "-"}</Text><Text style={[styles.detailText, { color: theme.subText }]}>Phone: {selfTeacher.phone || "-"}</Text><Text style={[styles.detailText, { color: theme.subText }]}>Email: {selfTeacher.email || "-"}</Text></View>
           <View style={styles.cardActions}>
             <CardAction icon="eye-outline" label="Details" onPress={() => openDetails(selfTeacher)} />
@@ -376,7 +424,7 @@ export default function TeachersTab() {
           </View>
         </View> : <View style={styles.grid}>
           {filteredTeachers.map((teacher) => <View key={teacher.id} style={[styles.teacherCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
-            <View style={styles.cardTop}><View style={[styles.avatarBadge, { backgroundColor: theme.cardMuted }]}>{resolveTeacherPhotoUrl(teacher.photo_url) ? <Image source={{ uri: resolveTeacherPhotoUrl(teacher.photo_url)! }} style={styles.avatarImage} /> : <Text style={[styles.avatarText, { color: theme.text }]}>{teacher.name?.slice(0, 1)?.toUpperCase() || "T"}</Text>}</View><View style={styles.cardCopy}><Text style={[styles.teacherName, { color: theme.text }]}>{teacher.name}</Text><Text style={[styles.teacherMeta, { color: theme.subText }]}>{formatScope(teacher.class_scope)}</Text></View></View>
+            <View style={styles.cardTop}><View style={[styles.avatarBadge, { backgroundColor: theme.cardMuted }]}>{resolveTeacherPhotoUrl(teacher.photo_url) ? <Image source={{ uri: resolveTeacherPhotoUrl(teacher.photo_url)! }} style={styles.avatarImage} /> : <Text style={[styles.avatarText, { color: theme.text }]}>{teacher.name?.slice(0, 1)?.toUpperCase() || "T"}</Text>}</View><View style={styles.cardCopy}><Text style={[styles.teacherName, { color: theme.text }]}>{teacher.name}</Text><Text style={[styles.teacherMeta, { color: theme.subText }]}>{getScopeLabel(teacher.class_scope, teacher.scope_name)}</Text></View></View>
             <View style={styles.detailList}><Text style={[styles.detailText, { color: theme.subText }]}>Employee ID: {teacher.employee_id || "-"}</Text><Text style={[styles.detailText, { color: theme.subText }]}>Phone: {teacher.phone || "-"}</Text><Text style={[styles.detailText, { color: theme.subText }]}>Email: {teacher.email || "-"}</Text></View>
             <View style={styles.cardActions}>
               <CardAction icon="eye-outline" label="Details" onPress={() => openDetails(teacher)} />
@@ -392,28 +440,28 @@ export default function TeachersTab() {
       </>}
 
       <Modal visible={createOpen} transparent animationType="slide" onRequestClose={() => setCreateOpen(false)}>
-        <Sheet title="Add Teacher" subtitle="Create a teacher profile and linked user account." onClose={() => { setCreateOpen(false); setCreateForm(EMPTY_CREATE); }}>
+        <Sheet title="Add Teacher" subtitle="Create a teacher profile and linked user account." onClose={() => { setCreateOpen(false); setCreateForm({ ...EMPTY_CREATE, class_scope: defaultScopeCode }); }}>
           <PhotoField label="Photo" previewUri={createForm.photo_preview} onPick={() => pickTeacherPhoto("create")} onRemove={() => clearTeacherPhoto("create")} />
           <FormInput label="Employee ID" value={createForm.employee_id} onChangeText={(value) => setCreateForm((prev) => ({ ...prev, employee_id: value }))} placeholder="EMP001" />
           <FormInput label="Name *" value={createForm.name} onChangeText={(value) => setCreateForm((prev) => ({ ...prev, name: value }))} placeholder="Teacher name" />
           <FormInput label="Phone" value={createForm.phone} onChangeText={(value) => setCreateForm((prev) => ({ ...prev, phone: value }))} placeholder="10 digit phone" keyboardType="phone-pad" />
           <FormInput label="Email" value={createForm.email} onChangeText={(value) => setCreateForm((prev) => ({ ...prev, email: value }))} placeholder="teacher@school.com" keyboardType="email-address" autoCapitalize="none" />
           <Text style={[styles.inputLabel, { color: theme.subText }]}>Class Scope *</Text>
-          <View style={styles.filterRow}>{(["school", "hs"] as TeacherScope[]).map((scope) => <Pressable key={scope} style={[styles.filterChip, { borderColor: theme.border, backgroundColor: theme.cardMuted }, createForm.class_scope === scope && { borderColor: theme.primary, backgroundColor: theme.isDark ? "#f8fafc" : theme.primary }]} onPress={() => setCreateForm((prev) => ({ ...prev, class_scope: scope }))}><Text style={[styles.filterChipText, { color: theme.subText }, createForm.class_scope === scope && { color: theme.isDark ? "#0f172a" : theme.primaryText }]}>{formatScope(scope)}</Text></Pressable>)}</View>
+          <View style={styles.filterRow}>{scopeOptions.map((scope) => <Pressable key={scope.code} style={[styles.filterChip, { borderColor: theme.border, backgroundColor: theme.cardMuted }, createForm.class_scope === scope.code && { borderColor: theme.primary, backgroundColor: theme.isDark ? "#f8fafc" : theme.primary }]} onPress={() => setCreateForm((prev) => ({ ...prev, class_scope: scope.code }))}><Text style={[styles.filterChipText, { color: theme.subText }, createForm.class_scope === scope.code && { color: theme.isDark ? "#0f172a" : theme.primaryText }]}>{scope.name}</Text></Pressable>)}</View>
           <FormInput label="Password *" value={String(createForm.password || "")} onChangeText={(value) => setCreateForm((prev) => ({ ...prev, password: value }))} placeholder="Minimum 6 characters" secureTextEntry />
           <View style={styles.rowActions}><Pressable style={[styles.secondaryBtn, { borderColor: theme.border, backgroundColor: theme.card }]} onPress={() => setCreateOpen(false)}><Text style={[styles.secondaryBtnText, { color: theme.text }]}>Cancel</Text></Pressable><Pressable style={[styles.successBtn, { backgroundColor: theme.success, borderColor: theme.successBorder }]} onPress={handleCreate} disabled={saving}><Text style={[styles.successBtnText, { color: theme.successText }]}>{saving ? "Saving..." : "Save"}</Text></Pressable></View>
         </Sheet>
       </Modal>
 
       <Modal visible={editOpen} transparent animationType="slide" onRequestClose={() => setEditOpen(false)}>
-        <Sheet title="Edit Teacher" subtitle="Update teacher details to match the backend profile." onClose={() => { setEditOpen(false); setEditForm(EMPTY_EDIT); }}>
+        <Sheet title="Edit Teacher" subtitle="Update teacher details to match the backend profile." onClose={() => { setEditOpen(false); setEditForm({ ...EMPTY_EDIT, class_scope: defaultScopeCode }); }}>
           <PhotoField label="Photo" previewUri={editForm.photo_preview} onPick={() => pickTeacherPhoto("edit")} onRemove={() => clearTeacherPhoto("edit")} />
           <FormInput label="Employee ID" value={editForm.employee_id} onChangeText={(value) => setEditForm((prev) => ({ ...prev, employee_id: value }))} placeholder="EMP001" />
           <FormInput label="Name *" value={editForm.name} onChangeText={(value) => setEditForm((prev) => ({ ...prev, name: value }))} placeholder="Teacher name" />
           <FormInput label="Phone" value={editForm.phone} onChangeText={(value) => setEditForm((prev) => ({ ...prev, phone: value }))} placeholder="10 digit phone" keyboardType="phone-pad" />
           <FormInput label="Email" value={editForm.email} onChangeText={(value) => setEditForm((prev) => ({ ...prev, email: value }))} placeholder="teacher@school.com" keyboardType="email-address" autoCapitalize="none" />
           <Text style={[styles.inputLabel, { color: theme.subText }]}>Class Scope *</Text>
-          <View style={styles.filterRow}>{(["school", "hs"] as TeacherScope[]).map((scope) => <Pressable key={scope} style={[styles.filterChip, { borderColor: theme.border, backgroundColor: theme.cardMuted }, editForm.class_scope === scope && { borderColor: theme.primary, backgroundColor: theme.isDark ? "#f8fafc" : theme.primary }]} onPress={() => setEditForm((prev) => ({ ...prev, class_scope: scope }))}><Text style={[styles.filterChipText, { color: theme.subText }, editForm.class_scope === scope && { color: theme.isDark ? "#0f172a" : theme.primaryText }]}>{formatScope(scope)}</Text></Pressable>)}</View>
+          <View style={styles.filterRow}>{scopeOptions.map((scope) => <Pressable key={scope.code} style={[styles.filterChip, { borderColor: theme.border, backgroundColor: theme.cardMuted }, editForm.class_scope === scope.code && { borderColor: theme.primary, backgroundColor: theme.isDark ? "#f8fafc" : theme.primary }]} onPress={() => setEditForm((prev) => ({ ...prev, class_scope: scope.code }))}><Text style={[styles.filterChipText, { color: theme.subText }, editForm.class_scope === scope.code && { color: theme.isDark ? "#0f172a" : theme.primaryText }]}>{scope.name}</Text></Pressable>)}</View>
           <View style={styles.rowActions}><Pressable style={[styles.secondaryBtn, { borderColor: theme.border, backgroundColor: theme.card }]} onPress={() => setEditOpen(false)}><Text style={[styles.secondaryBtnText, { color: theme.text }]}>Cancel</Text></Pressable><Pressable style={[styles.successBtn, { backgroundColor: theme.success, borderColor: theme.successBorder }]} onPress={handleEdit} disabled={saving}><Text style={[styles.successBtnText, { color: theme.successText }]}>{saving ? "Saving..." : "Update"}</Text></Pressable></View>
         </Sheet>
       </Modal>

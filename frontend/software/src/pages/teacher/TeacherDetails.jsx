@@ -127,23 +127,21 @@ export default function TeacherDetails() {
     };
   }
 
-  function isHsClassName(name) {
-    const value = String(name || "").trim().toLowerCase();
-    if (!value) return false;
-    if (value.includes("higher secondary")) return true;
-    if (/\bhs\b/.test(value)) return true;
-    if (/\b(11|12|xi|xii)\b/.test(value)) return true;
-    if (value.includes("1st year") || value.includes("2nd year")) return true;
-    return false;
-  }
+  function resolveScopeCode(scopeCode, scopeName = "") {
+    const code = String(scopeCode || "").trim().toLowerCase();
+    if (code === "hs" || code === "school") return code;
+    if (code.includes("higher secondary")) return "hs";
+    if (code.includes("school")) return "school";
 
-  function matchesScope(className, scope) {
-    const hs = isHsClassName(className);
-    return scope === "hs" ? hs : !hs;
+    const name = String(scopeName || "").trim().toLowerCase();
+    if (name.includes("higher secondary")) return "hs";
+    if (name.includes("school")) return "school";
+
+    return "school";
   }
 
   const scopedClasses = classes.filter((cls) =>
-    matchesScope(cls.name, teacher?.class_scope || "school")
+    resolveScopeCode(cls.class_scope, cls.scope_name) === resolveScopeCode(teacher?.class_scope)
   );
 
   const assignedClassSections = Array.from(
@@ -179,7 +177,10 @@ export default function TeacherDetails() {
     const sessionRes = await getSessions();
     const classesRes = await getClassStructure();
 
-    setTeacher(teacherRes.data);
+    setTeacher({
+      ...teacherRes.data,
+      class_scope: resolveScopeCode(teacherRes?.data?.class_scope, teacherRes?.data?.scope_name),
+    });
     setAssignments(assignmentRes.data);
     setAttendance(attendanceRes.data || []);
     setClasses(classesRes.data || []);
@@ -338,7 +339,7 @@ export default function TeacherDetails() {
                   <Mail size={16} /> {teacher.email}
                 </span>
                 <span className="flex items-center gap-1">
-                  Scope: {teacher.class_scope === "hs" ? "Higher Secondary" : "School"}
+                  Scope: {resolveScopeCode(teacher.class_scope) === "hs" ? "Higher Secondary" : "School"}
                 </span>
               </div>
               <div className="mt-4 space-y-3">

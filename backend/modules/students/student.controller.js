@@ -39,6 +39,24 @@ function mapCsvRow(headers, values) {
   return row;
 }
 
+function normalizeOptionalId(value) {
+  if (value === undefined || value === null) {
+    return null;
+  }
+
+  const raw = String(value).trim();
+  if (!raw) {
+    return null;
+  }
+
+  const parsed = Number(raw);
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    return null;
+  }
+
+  return parsed;
+}
+
 export async function createStudent(req, res, next) {
   try {
     const payload = req.body?.payload
@@ -140,8 +158,8 @@ export async function bulkUploadStudents(req, res, next) {
       enrollment: {
         session_id: row.session_id,
         class_id: row.class_id,
-        section_id: row.section_id,
-        stream_id: row.stream_id || null,
+        section_id: normalizeOptionalId(row.section_id),
+        stream_id: normalizeOptionalId(row.stream_id),
         stream: row.stream || row.stream_name || null,
         medium: row.medium,
         roll_number: row.roll_number

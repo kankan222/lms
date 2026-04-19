@@ -1,12 +1,20 @@
 import * as repo from "./academic.repository.js";
 
 const ALLOWED_CLASS_MEDIA = new Set(["English", "Assamese"]);
-const ALLOWED_CLASS_SCOPES = new Set(["school", "hs"]);
+async function resolveClassScope(value, scopeId) {
+  const normalizedScopeId = Number(scopeId);
+  if (Number.isInteger(normalizedScopeId) && normalizedScopeId > 0) {
+    const scope = await repo.getScopeById(normalizedScopeId);
+    if (!scope) {
+      throw new Error("Invalid scope_id");
+    }
+    return scope;
+  }
 
-function normalizeClassScope(value) {
-  const scope = String(value || "school").trim().toLowerCase();
-  if (!ALLOWED_CLASS_SCOPES.has(scope)) {
-    throw new Error("Invalid class scope. Allowed values: school, hs");
+  const code = String(value || "school").trim().toLowerCase();
+  const scope = await repo.getScopeByCode(code);
+  if (!scope) {
+    throw new Error("Invalid class scope. Allowed values depend on scopes table");
   }
   return scope;
 }
@@ -103,6 +111,10 @@ export function getStreams() {
   return repo.getStreams();
 }
 
+export function getScopes() {
+  return repo.listScopes();
+}
+
 export function createStream(data) {
   return repo.createStream(normalizeStreamName(data?.name));
 }
@@ -165,8 +177,10 @@ export async function getClassStructure() {
       const mediums = normalizeMediums(r.class_medium);
       map[r.class_id] = {
         id: r.class_id,
+        scope_id: r.scope_id || null,
         name: r.class_name,
         class_scope: r.class_scope || "school",
+        scope_name: r.scope_name || null,
         medium: r.class_medium || null,
         mediums,
         _mediumSet: new Set(mediums),
@@ -222,33 +236,26 @@ export async function getClassStructure() {
   });
 
 }
-export function createClass(data) {
+export async function createClass(data) {
   if (!data.name) throw new Error("Class name required");
-  const classScope = normalizeClassScope(data.class_scope);
   const legacyMediums = normalizeMediums(data.mediums ?? data.medium);
   const sections = normalizeSections(data.sections || [], legacyMediums);
-  if (!sections.length) {
-    throw new Error("At least one section is required");
-  }
   if (sections.some((s) => !s.medium)) {
     throw new Error("Each section must have a medium");
   }
   if (sections.some((s) => !ALLOWED_CLASS_MEDIA.has(s.medium))) {
     throw new Error("Invalid section medium. Allowed values: English, Assamese");
   }
-  return repo.createClass(data.name, classScope, sections);
+  const scope = await resolveClassScope(data.class_scope, data.scope_id);
+  return repo.createClass(data.name, scope, sections, legacyMediums);
 }
-export function updateClass(id, data) {
+export async function updateClass(id, data) {
 
   if (!data.name)
     throw new Error("Class name required");
 
-  const classScope = normalizeClassScope(data.class_scope);
   const legacyMediums = normalizeMediums(data.mediums ?? data.medium);
   const sections = normalizeSections(data.sections || [], legacyMediums);
-  if (!sections.length) {
-    throw new Error("At least one section is required");
-  }
   if (sections.some((s) => !s.medium)) {
     throw new Error("Each section must have a medium");
   }
@@ -256,7 +263,8 @@ export function updateClass(id, data) {
     throw new Error("Invalid section medium. Allowed values: English, Assamese");
   }
 
-  return repo.updateClass(id, data.name, classScope, sections);
+  const scope = await resolveClassScope(data.class_scope, data.scope_id);
+  return repo.updateClass(id, data.name, scope, sections, legacyMediums);
 }
 
 export async function deleteClass(id) {

@@ -23,6 +23,9 @@ export async function deleteSession(id) {
 export async function getStreams() {
   return apiRequest("/academic/streams");
 }
+export async function getScopes() {
+  return apiRequest("/academic/scopes");
+}
 export async function createStream(data) {
   return apiRequest("/academic/streams", {
     method: "POST",

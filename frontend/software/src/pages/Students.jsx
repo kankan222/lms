@@ -130,6 +130,17 @@ function formatClassScope(value) {
   return value || "-";
 }
 
+function resolveScopeCodeFromClass(classItem) {
+  const code = String(classItem?.class_scope || "").trim().toLowerCase();
+  if (code === "hs" || code === "school") return code;
+
+  const scopeName = String(classItem?.scope_name || "").trim().toLowerCase();
+  if (scopeName.includes("higher secondary")) return "hs";
+  if (scopeName.includes("school")) return "school";
+
+  return "school";
+}
+
 function formatDateOnly(value) {
   return formatReadableDate(value);
 }
@@ -212,8 +223,14 @@ async function fetchStudentsData({ classId, sectionId, classes, sessions }) {
       contact_summary: String(row.phone || "").trim() || "-",
       medium,
       mediums: matched?.mediums || [],
-      class_scope: formatClassScope(row.class_scope || matched?.class_scope || "school"),
-      raw_class_scope: row.class_scope || matched?.class_scope || "school",
+      class_scope: formatClassScope(resolveScopeCodeFromClass({
+        class_scope: row.class_scope || matched?.class_scope,
+        scope_name: row.scope_name || matched?.scope_name,
+      })),
+      raw_class_scope: resolveScopeCodeFromClass({
+        class_scope: row.class_scope || matched?.class_scope,
+        scope_name: row.scope_name || matched?.scope_name,
+      }),
       stream_name: row.stream_name || "-"
     };
   });
@@ -373,10 +390,8 @@ export default function Student() {
 
     if (!payload?.enrollment?.session_id) next.session_id = "Session is required";
     if (!payload?.enrollment?.class_id) next.class_id = "Class is required";
-    if (!payload?.enrollment?.section_id) next.section_id = "Section is required";
-    if (!payload?.enrollment?.medium) next.medium = "Medium is required";
     const selectedClass = classes.find((c) => String(c.id) === String(payload?.enrollment?.class_id));
-    if (selectedClass?.class_scope === "hs" && !String(payload?.enrollment?.stream || payload?.enrollment?.stream_id || "").trim()) {
+    if (resolveScopeCodeFromClass(selectedClass) === "hs" && !String(payload?.enrollment?.stream || payload?.enrollment?.stream_id || "").trim()) {
       next.stream = "Stream is required for higher secondary classes";
     }
 
@@ -442,7 +457,6 @@ export default function Student() {
     if (!editingStudent.date_of_admission) localErrors.date_of_admission = "Date of admission is required";
     if (!editingStudent.session_id) localErrors.session_id = "Session is required";
     if (!editingStudent.class_id) localErrors.class_id = "Class is required";
-    if (!editingStudent.section_id) localErrors.section_id = "Section is required";
     if (editingStudent.raw_class_scope === "hs" && !String(editingStudent.stream_name || editingStudent.stream_id || "").trim()) {
       localErrors.stream = "Stream is required for higher secondary classes";
     }
@@ -529,7 +543,7 @@ export default function Student() {
       "2026-04-01",
       "2026-2027",
       "Class 8",
-      "A",
+      "",
       "English",
       "",
       "5",
@@ -679,17 +693,17 @@ export default function Student() {
       const sectionToken = getCell(values, "section", "section_name", "section_id");
       let sectionId = "";
       let sectionObj = null;
-      if (isNumericId(sectionToken)) {
-        sectionId = String(sectionToken).trim();
-        sectionObj = (classObj?.sections || []).find((s) => String(s.id) === sectionId) || null;
+      if (!String(sectionToken || "").trim()) {
+        sectionId = "";
+      } else if (isNumericId(sectionToken)) {
+        const candidateSectionId = String(sectionToken).trim();
+        sectionObj = (classObj?.sections || []).find((s) => String(s.id) === candidateSectionId) || null;
+        sectionId = sectionObj ? candidateSectionId : "";
       } else {
         sectionObj = (classObj?.sections || []).find(
           (s) => normalizeName(s.name) === normalizeName(sectionToken)
         ) || null;
         sectionId = sectionObj ? String(sectionObj.id) : "";
-      }
-      if (!sectionId && isNumericId(sectionToken)) {
-        sectionId = String(sectionToken).trim();
       }
 
       const sessionToken = getCell(values, "session", "session_name", "session_id");
@@ -971,7 +985,7 @@ export default function Student() {
                           }}
                         />
                         <p className="text-xs text-muted-foreground">
-                          Use names for session, class, and section. Scope is derived automatically from the selected class. Keep `stream` blank for School classes and fill it only for Higher Secondary rows.
+                          Use names for session and class. Section is optional. Scope is derived automatically from the selected class. Keep `stream` blank for School classes and fill it only for Higher Secondary rows.
                         </p>
                         {bulkMessage && (
                           <p
@@ -1172,14 +1186,15 @@ export default function Student() {
                   value={editingStudent?.class_id || ""}
                   onChange={(e) => {
                     const nextClass = classes.find((item) => String(item.id) === String(e.target.value));
+                    const nextScope = resolveScopeCodeFromClass(nextClass);
                     setEditingStudent((prev) => ({
                       ...prev,
                       class_id: e.target.value,
                       section_id: "",
-                      class_scope: formatClassScope(nextClass?.class_scope || "school"),
-                      raw_class_scope: nextClass?.class_scope || "school",
-                      stream_name: nextClass?.class_scope === "hs" ? prev?.stream_name || "" : "",
-                      stream_id: nextClass?.class_scope === "hs" ? prev?.stream_id || "" : "",
+                      class_scope: formatClassScope(nextScope),
+                      raw_class_scope: nextScope,
+                      stream_name: nextScope === "hs" ? prev?.stream_name || "" : "",
+                      stream_id: nextScope === "hs" ? prev?.stream_id || "" : "",
                     }));
                   }}
                 >
@@ -1194,7 +1209,7 @@ export default function Student() {
               </div>
 
               <div className="grid gap-2">
-                <Label>Section *</Label>
+                <Label>Section (Optional)</Label>
                 <select
                   className={FIELD_CLASSNAME}
                   value={editingStudent?.section_id || ""}
@@ -1215,7 +1230,6 @@ export default function Student() {
                     </option>
                   ))}
                 </select>
-                {errors.section_id && <p className="text-xs text-red-500">{errors.section_id}</p>}
               </div>
 
               <div className="grid gap-2">
@@ -1230,7 +1244,7 @@ export default function Student() {
               </div>
             </div>
 
-            {editingSelectedClass?.class_scope === "hs" ? (
+            {resolveScopeCodeFromClass(editingSelectedClass) === "hs" ? (
               <>
                 <Separator />
                 <div className="space-y-3 rounded-lg border bg-muted/30 p-4">

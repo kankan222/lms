@@ -45,6 +45,12 @@ router.get(
   attachPermissions,
   controller.getStreams
 );
+router.get(
+  "/scopes",
+  authenticate,
+  attachPermissions,
+  controller.getScopes
+);
 router.post(
   "/streams",
   authenticate,

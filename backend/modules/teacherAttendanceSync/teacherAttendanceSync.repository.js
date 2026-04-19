@@ -135,6 +135,57 @@ async function hasTeacherDeviceUsersTable() {
   return teacherDeviceUsersTableSupportedCache;
 }
 
+async function findUniqueTeacherByExactEmployeeId(employeeId) {
+  const normalized = String(employeeId || "").trim();
+  if (!normalized) return { teacherId: null, ambiguous: false };
+
+  const rows = await query(
+    `
+      SELECT id
+      FROM teachers
+      WHERE employee_id = ?
+      LIMIT 2
+    `,
+    [normalized]
+  );
+
+  if (rows.length === 1) {
+    return { teacherId: Number(rows[0].id), ambiguous: false };
+  }
+
+  return { teacherId: null, ambiguous: rows.length > 1 };
+}
+
+async function findUniqueTeacherByEmployeeNumericPart(deviceUserComparable) {
+  const normalized = String(deviceUserComparable || "").trim();
+  if (!normalized || !/^\d+$/.test(normalized)) {
+    return { teacherId: null, ambiguous: false };
+  }
+
+  const rows = await query(
+    `
+      SELECT id
+      FROM teachers
+      WHERE employee_id REGEXP '[0-9]'
+        AND COALESCE(
+          NULLIF(
+            TRIM(LEADING '0' FROM REGEXP_REPLACE(employee_id, '[^0-9]', '')),
+            ''
+          ),
+          '0'
+        ) = ?
+      LIMIT 2
+    `,
+    [normalized]
+  );
+
+  if (rows.length === 1) {
+    return { teacherId: Number(rows[0].id), ambiguous: false };
+  }
+
+  return { teacherId: null, ambiguous: rows.length > 1 };
+}
+
 export async function getTeacherMappingForDeviceUser({ deviceUserId, deviceId = null }) {
   const normalized = String(deviceUserId || "").trim();
   if (!normalized) return { teacherId: null, source: "empty" };
@@ -145,6 +196,7 @@ export async function getTeacherMappingForDeviceUser({ deviceUserId, deviceId = 
     Number.isInteger(normalizedDeviceId) && normalizedDeviceId > 0
       ? normalizedDeviceId
       : null;
+  let deviceHasMappings = false;
 
   if (resolvedDeviceId && (await hasTeacherDeviceUsersTable())) {
     const mappedRows = await query(
@@ -167,10 +219,11 @@ export async function getTeacherMappingForDeviceUser({ deviceUserId, deviceId = 
       return {
         teacherId: Number(matchedRow.teacher_id),
         source: "device_user_mapping",
+        shouldAutoMap: false,
       };
     }
 
-    const deviceHasMappings = await query(
+    const deviceHasMappingsRows = await query(
       `
         SELECT 1
         FROM teacher_device_users
@@ -180,38 +233,128 @@ export async function getTeacherMappingForDeviceUser({ deviceUserId, deviceId = 
       [resolvedDeviceId]
     );
 
-    if (deviceHasMappings.length) {
-      return { teacherId: null, source: "device_user_unmapped" };
+    deviceHasMappings = deviceHasMappingsRows.length > 0;
+  }
+
+  const exactMatch = await findUniqueTeacherByExactEmployeeId(normalized);
+  if (exactMatch.teacherId) {
+    return {
+      teacherId: exactMatch.teacherId,
+      source: "employee_id_exact",
+      shouldAutoMap: Boolean(resolvedDeviceId),
+    };
+  }
+
+  if (exactMatch.ambiguous) {
+    return { teacherId: null, source: "employee_id_ambiguous", shouldAutoMap: false };
+  }
+
+  if (normalizedComparable !== normalized) {
+    const normalizedExactMatch = await findUniqueTeacherByExactEmployeeId(normalizedComparable);
+    if (normalizedExactMatch.teacherId) {
+      return {
+        teacherId: normalizedExactMatch.teacherId,
+        source: "employee_id_normalized_exact",
+        shouldAutoMap: Boolean(resolvedDeviceId),
+      };
+    }
+    if (normalizedExactMatch.ambiguous) {
+      return { teacherId: null, source: "employee_id_ambiguous", shouldAutoMap: false };
     }
   }
 
-  let rows = await query(
+  const numericMatch = await findUniqueTeacherByEmployeeNumericPart(normalizedComparable);
+  if (numericMatch.teacherId) {
+    return {
+      teacherId: numericMatch.teacherId,
+      source: "employee_id_numeric_unique_fallback",
+      shouldAutoMap: Boolean(resolvedDeviceId),
+    };
+  }
+
+  if (numericMatch.ambiguous) {
+    return { teacherId: null, source: "employee_id_numeric_ambiguous", shouldAutoMap: false };
+  }
+
+  if (deviceHasMappings) {
+    return { teacherId: null, source: "device_user_unmapped", shouldAutoMap: false };
+  }
+
+  return { teacherId: null, source: "none", shouldAutoMap: false };
+}
+
+export async function upsertTeacherDeviceUserMapping({
+  deviceId,
+  deviceUserId,
+  teacherId,
+}) {
+  const normalizedDeviceId = Number(deviceId);
+  const normalizedTeacherId = Number(teacherId);
+  const normalizedDeviceUserId = normalizeMachineUserId(deviceUserId);
+
+  if (
+    !Number.isInteger(normalizedDeviceId) ||
+    normalizedDeviceId <= 0 ||
+    !Number.isInteger(normalizedTeacherId) ||
+    normalizedTeacherId <= 0 ||
+    !normalizedDeviceUserId
+  ) {
+    return null;
+  }
+
+  if (!(await hasTeacherDeviceUsersTable())) {
+    return null;
+  }
+
+  const existingRows = await query(
     `
-      SELECT id
-      FROM teachers
-      WHERE employee_id = ?
-      LIMIT 1
+      SELECT id, device_user_id
+      FROM teacher_device_users
+      WHERE device_id = ?
     `,
-    [normalized]
+    [normalizedDeviceId]
   );
 
-  if (!rows.length && normalizedComparable !== normalized) {
-    rows = await query(
+  const matchedRow = existingRows.find(
+    (row) => normalizeMachineUserId(row.device_user_id) === normalizedDeviceUserId
+  );
+
+  if (matchedRow) {
+    await query(
       `
-        SELECT id
-        FROM teachers
-        WHERE employee_id = ?
-        LIMIT 1
+        UPDATE teacher_device_users
+        SET teacher_id = ?,
+            device_user_id = ?
+        WHERE id = ?
       `,
-      [normalizedComparable]
+      [normalizedTeacherId, normalizedDeviceUserId, Number(matchedRow.id)]
     );
+    return Number(matchedRow.id);
   }
 
-  if (rows.length) {
-    return { teacherId: Number(rows[0].id), source: "legacy_global_mapping" };
-  }
+  await query(
+    `
+      INSERT INTO teacher_device_users
+      (device_id, device_user_id, teacher_id)
+      VALUES (?, ?, ?)
+      ON DUPLICATE KEY UPDATE
+        teacher_id = VALUES(teacher_id)
+    `,
+    [normalizedDeviceId, normalizedDeviceUserId, normalizedTeacherId]
+  );
 
-  return { teacherId: null, source: "none" };
+  const rows = await query(
+    `
+      SELECT id
+      FROM teacher_device_users
+      WHERE device_id = ?
+        AND device_user_id = ?
+      LIMIT 1
+    `,
+    [normalizedDeviceId, normalizedDeviceUserId]
+  );
+
+  return rows.length ? Number(rows[0].id) : null;
 }
 
 export async function teacherExists(teacherId) {

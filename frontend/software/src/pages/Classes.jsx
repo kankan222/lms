@@ -119,10 +119,6 @@ const Classes = () => {
       setCreateError("Class scope is required.");
       return;
     }
-    if (!cleanSections.length) {
-      setCreateError("At least one section is required.");
-      return;
-    }
     if (cleanSections.some((s) => !s.medium)) {
       setCreateError("Each section must have a medium.");
       return;
@@ -169,10 +165,6 @@ const Classes = () => {
     }
     if (!editingClass?.class_scope) {
       setEditError("Class scope is required.");
-      return;
-    }
-    if (!cleanSections.length) {
-      setEditError("At least one section is required.");
       return;
     }
     if (cleanSections.some((s) => !s.medium)) {
@@ -277,11 +269,10 @@ const Classes = () => {
                   </select>
                 </div>
                 <div className="grid gap-2 mb-2">
-                  <Label>Sections *</Label>
+                  <Label>Sections (Optional)</Label>
                   {newClass.sections.map((sec, i) => (
                     <div key={i} className="grid grid-cols-2 gap-2">
                       <Input
-                        required={i === 0}
                         value={sec.name}
                         placeholder={`Section ${i + 1}`}
                         onChange={(e) => {
@@ -292,7 +283,6 @@ const Classes = () => {
                       />
                       <select
                         className="border rounded p-2 w-full bg-background"
-                        required={i === 0}
                         value={sec.medium}
                         onChange={(e) => {
                           const updated = [...newClass.sections];
@@ -353,14 +343,18 @@ const Classes = () => {
               </p>
               <div className="text-sm flex-1">
                 <p className="font-medium">Sections:</p>
-                <ul className="mt-1 list-disc pl-5 space-y-1">
-                  {data.sections.map((sec, i) => (
-                    <li key={i}>
-                      {sec.name}
-                      {sec.medium ? ` (${sec.medium})` : ""}
-                    </li>
-                  ))}
-                </ul>
+                {data.sections.length ? (
+                  <ul className="mt-1 list-disc pl-5 space-y-1">
+                    {data.sections.map((sec, i) => (
+                      <li key={i}>
+                        {sec.name}
+                        {sec.medium ? ` (${sec.medium})` : ""}
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="mt-1 text-muted-foreground">No sections</p>
+                )}
               </div>
               <p className="text-sm">
                 <span className="font-medium">Subjects: </span>
@@ -435,11 +429,10 @@ const Classes = () => {
             </div>
 
             <div className="grid gap-2">
-              <Label>Sections *</Label>
+              <Label>Sections (Optional)</Label>
               {editingClass?.sections?.map((sec, i) => (
-                <div key={i} className="grid grid-cols-2 gap-2">
+                <div key={i} className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] gap-2 items-center">
                   <Input
-                    required={i === 0}
                     value={sec.name}
                     placeholder={`Section ${i + 1}`}
                     onChange={(e) => {
@@ -453,7 +446,6 @@ const Classes = () => {
                   />
                   <select
                     className="border rounded p-2 w-full bg-background"
-                    required={i === 0}
                     value={sec.medium}
                     onChange={(e) => {
                       const updated = [...editingClass.sections];
@@ -468,6 +460,22 @@ const Classes = () => {
                     <option value="English">English</option>
                     <option value="Assamese">Assamese</option>
                   </select>
+                  <Button
+                    type="button"
+                    variant="destructive"
+                    size="icon"
+                    className="justify-self-end"
+                    aria-label="Remove section"
+                    title="Remove section"
+                    onClick={() =>
+                      setEditingClass({
+                        ...editingClass,
+                        sections: editingClass.sections.filter((_, index) => index !== i),
+                      })
+                    }
+                  >
+                    <TrashIcon />
+                  </Button>
                 </div>
               ))}
             </div>

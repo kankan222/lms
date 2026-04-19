@@ -32,7 +32,19 @@ function getErrorMessage(err: unknown, fallback: string) {
   return fallback;
 }
 
-const fmtScope = (scope?: string | null) => String(scope || "").trim().toLowerCase() === "hs" ? "Higher Secondary" : "School";
+function resolveScopeCode(scopeCode?: string | null, scopeName?: string | null): "school" | "hs" {
+  const code = String(scopeCode || "").trim().toLowerCase();
+  if (code === "hs" || code === "school") return code;
+  if (code.includes("higher secondary")) return "hs";
+  if (code.includes("school")) return "school";
+
+  const name = String(scopeName || "").trim().toLowerCase();
+  if (name.includes("higher secondary")) return "hs";
+  if (name.includes("school")) return "school";
+  return "school";
+}
+
+const formatScopeLabel = (scope?: string | null, scopeName?: string | null) => resolveScopeCode(scope, scopeName) === "hs" ? "Higher Secondary" : "School";
 const title = (value: string) => value ? value.charAt(0).toUpperCase() + value.slice(1) : "";
 
 function statusPalette(status: string) {
@@ -207,7 +219,7 @@ export default function TeacherDetailsModule({ teacherId, canManageTeachers }: P
           {photoUri ? <Image source={{ uri: photoUri }} style={[styles.photo, { backgroundColor: theme.cardMuted }]} /> : <View style={[styles.avatarFallback, { backgroundColor: theme.cardMuted }]}><Text style={[styles.avatarText, { color: theme.text }]}>{(teacher.name || "T").slice(0, 1).toUpperCase()}</Text></View>}
           <View style={styles.heroCopy}>
             <Text style={[styles.title, { color: theme.text }]}>{teacher.name}</Text>
-            <Text style={[styles.subtitle, { color: theme.subText }]}>{fmtScope(teacher.class_scope)}</Text>
+            <Text style={[styles.subtitle, { color: theme.subText }]}>{formatScopeLabel(teacher.class_scope, teacher.scope_name)}</Text>
             <Text style={styles.heroMeta}>Employee ID {teacher.employee_id || "-"} • Phone {teacher.phone || "-"}</Text>
             <Text style={[styles.heroMeta, { color: theme.subText }]}>Email {teacher.email || "-"}</Text>
           </View>
@@ -216,7 +228,7 @@ export default function TeacherDetailsModule({ teacherId, canManageTeachers }: P
           <SummaryCard label="Assignments" value={assignments.length} tone="blue" />
           <SummaryCard label="Punch In" value={punchInCount} tone="green" />
           <SummaryCard label="Punch Out" value={punchOutCount} tone="violet" />
-          <SummaryCard label="Scope" value={fmtScope(teacher.class_scope)} />
+          <SummaryCard label="Scope" value={formatScopeLabel(teacher.class_scope, teacher.scope_name)} />
         </View>
       </View>
 
@@ -232,7 +244,7 @@ export default function TeacherDetailsModule({ teacherId, canManageTeachers }: P
             <InfoRow label="Employee ID" value={teacher.employee_id || "-"} />
             <InfoRow label="Phone" value={teacher.phone || "-"} />
             <InfoRow label="Email" value={teacher.email || "-"} />
-            <InfoRow label="Scope" value={fmtScope(teacher.class_scope)} />
+            <InfoRow label="Scope" value={formatScopeLabel(teacher.class_scope, teacher.scope_name)} />
             <InfoRow label="User ID" value={teacher.user_id ? String(teacher.user_id) : "-"} />
           </View>
         </SectionCard>

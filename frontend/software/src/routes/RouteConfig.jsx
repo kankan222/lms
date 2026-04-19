@@ -105,15 +105,6 @@ export const appRoutes = [
       permission: "attendance.take",
     },
     {
-      title: "Device Mapping",
-      icon: Hand,
-      path: "/teacher-device-mapping",
-      element: <TeacherDeviceMapping />,
-      protected: true,
-      permission: "teacher.assign",
-      hideForRoles: ["teacher"],
-    },
-    {
       title: "Fees",
       icon: BriefcaseBusinessIcon,
       path: "/fees",
@@ -228,6 +219,13 @@ export const appRoutes = [
       element: <StudentDetails />,
       protected: true,
       permission: "student.view",
+      hideForRoles: ["teacher"],
+    },
+    {
+      path: "/teacher-device-mapping",
+      element: <TeacherDeviceMapping />,
+      protected: true,
+      permission: "teacher.assign",
       hideForRoles: ["teacher"],
     },
     {

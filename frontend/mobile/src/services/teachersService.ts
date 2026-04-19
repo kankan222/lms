@@ -13,7 +13,9 @@ export type TeacherItem = {
   name: string;
   phone?: string;
   email?: string;
-  class_scope: "school" | "hs";
+  class_scope?: string | null;
+  scope_name?: string | null;
+  scope?: string | null;
   photo_url?: string | null;
 };
 
@@ -22,7 +24,7 @@ export type CreateTeacherPayload = {
   name: string;
   phone: string;
   email: string;
-  class_scope: "school" | "hs";
+  class_scope: string;
   password: string;
   photo?: {
     uri: string;
@@ -36,7 +38,7 @@ export type UpdateTeacherPayload = {
   name: string;
   phone: string;
   email: string;
-  class_scope: "school" | "hs";
+  class_scope: string;
   photo_url?: string | null;
   photo?: {
     uri: string;
