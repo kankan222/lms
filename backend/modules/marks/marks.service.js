@@ -36,6 +36,52 @@ function normalizeSelectionIds(value) {
   return [...new Set(value.map((item) => Number(item)).filter(Boolean))];
 }
 
+function normalizeMarksForSubject(row, examSubject) {
+  const pattern = String(examSubject.mark_pattern || "single").trim().toLowerCase();
+  const maxMarks = Number(examSubject.max_marks || 0);
+
+  if (pattern === "split") {
+    const theoryMax = Number(examSubject.theory_max ?? 0);
+    const practicalMax = Number(examSubject.practical_max ?? 0);
+    const theoryMarks = Number(row?.theory_marks ?? row?.theoryMarks);
+    const practicalMarks = Number(row?.practical_marks ?? row?.practicalMarks ?? 0);
+
+    if (Number.isNaN(theoryMarks) || theoryMarks < 0 || theoryMarks > theoryMax) {
+      throw new AppError(
+        `Theory marks for student ${row?.student_id ?? row?.studentId} must be between 0 and ${theoryMax}`,
+        400
+      );
+    }
+
+    if (Number.isNaN(practicalMarks) || practicalMarks < 0 || practicalMarks > practicalMax) {
+      throw new AppError(
+        `Practical marks for student ${row?.student_id ?? row?.studentId} must be between 0 and ${practicalMax}`,
+        400
+      );
+    }
+
+    const totalMarks = theoryMarks + practicalMarks;
+    if (totalMarks < 0 || totalMarks > maxMarks) {
+      throw new AppError(
+        `Total marks for student ${row?.student_id ?? row?.studentId} must be between 0 and ${maxMarks}`,
+        400
+      );
+    }
+
+    return { marks: totalMarks, theory_marks: theoryMarks, practical_marks: practicalMarks };
+  }
+
+  const marksValue = Number(row?.marks);
+  if (Number.isNaN(marksValue) || marksValue < 0 || marksValue > maxMarks) {
+    throw new AppError(
+      `Marks for student ${row?.student_id ?? row?.studentId} must be between 0 and ${maxMarks}`,
+      400
+    );
+  }
+
+  return { marks: marksValue, theory_marks: null, practical_marks: null };
+}
+
 async function ensureTeacherScopeAccess(userId, examId, classId, sectionId, subjectId) {
   const allowed = await repo.isTeacherAssignedToExamScope(
     userId,
@@ -72,9 +118,16 @@ function formatReport(rows) {
     },
     subjects: rows.map((row) => ({
       subject: row.subject_name,
+      mark_pattern: String(row.mark_pattern || "single").trim().toLowerCase(),
       marks: Number(row.marks || 0),
       max_marks: Number(row.max_marks || 0),
       pass_marks: Number(row.pass_marks || 0),
+      theory_marks: row.theory_marks === null ? null : Number(row.theory_marks),
+      practical_marks: row.practical_marks === null ? null : Number(row.practical_marks),
+      theory_max: row.theory_max === null ? null : Number(row.theory_max),
+      theory_pass: row.theory_pass === null ? null : Number(row.theory_pass),
+      practical_max: row.practical_max === null ? null : Number(row.practical_max),
+      practical_pass: row.practical_pass === null ? null : Number(row.practical_pass),
     })),
     summary: {
       total,
@@ -121,6 +174,7 @@ export async function getMarksGrid(filters, userId) {
     sectionId,
     medium,
     name,
+    subjectId,
   });
 
   const marks = await repo.getMarksByExamSubjectStudentIds(
@@ -140,6 +194,14 @@ export async function getMarksGrid(filters, userId) {
       student_name: student.student_name,
       medium: student.medium,
       marks: entry ? Number(entry.marks) : null,
+      theory_marks:
+        entry?.theory_marks === null || entry?.theory_marks === undefined
+          ? null
+          : Number(entry.theory_marks),
+      practical_marks:
+        entry?.practical_marks === null || entry?.practical_marks === undefined
+          ? null
+          : Number(entry.practical_marks),
       approval_status: entry?.approval_status || "draft",
       has_entry: Boolean(entry),
     };
@@ -156,8 +218,13 @@ export async function getMarksGrid(filters, userId) {
     subject: {
       id: Number(examSubject.subject_id),
       name: examSubject.subject_name,
+      mark_pattern: String(examSubject.mark_pattern || "single").trim().toLowerCase(),
       max_marks: Number(examSubject.max_marks || 0),
       pass_marks: Number(examSubject.pass_marks || 0),
+      theory_max: examSubject.theory_max === null ? null : Number(examSubject.theory_max),
+      theory_pass: examSubject.theory_pass === null ? null : Number(examSubject.theory_pass),
+      practical_max: examSubject.practical_max === null ? null : Number(examSubject.practical_max),
+      practical_pass: examSubject.practical_pass === null ? null : Number(examSubject.practical_pass),
     },
     rows,
   };
@@ -242,7 +309,7 @@ export async function getAccessibleExamById(examIdValue, userId) {
 
   const [subjects, scopes] = await Promise.all([
     repo.getExamSubjects(examId),
-    repo.getExamScopes(examId),
+    userCtx.isTeacher ? repo.getAllowedTeacherScopes(userId, examId) : repo.getExamScopes(examId),
   ]);
   return {
     ...exam,
@@ -268,26 +335,36 @@ export async function saveMarks(payload, userId) {
   const marks = Array.isArray(payload.marks) ? payload.marks : [];
   if (!marks.length) throw new AppError("marks[] is required", 400);
 
-  const students = await repo.getStudentsForScope({ examId, classId, sectionId, medium });
+  const markPattern = String(examSubject.mark_pattern || "single").trim().toLowerCase();
+  if (markPattern === "split") {
+    const marksSchema = await repo.getMarksEntrySplitSchemaStatus();
+    if (!(marksSchema.hasTheoryMarks && marksSchema.hasPracticalMarks)) {
+      throw new AppError(
+        "Marks component columns are missing. Apply migration 20260419_exam_marks_split_components.sql.",
+        500
+      );
+    }
+  }
+
+  const students = await repo.getStudentsForScope({ examId, classId, sectionId, medium, subjectId });
   const studentIds = new Set(students.map((student) => Number(student.student_id)));
 
   const rows = marks.map((item) => {
     const studentId = Number(item.student_id ?? item.studentId);
-    const marksValue = Number(item.marks);
 
     if (!studentIds.has(studentId)) {
       throw new AppError(`Student ${studentId} is not part of the selected scope`, 400);
     }
 
-    if (Number.isNaN(marksValue) || marksValue < 0 || marksValue > Number(examSubject.max_marks)) {
-      throw new AppError(`Marks for student ${studentId} must be between 0 and ${examSubject.max_marks}`, 400);
-    }
+    const normalizedMarks = normalizeMarksForSubject(item, examSubject);
 
     return {
       student_id: studentId,
       exam_id: examId,
       subject_id: subjectId,
-      marks: marksValue,
+      marks: normalizedMarks.marks,
+      theory_marks: normalizedMarks.theory_marks,
+      practical_marks: normalizedMarks.practical_marks,
       entered_by: userId,
     };
   });

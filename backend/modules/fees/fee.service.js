@@ -3,6 +3,8 @@ import { generateReceiptPdf } from "./feePdf.service.js";
 import AppError from "../../core/errors/AppError.js";
 
 const ALLOWED_SCOPES = new Set(["school", "hs"]);
+const STREAM_SCOPE = "hs";
+const HS_STREAM_MIGRATION_PATH = "backend/database/migrations/20260417_fee_structures_stream_scope.sql";
 
 function normalizeScope(value) {
   if (value === undefined || value === null || value === "") return undefined;
@@ -28,6 +30,31 @@ function parsePositiveInt(value) {
   return num;
 }
 
+function normalizeClassScopeValue(value) {
+  return String(value || "school").trim().toLowerCase();
+}
+
+function isHsStreamSchemaReady(status) {
+  return Boolean(
+    status?.hasStreamId &&
+      status?.hasStreamIdDedupe &&
+      status?.hasUniqueClassSessionStream &&
+      !status?.hasLegacyUniqueClassSession
+  );
+}
+
+async function assertHsStreamSchemaSupport(classScope) {
+  if (normalizeClassScopeValue(classScope) !== STREAM_SCOPE) return;
+
+  const schemaStatus = await repo.getFeeStructuresStreamSchemaStatus();
+  if (isHsStreamSchemaReady(schemaStatus)) return;
+
+  throw new AppError(
+    `Higher secondary fees require full stream-aware schema migration. Run: ${HS_STREAM_MIGRATION_PATH}`,
+    500
+  );
+}
+
 async function resolveFeeStructurePayload(data = {}, existing = null) {
   const classId = parsePositiveInt(data.class_id ?? existing?.class_id);
   const sessionId = parsePositiveInt(data.session_id ?? existing?.session_id);
@@ -42,11 +69,12 @@ async function resolveFeeStructurePayload(data = {}, existing = null) {
     throw new AppError("Invalid class_id", 400);
   }
 
-  const classScope = String(classRow.class_scope || "school").trim().toLowerCase();
+  const classScope = normalizeClassScopeValue(classRow.class_scope);
+  await assertHsStreamSchemaSupport(classScope);
   let streamIdRaw = data.stream_id ?? existing?.stream_id ?? null;
   let streamId = null;
 
-  if (classScope === "hs") {
+  if (classScope === STREAM_SCOPE) {
     streamId = parsePositiveInt(streamIdRaw);
     if (!streamId) {
       throw new AppError("stream_id is required for higher secondary classes", 400);
@@ -78,6 +106,16 @@ function buildPaymentQueryFilters(filters = {}) {
   const queryFilters = { ...(filters || {}) };
   const userId = queryFilters.userId;
   delete queryFilters.userId;
+
+  if (queryFilters.stream_id !== undefined && queryFilters.stream_id !== null && queryFilters.stream_id !== "") {
+    const parsedStreamId = parsePositiveInt(queryFilters.stream_id);
+    if (!parsedStreamId) {
+      throw new AppError("stream_id must be a positive integer when provided", 400);
+    }
+    queryFilters.stream_id = parsedStreamId;
+  } else {
+    delete queryFilters.stream_id;
+  }
 
   queryFilters.scope = normalizeScope(queryFilters.scope);
   queryFilters.payment_date = normalizeDate(queryFilters.payment_date, "payment_date");
@@ -122,6 +160,13 @@ async function assertTeacherScopeAccess(userId, enrollment) {
 }
 
 async function syncStudentLedgerForEnrollment(enrollmentId) {
+  const enrollment = await repo.getEnrollmentSummary(enrollmentId);
+  if (!enrollment) {
+    return { synced: false };
+  }
+
+  await assertHsStreamSchemaSupport(enrollment.class_scope);
+
   const structure = await repo.getStructureByEnrollment(enrollmentId);
   if (!structure) {
     return { synced: false };
@@ -200,14 +245,74 @@ async function syncStudentLedgersForStructure(structureId) {
   }
 }
 
+async function tryConvertLegacyHsNullStreamStructure(payload, error) {
+  if (error?.code !== "ER_DUP_ENTRY") return null;
+  if (!payload?.stream_id) return null;
+
+  const legacy = await repo.getLegacyHsNullStreamStructure(payload.class_id, payload.session_id);
+  if (!legacy) return null;
+
+  try {
+    await repo.assignLegacyStructureToStream(legacy.id, payload.stream_id, payload.admission_fee);
+  } catch (err) {
+    if (err?.code === "ER_DUP_ENTRY") {
+      throw error;
+    }
+    throw err;
+  }
+
+  const next = await repo.getFeeStructure(payload.class_id, payload.session_id, payload.stream_id);
+  if (!next?.id) {
+    throw new AppError("Failed to resolve converted fee structure", 500);
+  }
+
+  return next;
+}
+
 export async function createFeeStructure(data) {
   const payload = await resolveFeeStructurePayload(data);
-  const result = await repo.insertFeeStructure(payload);
-  const structureId = Number(result?.insertId || 0);
-  if (structureId > 0) {
-    await syncStudentLedgersForStructure(structureId);
+  try {
+    const result = await repo.insertFeeStructure(payload);
+    const structureId = Number(result?.insertId || 0);
+    if (structureId > 0) {
+      await syncStudentLedgersForStructure(structureId);
+    }
+    return result;
+  } catch (err) {
+    const converted = await tryConvertLegacyHsNullStreamStructure(payload, err);
+    if (converted) {
+      await syncStudentLedgersForStructure(Number(converted.id));
+      return {
+        insertId: Number(converted.id),
+        converted_legacy_hs_structure: true,
+      };
+    }
+
+    if (err?.code === "ER_DUP_ENTRY") {
+      const schemaStatus = await repo.getFeeStructuresStreamSchemaStatus();
+      if (payload?.stream_id && !isHsStreamSchemaReady(schemaStatus)) {
+        throw new AppError(
+          `Higher secondary stream fee schema is incomplete. Run: ${HS_STREAM_MIGRATION_PATH}`,
+          500
+        );
+      }
+
+      const existing = await repo.getFeeStructure(
+        payload.class_id,
+        payload.session_id,
+        payload.stream_id ?? null
+      );
+
+      if (existing?.id) {
+        throw new AppError(
+          "Fee structure already exists for this class, session, and stream",
+          400
+        );
+      }
+    }
+
+    throw err;
   }
-  return result;
 }
 
 export async function updateFeeStructure(id, data) {
@@ -231,7 +336,33 @@ export async function deleteFeeStructure(id) {
 }
 
 export async function getFeeStructure(classId, sessionId, streamId = null) {
-  return repo.getFeeStructure(classId, sessionId, streamId);
+  const normalizedClassId = parsePositiveInt(classId);
+  const normalizedSessionId = parsePositiveInt(sessionId);
+  const normalizedStreamId =
+    streamId === null || streamId === undefined || String(streamId).trim() === ""
+      ? null
+      : parsePositiveInt(streamId);
+
+  if (!normalizedClassId || !normalizedSessionId) {
+    throw new AppError("class_id and session_id are required", 400);
+  }
+  if (streamId !== null && streamId !== undefined && String(streamId).trim() !== "" && !normalizedStreamId) {
+    throw new AppError("stream_id must be a positive integer when provided", 400);
+  }
+
+  const classRow = await repo.getClassById(normalizedClassId);
+  if (!classRow) {
+    throw new AppError("Invalid class_id", 400);
+  }
+
+  const classScope = normalizeClassScopeValue(classRow.class_scope);
+  await assertHsStreamSchemaSupport(classScope);
+
+  if (classScope === STREAM_SCOPE && !normalizedStreamId) {
+    throw new AppError("stream_id is required for higher secondary classes", 400);
+  }
+
+  return repo.getFeeStructure(normalizedClassId, normalizedSessionId, normalizedStreamId);
 }
 
 export async function getAllFeeStructures() {
@@ -277,13 +408,17 @@ export async function deleteInstallment(id) {
 }
 
 export async function generateStudentLedger(enrollmentId) {
+  const enrollment = await repo.getEnrollmentSummary(enrollmentId);
+  if (!enrollment) {
+    throw new AppError(`Enrollment ${enrollmentId} not found`, 404);
+  }
+
+  await assertHsStreamSchemaSupport(enrollment.class_scope);
+
   const structure = await repo.getStructureByEnrollment(enrollmentId);
   if (!structure) {
-    const enrollment = await repo.getEnrollmentSummary(enrollmentId);
-    const streamContext = enrollment?.stream_name ? ` / ${enrollment.stream_name}` : "";
-    const context = enrollment
-      ? `${enrollment.class_name}${streamContext} / ${enrollment.session_name}`
-      : `enrollment ${enrollmentId}`;
+    const streamContext = enrollment.stream_name ? ` / ${enrollment.stream_name}` : "";
+    const context = `${enrollment.class_name}${streamContext} / ${enrollment.session_name}`;
     throw new AppError(`Fee structure not found for ${context}`, 404);
   }
 
@@ -518,14 +653,23 @@ export async function getMyPayments(filters = {}, user) {
 export async function getStudentsForPayment(filters = {}, user) {
   const classId = Number(filters.class_id);
   const sectionId = Number(filters.section_id);
+  const streamIdRaw = filters.stream_id;
+  const streamId =
+    streamIdRaw === undefined || streamIdRaw === null || String(streamIdRaw).trim() === ""
+      ? null
+      : Number(streamIdRaw);
 
   if (!classId || !sectionId) {
     throw new AppError("class_id and section_id are required", 400);
+  }
+  if (streamId !== null && (!Number.isInteger(streamId) || streamId <= 0)) {
+    throw new AppError("stream_id must be a positive integer when provided", 400);
   }
 
   const queryFilters = {
     class_id: classId,
     section_id: sectionId,
+    stream_id: streamId,
   };
 
   if (user?.userId) {

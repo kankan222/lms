@@ -37,9 +37,16 @@ export async function generateReport(data){
       },
       subjects:marks.map(m=>({
         subject: m.subject_name,
+        mark_pattern: String(m.mark_pattern || "single").trim().toLowerCase(),
         marks: Number(m.marks || 0),
         max_marks: Number(m.max_marks || 0),
         pass_marks: Number(m.pass_marks || 0),
+        theory_marks: m.theory_marks === null ? null : Number(m.theory_marks),
+        practical_marks: m.practical_marks === null ? null : Number(m.practical_marks),
+        theory_max: m.theory_max === null ? null : Number(m.theory_max),
+        theory_pass: m.theory_pass === null ? null : Number(m.theory_pass),
+        practical_max: m.practical_max === null ? null : Number(m.practical_max),
+        practical_pass: m.practical_pass === null ? null : Number(m.practical_pass),
       })),
       summary: {
         total,

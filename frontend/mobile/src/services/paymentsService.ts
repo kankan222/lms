@@ -24,6 +24,8 @@ export type PaymentItem = {
   student_id: number;
   student_name: string;
   class_name: string;
+  stream_id?: number | null;
+  stream_name?: string | null;
   section_name: string;
   medium?: string | null;
   class_scope?: "school" | "hs" | string | null;
@@ -47,7 +49,10 @@ export type PaymentStudentItem = {
   roll_number?: string | number | null;
   class_id?: number;
   section_id?: number;
+  stream_id?: number | null;
   class_name?: string | null;
+  stream_name?: string | null;
+  class_scope?: "school" | "hs" | string | null;
   section_name?: string | null;
   medium?: string | null;
 };
@@ -55,6 +60,7 @@ export type PaymentStudentItem = {
 export type PaymentFilters = {
   class_id?: number | string;
   section_id?: number | string;
+  stream_id?: number | string;
   student_id?: number | string;
   scope?: string;
   payment_date?: string;
@@ -80,6 +86,7 @@ export async function downloadAndSharePaymentsCsv(filters: PaymentFilters = {}) 
   const query = new URLSearchParams();
   if (filters.class_id) query.set("class_id", String(filters.class_id));
   if (filters.section_id) query.set("section_id", String(filters.section_id));
+  if (filters.stream_id) query.set("stream_id", String(filters.stream_id));
   if (filters.student_id) query.set("student_id", String(filters.student_id));
   if (filters.scope) query.set("scope", filters.scope);
   if (filters.payment_date) query.set("payment_date", filters.payment_date);
@@ -119,7 +126,11 @@ export async function getStudentFeeOptions(studentId: number | string) {
   return response.data?.data ?? [];
 }
 
-export async function getStudentsForPayment(params: { class_id: number | string; section_id: number | string }) {
+export async function getStudentsForPayment(params: {
+  class_id: number | string;
+  section_id: number | string;
+  stream_id?: number | string;
+}) {
   const response = await api.get<ApiEnvelope<PaymentStudentItem[]>>("/fees/students", { params });
   return response.data?.data ?? [];
 }

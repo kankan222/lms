@@ -2,8 +2,10 @@ import { query, execute } from "../../core/db/query.js";
 import { pool } from "../../database/pool.js";
 
 let supportsFeeStructuresStreamIdCache;
+let supportsScopesTableCache;
+let feeStructuresStreamSchemaStatusCache;
 
-async function supportsFeeStructuresStreamId() {
+export async function supportsFeeStructuresStreamId() {
   if (typeof supportsFeeStructuresStreamIdCache === "boolean") {
     return supportsFeeStructuresStreamIdCache;
   }
@@ -20,6 +22,72 @@ async function supportsFeeStructuresStreamId() {
 
   supportsFeeStructuresStreamIdCache = Number(rows[0]?.total || 0) > 0;
   return supportsFeeStructuresStreamIdCache;
+}
+
+export async function getFeeStructuresStreamSchemaStatus() {
+  if (feeStructuresStreamSchemaStatusCache) {
+    return feeStructuresStreamSchemaStatusCache;
+  }
+
+  const columnRows = await query(
+    `
+      SELECT
+        SUM(COLUMN_NAME = 'stream_id') AS has_stream_id,
+        SUM(COLUMN_NAME = 'stream_id_dedupe') AS has_stream_id_dedupe
+      FROM information_schema.COLUMNS
+      WHERE TABLE_SCHEMA = DATABASE()
+        AND TABLE_NAME = 'fee_structures'
+        AND COLUMN_NAME IN ('stream_id', 'stream_id_dedupe')
+    `
+  );
+
+  const indexRows = await query(
+    `
+      SELECT
+        SUM(INDEX_NAME = 'unique_class_session_stream' AND NON_UNIQUE = 0) AS has_unique_class_session_stream,
+        SUM(INDEX_NAME = 'unique_class_session' AND NON_UNIQUE = 0) AS has_legacy_unique_class_session
+      FROM information_schema.STATISTICS
+      WHERE TABLE_SCHEMA = DATABASE()
+        AND TABLE_NAME = 'fee_structures'
+        AND INDEX_NAME IN ('unique_class_session_stream', 'unique_class_session')
+    `
+  );
+
+  const status = {
+    hasStreamId: Number(columnRows[0]?.has_stream_id || 0) > 0,
+    hasStreamIdDedupe: Number(columnRows[0]?.has_stream_id_dedupe || 0) > 0,
+    hasUniqueClassSessionStream: Number(indexRows[0]?.has_unique_class_session_stream || 0) > 0,
+    hasLegacyUniqueClassSession: Number(indexRows[0]?.has_legacy_unique_class_session || 0) > 0,
+  };
+
+  feeStructuresStreamSchemaStatusCache = status;
+  return status;
+}
+
+async function supportsScopesTable() {
+  if (typeof supportsScopesTableCache === "boolean") {
+    return supportsScopesTableCache;
+  }
+
+  const rows = await query(
+    `
+      SELECT COUNT(*) AS total
+      FROM information_schema.TABLES
+      WHERE TABLE_SCHEMA = DATABASE()
+        AND TABLE_NAME = 'scopes'
+    `
+  );
+
+  supportsScopesTableCache = Number(rows[0]?.total || 0) > 0;
+  return supportsScopesTableCache;
+}
+
+function buildClassScopeExpression(hasScopesTable, classAlias = "c", scopeAlias = "sc") {
+  if (hasScopesTable) {
+    return `COALESCE(${scopeAlias}.code, ${classAlias}.class_scope, 'school')`;
+  }
+
+  return `COALESCE(${classAlias}.class_scope, 'school')`;
 }
 
 export async function insertFeeStructure(data, conn) {
@@ -45,17 +113,66 @@ export async function insertFeeStructure(data, conn) {
 
   return result;
 }
+
+export async function getLegacyHsNullStreamStructure(classId, sessionId) {
+  const hasScopesTable = await supportsScopesTable();
+  const classScopeExpr = buildClassScopeExpression(hasScopesTable);
+
+  const rows = await query(
+    `
+      SELECT fs.id, fs.class_id, fs.session_id, fs.stream_id, fs.admission_fee
+      FROM fee_structures fs
+      JOIN classes c ON c.id = fs.class_id
+      ${hasScopesTable ? "LEFT JOIN scopes sc ON sc.id = c.scope_id" : ""}
+      WHERE fs.class_id = ?
+        AND fs.session_id = ?
+        AND fs.stream_id IS NULL
+        AND ${classScopeExpr} = 'hs'
+      LIMIT 1
+    `,
+    [classId, sessionId]
+  );
+
+  return rows[0] || null;
+}
+
+export async function assignLegacyStructureToStream(structureId, streamId, admissionFee = null) {
+  const params = [streamId];
+  const admissionSetSql = Number.isFinite(Number(admissionFee))
+    ? ", admission_fee = ?"
+    : "";
+
+  if (admissionSetSql) {
+    params.push(Number(admissionFee));
+  }
+
+  params.push(structureId);
+
+  return execute(
+    `
+      UPDATE fee_structures
+      SET stream_id = ? ${admissionSetSql}
+      WHERE id = ?
+        AND stream_id IS NULL
+    `,
+    params
+  );
+}
+
 export async function getFeeStructure(classId, sessionId, streamId = null) {
   const hasStreamId = await supportsFeeStructuresStreamId();
+  const hasScopesTable = await supportsScopesTable();
+  const classScopeExpr = buildClassScopeExpression(hasScopesTable);
 
   const sql = hasStreamId
     ? `
   SELECT
     fs.*,
-    c.class_scope,
+    ${classScopeExpr} AS class_scope,
     st.name AS stream_name
   FROM fee_structures fs
   JOIN classes c ON c.id = fs.class_id
+  ${hasScopesTable ? "LEFT JOIN scopes sc ON sc.id = c.scope_id" : ""}
   LEFT JOIN streams st ON st.id = fs.stream_id
   WHERE class_id = ?
   AND session_id = ?
@@ -65,10 +182,11 @@ export async function getFeeStructure(classId, sessionId, streamId = null) {
   SELECT
     fs.*,
     NULL AS stream_id,
-    c.class_scope,
+    ${classScopeExpr} AS class_scope,
     NULL AS stream_name
   FROM fee_structures fs
   JOIN classes c ON c.id = fs.class_id
+  ${hasScopesTable ? "LEFT JOIN scopes sc ON sc.id = c.scope_id" : ""}
   WHERE class_id = ?
   AND session_id = ?
   `;
@@ -79,6 +197,8 @@ export async function getFeeStructure(classId, sessionId, streamId = null) {
 }
 export async function getAllFeeStructures() {
   const hasStreamId = await supportsFeeStructuresStreamId();
+  const hasScopesTable = await supportsScopesTable();
+  const classScopeExpr = buildClassScopeExpression(hasScopesTable);
 
   const sql = hasStreamId
     ? `
@@ -89,11 +209,12 @@ export async function getAllFeeStructures() {
       fs.stream_id,
       fs.admission_fee,
       c.name AS class_name,
-      c.class_scope,
+      ${classScopeExpr} AS class_scope,
       s.name AS session_name,
       st.name AS stream_name
     FROM fee_structures fs
     JOIN classes c ON fs.class_id = c.id
+    ${hasScopesTable ? "LEFT JOIN scopes sc ON sc.id = c.scope_id" : ""}
     JOIN academic_sessions s ON fs.session_id = s.id
     LEFT JOIN streams st ON st.id = fs.stream_id
     ORDER BY c.name, st.name, s.name
@@ -106,11 +227,12 @@ export async function getAllFeeStructures() {
       NULL AS stream_id,
       fs.admission_fee,
       c.name AS class_name,
-      c.class_scope,
+      ${classScopeExpr} AS class_scope,
       s.name AS session_name,
       NULL AS stream_name
     FROM fee_structures fs
     JOIN classes c ON fs.class_id = c.id
+    ${hasScopesTable ? "LEFT JOIN scopes sc ON sc.id = c.scope_id" : ""}
     JOIN academic_sessions s ON fs.session_id = s.id
     ORDER BY c.name, s.name
   `;
@@ -469,6 +591,8 @@ export async function getStudentsByIds(studentIds) {
 }
 
 export async function getStudentsForPayment(filters = {}) {
+  const hasScopesTable = await supportsScopesTable();
+  const classScopeExpr = buildClassScopeExpression(hasScopesTable);
   const where = ["se.status = 'active'"];
   const params = [];
 
@@ -480,6 +604,11 @@ export async function getStudentsForPayment(filters = {}) {
   if (filters.section_id) {
     where.push("se.section_id = ?");
     params.push(filters.section_id);
+  }
+
+  if (filters.stream_id) {
+    where.push("se.stream_id = ?");
+    params.push(filters.stream_id);
   }
 
   if (filters.teacher_user_id) {
@@ -503,16 +632,22 @@ export async function getStudentsForPayment(filters = {}) {
       se.roll_number,
       se.class_id,
       se.section_id,
+      se.stream_id,
       c.name AS class_name,
+      ${classScopeExpr} AS class_scope,
       sec.name AS section_name,
-      sec.medium
+      sec.medium,
+      str.name AS stream_name
     FROM students s
     JOIN student_enrollments se
       ON se.student_id = s.id
     JOIN classes c
       ON c.id = se.class_id
+    ${hasScopesTable ? "LEFT JOIN scopes sc ON sc.id = c.scope_id" : ""}
     JOIN sections sec
       ON sec.id = se.section_id
+    LEFT JOIN streams str
+      ON str.id = se.stream_id
     WHERE ${where.join(" AND ")}
     ORDER BY s.name ASC, s.id ASC
   `;
@@ -522,12 +657,14 @@ export async function getStudentsForPayment(filters = {}) {
 
 export async function getStructureByEnrollment(enrollmentId) {
   const hasStreamId = await supportsFeeStructuresStreamId();
+  const hasScopesTable = await supportsScopesTable();
+  const classScopeExpr = buildClassScopeExpression(hasScopesTable);
   const sql = hasStreamId
     ? `
     SELECT
       fs.*,
       c.name AS class_name,
-      c.class_scope,
+      ${classScopeExpr} AS class_scope,
       ses.name AS session_name,
       st.name AS stream_name
     FROM student_enrollments e
@@ -536,6 +673,7 @@ export async function getStructureByEnrollment(enrollmentId) {
     AND fs.session_id = e.session_id
     AND fs.stream_id <=> e.stream_id
     JOIN classes c ON c.id = e.class_id
+    ${hasScopesTable ? "LEFT JOIN scopes sc ON sc.id = c.scope_id" : ""}
     JOIN academic_sessions ses ON ses.id = e.session_id
     LEFT JOIN streams st ON st.id = e.stream_id
     WHERE e.id = ?
@@ -545,7 +683,7 @@ export async function getStructureByEnrollment(enrollmentId) {
       fs.*,
       NULL AS stream_id,
       c.name AS class_name,
-      c.class_scope,
+      ${classScopeExpr} AS class_scope,
       ses.name AS session_name,
       st.name AS stream_name
     FROM student_enrollments e
@@ -553,9 +691,11 @@ export async function getStructureByEnrollment(enrollmentId) {
     ON fs.class_id = e.class_id
     AND fs.session_id = e.session_id
     JOIN classes c ON c.id = e.class_id
+    ${hasScopesTable ? "LEFT JOIN scopes sc ON sc.id = c.scope_id" : ""}
     JOIN academic_sessions ses ON ses.id = e.session_id
     LEFT JOIN streams st ON st.id = e.stream_id
     WHERE e.id = ?
+      AND ${classScopeExpr} <> 'hs'
   `;
   const rows = await query(sql, [enrollmentId]);
   return rows[0];
@@ -591,6 +731,8 @@ export async function getActiveEnrollmentIdsForStructure(structureId) {
 }
 
 export async function getEnrollmentSummary(enrollmentId) {
+  const hasScopesTable = await supportsScopesTable();
+  const classScopeExpr = buildClassScopeExpression(hasScopesTable);
   const rows = await query(
     `SELECT
       e.id,
@@ -598,11 +740,12 @@ export async function getEnrollmentSummary(enrollmentId) {
       e.session_id,
       e.stream_id,
       c.name AS class_name,
-      c.class_scope,
+      ${classScopeExpr} AS class_scope,
       ses.name AS session_name,
       st.name AS stream_name
      FROM student_enrollments e
      JOIN classes c ON c.id = e.class_id
+     ${hasScopesTable ? "LEFT JOIN scopes sc ON sc.id = c.scope_id" : ""}
      JOIN academic_sessions ses ON ses.id = e.session_id
      LEFT JOIN streams st ON st.id = e.stream_id
      WHERE e.id = ?
@@ -639,6 +782,8 @@ export async function updateFeeStatus(studentFeeId) {
 
 export async function getAllFeeStructuresWithInstallments() {
   const hasStreamId = await supportsFeeStructuresStreamId();
+  const hasScopesTable = await supportsScopesTable();
+  const classScopeExpr = buildClassScopeExpression(hasScopesTable);
 
   const sql = hasStreamId
     ? `
@@ -649,7 +794,7 @@ export async function getAllFeeStructuresWithInstallments() {
     fs.stream_id,
     fs.admission_fee,
     c.name AS class_name,
-    c.class_scope,
+    ${classScopeExpr} AS class_scope,
     s.name AS session_name,
     st.name AS stream_name,
     fi.id AS installment_id,
@@ -658,6 +803,7 @@ export async function getAllFeeStructuresWithInstallments() {
     fi.due_date
   FROM fee_structures fs
   JOIN classes c ON fs.class_id = c.id
+  ${hasScopesTable ? "LEFT JOIN scopes sc ON sc.id = c.scope_id" : ""}
   JOIN academic_sessions s ON fs.session_id = s.id
   LEFT JOIN streams st ON fs.stream_id = st.id
   LEFT JOIN fee_installments fi
@@ -672,7 +818,7 @@ export async function getAllFeeStructuresWithInstallments() {
     NULL AS stream_id,
     fs.admission_fee,
     c.name AS class_name,
-    c.class_scope,
+    ${classScopeExpr} AS class_scope,
     s.name AS session_name,
     NULL AS stream_name,
     fi.id AS installment_id,
@@ -681,6 +827,7 @@ export async function getAllFeeStructuresWithInstallments() {
     fi.due_date
   FROM fee_structures fs
   JOIN classes c ON fs.class_id = c.id
+  ${hasScopesTable ? "LEFT JOIN scopes sc ON sc.id = c.scope_id" : ""}
   JOIN academic_sessions s ON fs.session_id = s.id
   LEFT JOIN fee_installments fi
   ON fi.fee_structure_id = fs.id
@@ -722,10 +869,15 @@ export async function getAllFeeStructuresWithInstallments() {
 }
 
 export async function getClassById(id) {
+  const hasScopesTable = await supportsScopesTable();
+  const classScopeExpr = buildClassScopeExpression(hasScopesTable);
   const rows = await query(
-    `SELECT id, class_scope
-     FROM classes
-     WHERE id = ?
+    `SELECT
+      c.id,
+      ${classScopeExpr} AS class_scope
+     FROM classes c
+     ${hasScopesTable ? "LEFT JOIN scopes sc ON sc.id = c.scope_id" : ""}
+     WHERE c.id = ?
      LIMIT 1`,
     [id]
   );
@@ -780,6 +932,8 @@ export async function getPaymentReceipt(paymentId){
 }
 
 export async function getPayments(filters = {}) {
+  const hasScopesTable = await supportsScopesTable();
+  const classScopeExpr = buildClassScopeExpression(hasScopesTable);
   const where = [];
   const params = [];
 
@@ -796,8 +950,12 @@ export async function getPayments(filters = {}) {
     params.push(filters.student_id);
   }
   if (filters.scope) {
-    where.push("c.class_scope = ?");
+    where.push(`${classScopeExpr} = ?`);
     params.push(filters.scope);
+  }
+  if (filters.stream_id) {
+    where.push("e.stream_id = ?");
+    params.push(filters.stream_id);
   }
   if (filters.date_from) {
     where.push("DATE(p.created_at) >= ?");
@@ -836,7 +994,9 @@ export async function getPayments(filters = {}) {
       s.id AS student_id,
       s.name AS student_name,
       c.name AS class_name,
-      c.class_scope,
+      e.stream_id,
+      st.name AS stream_name,
+      ${classScopeExpr} AS class_scope,
       sec.name AS section_name,
       sec.medium AS medium,
       DATE(p.created_at) AS payment_date
@@ -845,6 +1005,8 @@ export async function getPayments(filters = {}) {
     JOIN student_enrollments e ON sf.enrollment_id = e.id
     JOIN students s ON e.student_id = s.id
     JOIN classes c ON e.class_id = c.id
+    ${hasScopesTable ? "LEFT JOIN scopes sc ON sc.id = c.scope_id" : ""}
+    LEFT JOIN streams st ON st.id = e.stream_id
     JOIN sections sec ON e.section_id = sec.id
     ${whereClause}
     ORDER BY p.created_at DESC

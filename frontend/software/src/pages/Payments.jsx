@@ -34,7 +34,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { getClassStructure } from "../api/academic.api";
+import { getClassStructure, getStreams } from "../api/academic.api";
 import {
   createPayment,
   deletePayment,
@@ -55,6 +55,7 @@ const columns = [
   { header: "Student", accessor: "student_name" },
   { header: "Scope", accessor: "scope_label" },
   { header: "Class", accessor: "class_name" },
+  { header: "Stream", accessor: "stream_name" },
   { header: "Section", accessor: "section_name" },
   { header: "Medium", accessor: "medium" },
   { header: "Fee Type", accessor: "fee_type" },
@@ -75,6 +76,10 @@ function formatScope(scope) {
   return scope || "-";
 }
 
+function resolveClassScope(value) {
+  return String(value || "school").trim().toLowerCase() === "hs" ? "hs" : "school";
+}
+
 const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:5000/api/v1";
 
 function preventWheelNumberChange(event) {
@@ -85,12 +90,14 @@ export default function Payments() {
   const navigate = useNavigate();
 
   const [classes, setClasses] = useState([]);
+  const [streams, setStreams] = useState([]);
   const [students, setStudents] = useState([]);
   const [feeOptions, setFeeOptions] = useState([]);
   const [payments, setPayments] = useState([]);
 
   const [classId, setClassId] = useState("");
   const [sectionId, setSectionId] = useState("");
+  const [streamId, setStreamId] = useState("");
   const [scope, setScope] = useState("");
   const [paymentDate, setPaymentDate] = useState("");
 
@@ -105,6 +112,7 @@ export default function Payments() {
   const [createForm, setCreateForm] = useState({
     class_id: "",
     section_id: "",
+    stream_id: "",
     student_id: "",
     student_fee_id: "",
     amount_paid: "",
@@ -117,13 +125,27 @@ export default function Payments() {
 
   async function loadClasses() {
     const res = await getClassStructure();
-    setClasses(res?.data || []);
+    setClasses(
+      (res?.data || []).map((row) => ({
+        ...row,
+        class_scope: resolveClassScope(row.class_scope),
+      }))
+    );
+  }
+
+  async function loadStreams() {
+    const res = await getStreams();
+    setStreams(res?.data || []);
   }
 
   async function loadPayments() {
+    const selectedFilterClass = classes.find((c) => String(c.id) === String(classId));
+    const effectiveFilterStreamId =
+      resolveClassScope(selectedFilterClass?.class_scope) === "hs" ? streamId : "";
     const res = await getPayments({
       class_id: classId || undefined,
       section_id: sectionId || undefined,
+      stream_id: effectiveFilterStreamId || undefined,
       scope: scope || undefined,
       payment_date: paymentDate || undefined,
     });
@@ -134,16 +156,29 @@ export default function Payments() {
         medium: row.medium || "-",
         payment_date: row.payment_date || row.created_at || "-",
         scope_label: formatScope(row.class_scope),
+        stream_name: row.stream_name || "-",
         display_status: formatStatus(row.fee_status || row.status),
       }))
     );
   }
 
   async function loadStudentsForCreate() {
+    const selectedCreateClass = classes.find(
+      (row) => String(row.id) === String(createForm.class_id)
+    );
+    const selectedCreateScope = resolveClassScope(selectedCreateClass?.class_scope);
+    const effectiveCreateStreamId = selectedCreateScope === "hs" ? createForm.stream_id : "";
+
+    if (selectedCreateScope === "hs" && !effectiveCreateStreamId) {
+      setStudents([]);
+      return;
+    }
+
     try {
       const res = await getStudentsForPayment({
         class_id: createForm.class_id,
         section_id: createForm.section_id,
+        stream_id: effectiveCreateStreamId || undefined,
       });
       const list = Array.isArray(res) ? res : (res?.data || []);
       setStudents(list);
@@ -167,6 +202,7 @@ export default function Payments() {
 
   const loadInitialPayments = useEffectEvent(() => {
     loadClasses();
+    loadStreams();
   });
 
   const loadFilteredPayments = useEffectEvent(() => {
@@ -175,6 +211,17 @@ export default function Payments() {
 
   const loadScopedStudents = useEffectEvent(() => {
     if (!createForm.class_id || !createForm.section_id) {
+      setStudents([]);
+      setStudentSearch("");
+      return;
+    }
+
+    const selectedCreateClass = classes.find(
+      (row) => String(row.id) === String(createForm.class_id)
+    );
+    const selectedCreateScope = resolveClassScope(selectedCreateClass?.class_scope);
+    const effectiveCreateStreamId = selectedCreateScope === "hs" ? createForm.stream_id : "";
+    if (selectedCreateScope === "hs" && !effectiveCreateStreamId) {
       setStudents([]);
       setStudentSearch("");
       return;
@@ -216,11 +263,11 @@ export default function Payments() {
 
   useEffect(() => {
     loadFilteredPayments();
-  }, [classId, sectionId, scope, paymentDate]);
+  }, [classId, sectionId, streamId, scope, paymentDate]);
 
   useEffect(() => {
     loadScopedStudents();
-  }, [createForm.class_id, createForm.section_id]);
+  }, [createForm.class_id, createForm.section_id, createForm.stream_id, classes]);
 
   useEffect(() => {
     loadSelectedStudentFees();
@@ -241,6 +288,16 @@ export default function Payments() {
   async function handleCreatePayment(e) {
     e.preventDefault();
     setCreateError("");
+    const selectedCreateClass = classes.find(
+      (row) => String(row.id) === String(createForm.class_id)
+    );
+    const selectedCreateScope = resolveClassScope(selectedCreateClass?.class_scope);
+    const effectiveCreateStreamId = selectedCreateScope === "hs" ? createForm.stream_id : "";
+
+    if (selectedCreateScope === "hs" && !effectiveCreateStreamId) {
+      setCreateError("Stream is required for higher secondary classes.");
+      return;
+    }
     if (!createForm.student_fee_id) {
       setCreateError("Select due fee item.");
       return;
@@ -273,6 +330,7 @@ export default function Payments() {
     setCreateForm({
       class_id: "",
       section_id: "",
+      stream_id: "",
       student_id: "",
       student_fee_id: "",
       amount_paid: "",
@@ -361,9 +419,13 @@ export default function Payments() {
 
   async function handleExportCsv() {
     try {
+      const selectedFilterClass = classes.find((c) => String(c.id) === String(classId));
+      const effectiveFilterStreamId =
+        resolveClassScope(selectedFilterClass?.class_scope) === "hs" ? streamId : "";
       const blob = await exportPaymentsCsv({
         class_id: classId || undefined,
         section_id: sectionId || undefined,
+        stream_id: effectiveFilterStreamId || undefined,
         scope: scope || undefined,
         payment_date: paymentDate || undefined,
       });
@@ -381,12 +443,16 @@ export default function Payments() {
   }
 
   const selectedClass = classes.find((c) => String(c.id) === String(classId));
+  const selectedClassScope = resolveClassScope(selectedClass?.class_scope);
+  const effectiveFilterStreamId = selectedClassScope === "hs" ? streamId : "";
   const sections = selectedClass?.sections || [];
-  const activeFilterCount = [scope, classId, sectionId, paymentDate].filter(Boolean).length;
+  const activeFilterCount = [scope, classId, sectionId, effectiveFilterStreamId, paymentDate].filter(Boolean).length;
 
   const createSelectedClass = classes.find(
     (c) => String(c.id) === String(createForm.class_id)
   );
+  const createSelectedClassScope = resolveClassScope(createSelectedClass?.class_scope);
+  const effectiveCreateStreamId = createSelectedClassScope === "hs" ? createForm.stream_id : "";
   const createSections = createSelectedClass?.sections || [];
   const filteredStudents = students.filter((student) =>
     String(student.name || "")
@@ -414,7 +480,7 @@ export default function Payments() {
                 <PopoverHeader className="space-y-1">
                   <PopoverTitle>Filters</PopoverTitle>
                   <PopoverDescription>
-                    Narrow the payments list by scope, class, section, or date.
+                    Narrow the payments list by scope, class, stream, section, or date.
                   </PopoverDescription>
                 </PopoverHeader>
 
@@ -444,12 +510,33 @@ export default function Payments() {
                       onChange={(e) => {
                         setClassId(e.target.value);
                         setSectionId("");
+                        setStreamId("");
                       }}
                     >
                       <option value="">All Classes</option>
                       {classes.map((c) => (
                         <option key={c.id} value={c.id}>
                           {c.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="grid gap-2">
+                    <Label htmlFor="payments-filter-stream">Stream</Label>
+                    <select
+                      id="payments-filter-stream"
+                      className="border rounded p-2"
+                      value={effectiveFilterStreamId}
+                      onChange={(e) => setStreamId(e.target.value)}
+                      disabled={!classId || selectedClassScope !== "hs"}
+                    >
+                      <option value="">
+                        {selectedClassScope === "hs" ? "All Streams" : "Select an HS class first"}
+                      </option>
+                      {streams.map((stream) => (
+                        <option key={stream.id} value={stream.id}>
+                          {stream.name}
                         </option>
                       ))}
                     </select>
@@ -493,6 +580,7 @@ export default function Payments() {
                     setScope("");
                     setClassId("");
                     setSectionId("");
+                    setStreamId("");
                     setPaymentDate("");
                   }}
                 >
@@ -503,7 +591,27 @@ export default function Payments() {
             <Button variant="outline" onClick={handleExportCsv}>
               Download CSV
             </Button>
-            <Dialog open={openCreate} onOpenChange={setOpenCreate}>
+            <Dialog
+              open={openCreate}
+              onOpenChange={(nextOpen) => {
+                setOpenCreate(nextOpen);
+                if (!nextOpen) {
+                  setCreateForm({
+                    class_id: "",
+                    section_id: "",
+                    stream_id: "",
+                    student_id: "",
+                    student_fee_id: "",
+                    amount_paid: "",
+                    remarks: "",
+                  });
+                  setStudents([]);
+                  setFeeOptions([]);
+                  setStudentSearch("");
+                  setCreateError("");
+                }
+              }}
+            >
               <DialogTrigger asChild>
                 <Button>Record Payment</Button>
               </DialogTrigger>
@@ -512,7 +620,7 @@ export default function Payments() {
                   <DialogHeader>
                     <DialogTitle>Record Fee Payment</DialogTitle>
                     <DialogDescription>
-                      Select the student due item and enter the payment details.
+                      Select class, stream (for HS), student due item, and payment details.
                     </DialogDescription>
                   </DialogHeader>
 
@@ -523,12 +631,13 @@ export default function Payments() {
                       value={createForm.class_id}
                       onChange={(e) =>
                         setCreateForm((prev) => ({
-                          ...prev,
-                          class_id: e.target.value,
-                          section_id: "",
-                          student_id: "",
-                          student_fee_id: "",
-                        }))
+                            ...prev,
+                            class_id: e.target.value,
+                            section_id: "",
+                            stream_id: "",
+                            student_id: "",
+                            student_fee_id: "",
+                          }))
                       }
                     >
                       <option value="">Select Class</option>
@@ -539,6 +648,33 @@ export default function Payments() {
                       ))}
                     </select>
                   </div>
+
+                  {createSelectedClassScope === "hs" ? (
+                    <div className="grid gap-2">
+                      <Label>Stream *</Label>
+                      <select
+                        className="border rounded p-2"
+                        value={effectiveCreateStreamId}
+                        onChange={(e) => {
+                          setCreateForm((prev) => ({
+                            ...prev,
+                            stream_id: e.target.value,
+                            student_id: "",
+                            student_fee_id: "",
+                          }));
+                          setStudentSearch("");
+                        }}
+                        disabled={!createForm.class_id}
+                      >
+                        <option value="">Select Stream</option>
+                        {streams.map((stream) => (
+                          <option key={stream.id} value={stream.id}>
+                            {stream.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  ) : null}
 
                   <div className="grid gap-2">
                     <Label>Section *</Label>
@@ -571,7 +707,10 @@ export default function Payments() {
                       placeholder="Search student"
                       value={studentSearch}
                       onChange={(e) => setStudentSearch(e.target.value)}
-                      disabled={!createForm.section_id}
+                      disabled={
+                        !createForm.section_id ||
+                        (createSelectedClassScope === "hs" && !effectiveCreateStreamId)
+                      }
                     />
                     <select
                       className="border rounded p-2"
@@ -583,18 +722,24 @@ export default function Payments() {
                           student_fee_id: "",
                         }))
                       }
-                      disabled={!createForm.section_id}
+                      disabled={
+                        !createForm.section_id ||
+                        (createSelectedClassScope === "hs" && !effectiveCreateStreamId)
+                      }
                     >
                       <option value="">Select Student</option>
                       {filteredStudents.map((s) => (
                         <option key={s.id} value={s.id}>
                           {s.name}
+                          {s.stream_name ? ` (${s.stream_name})` : ""}
                         </option>
                       ))}
                     </select>
                     {createForm.section_id && filteredStudents.length === 0 && (
                       <p className="text-xs text-muted-foreground">
-                        No students match this search.
+                        {createSelectedClassScope === "hs" && !effectiveCreateStreamId
+                          ? "Select a stream to load higher secondary students."
+                          : "No students match this search."}
                       </p>
                     )}
                   </div>
@@ -722,6 +867,15 @@ export default function Payments() {
               </DialogDescription>
             </DialogHeader>
 
+            {editingPayment ? (
+              <p className="text-xs text-muted-foreground">
+                {editingPayment.student_name} - {editingPayment.class_name}
+                {editingPayment.stream_name && editingPayment.stream_name !== "-" ? ` (${editingPayment.stream_name})` : ""}
+                {" - "}
+                {editingPayment.section_name}
+              </p>
+            ) : null}
+
             <div className="grid gap-2">
               <Label>Amount Paid *</Label>
               <Input
@@ -770,7 +924,7 @@ export default function Payments() {
             <AlertDialogTitle>Delete payment?</AlertDialogTitle>
             <AlertDialogDescription>
               {deletingPayment
-                ? `This will delete the payment record for ${deletingPayment.student_name}.`
+                ? `This will delete the payment record for ${deletingPayment.student_name} (${deletingPayment.class_name}${deletingPayment.stream_name && deletingPayment.stream_name !== "-" ? ` / ${deletingPayment.stream_name}` : ""} / ${deletingPayment.section_name}).`
                 : "This action cannot be undone."}
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -785,3 +939,4 @@ export default function Payments() {
     </>
   );
 }
+

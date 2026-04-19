@@ -79,6 +79,7 @@ export function getPayments(params = {}) {
   const query = new URLSearchParams();
   if (params.class_id) query.set("class_id", params.class_id);
   if (params.section_id) query.set("section_id", params.section_id);
+  if (params.stream_id) query.set("stream_id", params.stream_id);
   if (params.student_id) query.set("student_id", params.student_id);
   if (params.scope) query.set("scope", params.scope);
   if (params.payment_date) query.set("payment_date", params.payment_date);
@@ -92,6 +93,7 @@ export async function exportPaymentsCsv(params = {}) {
   const query = new URLSearchParams();
   if (params.class_id) query.set("class_id", params.class_id);
   if (params.section_id) query.set("section_id", params.section_id);
+  if (params.stream_id) query.set("stream_id", params.stream_id);
   if (params.student_id) query.set("student_id", params.student_id);
   if (params.scope) query.set("scope", params.scope);
   if (params.payment_date) query.set("payment_date", params.payment_date);
@@ -142,6 +144,7 @@ export function getStudentsForPayment(params = {}) {
   const query = new URLSearchParams();
   if (params.class_id) query.set("class_id", params.class_id);
   if (params.section_id) query.set("section_id", params.section_id);
+  if (params.stream_id) query.set("stream_id", params.stream_id);
   const suffix = query.toString() ? `?${query.toString()}` : "";
   return apiRequest(`/fees/students${suffix}`);
 }

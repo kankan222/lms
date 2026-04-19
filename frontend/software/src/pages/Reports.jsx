@@ -78,6 +78,15 @@ function uniqueById(items = []) {
   });
 }
 
+function isSplitPattern(subject) {
+  return String(subject?.mark_pattern || "single").trim().toLowerCase() === "split";
+}
+
+function toNumberOrZero(value) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
 function downloadBlob(blob, fileName) {
   if (!blob || blob.size === 0) {
     throw new Error("Downloaded file is empty");
@@ -174,11 +183,18 @@ export default function Reports() {
     const sections = selectedClass.sections || [];
     if (!filters.exam_id) return sections;
 
-    const allowedSectionIds = new Set(
-      (examScopes || [])
-        .filter((item) => String(item.class_id) === String(selectedClass.id))
-        .map((item) => String(item.section_id))
+    const classScopeRows = (examScopes || []).filter(
+      (item) => String(item.class_id) === String(selectedClass.id)
     );
+    const hasClassWideScope = classScopeRows.some(
+      (item) =>
+        item.section_id === null ||
+        item.section_id === undefined ||
+        String(item.section_id).trim() === ""
+    );
+    if (hasClassWideScope) return sections;
+
+    const allowedSectionIds = new Set(classScopeRows.map((item) => String(item.section_id)));
 
     return sections.filter((item) => allowedSectionIds.has(String(item.id)));
   }, [selectedClass, filters.exam_id, examScopes]);
@@ -537,9 +553,23 @@ export default function Reports() {
   function resetGridState(nextGrid) {
     setGrid(nextGrid);
     setSelectedStudentIds([]);
+    const splitPattern = isSplitPattern(nextGrid?.subject);
     const draft = {};
     (nextGrid?.rows || []).forEach((row) => {
-      draft[row.student_id] = row.marks ?? "";
+      if (splitPattern) {
+        draft[row.student_id] = {
+          marks: row.marks ?? "",
+          theory_marks: row.theory_marks ?? "",
+          practical_marks: row.practical_marks ?? "",
+        };
+        return;
+      }
+
+      draft[row.student_id] = {
+        marks: row.marks ?? "",
+        theory_marks: "",
+        practical_marks: "",
+      };
     });
     setEditedMarks(draft);
     setEditMode(false);
@@ -583,10 +613,24 @@ export default function Reports() {
     );
   }
 
-  function updateMarksValue(studentId, value) {
+  function updateMarksValue(studentId, key, value) {
     setEditedMarks((prev) => ({
       ...prev,
-      [studentId]: value,
+      [studentId]: {
+        marks:
+          typeof prev?.[studentId] === "object"
+            ? prev?.[studentId]?.marks ?? ""
+            : prev?.[studentId] ?? "",
+        theory_marks:
+          typeof prev?.[studentId] === "object"
+            ? prev?.[studentId]?.theory_marks ?? ""
+            : "",
+        practical_marks:
+          typeof prev?.[studentId] === "object"
+            ? prev?.[studentId]?.practical_marks ?? ""
+            : "",
+        [key]: value,
+      },
     }));
   }
 
@@ -607,15 +651,31 @@ export default function Reports() {
       return;
     }
 
+    const splitPattern = isSplitPattern(grid?.subject);
     const marks = grid.rows
-      .map((row) => ({
-        student_id: row.student_id,
-        marks: editedMarks[row.student_id],
-      }))
-      .filter((row) => row.marks !== "" && row.marks !== null && row.marks !== undefined);
+      .map((row) => {
+        const edited = editedMarks[row.student_id] || {};
+        if (splitPattern) {
+          return {
+            student_id: row.student_id,
+            theory_marks: edited?.theory_marks ?? "",
+            practical_marks: edited?.practical_marks ?? "",
+          };
+        }
+
+        return {
+          student_id: row.student_id,
+          marks: edited?.marks ?? "",
+        };
+      })
+      .filter((row) =>
+        splitPattern
+          ? row.theory_marks !== "" || row.practical_marks !== ""
+          : row.marks !== "" && row.marks !== null && row.marks !== undefined
+      );
 
     if (!marks.length) {
-      setError("Enter at least one mark to save.");
+      setError("Enter at least one mark value to save.");
       return;
     }
 
@@ -1055,7 +1115,9 @@ export default function Reports() {
               <TableHead className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Class</TableHead>
               <TableHead className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Section</TableHead>
               <TableHead className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Subject</TableHead>
-              <TableHead className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Marks</TableHead>
+              <TableHead className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
+                {isSplitPattern(grid?.subject) ? "Marks (T/P/Total)" : "Marks"}
+              </TableHead>
               <TableHead className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Status</TableHead>
               {isAdmin ? <TableHead className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Download</TableHead> : null}
             </TableRow>
@@ -1088,15 +1150,55 @@ export default function Reports() {
                 <TableCell>{selectedSubject?.name || grid?.subject?.name || "-"}</TableCell>
                 <TableCell>
                   {canEditMarks && row.approval_status !== "approved" ? (
-                    <Input
-                      type="number"
-                      min="0"
-                      max={grid?.subject?.max_marks || 100}
-                      className="w-24"
-                      value={editedMarks[row.student_id] ?? ""}
-                      onChange={(e) => updateMarksValue(row.student_id, e.target.value)}
-                      onWheel={(e) => e.currentTarget.blur()}
-                    />
+                    isSplitPattern(grid?.subject) ? (
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2">
+                          <span className="w-5 text-[11px] text-muted-foreground">T</span>
+                          <Input
+                            type="number"
+                            min="0"
+                            max={grid?.subject?.theory_max ?? grid?.subject?.max_marks ?? 100}
+                            className="w-24"
+                            value={editedMarks?.[row.student_id]?.theory_marks ?? ""}
+                            onChange={(e) => updateMarksValue(row.student_id, "theory_marks", e.target.value)}
+                            onWheel={(e) => e.currentTarget.blur()}
+                          />
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="w-5 text-[11px] text-muted-foreground">P</span>
+                          <Input
+                            type="number"
+                            min="0"
+                            max={grid?.subject?.practical_max ?? grid?.subject?.max_marks ?? 100}
+                            className="w-24"
+                            value={editedMarks?.[row.student_id]?.practical_marks ?? ""}
+                            onChange={(e) => updateMarksValue(row.student_id, "practical_marks", e.target.value)}
+                            onWheel={(e) => e.currentTarget.blur()}
+                          />
+                        </div>
+                        <div className="text-[11px] text-muted-foreground">
+                          Total:{" "}
+                          {toNumberOrZero(editedMarks?.[row.student_id]?.theory_marks) +
+                            toNumberOrZero(editedMarks?.[row.student_id]?.practical_marks)}
+                        </div>
+                      </div>
+                    ) : (
+                      <Input
+                        type="number"
+                        min="0"
+                        max={grid?.subject?.max_marks || 100}
+                        className="w-24"
+                        value={editedMarks?.[row.student_id]?.marks ?? ""}
+                        onChange={(e) => updateMarksValue(row.student_id, "marks", e.target.value)}
+                        onWheel={(e) => e.currentTarget.blur()}
+                      />
+                    )
+                  ) : isSplitPattern(grid?.subject) ? (
+                    <div className="text-xs">
+                      <div>T: {row.theory_marks ?? "-"}</div>
+                      <div>P: {row.practical_marks ?? "-"}</div>
+                      <div className="font-medium">Total: {row.marks ?? "-"}</div>
+                    </div>
                   ) : (
                     row.marks ?? "-"
                   )}
@@ -1259,7 +1361,9 @@ export default function Reports() {
                 <TableHeader>
                   <TableRow>
                     <TableHead>Subject</TableHead>
-                    <TableHead>Marks</TableHead>
+                    <TableHead>Theory</TableHead>
+                    <TableHead>Practical</TableHead>
+                    <TableHead>Total</TableHead>
                     <TableHead>Max</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -1267,6 +1371,8 @@ export default function Reports() {
                   {(selfReport.subjects || []).map((row) => (
                     <TableRow key={row.subject}>
                       <TableCell>{row.subject}</TableCell>
+                      <TableCell>{row.theory_marks ?? "-"}</TableCell>
+                      <TableCell>{row.practical_marks ?? "-"}</TableCell>
                       <TableCell>{row.marks}</TableCell>
                       <TableCell>{row.max_marks}</TableCell>
                     </TableRow>

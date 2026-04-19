@@ -1,5 +1,118 @@
 import { query } from "../../core/db/query.js";
 
+let supportsScopesTableCache;
+let examSubjectSplitSchemaStatusCache;
+let marksEntrySplitSchemaStatusCache;
+let studentExamSubjectsTableCache;
+
+async function supportsScopesTable() {
+  if (typeof supportsScopesTableCache === "boolean") {
+    return supportsScopesTableCache;
+  }
+
+  const rows = await query(
+    `
+      SELECT COUNT(*) AS total
+      FROM information_schema.TABLES
+      WHERE TABLE_SCHEMA = DATABASE()
+        AND TABLE_NAME = 'scopes'
+    `
+  );
+
+  supportsScopesTableCache = Number(rows[0]?.total || 0) > 0;
+  return supportsScopesTableCache;
+}
+
+function buildClassScopeExpression(hasScopesTable, classAlias = "c", scopeAlias = "sc_ref") {
+  if (hasScopesTable) {
+    return `COALESCE(${scopeAlias}.code, ${classAlias}.class_scope, 'school')`;
+  }
+
+  return `COALESCE(${classAlias}.class_scope, 'school')`;
+}
+
+export async function getExamSubjectSplitSchemaStatus() {
+  if (examSubjectSplitSchemaStatusCache) {
+    return examSubjectSplitSchemaStatusCache;
+  }
+
+  const rows = await query(
+    `
+      SELECT
+        SUM(COLUMN_NAME = 'mark_pattern') AS has_mark_pattern,
+        SUM(COLUMN_NAME = 'theory_max') AS has_theory_max,
+        SUM(COLUMN_NAME = 'theory_pass') AS has_theory_pass,
+        SUM(COLUMN_NAME = 'practical_max') AS has_practical_max,
+        SUM(COLUMN_NAME = 'practical_pass') AS has_practical_pass
+      FROM information_schema.COLUMNS
+      WHERE TABLE_SCHEMA = DATABASE()
+        AND TABLE_NAME = 'exam_subjects'
+        AND COLUMN_NAME IN (
+          'mark_pattern',
+          'theory_max',
+          'theory_pass',
+          'practical_max',
+          'practical_pass'
+        )
+    `
+  );
+
+  const status = {
+    hasMarkPattern: Number(rows[0]?.has_mark_pattern || 0) > 0,
+    hasTheoryMax: Number(rows[0]?.has_theory_max || 0) > 0,
+    hasTheoryPass: Number(rows[0]?.has_theory_pass || 0) > 0,
+    hasPracticalMax: Number(rows[0]?.has_practical_max || 0) > 0,
+    hasPracticalPass: Number(rows[0]?.has_practical_pass || 0) > 0,
+  };
+
+  examSubjectSplitSchemaStatusCache = status;
+  return status;
+}
+
+export async function getMarksEntrySplitSchemaStatus() {
+  if (marksEntrySplitSchemaStatusCache) {
+    return marksEntrySplitSchemaStatusCache;
+  }
+
+  const rows = await query(
+    `
+      SELECT
+        SUM(COLUMN_NAME = 'theory_marks') AS has_theory_marks,
+        SUM(COLUMN_NAME = 'practical_marks') AS has_practical_marks
+      FROM information_schema.COLUMNS
+      WHERE TABLE_SCHEMA = DATABASE()
+        AND TABLE_NAME = 'marks_entries'
+        AND COLUMN_NAME IN ('theory_marks', 'practical_marks')
+    `
+  );
+
+  const status = {
+    hasTheoryMarks: Number(rows[0]?.has_theory_marks || 0) > 0,
+    hasPracticalMarks: Number(rows[0]?.has_practical_marks || 0) > 0,
+  };
+
+  marksEntrySplitSchemaStatusCache = status;
+  return status;
+}
+
+export async function supportsStudentExamSubjectsTable() {
+  if (typeof studentExamSubjectsTableCache === "boolean") {
+    return studentExamSubjectsTableCache;
+  }
+
+  const rows = await query(
+    `
+      SELECT COUNT(*) AS total
+      FROM information_schema.TABLES
+      WHERE TABLE_SCHEMA = DATABASE()
+        AND TABLE_NAME = 'student_exam_subjects'
+    `
+  );
+
+  studentExamSubjectsTableCache = Number(rows[0]?.total || 0) > 0;
+  return studentExamSubjectsTableCache;
+}
+
 export async function supportsMarksDraftStatus() {
   const rows = await query(
     `SELECT COLUMN_TYPE
@@ -77,14 +190,20 @@ export async function getStudentProfileByUser(userId) {
 }
 
 export async function getExamById(examId) {
+  const hasScopesTable = await supportsScopesTable();
+  const classScopeExpr = buildClassScopeExpression(hasScopesTable);
+
   const rows = await query(
     `SELECT
       e.id,
       e.name,
       e.session_id,
-      ses.name AS session_name
+      ses.name AS session_name,
+      ${classScopeExpr} AS class_scope
      FROM exams e
      LEFT JOIN academic_sessions ses ON ses.id = e.session_id
+     LEFT JOIN classes c ON c.id = e.class_id
+     ${hasScopesTable ? "LEFT JOIN scopes sc_ref ON sc_ref.id = c.scope_id" : ""}
      WHERE e.id = ?
      LIMIT 1`,
     [examId]
@@ -93,12 +212,31 @@ export async function getExamById(examId) {
 }
 
 export async function getExamSubjects(examId) {
+  const schema = await getExamSubjectSplitSchemaStatus();
+  const supportsSplitSchema =
+    schema.hasMarkPattern &&
+    schema.hasTheoryMax &&
+    schema.hasTheoryPass &&
+    schema.hasPracticalMax &&
+    schema.hasPracticalPass;
+
+  const markPatternExpr = supportsSplitSchema ? "es.mark_pattern" : "'single'";
+  const theoryMaxExpr = supportsSplitSchema ? "es.theory_max" : "NULL";
+  const theoryPassExpr = supportsSplitSchema ? "es.theory_pass" : "NULL";
+  const practicalMaxExpr = supportsSplitSchema ? "es.practical_max" : "NULL";
+  const practicalPassExpr = supportsSplitSchema ? "es.practical_pass" : "NULL";
+
   return query(
     `SELECT
       es.subject_id,
+      ${markPatternExpr} AS mark_pattern,
       sub.name AS subject_name,
       es.max_marks,
-      es.pass_marks
+      es.pass_marks,
+      ${theoryMaxExpr} AS theory_max,
+      ${theoryPassExpr} AS theory_pass,
+      ${practicalMaxExpr} AS practical_max,
+      ${practicalPassExpr} AS practical_pass
      FROM exam_subjects es
      JOIN subjects sub ON sub.id = es.subject_id
      WHERE es.exam_id = ?
@@ -108,17 +246,22 @@ export async function getExamSubjects(examId) {
 }
 
 export async function getExamScopes(examId) {
+  const hasScopesTable = await supportsScopesTable();
+  const classScopeExpr = buildClassScopeExpression(hasScopesTable);
+
   return query(
     `SELECT
       es.class_id,
       es.section_id,
+      ${classScopeExpr} AS class_scope,
       c.name AS class_name,
       s.name AS section_name
      FROM exam_scopes es
      JOIN classes c ON c.id = es.class_id
-     JOIN sections s ON s.id = es.section_id
+     ${hasScopesTable ? "LEFT JOIN scopes sc_ref ON sc_ref.id = c.scope_id" : ""}
+     LEFT JOIN sections s ON s.id = es.section_id
      WHERE es.exam_id = ?
-     ORDER BY c.name, s.name`,
+     ORDER BY c.name, es.section_id IS NULL DESC, s.name`,
     [examId]
   );
 }
@@ -138,7 +281,7 @@ export async function getTeacherAccessibleExams(userId) {
      JOIN exam_scopes sc
        ON sc.exam_id = e.id
       AND sc.class_id = tca.class_id
-      AND sc.section_id = tca.section_id
+      AND (sc.section_id IS NULL OR sc.section_id = tca.section_id)
      LEFT JOIN academic_sessions ses ON ses.id = e.session_id
      WHERE t.user_id = ?
      ORDER BY e.id DESC`,
@@ -163,7 +306,7 @@ export async function getOwnedStudentAccessibleExams(studentIds) {
      JOIN exam_scopes sc
        ON sc.exam_id = e.id
       AND sc.class_id = se.class_id
-      AND sc.section_id = se.section_id
+      AND (sc.section_id IS NULL OR sc.section_id = se.section_id)
      LEFT JOIN academic_sessions ses ON ses.id = e.session_id
      WHERE se.student_id IN (${placeholders})
      ORDER BY e.id DESC`,
@@ -172,13 +315,32 @@ export async function getOwnedStudentAccessibleExams(studentIds) {
 }
 
 export async function getExamSubject(examId, subjectId) {
+  const schema = await getExamSubjectSplitSchemaStatus();
+  const supportsSplitSchema =
+    schema.hasMarkPattern &&
+    schema.hasTheoryMax &&
+    schema.hasTheoryPass &&
+    schema.hasPracticalMax &&
+    schema.hasPracticalPass;
+
+  const markPatternExpr = supportsSplitSchema ? "es.mark_pattern" : "'single'";
+  const theoryMaxExpr = supportsSplitSchema ? "es.theory_max" : "NULL";
+  const theoryPassExpr = supportsSplitSchema ? "es.theory_pass" : "NULL";
+  const practicalMaxExpr = supportsSplitSchema ? "es.practical_max" : "NULL";
+  const practicalPassExpr = supportsSplitSchema ? "es.practical_pass" : "NULL";
+
   const rows = await query(
     `SELECT
       es.id,
       es.exam_id,
       es.subject_id,
+      ${markPatternExpr} AS mark_pattern,
       es.max_marks,
       es.pass_marks,
+      ${theoryMaxExpr} AS theory_max,
+      ${theoryPassExpr} AS theory_pass,
+      ${practicalMaxExpr} AS practical_max,
+      ${practicalPassExpr} AS practical_pass,
       sub.name AS subject_name
      FROM exam_subjects es
      JOIN subjects sub ON sub.id = es.subject_id
@@ -191,8 +353,8 @@ export async function getExamSubject(examId, subjectId) {
 
 export async function isTeacherAssignedToExamScope(userId, examId, classId, sectionId, subjectId = null) {
   const params = subjectId
-    ? [userId, classId, sectionId, subjectId, examId]
-    : [userId, classId, sectionId, examId];
+    ? [userId, classId, sectionId, sectionId, subjectId, examId]
+    : [userId, classId, sectionId, sectionId, examId];
 
   const subjectClause = subjectId ? `AND tca.subject_id = ?` : "";
 
@@ -203,12 +365,12 @@ export async function isTeacherAssignedToExamScope(userId, examId, classId, sect
      JOIN exam_scopes sc
        ON sc.exam_id = e.id
       AND sc.class_id = ?
-      AND sc.section_id = ?
+      AND (sc.section_id IS NULL OR sc.section_id = ?)
      JOIN teacher_class_assignments tca
        ON tca.teacher_id = t.id
       AND tca.session_id = e.session_id
       AND tca.class_id = sc.class_id
-      AND tca.section_id = sc.section_id
+      AND tca.section_id = ?
       ${subjectClause}
      WHERE e.id = ?
      LIMIT 1`,
@@ -218,8 +380,37 @@ export async function isTeacherAssignedToExamScope(userId, examId, classId, sect
   return rows.length > 0;
 }
 
-export async function getStudentsForScope({ examId, classId, sectionId, medium, name }) {
-  const params = [classId, sectionId, examId];
+export async function getAllowedTeacherScopes(userId, examId) {
+  const hasScopesTable = await supportsScopesTable();
+  const classScopeExpr = buildClassScopeExpression(hasScopesTable);
+
+  return query(
+    `SELECT DISTINCT
+      sc.class_id,
+      tca.section_id,
+      ${classScopeExpr} AS class_scope,
+      c.name AS class_name,
+      s.name AS section_name
+     FROM exam_scopes sc
+     JOIN exams e ON e.id = sc.exam_id
+     JOIN teachers t ON t.user_id = ?
+     JOIN teacher_class_assignments tca
+       ON tca.teacher_id = t.id
+      AND tca.session_id = e.session_id
+      AND tca.class_id = sc.class_id
+      AND (sc.section_id IS NULL OR tca.section_id = sc.section_id)
+     JOIN classes c ON c.id = sc.class_id
+     ${hasScopesTable ? "LEFT JOIN scopes sc_ref ON sc_ref.id = c.scope_id" : ""}
+     JOIN sections s ON s.id = tca.section_id
+     WHERE sc.exam_id = ?
+     ORDER BY c.name, s.name`,
+    [userId, examId]
+  );
+}
+
+export async function getStudentsForScope({ examId, classId, sectionId, medium, name, subjectId = null }) {
+  const hasStudentExamSubjects = await supportsStudentExamSubjectsTable();
+  const params = [classId, sectionId, sectionId, examId];
   const where = [];
 
   if (medium) {
@@ -232,10 +423,31 @@ export async function getStudentsForScope({ examId, classId, sectionId, medium, 
     params.push(`%${String(name).trim()}%`);
   }
 
+  if (hasStudentExamSubjects && subjectId) {
+    where.push(
+      `(
+        NOT EXISTS (
+          SELECT 1
+          FROM student_exam_subjects ses_any
+          WHERE ses_any.exam_id = e.id
+            AND ses_any.student_id = st.id
+        )
+        OR EXISTS (
+          SELECT 1
+          FROM student_exam_subjects ses_match
+          WHERE ses_match.exam_id = e.id
+            AND ses_match.student_id = st.id
+            AND ses_match.subject_id = ?
+        )
+      )`
+    );
+    params.push(subjectId);
+  }
+
   const extraWhere = where.length ? `AND ${where.join(" AND ")}` : "";
 
   return query(
-    `SELECT
+    `SELECT DISTINCT
       st.id AS student_id,
       st.name AS student_name,
       se.roll_number,
@@ -244,11 +456,11 @@ export async function getStudentsForScope({ examId, classId, sectionId, medium, 
      JOIN exam_scopes sc
        ON sc.exam_id = e.id
       AND sc.class_id = ?
-      AND sc.section_id = ?
-     JOIN sections sec ON sec.id = sc.section_id
+      AND (sc.section_id IS NULL OR sc.section_id = ?)
+     JOIN sections sec ON sec.id = ?
      JOIN student_enrollments se
        ON se.class_id = sc.class_id
-      AND se.section_id = sc.section_id
+      AND se.section_id = sec.id
       AND se.session_id = e.session_id
       AND se.status = 'active'
      JOIN students st ON st.id = se.student_id
@@ -262,12 +474,19 @@ export async function getStudentsForScope({ examId, classId, sectionId, medium, 
 export async function getMarksByExamSubjectStudentIds(examId, subjectId, studentIds) {
   if (!studentIds.length) return [];
 
+  const schema = await getMarksEntrySplitSchemaStatus();
+  const supportsSplitMarksSchema = schema.hasTheoryMarks && schema.hasPracticalMarks;
+  const theoryMarksExpr = supportsSplitMarksSchema ? "theory_marks" : "NULL";
+  const practicalMarksExpr = supportsSplitMarksSchema ? "practical_marks" : "NULL";
+
   const placeholders = studentIds.map(() => "?").join(",");
   return query(
     `SELECT
       id AS mark_id,
       student_id,
       marks,
+      ${theoryMarksExpr} AS theory_marks,
+      ${practicalMarksExpr} AS practical_marks,
       approval_status,
       approved_by,
       approved_at
@@ -337,14 +556,60 @@ export async function getApprovalStatusSummary() {
 export async function upsertMarksDraft(conn, rows) {
   if (!rows.length) return;
 
-  const values = rows.map((row) => [
-    row.student_id,
-    row.exam_id,
-    row.subject_id,
-    row.marks,
-    row.entered_by,
-  ]);
+  const schema = await getMarksEntrySplitSchemaStatus();
+  const supportsSplitMarksSchema = schema.hasTheoryMarks && schema.hasPracticalMarks;
 
+  if (supportsSplitMarksSchema) {
+    const values = rows.map((row) => [
+      row.student_id,
+      row.exam_id,
+      row.subject_id,
+      row.marks,
+      row.theory_marks ?? null,
+      row.practical_marks ?? null,
+      row.entered_by,
+    ]);
+
+    await conn.query(
+      `INSERT INTO marks_entries
+       (student_id, exam_id, subject_id, marks, theory_marks, practical_marks, entered_by)
+       VALUES ?
+       ON DUPLICATE KEY UPDATE
+         marks = VALUES(marks),
+         theory_marks = VALUES(theory_marks),
+         practical_marks = VALUES(practical_marks),
+         entered_by = VALUES(entered_by),
+         approval_status = CASE
+           WHEN approval_status = 'pending' THEN 'pending'
+           WHEN approval_status = 'approved'
+             AND marks <=> VALUES(marks)
+             AND theory_marks <=> VALUES(theory_marks)
+             AND practical_marks <=> VALUES(practical_marks)
+           THEN 'approved'
+           ELSE 'draft'
+         END,
+         approved_by = CASE
+           WHEN approval_status = 'approved'
+             AND marks <=> VALUES(marks)
+             AND theory_marks <=> VALUES(theory_marks)
+             AND practical_marks <=> VALUES(practical_marks)
+           THEN approved_by
+           ELSE NULL
+         END,
+         approved_at = CASE
+           WHEN approval_status = 'approved'
+             AND marks <=> VALUES(marks)
+             AND theory_marks <=> VALUES(theory_marks)
+             AND practical_marks <=> VALUES(practical_marks)
+           THEN approved_at
+           ELSE NULL
+         END`,
+      [values]
+    );
+    return;
+  }
+
+  const values = rows.map((row) => [row.student_id, row.exam_id, row.subject_id, row.marks, row.entered_by]);
   await conn.query(
     `INSERT INTO marks_entries
      (student_id, exam_id, subject_id, marks, entered_by)
@@ -437,7 +702,7 @@ export async function getStudentScopeForExam(studentId, examId) {
      JOIN exam_scopes sc
        ON sc.exam_id = e.id
       AND sc.class_id = se.class_id
-      AND sc.section_id = se.section_id
+      AND (sc.section_id IS NULL OR sc.section_id = se.section_id)
      WHERE e.id = ?
      LIMIT 1`,
     [studentId, examId]
@@ -447,6 +712,43 @@ export async function getStudentScopeForExam(studentId, examId) {
 
 export async function getStudentReportRows(examId, studentId, onlyApproved = true) {
   const approvalClause = onlyApproved ? `AND me.approval_status = 'approved'` : "";
+  const hasScopesTable = await supportsScopesTable();
+  const classScopeExpr = buildClassScopeExpression(hasScopesTable);
+  const subjectSchema = await getExamSubjectSplitSchemaStatus();
+  const supportsSplitSubjectSchema =
+    subjectSchema.hasMarkPattern &&
+    subjectSchema.hasTheoryMax &&
+    subjectSchema.hasTheoryPass &&
+    subjectSchema.hasPracticalMax &&
+    subjectSchema.hasPracticalPass;
+  const marksSchema = await getMarksEntrySplitSchemaStatus();
+  const supportsSplitMarksSchema = marksSchema.hasTheoryMarks && marksSchema.hasPracticalMarks;
+  const hasStudentExamSubjects = await supportsStudentExamSubjectsTable();
+
+  const markPatternExpr = supportsSplitSubjectSchema ? "es.mark_pattern" : "'single'";
+  const theoryMaxExpr = supportsSplitSubjectSchema ? "es.theory_max" : "NULL";
+  const theoryPassExpr = supportsSplitSubjectSchema ? "es.theory_pass" : "NULL";
+  const practicalMaxExpr = supportsSplitSubjectSchema ? "es.practical_max" : "NULL";
+  const practicalPassExpr = supportsSplitSubjectSchema ? "es.practical_pass" : "NULL";
+  const theoryMarksExpr = supportsSplitMarksSchema ? "me.theory_marks" : "NULL";
+  const practicalMarksExpr = supportsSplitMarksSchema ? "me.practical_marks" : "NULL";
+  const studentSubjectFilterSql = hasStudentExamSubjects
+    ? `AND (
+         NOT EXISTS (
+           SELECT 1
+           FROM student_exam_subjects ses_any
+           WHERE ses_any.exam_id = e.id
+             AND ses_any.student_id = st.id
+         )
+         OR EXISTS (
+           SELECT 1
+           FROM student_exam_subjects ses_match
+           WHERE ses_match.exam_id = e.id
+             AND ses_match.student_id = st.id
+             AND ses_match.subject_id = es.subject_id
+         )
+       )`
+    : "";
 
   return query(
     `SELECT
@@ -455,27 +757,31 @@ export async function getStudentReportRows(examId, studentId, onlyApproved = tru
       e.id AS exam_id,
       e.name AS exam_name,
       c.name AS class_name,
-      c.class_scope,
+      ${classScopeExpr} AS class_scope,
       sec.name AS section_name,
       sec.medium,
       se.roll_number,
       sub.name AS subject_name,
+      ${markPatternExpr} AS mark_pattern,
       es.max_marks,
       es.pass_marks,
+      ${theoryMaxExpr} AS theory_max,
+      ${theoryPassExpr} AS theory_pass,
+      ${practicalMaxExpr} AS practical_max,
+      ${practicalPassExpr} AS practical_pass,
       me.marks,
+      ${theoryMarksExpr} AS theory_marks,
+      ${practicalMarksExpr} AS practical_marks,
       me.approval_status
      FROM exams e
      JOIN student_enrollments se
        ON se.student_id = ?
       AND se.session_id = e.session_id
       AND se.status = 'active'
-     JOIN exam_scopes sc
-       ON sc.exam_id = e.id
-      AND sc.class_id = se.class_id
-      AND sc.section_id = se.section_id
      JOIN students st ON st.id = se.student_id
-     JOIN classes c ON c.id = sc.class_id
-     JOIN sections sec ON sec.id = sc.section_id
+     JOIN classes c ON c.id = se.class_id
+     ${hasScopesTable ? "LEFT JOIN scopes sc_ref ON sc_ref.id = c.scope_id" : ""}
+     JOIN sections sec ON sec.id = se.section_id
      JOIN exam_subjects es ON es.exam_id = e.id
      JOIN subjects sub ON sub.id = es.subject_id
      LEFT JOIN marks_entries me
@@ -483,7 +789,15 @@ export async function getStudentReportRows(examId, studentId, onlyApproved = tru
       AND me.subject_id = es.subject_id
       AND me.student_id = st.id
      WHERE e.id = ?
+       AND EXISTS (
+         SELECT 1
+         FROM exam_scopes sc
+         WHERE sc.exam_id = e.id
+           AND sc.class_id = se.class_id
+           AND (sc.section_id IS NULL OR sc.section_id = se.section_id)
+       )
        ${approvalClause}
+       ${studentSubjectFilterSql}
      ORDER BY sub.name ASC`,
     [studentId, examId]
   );
