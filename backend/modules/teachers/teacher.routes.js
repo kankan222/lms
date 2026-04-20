@@ -13,6 +13,12 @@ router.post(
   uploadTeacherPhoto.single("photo"),
   controller.createTeacher
 );
+router.post(
+  "/bulk-upload",
+  requirePermission("teacher.create"),
+  uploadTeacherPhoto.single("file"),
+  controller.bulkUploadTeachers
+);
 
 router.get(
   "/",

@@ -17,6 +17,16 @@ export function createTeacher(formData) {
   });
 }
 
+export function bulkUploadTeachers(file) {
+  const form = new FormData();
+  form.append("file", file);
+
+  return apiRequest("/teachers/bulk-upload", {
+    method: "POST",
+    body: form,
+  });
+}
+
 export function updateTeacher(id, data) {
   const isFormData = typeof FormData !== "undefined" && data instanceof FormData;
   return apiRequest(`/teachers/${id}`, {

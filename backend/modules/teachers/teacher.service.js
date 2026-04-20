@@ -166,6 +166,49 @@ export async function deleteTeacher(id) {
     throw new AppError("Teacher not found", 404);
 }
 
+export async function bulkCreateTeachers(rows = []) {
+  const successes = [];
+  const failures = [];
+
+  for (const row of rows) {
+    const meta = row?._meta || {};
+
+    try {
+      const result = await createTeacher({
+        employee_id: row?.employee_id,
+        name: row?.name,
+        phone: row?.phone,
+        email: row?.email,
+        class_scope: row?.class_scope,
+        password: row?.password,
+        photo_url: row?.photo_url || null,
+      });
+
+      successes.push({
+        rowNo: meta.rowNo ?? null,
+        teacherId: result.teacherId,
+        employeeId: meta.employeeId || row?.employee_id || null,
+        name: meta.teacherName || row?.name || null,
+      });
+    } catch (err) {
+      failures.push({
+        rowNo: meta.rowNo ?? null,
+        employeeId: meta.employeeId || row?.employee_id || null,
+        name: meta.teacherName || row?.name || null,
+        message: err?.message || "Unknown error",
+      });
+    }
+  }
+
+  return {
+    totalRows: rows.length,
+    createdCount: successes.length,
+    failedCount: failures.length,
+    successes,
+    failures,
+  };
+}
+
 /* ------------------ TEACHER ASSIGNMENTS ------------------ */
 
 export async function assignTeacher(data) {

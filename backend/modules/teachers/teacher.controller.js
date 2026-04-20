@@ -1,4 +1,59 @@
 import * as service from "./teacher.service.js";
+import fs from "node:fs/promises";
+
+function parseCsvLine(line) {
+  return String(line || "")
+    .split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/)
+    .map((value) => value.replace(/^"|"$/g, "").trim());
+}
+
+function normalizeCsvHeader(header) {
+  return String(header || "")
+    .trim()
+    .replace(/^\uFEFF/, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+}
+
+function mapCsvHeader(header) {
+  const normalized = normalizeCsvHeader(header);
+  if (normalized === "mobile" || normalized === "mobile_no" || normalized === "contact") {
+    return "phone";
+  }
+  if (normalized === "classscope" || normalized === "scope" || normalized === "class") {
+    return "class_scope";
+  }
+  if (normalized === "employeeid" || normalized === "teacher_id") {
+    return "employee_id";
+  }
+  if (normalized === "pass" || normalized === "pwd") {
+    return "password";
+  }
+  return normalized;
+}
+
+function mapCsvRow(headers, values) {
+  const row = {};
+  headers.forEach((header, idx) => {
+    const mappedHeader = mapCsvHeader(header);
+    const value = values[idx] ?? "";
+    if (!(mappedHeader in row) || !String(row[mappedHeader] || "").trim()) {
+      row[mappedHeader] = value;
+    }
+  });
+  return row;
+}
+
+function normalizeClassScopeValue(value) {
+  const raw = String(value || "").trim().toLowerCase();
+  if (!raw) return "school";
+  if (raw === "hs") return "hs";
+  if (raw === "school") return "school";
+  if (raw.includes("higher secondary")) return "hs";
+  if (/\b(11|12|xi|xii)\b/.test(raw)) return "hs";
+  return "school";
+}
 
 /* ------------------ TEACHERS ------------------ */
 
@@ -29,6 +84,47 @@ export async function getTeachers(req, res, next) {
       actorPermissions: req.user?.permissions || [],
     });
     res.json({ success: true, data: teachers });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function bulkUploadTeachers(req, res, next) {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ message: "CSV file is required" });
+    }
+
+    const text = await fs.readFile(req.file.path, "utf8");
+    const lines = text
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+
+    if (lines.length < 2) {
+      return res.status(400).json({ message: "CSV is empty" });
+    }
+
+    const headers = parseCsvLine(lines[0]);
+    const rows = lines.slice(1).map((line) => mapCsvRow(headers, parseCsvLine(line)));
+    const payloads = rows.map((row, index) => ({
+      employee_id: row.employee_id,
+      name: row.name,
+      phone: row.phone,
+      email: row.email,
+      class_scope: normalizeClassScopeValue(row.class_scope),
+      password: row.password,
+      photo_url: row.photo_url || null,
+      _meta: {
+        rowNo: index + 2,
+        employeeId: row.employee_id || null,
+        teacherName: row.name || null,
+      },
+    }));
+
+    const result = await service.bulkCreateTeachers(payloads);
+    const statusCode = result.failedCount > 0 ? 207 : 201;
+    res.status(statusCode).json(result);
   } catch (err) {
     next(err);
   }

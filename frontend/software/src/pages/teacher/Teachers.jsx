@@ -9,6 +9,7 @@ import { resolveServerImageUrl } from "../../lib/serverImage";
 import {
   getTeachers,
   createTeacher,
+  bulkUploadTeachers,
   updateTeacher,
   deleteTeacher,
   getAttendanceDevices,
@@ -103,6 +104,11 @@ const Teachers = () => {
   const [attendanceDevices, setAttendanceDevices] = useState([]);
   const [scopeOptions, setScopeOptions] = useState(DEFAULT_SCOPE_OPTIONS);
   const [scopeFilter, setScopeFilter] = useState("all");
+  const [bulkOpen, setBulkOpen] = useState(false);
+  const [bulkFile, setBulkFile] = useState(null);
+  const [bulkMessage, setBulkMessage] = useState("");
+  const [bulkFailures, setBulkFailures] = useState([]);
+  const [bulkUploading, setBulkUploading] = useState(false);
 
   const [newTeacher, setNewTeacher] = useState({
     employee_id: "",
@@ -271,6 +277,127 @@ const Teachers = () => {
     return byContact?.id ? Number(byContact.id) : 0;
   }
 
+  function downloadBulkTemplate() {
+    const headers = [
+      "employee_id",
+      "name",
+      "phone",
+      "email",
+      "class_scope",
+      "password",
+      "photo_url",
+    ];
+    const schoolSample = [
+      "EMP-101",
+      "Riya Das",
+      "9876543210",
+      "riya@example.com",
+      "school",
+      "Teacher@123",
+      "/uploads/teachers/sample-school.jpg",
+    ];
+    const hsSample = [
+      "EMP-102",
+      "Suman Roy",
+      "9876543211",
+      "suman@example.com",
+      "hs",
+      "Teacher@123",
+      "/uploads/teachers/sample-hs.jpg",
+    ];
+
+    const csv = `${headers.join(",")}\n${schoolSample.join(",")}\n${hsSample.join(",")}\n`;
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = "teachers_bulk_upload_template.csv";
+    anchor.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function parseCsvLine(line) {
+    return String(line || "")
+      .split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/)
+      .map((value) => value.replace(/^"|"$/g, "").trim());
+  }
+
+  function csvEscape(value) {
+    const text = String(value ?? "");
+    if (text.includes(",") || text.includes("\"") || text.includes("\n")) {
+      return `"${text.replace(/"/g, "\"\"")}"`;
+    }
+    return text;
+  }
+
+  function normalizeName(value) {
+    return String(value || "")
+      .trim()
+      .replace(/^\uFEFF/, "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "_")
+      .replace(/^_+|_+$/g, "");
+  }
+
+  function transformBulkCsvToBackendFormat(csvText) {
+    const lines = String(csvText || "")
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+
+    if (lines.length < 2) {
+      throw new Error("CSV is empty.");
+    }
+
+    const inputHeaders = parseCsvLine(lines[0]);
+    const inputIndex = new Map(inputHeaders.map((header, index) => [normalizeName(header), index]));
+    const getCell = (values, ...keys) => {
+      for (const key of keys) {
+        const idx = inputIndex.get(normalizeName(key));
+        if (idx !== undefined) return values[idx] ?? "";
+      }
+      return "";
+    };
+
+    const outputHeaders = [
+      "employee_id",
+      "name",
+      "phone",
+      "email",
+      "class_scope",
+      "password",
+      "photo_url",
+    ];
+
+    const outRows = lines.slice(1).map((line) => {
+      const values = parseCsvLine(line);
+      const scopeInput = getCell(
+        values,
+        "class_scope",
+        "scope",
+        "class scope",
+        "classscope",
+      );
+      const scopeCode = resolveScopeCode(scopeInput);
+
+      return {
+        employee_id: getCell(values, "employee_id", "employee id", "employeeid", "teacher_id"),
+        name: getCell(values, "name"),
+        phone: getCell(values, "phone", "mobile", "mobile_no", "contact"),
+        email: getCell(values, "email", "mail"),
+        class_scope: scopeCode,
+        password: getCell(values, "password", "pass", "pwd"),
+        photo_url: getCell(values, "photo_url"),
+      };
+    });
+
+    const outputLines = [
+      outputHeaders.join(","),
+      ...outRows.map((row) => outputHeaders.map((header) => csvEscape(row[header])).join(",")),
+    ];
+    return outputLines.join("\n");
+  }
+
   async function handleCreate(e) {
     e.preventDefault();
     const validation = validateTeacher(newTeacher);
@@ -365,6 +492,61 @@ const Teachers = () => {
 
     setCreateOpen(false);
     showNotice("Teacher Created", "Teacher record created successfully.");
+  }
+
+  async function handleBulkUpload() {
+    if (bulkUploading) return;
+
+    setBulkMessage("");
+    setBulkFailures([]);
+
+    if (!bulkFile) {
+      setBulkMessage("Select a CSV file first.");
+      return;
+    }
+
+    setBulkUploading(true);
+    try {
+      const rawCsv = await bulkFile.text();
+      const normalizedCsv = transformBulkCsvToBackendFormat(rawCsv);
+      const uploadFile = new File([normalizedCsv], bulkFile.name || "teachers-upload.csv", {
+        type: "text/csv",
+      });
+      const result = await bulkUploadTeachers(uploadFile);
+      if (!result || typeof result !== "object") {
+        throw new Error("Unexpected bulk upload response from server.");
+      }
+
+      const createdCount = Number(result?.createdCount || 0);
+      const failedCount = Number(result?.failedCount || 0);
+      const totalRows = Number(result?.totalRows || createdCount + failedCount);
+      const failures = Array.isArray(result?.failures) ? result.failures : [];
+
+      setBulkFile(null);
+
+      if (failedCount > 0) {
+        setBulkFailures(failures);
+        setBulkMessage(`Uploaded ${createdCount}/${totalRows}. ${failedCount} row(s) failed.`);
+        showNotice(
+          "Bulk Upload Partial",
+          `${createdCount} teacher(s) uploaded, ${failedCount} failed. See row errors in the dialog.`,
+          "error",
+        );
+        await loadTeachers();
+        return;
+      }
+
+      setBulkMessage("Bulk upload completed successfully.");
+      setBulkOpen(false);
+      showNotice("Bulk Upload Complete", "Teachers uploaded successfully.");
+      await loadTeachers();
+    } catch (err) {
+      setBulkMessage(err?.message || "Bulk upload failed.");
+      setBulkFailures([]);
+      showNotice("Bulk Upload Failed", err?.message || "Bulk upload failed.", "error");
+    } finally {
+      setBulkUploading(false);
+    }
   }
 
   function validateEditTeacher(data) {
@@ -566,6 +748,66 @@ const Teachers = () => {
                 </div>
               </PopoverContent>
             </Popover>
+            <Button variant="outline" onClick={downloadBulkTemplate}>
+              Download CSV Format
+            </Button>
+            <Dialog
+              open={bulkOpen}
+              onOpenChange={(nextOpen) => {
+                setBulkOpen(nextOpen);
+                if (!nextOpen) {
+                  setBulkFile(null);
+                  setBulkMessage("");
+                  setBulkFailures([]);
+                }
+              }}
+            >
+              <DialogTrigger asChild>
+                <Button variant="outline">Bulk Upload CSV</Button>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Bulk Upload Teachers</DialogTitle>
+                </DialogHeader>
+                <div className="space-y-3">
+                  <Input
+                    type="file"
+                    accept=".csv,text/csv"
+                    onChange={(e) => {
+                      setBulkFile(e.target.files?.[0] || null);
+                      setBulkMessage("");
+                      setBulkFailures([]);
+                    }}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Use `class_scope` as `school` or `hs`. Provide phone or email and password for every row.
+                  </p>
+                  {bulkMessage && (
+                    <p
+                      className={`text-xs ${
+                        bulkMessage.toLowerCase().includes("completed")
+                          ? "text-emerald-700 dark:text-emerald-200"
+                          : "text-red-700 dark:text-red-200"
+                      }`}
+                    >
+                      {bulkMessage}
+                    </p>
+                  )}
+                  {bulkFailures.length > 0 ? (
+                    <div className="max-h-44 overflow-auto rounded-md border p-2 text-xs">
+                      {bulkFailures.slice(0, 50).map((item, index) => (
+                        <p key={`${item.rowNo || "row"}-${index}`} className="mb-1 last:mb-0">
+                          Row {item.rowNo || "-"} ({item.employeeId || item.name || "Unknown"}): {item.message}
+                        </p>
+                      ))}
+                    </div>
+                  ) : null}
+                  <Button onClick={handleBulkUpload} disabled={bulkUploading}>
+                    {bulkUploading ? "Uploading..." : "Upload"}
+                  </Button>
+                </div>
+              </DialogContent>
+            </Dialog>
             <Dialog open={createOpen} onOpenChange={setCreateOpen}>
               <DialogTrigger asChild>
                 <Button>Add Teacher</Button>
