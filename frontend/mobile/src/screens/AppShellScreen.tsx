@@ -26,6 +26,8 @@ import MessagingTab from "./tabs/MessagingTab";
 import ProfileTab from "./tabs/ProfileTab";
 import ReportsTab from "./tabs/ReportsTab";
 import ModulePlaceholderTab from "./tabs/ModulePlaceholderTab";
+import type { ParentConversationRequest } from "./tabs/StudentsTab";
+import type { ParentConversationIntent } from "./tabs/MessagingTab";
 
 type TabKey =
   | "dashboard"
@@ -226,6 +228,7 @@ export default function AppShellScreen() {
   const [activeTab, setActiveTab] = useState<TabKey>(defaultTab);
   const [isMoreOpen, setIsMoreOpen] = useState(false);
   const [isMessagingConversationOpen, setIsMessagingConversationOpen] = useState(false);
+  const [parentConversationIntent, setParentConversationIntent] = useState<ParentConversationIntent | null>(null);
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -294,6 +297,18 @@ export default function AppShellScreen() {
     }
   }
 
+  function startParentConversation(payload: ParentConversationRequest) {
+    setParentConversationIntent({
+      token: Date.now(),
+      recipientUserId: payload.recipientUserId,
+      recipientName: payload.recipientName,
+      classId: payload.classId ?? null,
+      sectionId: payload.sectionId ?? null,
+    });
+    setActiveTab("messaging");
+    setIsMoreOpen(false);
+  }
+
   async function refreshDashboard() {
     if (!permissions.includes("dashboard.view") && !roles.includes("super_admin")) return;
     setIsLoading(true);
@@ -325,7 +340,7 @@ export default function AppShellScreen() {
       case "subjects":
         return <SubjectsTab />;
       case "students":
-        return <StudentsTab />;
+        return <StudentsTab onStartParentMessage={startParentConversation} />;
       case "teachers":
         return <TeachersTab />;
       case "attendance":
@@ -335,7 +350,15 @@ export default function AppShellScreen() {
       case "payments":
         return <PaymentsTab />;
       case "messaging":
-        return <MessagingTab onConversationViewChange={setIsMessagingConversationOpen} />;
+        return (
+          <MessagingTab
+            onConversationViewChange={setIsMessagingConversationOpen}
+            parentConversationIntent={parentConversationIntent}
+            onParentConversationIntentHandled={(token) => {
+              setParentConversationIntent((prev) => (prev?.token === token ? null : prev));
+            }}
+          />
+        );
       case "exams":
         return <ExamsTab />;
       case "reports":

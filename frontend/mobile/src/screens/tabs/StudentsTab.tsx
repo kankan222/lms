@@ -3,13 +3,25 @@ import { ActivityIndicator, Alert, BackHandler, Modal, Pressable, RefreshControl
 import { Ionicons } from "@expo/vector-icons";
 import { getClassStructure, getSessions, type ClassStructureItem } from "../../services/classesService";
 import { getExams } from "../../services/examsService";
-import { createStudent, deleteStudent, getStudents, updateStudent, type Student } from "../../services/studentsService";
+import { createStudent, deleteStudent, getStudentById, getStudents, updateStudent, type Student } from "../../services/studentsService";
+import { getTargets } from "../../services/messagingService";
 import StudentDetailsModule from "./students/StudentDetailsModule";
 import SelectField from "../../components/form/SelectField";
 import DateField from "../../components/form/DateField";
 import TopNotice from "../../components/feedback/TopNotice";
 import { useAppTheme } from "../../theme/AppThemeProvider";
 import { useAuthStore } from "../../store/authStore";
+
+export type ParentConversationRequest = {
+  recipientUserId: number;
+  recipientName?: string;
+  classId?: number | null;
+  sectionId?: number | null;
+};
+
+type Props = {
+  onStartParentMessage?: (payload: ParentConversationRequest) => void;
+};
 
 type SessionItem = { id: number; name: string; is_active?: number | boolean };
 type StudentScope = "school" | "hs";
@@ -35,6 +47,8 @@ const fmtDate = (v?: string | null) => { if (!v) return "-"; const d = new Date(
 const inputDate = (v?: string | null) => { const raw = String(v || "").trim(); if (!raw) return ""; if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw; const m = raw.match(/^(\d{4}-\d{2}-\d{2})/); if (m) return m[1]; const d = new Date(raw); return Number.isNaN(d.getTime()) ? "" : d.toISOString().slice(0, 10); };
 const getErr = (err: unknown, fallback: string) => typeof err === "object" && err && "response" in err ? ((err as { response?: { data?: { message?: string; error?: string } } }).response?.data?.error || (err as { response?: { data?: { message?: string; error?: string } } }).response?.data?.message || fallback) : fallback;
 const isDate = (v: string) => /^\d{4}-\d{2}-\d{2}$/.test(String(v || "").trim());
+const normalizePhone = (value?: string | null) => String(value || "").replace(/\D/g, "");
+const normalizeText = (value?: string | null) => String(value || "").trim().toLowerCase();
 
 function FormLabel({ label }: { label: string }) {
   const { theme } = useAppTheme();
@@ -56,10 +70,11 @@ function CardIconAction({ icon, tone = "default", onPress }: { icon: keyof typeo
   return <Pressable style={[styles.iconActionBtn, { borderColor: isDanger ? theme.dangerBorder : theme.border, backgroundColor: isDanger ? theme.dangerSoft : theme.card }, isDanger && styles.iconActionBtnDanger]} onPress={onPress}><Ionicons name={icon} size={18} color={isDanger ? theme.danger : theme.text} /></Pressable>;
 }
 
-export default function StudentsTab() {
+export default function StudentsTab({ onStartParentMessage }: Props) {
   const { theme, isDark } = useAppTheme();
   const user = useAuthStore((state) => state.user);
   const isParent = Array.isArray(user?.roles) && user.roles.includes("parent");
+  const canSendMessages = Array.isArray(user?.permissions) && user.permissions.includes("messages.send");
   const [students, setStudents] = useState<Student[]>([]);
   const [classes, setClasses] = useState<ClassStructureItem[]>([]);
   const [sessions, setSessions] = useState<SessionItem[]>([]);
@@ -276,6 +291,91 @@ export default function StudentsTab() {
     setDetailOpen(true);
   }
 
+  async function handleMessageParent(student: Student) {
+    if (!canSendMessages || !onStartParentMessage) return;
+
+    try {
+      const details = await getStudentById(student.id);
+      const parents = Array.isArray(details?.parents) ? details.parents : [];
+      if (!parents.length) {
+        showNotice("Parent Not Found", "No linked parent found for this student.", "error");
+        return;
+      }
+
+      const preferredParent =
+        parents.find((parent) => normalizeText(parent.relationship) === "father") ||
+        parents.find((parent) => normalizeText(parent.relationship) === "mother") ||
+        parents[0];
+
+      const parentMobiles = parents
+        .map((parent) => normalizePhone(parent.mobile))
+        .filter(Boolean);
+      const preferredMobile = normalizePhone(preferredParent?.mobile);
+      const preferredName = normalizeText(preferredParent?.name);
+      const hasIdentityHint = Boolean(preferredMobile || preferredName || parentMobiles.length);
+
+      const targets = await getTargets();
+      const parentTargets = Array.isArray(targets?.parents) ? targets.parents : [];
+      if (!parentTargets.length) {
+        showNotice("Parent Not Found", "No parent recipients are available in messaging targets.", "error");
+        return;
+      }
+
+      const ranked = parentTargets
+        .map((target) => {
+          let score = 0;
+          let identityMatched = false;
+          const targetMobile = normalizePhone(target.mobile);
+          const targetName = normalizeText(target.name);
+
+          if (student.class_id && Number(target.class_id) === Number(student.class_id)) score += 30;
+          if (student.section_id && Number(target.section_id) === Number(student.section_id)) score += 20;
+          if (preferredMobile && targetMobile === preferredMobile) {
+            score += 100;
+            identityMatched = true;
+          } else if (targetMobile && parentMobiles.includes(targetMobile)) {
+            score += 60;
+            identityMatched = true;
+          }
+          if (preferredName && targetName === preferredName) {
+            score += 40;
+            identityMatched = true;
+          } else if (preferredName && targetName.includes(preferredName)) {
+            score += 20;
+            identityMatched = true;
+          }
+
+          return { target, score, identityMatched };
+        })
+        .sort((a, b) => b.score - a.score);
+
+      const inScope = parentTargets.filter((target) => {
+        if (student.class_id && Number(target.class_id) !== Number(student.class_id)) return false;
+        if (student.section_id && Number(target.section_id) !== Number(student.section_id)) return false;
+        return Number(target.user_id) > 0;
+      });
+
+      const selected = hasIdentityHint
+        ? ranked.find((item) => Number(item.target.user_id) > 0 && item.identityMatched)?.target
+        : inScope.length === 1
+          ? inScope[0]
+          : null;
+      if (!selected?.user_id) {
+        showNotice("Parent Not Found", "Could not resolve the parent messaging recipient for this student.", "error");
+        return;
+      }
+
+      onStartParentMessage({
+        recipientUserId: Number(selected.user_id),
+        recipientName: selected.name || preferredParent?.name || undefined,
+        classId: student.class_id ?? null,
+        sectionId: student.section_id ?? null,
+      });
+    } catch (err: unknown) {
+      showNotice("Open Messaging Failed", getErr(err, "Could not prepare parent conversation."), "error");
+    }
+  }
+
   function closeDetails() {
     setDetailOpen(false);
     setSelectedStudentId(null);
@@ -436,6 +536,9 @@ export default function StudentsTab() {
               {!isParent ? (
                 <View style={styles.cardIconActions}>
                   <CardIconAction icon="eye-outline" onPress={() => openDetails(student)} />
+                  {canSendMessages ? (
+                    <CardIconAction icon="chatbubble-ellipses-outline" onPress={() => void handleMessageParent(student)} />
+                  ) : null}
                   <CardIconAction icon="create-outline" onPress={() => openEdit(student)} />
                   <CardIconAction icon="trash-outline" tone="danger" onPress={() => confirmDelete(student)} />
                 </View>

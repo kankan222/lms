@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -34,6 +34,16 @@ import { formatDateLabel, formatTimeLabel } from "../../utils/format";
 
 type Props = {
   onConversationViewChange?: (isConversationOpen: boolean) => void;
+  parentConversationIntent?: ParentConversationIntent | null;
+  onParentConversationIntentHandled?: (token: number) => void;
+};
+
+export type ParentConversationIntent = {
+  token: number;
+  recipientUserId: number;
+  recipientName?: string;
+  classId?: number | null;
+  sectionId?: number | null;
 };
 
 type Notice = { title: string; message: string; tone: "success" | "error" } | null;
@@ -127,7 +137,11 @@ function Avatar({ label, online, imageUrl }: { label?: string | null; online?: b
   );
 }
 
-export default function MessagingTab({ onConversationViewChange }: Props) {
+export default function MessagingTab({
+  onConversationViewChange,
+  parentConversationIntent,
+  onParentConversationIntentHandled,
+}: Props) {
   const { theme, isDark } = useAppTheme();
   styles = useMemo(() => createStyles(theme), [theme]);
   const insets = useSafeAreaInsets();
@@ -153,6 +167,7 @@ export default function MessagingTab({ onConversationViewChange }: Props) {
   const [refreshing, setRefreshing] = useState(false);
   const [sending, setSending] = useState(false);
   const [notice, setNotice] = useState<Notice>(null);
+  const lastHandledIntentTokenRef = useRef<number | null>(null);
 
   const activeConversation = useMemo(
     () => conversations.find((item) => Number(item.id) === Number(activeConversationId)) ?? null,
@@ -368,6 +383,31 @@ export default function MessagingTab({ onConversationViewChange }: Props) {
 
     return () => clearInterval(timer);
   }, [activeConversationId, screen]);
+
+  useEffect(() => {
+    const intent = parentConversationIntent;
+    if (!intent?.token) return;
+    if (lastHandledIntentTokenRef.current === intent.token) return;
+
+    lastHandledIntentTokenRef.current = intent.token;
+    setScreen("list");
+    setActiveConversationId(null);
+    setComposeOpen(true);
+    setCompose({
+      target_type: "parent",
+      recipient_user_id: String(intent.recipientUserId),
+      class_id: intent.classId ? String(intent.classId) : "",
+      section_id: intent.sectionId ? String(intent.sectionId) : "",
+      teacher_type: "all",
+      message: "",
+    });
+    setComposeSearch(intent.recipientName || "");
+    setComposeRoleFilter("parent");
+    setComposeClassFilter(intent.classId ? String(intent.classId) : "");
+    setComposeSectionFilter(intent.sectionId ? String(intent.sectionId) : "");
+    setComposeTeacherTypeFilter("all");
+    onParentConversationIntentHandled?.(intent.token);
+  }, [parentConversationIntent, onParentConversationIntentHandled]);
 
   async function loadBootstrap() {
     await Promise.all([loadConversations(), loadTargets()]);

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { ActivityIndicator, Alert, Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, Alert, Image, Linking, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { getStudentById, type StudentDetails } from "../../../services/studentsService";
 import { getMyPayments, getMyStudentFeeOptions, getPayments, getStudentFeeOptions, type PaymentItem, type StudentFeeOption } from "../../../services/paymentsService";
 import { downloadMyMarksheet, downloadStudentMarksheet, getAccessibleExams, getMyResults, getStudentReport, type StudentReport } from "../../../services/reportsService";
@@ -20,6 +20,21 @@ const fmtCurrency = (value?: number | string | null) => new Intl.NumberFormat("e
 const norm = (value?: string | null, fallback = "-") => String(value || "").trim().toLowerCase() || fallback;
 const title = (value: string) => value ? value.charAt(0).toUpperCase() + value.slice(1) : "";
 const resolvePhoto = (photoUrl?: string | null) => !photoUrl ? null : /^https?:\/\//i.test(photoUrl) ? photoUrl : `https://kalongkapilividyapith.com${String(photoUrl).startsWith("/") ? photoUrl : `/${photoUrl}`}`;
+const toDialablePhone = (value?: string | null) => {
+  const raw = String(value || "").trim();
+  if (!raw || raw === "-") return null;
+
+  const compact = raw.replace(/[^\d+]/g, "");
+  if (!compact) return null;
+
+  const normalized = compact.startsWith("+")
+    ? `+${compact.slice(1).replace(/\+/g, "")}`
+    : compact.replace(/\+/g, "");
+  const digitsOnly = normalized.replace(/^\+/, "");
+
+  if (!/^\d{7,15}$/.test(digitsOnly)) return null;
+  return normalized;
+};
 
 function getErrorMessage(err: unknown, fallback: string) {
   if (typeof err === "object" && err && "response" in err) {
@@ -93,8 +108,19 @@ function MetricBar({ label, value, total, color, trackColor, caption }: { label:
   return <View style={[styles.metricBarCard, { borderColor: theme.border, backgroundColor: theme.cardMuted }]}><View style={styles.rowBetween}><Text style={[styles.metricBarLabel, { color: theme.text }]}>{label}</Text><Text style={[styles.metricBarCaption, { color: theme.subText }]}>{caption}</Text></View><View style={[styles.metricTrack, { backgroundColor: trackColor }]}><View style={[styles.metricFill, { width: `${width}%`, backgroundColor: color }]} /></View></View>;
 }
 
-function InfoRow({ label, value }: { label: string; value: string }) {
+function InfoRow({ label, value, onPress }: { label: string; value: string; onPress?: (() => void) | undefined }) {
   const { theme } = useAppTheme();
+  if (onPress) {
+    return (
+      <Pressable
+        onPress={onPress}
+        style={[styles.infoRow, { borderColor: theme.border, backgroundColor: theme.cardMuted }]}
+      >
+        <Text style={[styles.infoLabel, { color: theme.subText }]}>{label}</Text>
+        <Text style={[styles.infoValue, styles.infoValueLink, { color: theme.primary }]}>{value}</Text>
+      </Pressable>
+    );
+  }
   return <View style={[styles.infoRow, { borderColor: theme.border, backgroundColor: theme.cardMuted }]}><Text style={[styles.infoLabel, { color: theme.subText }]}>{label}</Text><Text style={[styles.infoValue, { color: theme.text }]}>{value}</Text></View>;
 }
 
@@ -237,6 +263,16 @@ export default function StudentDetailsModule({ studentId, exams }: Props) {
   const attendanceTotal = attendanceRows.length;
   const paymentTotal = totalPaid + totalDue;
 
+  async function handleCallPress(phone?: string | null) {
+    const dialable = toDialablePhone(phone);
+    if (!dialable) return;
+    try {
+      await Linking.openURL(`tel:${dialable}`);
+    } catch {
+      Alert.alert("Call failed", "Could not open the phone dialer.");
+    }
+  }
+
   async function handleDownloadMarksheet() {
     if (!selectedExamId || !student?.id) return;
     try {
@@ -290,7 +326,11 @@ export default function StudentDetailsModule({ studentId, exams }: Props) {
           <View style={styles.infoGrid}>
             <InfoRow label="Class" value={student.class || "-"} />
             <InfoRow label="Section" value={student.section || "-"} />
-            <InfoRow label="Mobile" value={student.mobile || "-"} />
+            <InfoRow
+              label="Mobile"
+              value={student.mobile || "-"}
+              onPress={toDialablePhone(student.mobile) ? () => handleCallPress(student.mobile) : undefined}
+            />
             <InfoRow label="Gender" value={student.gender || "-"} />
             <InfoRow label="DOB" value={formatDateLabel(student.dob)} />
             <InfoRow label="Admission" value={formatDateLabel(student.date_of_admission)} />
@@ -304,14 +344,22 @@ export default function StudentDetailsModule({ studentId, exams }: Props) {
         <View style={styles.twoColumn}>
           <SectionCard title="Father">
             <InfoRow label="Name" value={fatherDisplay?.name || "-"} />
-            <InfoRow label="Phone" value={fatherDisplay?.mobile || "-"} />
+            <InfoRow
+              label="Phone"
+              value={fatherDisplay?.mobile || "-"}
+              onPress={toDialablePhone(fatherDisplay?.mobile) ? () => handleCallPress(fatherDisplay?.mobile) : undefined}
+            />
             <InfoRow label="Email" value={fatherDisplay?.email || "-"} />
             <InfoRow label="Occupation" value={fatherDisplay?.occupation || "-"} />
             <InfoRow label="Qualification" value={fatherDisplay?.qualification || "-"} />
           </SectionCard>
           <SectionCard title="Mother">
             <InfoRow label="Name" value={motherDisplay?.name || "-"} />
-            <InfoRow label="Phone" value={motherDisplay?.mobile || "-"} />
+            <InfoRow
+              label="Phone"
+              value={motherDisplay?.mobile || "-"}
+              onPress={toDialablePhone(motherDisplay?.mobile) ? () => handleCallPress(motherDisplay?.mobile) : undefined}
+            />
             <InfoRow label="Email" value={motherDisplay?.email || "-"} />
             <InfoRow label="Occupation" value={motherDisplay?.occupation || "-"} />
             <InfoRow label="Qualification" value={motherDisplay?.qualification || "-"} />
@@ -504,6 +552,7 @@ const styles = StyleSheet.create({
   infoRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 12, borderWidth: 1, borderColor: "#e2e8f0", borderRadius: 12, backgroundColor: "#f8fafc", paddingHorizontal: 12, paddingVertical: 9 },
   infoLabel: { color: "#64748b", fontWeight: "700" },
   infoValue: { color: "#0f172a", fontWeight: "700", flexShrink: 1, textAlign: "right" },
+  infoValueLink: { textDecorationLine: "underline" },
   twoColumn: { gap: 14 },
   inputLabel: { color: "#334155", fontWeight: "700" },
   filterBlock: { gap: 10 },

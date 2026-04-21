@@ -2,6 +2,8 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Keyboard,
+  Platform,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -336,6 +338,9 @@ export default function ReportsTab() {
   const [reviewQueueSnapshot, setReviewQueueSnapshot] = useState<PendingApprovalQueue | null>(null);
   const scrollRef = useRef<ScrollView | null>(null);
   const rowOffsetsRef = useRef<Record<number, number>>({});
+  const gridBaseOffsetRef = useRef(0);
+  const focusScrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
 
   const scopedClassIds = useMemo(
     () => [...new Set((examScopes || []).map((item) => String(item.class_id)))],
@@ -477,6 +482,28 @@ export default function ReportsTab() {
     const timer = setTimeout(() => setNotice(null), 3200);
     return () => clearTimeout(timer);
   }, [notice]);
+
+  useEffect(() => {
+    const showEvent = Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
+    const hideEvent = Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
+
+    const showSub = Keyboard.addListener(showEvent, (event) => {
+      const nextHeight = Number(event?.endCoordinates?.height || 0);
+      setKeyboardHeight(nextHeight > 0 ? nextHeight : 0);
+    });
+    const hideSub = Keyboard.addListener(hideEvent, () => {
+      setKeyboardHeight(0);
+    });
+
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+      if (focusScrollTimerRef.current) {
+        clearTimeout(focusScrollTimerRef.current);
+        focusScrollTimerRef.current = null;
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (editMode) {
@@ -788,16 +815,37 @@ export default function ReportsTab() {
     rowOffsetsRef.current[studentId] = y;
   }
 
+  function registerGridBaseOffset(y: number) {
+    gridBaseOffsetRef.current = y;
+  }
+
   function focusMarksInput(studentId: number) {
-    const y = rowOffsetsRef.current[studentId];
-    if (typeof y !== "number") return;
+    const rowY = rowOffsetsRef.current[studentId];
+    if (typeof rowY !== "number") return;
+    const absoluteY = gridBaseOffsetRef.current + rowY;
+    const preKeyboardTarget = Math.max(absoluteY - 120, 0);
 
     requestAnimationFrame(() => {
       scrollRef.current?.scrollTo({
-        y: Math.max(y - 24, 0),
+        y: preKeyboardTarget,
         animated: true,
       });
     });
+
+    if (focusScrollTimerRef.current) {
+      clearTimeout(focusScrollTimerRef.current);
+      focusScrollTimerRef.current = null;
+    }
+
+    focusScrollTimerRef.current = setTimeout(() => {
+      const keyboardAwareOffset =
+        keyboardHeight > 0 ? Math.min(Math.max(keyboardHeight * 0.45, 150), 260) : 160;
+      scrollRef.current?.scrollTo({
+        y: Math.max(absoluteY - keyboardAwareOffset, 0),
+        animated: true,
+      });
+      focusScrollTimerRef.current = null;
+    }, 120);
   }
 
   function buildMutationPayload(extra: Record<string, unknown> = {}) {
@@ -1198,80 +1246,82 @@ export default function ReportsTab() {
         {gridLoading ? <ActivityIndicator size="large" color={theme.primary} /> : null}
 
         {grid?.rows?.length ? (
-          grid.rows.map((row) => (
-            <Pressable
-              key={row.student_id}
-              style={[
-                styles.studentCard,
-                { backgroundColor: theme.cardMuted, borderColor: theme.border },
-                canSelectRows &&
-                  selectedStudentIds.includes(Number(row.student_id)) &&
-                  [styles.studentCardSelected, { borderColor: theme.primary, backgroundColor: theme.isDark ? "#1e293b" : "#eef2ff" }],
-              ]}
-              onLayout={(event) => registerRowOffset(Number(row.student_id), event.nativeEvent.layout.y)}
-              onPress={() => toggleRow(Number(row.student_id))}
-              disabled={!canSelectRows}
-            >
-              <View style={styles.rowBetween}>
-                <View style={styles.studentMeta}>
-                  <View style={styles.studentHeaderRow}>
-                    <Text style={[styles.studentName, { color: theme.text }]}>{row.student_name}</Text>
-                    {canSelectRows ? (
-                      <View
-                        style={[
-                          styles.selectionDot,
-                          { backgroundColor: theme.border },
-                          selectedStudentIds.includes(Number(row.student_id)) && [styles.selectionDotActive, { backgroundColor: theme.primary }],
-                        ]}
+          <View onLayout={(event) => registerGridBaseOffset(event.nativeEvent.layout.y)}>
+            {grid.rows.map((row) => (
+              <Pressable
+                key={row.student_id}
+                style={[
+                  styles.studentCard,
+                  { backgroundColor: theme.cardMuted, borderColor: theme.border },
+                  canSelectRows &&
+                    selectedStudentIds.includes(Number(row.student_id)) &&
+                    [styles.studentCardSelected, { borderColor: theme.primary, backgroundColor: theme.isDark ? "#1e293b" : "#eef2ff" }],
+                ]}
+                onLayout={(event) => registerRowOffset(Number(row.student_id), event.nativeEvent.layout.y)}
+                onPress={() => toggleRow(Number(row.student_id))}
+                disabled={!canSelectRows}
+              >
+                <View style={styles.rowBetween}>
+                  <View style={styles.studentMeta}>
+                    <View style={styles.studentHeaderRow}>
+                      <Text style={[styles.studentName, { color: theme.text }]}>{row.student_name}</Text>
+                      {canSelectRows ? (
+                        <View
+                          style={[
+                            styles.selectionDot,
+                            { backgroundColor: theme.border },
+                            selectedStudentIds.includes(Number(row.student_id)) && [styles.selectionDotActive, { backgroundColor: theme.primary }],
+                          ]}
+                        />
+                      ) : null}
+                    </View>
+                    <View style={styles.metaWrap}>
+                      <View style={[styles.metaPill, { borderColor: theme.border, backgroundColor: theme.card }]}>
+                        <Text style={[styles.metaPillText, { color: theme.subText }]}>Roll {row.roll_number || "-"}</Text>
+                      </View>
+                      <View style={[styles.metaPill, { borderColor: theme.border, backgroundColor: theme.card }]}>
+                        <Text style={[styles.metaPillText, { color: theme.subText }]}>
+                          {selectedClass?.name || "-"} / {selectedSection?.name || "-"}
+                          {selectedSection?.medium ? ` (${selectedSection.medium})` : row.medium ? ` (${row.medium})` : ""}
+                        </Text>
+                      </View>
+                    </View>
+                    <Text style={[styles.subjectMeta, { color: theme.subText }]}>Subject: {selectedSubject?.name || grid?.subject?.name || "-"}</Text>
+                  </View>
+                  <StatusBadge status={row.approval_status} />
+                </View>
+
+                <View style={styles.cardFooterRow}>
+                  <View style={styles.marksBox}>
+                    <Text style={[styles.compactLabel, { color: theme.subText }]}>Marks</Text>
+                    {canEditMarks && row.approval_status !== "approved" ? (
+                      <TextInput
+                        style={[styles.input, styles.marksInput, styles.compactInput]}
+                        keyboardType="numeric"
+                        value={editedMarks[Number(row.student_id)] ?? ""}
+                        onChangeText={(value) => updateMarksValue(Number(row.student_id), value)}
+                        onFocus={() => focusMarksInput(Number(row.student_id))}
+                        placeholder={`0-${grid.subject.max_marks}`}
+                        placeholderTextColor={theme.mutedText}
                       />
-                    ) : null}
+                    ) : (
+                      <Text style={[styles.marksValue, { color: theme.text }]}>{row.marks ?? "-"}</Text>
+                    )}
                   </View>
-                  <View style={styles.metaWrap}>
-                    <View style={[styles.metaPill, { borderColor: theme.border, backgroundColor: theme.card }]}>
-                      <Text style={[styles.metaPillText, { color: theme.subText }]}>Roll {row.roll_number || "-"}</Text>
-                    </View>
-                    <View style={[styles.metaPill, { borderColor: theme.border, backgroundColor: theme.card }]}>
-                      <Text style={[styles.metaPillText, { color: theme.subText }]}>
-                        {selectedClass?.name || "-"} / {selectedSection?.name || "-"}
-                        {selectedSection?.medium ? ` (${selectedSection.medium})` : row.medium ? ` (${row.medium})` : ""}
-                      </Text>
-                    </View>
-                  </View>
-                  <Text style={[styles.subjectMeta, { color: theme.subText }]}>Subject: {selectedSubject?.name || grid?.subject?.name || "-"}</Text>
-                </View>
-                <StatusBadge status={row.approval_status} />
-              </View>
 
-              <View style={styles.cardFooterRow}>
-                <View style={styles.marksBox}>
-                  <Text style={[styles.compactLabel, { color: theme.subText }]}>Marks</Text>
-                  {canEditMarks && row.approval_status !== "approved" ? (
-                    <TextInput
-                      style={[styles.input, styles.marksInput, styles.compactInput]}
-                      keyboardType="numeric"
-                      value={editedMarks[Number(row.student_id)] ?? ""}
-                      onChangeText={(value) => updateMarksValue(Number(row.student_id), value)}
-                      onFocus={() => focusMarksInput(Number(row.student_id))}
-                      placeholder={`0-${grid.subject.max_marks}`}
-                      placeholderTextColor={theme.mutedText}
-                    />
-                  ) : (
-                    <Text style={[styles.marksValue, { color: theme.text }]}>{row.marks ?? "-"}</Text>
-                  )}
+                  {isAdmin ? (
+                    <Pressable
+                      style={[styles.smallSecondaryBtn, { backgroundColor: theme.card, borderColor: theme.border }]}
+                      disabled={row.approval_status !== "approved"}
+                      onPress={() => handleDownloadStudent(Number(row.student_id))}
+                    >
+                      <Text style={[styles.smallSecondaryBtnText, { color: theme.text }]}>Download</Text>
+                    </Pressable>
+                  ) : null}
                 </View>
-
-                {isAdmin ? (
-                  <Pressable
-                    style={[styles.smallSecondaryBtn, { backgroundColor: theme.card, borderColor: theme.border }]}
-                    disabled={row.approval_status !== "approved"}
-                    onPress={() => handleDownloadStudent(Number(row.student_id))}
-                  >
-                    <Text style={[styles.smallSecondaryBtnText, { color: theme.text }]}>Download</Text>
-                  </Pressable>
-                ) : null}
-              </View>
-            </Pressable>
-          ))
+              </Pressable>
+            ))}
+          </View>
         ) : (
           <Text style={[styles.emptyText, { color: theme.subText }]}>{emptyMessage}</Text>
         )}
@@ -1337,7 +1387,7 @@ export default function ReportsTab() {
       <ScrollView
         ref={scrollRef}
         style={styles.root}
-        contentContainerStyle={styles.content}
+        contentContainerStyle={[styles.content, keyboardHeight > 0 ? { paddingBottom: 120 + keyboardHeight } : null]}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="on-drag"
