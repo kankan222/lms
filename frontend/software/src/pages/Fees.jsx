@@ -522,7 +522,7 @@ export default function Fees() {
             </div>
           </div>
 
-          <Accordion type="single" collapsible className="grid gap-3">
+          <Accordion type="single" collapsible className="grid gap-4 md:grid-cols-2">
             {fees.map((fee) => (
               <AccordionItem
                 key={fee.id}
@@ -575,7 +575,7 @@ export default function Fees() {
                     </Button>
                   </div>
 
-                  <div className="overflow-hidden rounded-2xl border border-border/70">
+                  <div className="max-h-72 overflow-auto rounded-2xl border border-border/70">
                     <Table>
                       <TableHeader>
                         <TableRow className="bg-muted/40">
