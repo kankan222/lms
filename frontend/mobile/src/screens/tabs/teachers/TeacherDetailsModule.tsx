@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, Alert, Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, Alert, Image, Linking, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { adminResetPassword } from "../../../services/usersService";
 import {
   getTeacher,
@@ -46,6 +46,21 @@ function resolveScopeCode(scopeCode?: string | null, scopeName?: string | null):
 
 const formatScopeLabel = (scope?: string | null, scopeName?: string | null) => resolveScopeCode(scope, scopeName) === "hs" ? "Higher Secondary" : "School";
 const title = (value: string) => value ? value.charAt(0).toUpperCase() + value.slice(1) : "";
+const toDialablePhone = (value?: string | null) => {
+  const raw = String(value || "").trim();
+  if (!raw || raw === "-") return null;
+
+  const compact = raw.replace(/[^\d+]/g, "");
+  if (!compact) return null;
+
+  const normalized = compact.startsWith("+")
+    ? `+${compact.slice(1).replace(/\+/g, "")}`
+    : compact.replace(/\+/g, "");
+  const digitsOnly = normalized.replace(/^\+/, "");
+
+  if (!/^\d{7,15}$/.test(digitsOnly)) return null;
+  return normalized;
+};
 
 function statusPalette(status: string) {
   const value = String(status || "").trim().toLowerCase();
@@ -93,8 +108,19 @@ function SectionCard({ title: heading, hint, children }: { title: string; hint?:
   return <View style={[styles.sectionCard, { backgroundColor: theme.card, borderColor: theme.border }]}><View style={styles.rowBetween}><Text style={[styles.sectionTitle, { color: theme.text }]}>{heading}</Text>{hint ? <Text style={[styles.sectionHint, { color: theme.subText }]}>{hint}</Text> : null}</View>{children}</View>;
 }
 
-function InfoRow({ label, value }: { label: string; value: string }) {
+function InfoRow({ label, value, onPress }: { label: string; value: string; onPress?: (() => void) | undefined }) {
   const { theme } = useAppTheme();
+  if (onPress) {
+    return (
+      <Pressable
+        onPress={onPress}
+        style={[styles.infoRow, { borderColor: theme.border, backgroundColor: theme.cardMuted }]}
+      >
+        <Text style={[styles.infoLabel, { color: theme.subText }]}>{label}</Text>
+        <Text style={[styles.infoValue, styles.infoValueLink, { color: theme.primary }]}>{value}</Text>
+      </Pressable>
+    );
+  }
   return <View style={[styles.infoRow, { borderColor: theme.border, backgroundColor: theme.cardMuted }]}><Text style={[styles.infoLabel, { color: theme.subText }]}>{label}</Text><Text style={[styles.infoValue, { color: theme.text }]}>{value}</Text></View>;
 }
 
@@ -205,6 +231,16 @@ export default function TeacherDetailsModule({ teacherId, canManageTeachers }: P
     }
   }
 
+  async function handleCallPress(phone?: string | null) {
+    const dialable = toDialablePhone(phone);
+    if (!dialable) return;
+    try {
+      await Linking.openURL(`tel:${dialable}`);
+    } catch {
+      Alert.alert("Call failed", "Could not open the phone dialer.");
+    }
+  }
+
   if (!teacherId) return <Text style={[styles.emptyText, { color: theme.subText }]}>Select a teacher to view details.</Text>;
   if (loading) return <View style={styles.centered}><ActivityIndicator size="large" color={theme.text} /></View>;
   if (error) return <View style={styles.errorCard}><Text style={styles.errorTitle}>Teacher unavailable</Text><Text style={styles.errorText}>{error}</Text></View>;
@@ -242,7 +278,11 @@ export default function TeacherDetailsModule({ teacherId, canManageTeachers }: P
         <SectionCard title="Teacher Overview" hint={`#${teacher.id}`}>
           <View style={styles.infoGrid}>
             <InfoRow label="Employee ID" value={teacher.employee_id || "-"} />
-            <InfoRow label="Phone" value={teacher.phone || "-"} />
+            <InfoRow
+              label="Phone"
+              value={teacher.phone || "-"}
+              onPress={toDialablePhone(teacher.phone) ? () => handleCallPress(teacher.phone) : undefined}
+            />
             <InfoRow label="Email" value={teacher.email || "-"} />
             <InfoRow label="Scope" value={formatScopeLabel(teacher.class_scope, teacher.scope_name)} />
             <InfoRow label="User ID" value={teacher.user_id ? String(teacher.user_id) : "-"} />
@@ -365,6 +405,7 @@ const styles = StyleSheet.create({
   infoRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 12, borderWidth: 1, borderColor: "#e2e8f0", borderRadius: 14, backgroundColor: "#f8fafc", paddingHorizontal: 12, paddingVertical: 10 },
   infoLabel: { color: "#64748b", fontWeight: "700" },
   infoValue: { color: "#0f172a", fontWeight: "700", flexShrink: 1, textAlign: "right" },
+  infoValueLink: { textDecorationLine: "underline" },
   assignmentGroup: { gap: 10 },
   groupTitle: { color: "#0f172a", fontWeight: "700", fontSize: 14 },
   assignmentChipWrap: { flexDirection: "row", flexWrap: "wrap", gap: 8 },

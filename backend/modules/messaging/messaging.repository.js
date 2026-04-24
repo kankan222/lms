@@ -2,6 +2,9 @@ import { execute, query } from "../../core/db/query.js";
 
 let teacherClassScopeColumnPromise;
 let staffUserIdColumnPromise;
+let classClassScopeColumnPromise;
+let studentRollNumberColumnPromise;
+let studentParentRelationshipColumnPromise;
 
 function hasTeacherClassScopeColumn() {
   if (!teacherClassScopeColumnPromise) {
@@ -18,6 +21,57 @@ function hasTeacherClassScopeColumn() {
   }
 
   return teacherClassScopeColumnPromise;
+}
+
+function hasClassClassScopeColumn() {
+  if (!classClassScopeColumnPromise) {
+    classClassScopeColumnPromise = query(
+      `
+        SELECT 1
+        FROM information_schema.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = 'classes'
+          AND COLUMN_NAME = 'class_scope'
+        LIMIT 1
+      `
+    ).then((rows) => rows.length > 0);
+  }
+
+  return classClassScopeColumnPromise;
+}
+
+function hasStudentRollNumberColumn() {
+  if (!studentRollNumberColumnPromise) {
+    studentRollNumberColumnPromise = query(
+      `
+        SELECT 1
+        FROM information_schema.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = 'students'
+          AND COLUMN_NAME = 'roll_number'
+        LIMIT 1
+      `
+    ).then((rows) => rows.length > 0);
+  }
+
+  return studentRollNumberColumnPromise;
+}
+
+function hasStudentParentRelationshipColumn() {
+  if (!studentParentRelationshipColumnPromise) {
+    studentParentRelationshipColumnPromise = query(
+      `
+        SELECT 1
+        FROM information_schema.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = 'student_parents'
+          AND COLUMN_NAME = 'relationship'
+        LIMIT 1
+      `
+    ).then((rows) => rows.length > 0);
+  }
+
+  return studentParentRelationshipColumnPromise;
 }
 
 async function hasStaffUserIdColumn() {
@@ -318,6 +372,12 @@ export async function getUnreadCounts(userId) {
 }
 
 export async function getParentTargets() {
+  const [hasClassScope, hasStudentRollNumber, hasRelationship] = await Promise.all([
+    hasClassClassScopeColumn(),
+    hasStudentRollNumberColumn(),
+    hasStudentParentRelationshipColumn(),
+  ]);
+
   return query(
     `SELECT
       p.id AS parent_id,
@@ -325,20 +385,25 @@ export async function getParentTargets() {
       p.mobile,
       p.email,
       p.user_id,
+      st.id AS student_id,
+      st.name AS student_name,
+      ${hasStudentRollNumber ? "st.roll_number" : "NULL"} AS roll_number,
+      ${hasRelationship ? "sp.relationship" : "NULL"} AS relationship,
       e.class_id,
       e.section_id,
       c.name AS class_name,
-      c.class_scope,
+      ${hasClassScope ? "c.class_scope" : "NULL"} AS class_scope,
       s.name AS section_name,
       s.medium
     FROM parents p
     LEFT JOIN student_parents sp ON sp.parent_id = p.id
+    LEFT JOIN students st ON st.id = sp.student_id
     LEFT JOIN student_enrollments e
       ON e.student_id = sp.student_id
       AND e.status = 'active'
     LEFT JOIN classes c ON c.id = e.class_id
     LEFT JOIN sections s ON s.id = e.section_id
-    ORDER BY p.name ASC`
+    ORDER BY p.name ASC, st.name ASC`
   );
 }
 
@@ -372,8 +437,10 @@ export async function getTeacherTargets() {
 }
 
 export async function getClassTargets() {
+  const hasClassScope = await hasClassClassScopeColumn();
+
   return query(
-    `SELECT id, name, medium, class_scope
+    `SELECT id, name, medium, ${hasClassScope ? "class_scope" : "NULL"} AS class_scope
      FROM classes
      WHERE is_active = TRUE
      ORDER BY id ASC`
@@ -381,8 +448,10 @@ export async function getClassTargets() {
 }
 
 export async function getSectionTargets() {
+  const hasClassScope = await hasClassClassScopeColumn();
+
   return query(
-    `SELECT s.id, s.name, s.class_id, c.name AS class_name, s.medium, c.class_scope
+    `SELECT s.id, s.name, s.class_id, c.name AS class_name, s.medium, ${hasClassScope ? "c.class_scope" : "NULL"} AS class_scope
      FROM sections s
      JOIN classes c ON c.id = s.class_id
      WHERE c.is_active = TRUE

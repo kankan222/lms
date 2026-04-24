@@ -4,7 +4,10 @@ import {
   Alert,
   BackHandler,
   Image,
+  Keyboard,
+  KeyboardAvoidingView,
   Modal,
+  Platform,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -40,6 +43,7 @@ type Props = {
 
 export type ParentConversationIntent = {
   token: number;
+  targetType?: "parent" | "teacher";
   recipientUserId: number;
   recipientName?: string;
   classId?: number | null;
@@ -54,8 +58,8 @@ type Compose = {
   class_id: string;
   section_id: string;
   teacher_type: "all" | "school" | "college";
-  message: string;
 };
+type ConversationTargetPayload = Omit<Parameters<typeof sendMessage>[0], "message">;
 
 const EMPTY_TARGETS: MessagingTargets = { parents: [], teachers: [], classes: [], sections: [], broadcast_targets: [] };
 const EMPTY_COMPOSE: Compose = {
@@ -64,7 +68,6 @@ const EMPTY_COMPOSE: Compose = {
   class_id: "",
   section_id: "",
   teacher_type: "all",
-  message: "",
 };
 
 const DEFAULT_THEME = {
@@ -166,8 +169,13 @@ export default function MessagingTab({
   const [loadingMessages, setLoadingMessages] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [sending, setSending] = useState(false);
+  const [pendingConversationTarget, setPendingConversationTarget] = useState<ConversationTargetPayload | null>(null);
+  const [pendingConversationLabel, setPendingConversationLabel] = useState("Conversation");
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
   const [notice, setNotice] = useState<Notice>(null);
   const lastHandledIntentTokenRef = useRef<number | null>(null);
+  const messagesScrollRef = useRef<ScrollView | null>(null);
+  const shouldScrollToLatestRef = useRef(false);
 
   const activeConversation = useMemo(
     () => conversations.find((item) => Number(item.id) === Number(activeConversationId)) ?? null,
@@ -187,6 +195,7 @@ export default function MessagingTab({
         phones: Set<string>;
         emails: Set<string>;
         teacherTypes: Set<string>;
+        studentNames: Set<string>;
       }
     >();
 
@@ -204,12 +213,18 @@ export default function MessagingTab({
         phones: new Set<string>(),
         emails: new Set<string>(),
         teacherTypes: new Set<string>(),
+        studentNames: new Set<string>(),
       };
       existing.roleSet.add("parent");
       if (item.class_id) existing.classIds.add(String(item.class_id));
       if (item.section_id) existing.sectionIds.add(String(item.section_id));
       if (item.class_name) existing.classNames.add(String(item.class_name));
       if (item.section_name) existing.sectionNames.add(String(item.section_name));
+      if (item.student_name) {
+        const rollNumber = String(item.roll_number ?? "").trim();
+        const studentLabel = rollNumber ? `${item.student_name} (Roll ${rollNumber})` : item.student_name;
+        existing.studentNames.add(String(studentLabel));
+      }
       if (item.mobile) existing.phones.add(String(item.mobile));
       if (item.email) existing.emails.add(String(item.email));
       grouped.set(userId, existing);
@@ -229,6 +244,7 @@ export default function MessagingTab({
         phones: new Set<string>(),
         emails: new Set<string>(),
         teacherTypes: new Set<string>(),
+        studentNames: new Set<string>(),
       };
       existing.roleSet.add("teacher");
       if (item.class_id) existing.classIds.add(String(item.class_id));
@@ -257,6 +273,7 @@ export default function MessagingTab({
         phones: Array.from(item.phones),
         emails: Array.from(item.emails),
         teacherTypes: Array.from(item.teacherTypes),
+        studentNames: Array.from(item.studentNames),
       }))
       .filter((item) => {
         if (targetRole !== "all" && !item.roles.includes(targetRole)) return false;
@@ -278,6 +295,7 @@ export default function MessagingTab({
           item.phones.join(" "),
           item.emails.join(" "),
           item.teacherTypes.join(" "),
+          item.studentNames.join(" "),
         ]
           .join(" ")
           .toLowerCase()
@@ -355,19 +373,37 @@ export default function MessagingTab({
   }, [notice]);
 
   useEffect(() => {
+    const showEvent = Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
+    const hideEvent = Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
+
+    const showSub = Keyboard.addListener(showEvent, (event) => {
+      const nextHeight = Number(event?.endCoordinates?.height || 0);
+      setKeyboardHeight(nextHeight > 0 ? nextHeight : 0);
+    });
+    const hideSub = Keyboard.addListener(hideEvent, () => {
+      setKeyboardHeight(0);
+    });
+
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
+
+  useEffect(() => {
     if (screen !== "chat" || !activeConversationId) return;
-    void loadMessagesForConversation(activeConversationId);
+    void loadMessagesForConversation(activeConversationId, false, { scrollToLatest: true });
   }, [activeConversationId, screen]);
 
   useEffect(() => {
-    onConversationViewChange?.(screen === "chat");
+    onConversationViewChange?.(screen === "chat" || composeOpen);
     return () => onConversationViewChange?.(false);
-  }, [onConversationViewChange, screen]);
+  }, [onConversationViewChange, screen, composeOpen]);
 
   useEffect(() => {
     if (screen !== "chat") return undefined;
     const subscription = BackHandler.addEventListener("hardwareBackPress", () => {
-      setScreen("list");
+      closeChatView();
       return true;
     });
     return () => subscription.remove();
@@ -388,24 +424,25 @@ export default function MessagingTab({
     const intent = parentConversationIntent;
     if (!intent?.token) return;
     if (lastHandledIntentTokenRef.current === intent.token) return;
+    const targetType = intent.targetType === "teacher" ? "teacher" : "parent";
 
     lastHandledIntentTokenRef.current = intent.token;
     setScreen("list");
     setActiveConversationId(null);
     setComposeOpen(true);
     setCompose({
-      target_type: "parent",
+      target_type: targetType,
       recipient_user_id: String(intent.recipientUserId),
       class_id: intent.classId ? String(intent.classId) : "",
       section_id: intent.sectionId ? String(intent.sectionId) : "",
       teacher_type: "all",
-      message: "",
     });
     setComposeSearch(intent.recipientName || "");
-    setComposeRoleFilter("parent");
+    setComposeRoleFilter(targetType);
     setComposeClassFilter(intent.classId ? String(intent.classId) : "");
     setComposeSectionFilter(intent.sectionId ? String(intent.sectionId) : "");
     setComposeTeacherTypeFilter("all");
+    void loadTargets();
     onParentConversationIntentHandled?.(intent.token);
   }, [parentConversationIntent, onParentConversationIntentHandled]);
 
@@ -418,7 +455,9 @@ export default function MessagingTab({
     try {
       const rows = await getConversations();
       setConversations(rows);
-      if (!activeConversationId && rows.length) setActiveConversationId(Number(rows[0].id));
+      if (rows.length) {
+        setActiveConversationId((prev) => prev ?? Number(rows[0].id));
+      }
     } catch (err) {
       if (!silent) Alert.alert("Error", getErrorMessage(err, "Could not load conversations."));
       setConversations([]);
@@ -430,12 +469,29 @@ export default function MessagingTab({
   async function loadTargets() {
     try {
       setTargets(await getTargets());
-    } catch {
+    } catch (err) {
       setTargets(EMPTY_TARGETS);
+      setNotice({
+        title: "Recipients unavailable",
+        message: getErrorMessage(err, "Could not load recipients, classes, or sections."),
+        tone: "error",
+      });
     }
   }
 
-  async function loadMessagesForConversation(conversationId: number, silent = false) {
+  function queueScrollToLatest() {
+    shouldScrollToLatestRef.current = true;
+  }
+
+  async function loadMessagesForConversation(
+    conversationId: number,
+    silent = false,
+    options?: { scrollToLatest?: boolean },
+  ) {
+    if (options?.scrollToLatest) {
+      queueScrollToLatest();
+    }
+
     if (!silent) setLoadingMessages(true);
     try {
       const rows = await getMessages(conversationId, 1, 100);
@@ -454,95 +510,206 @@ export default function MessagingTab({
     setRefreshing(true);
     try {
       await Promise.all([loadConversations(true), loadTargets()]);
-      if (screen === "chat" && activeConversationId) await loadMessagesForConversation(activeConversationId, true);
+      if (screen === "chat" && activeConversationId) {
+        await loadMessagesForConversation(activeConversationId, true, { scrollToLatest: true });
+      }
     } finally {
       setRefreshing(false);
     }
   }
 
-  async function sendReply() {
-    if (!activeConversationId || !reply.trim()) return;
+  function resetComposeState() {
+    setComposeOpen(false);
+    setCompose(EMPTY_COMPOSE);
+    setComposeSearch("");
+    setComposeRoleFilter("all");
+    setComposeClassFilter("");
+    setComposeSectionFilter("");
+    setComposeTeacherTypeFilter("all");
+  }
+
+  function closeChatView() {
+    setScreen("list");
+    setReply("");
+    setPendingConversationTarget(null);
+    setPendingConversationLabel("Conversation");
+  }
+
+  function buildConversationTargetPayload() {
+    const payload: ConversationTargetPayload = {
+      target_type: compose.target_type,
+    };
+    let label = "Conversation";
+
+    if (["direct", "parent", "teacher"].includes(compose.target_type)) {
+      if (!compose.recipient_user_id) {
+        Alert.alert("Validation", "Choose a recipient.");
+        return null;
+      }
+      payload.recipient_user_id = Number(compose.recipient_user_id);
+      const selected = recipientOptions.find((item) => String(item.user_id) === compose.recipient_user_id);
+      const selectedStudentLabel = selected?.studentNames?.join(", ").trim();
+      label =
+        compose.target_type === "parent" && selectedStudentLabel
+          ? selectedStudentLabel
+          : selected?.name || `User #${compose.recipient_user_id}`;
+    }
+
+    if (compose.target_type === "class") {
+      if (!compose.class_id) {
+        Alert.alert("Validation", "Choose a class.");
+        return null;
+      }
+      payload.class_id = Number(compose.class_id);
+      payload.name = `Class ${targets.classes.find((item) => String(item.id) === compose.class_id)?.name || compose.class_id}`;
+      label = payload.name;
+    }
+
+    if (compose.target_type === "section") {
+      if (!compose.section_id) {
+        Alert.alert("Validation", "Choose a section.");
+        return null;
+      }
+      payload.section_id = Number(compose.section_id);
+      const section = targets.sections.find((item) => String(item.id) === compose.section_id);
+      payload.name = `Section ${section?.class_name || ""} ${section?.name || compose.section_id}`.trim();
+      label = payload.name;
+    }
+
+    if (compose.target_type === "broadcast") {
+      payload.name = "All Users";
+      label = payload.name;
+    }
+    if (compose.target_type === "all_classes") {
+      payload.name = "All Classes";
+      label = payload.name;
+    }
+    if (compose.target_type === "all_sections") {
+      payload.name = "All Sections";
+      label = payload.name;
+    }
+    if (compose.target_type === "all_parents") {
+      payload.name = "All Parents";
+      label = payload.name;
+    }
+    if (compose.target_type === "all_teachers") {
+      payload.teacher_type = compose.teacher_type;
+      payload.name =
+        compose.teacher_type === "college"
+          ? "All College Teachers"
+          : compose.teacher_type === "school"
+            ? "All School Teachers"
+            : "All Teachers";
+      label = payload.name;
+    }
+
+    return { payload, label };
+  }
+
+  function findConversationForTarget(payload: ConversationTargetPayload, rows: ConversationItem[] = conversations) {
+    const targetType = payload.target_type;
+    if (!targetType) return null;
+
+    if (["direct", "parent", "teacher"].includes(targetType)) {
+      const recipientUserId = Number(payload.recipient_user_id || 0);
+      if (!recipientUserId) return null;
+      return rows.find(
+        (row) => row.type === "direct" && Number(row.other_user_id || 0) === recipientUserId,
+      ) ?? null;
+    }
+
+    if (targetType === "class") {
+      const classId = Number(payload.class_id || 0);
+      if (!classId) return null;
+      return rows.find((row) => row.type === "class" && Number(row.class_id || 0) === classId) ?? null;
+    }
+
+    if (targetType === "section") {
+      const sectionId = Number(payload.section_id || 0);
+      if (!sectionId) return null;
+      return rows.find((row) => row.type === "section" && Number(row.section_id || 0) === sectionId) ?? null;
+    }
+
+    const targetName = String(payload.name || "").trim().toLowerCase();
+    return rows.find(
+      (row) =>
+        row.type === "broadcast" &&
+        String(row.name || "")
+          .trim()
+          .toLowerCase() === targetName,
+    ) ?? null;
+  }
+
+  async function openNewConversationScreen() {
+    const prepared = buildConversationTargetPayload();
+    if (!prepared) return;
+
     setSending(true);
     try {
-      await sendMessage({ conversation_id: activeConversationId, message: reply.trim() });
+      const { payload, label } = prepared;
+      const existing = findConversationForTarget(payload);
+
+      resetComposeState();
+      setPendingConversationLabel(label);
       setReply("");
-      await loadMessagesForConversation(activeConversationId, true);
-      setNotice({ title: "Sent", message: "Message delivered.", tone: "success" });
+
+      if (existing?.id) {
+        const conversationId = Number(existing.id);
+        setPendingConversationTarget(null);
+        setActiveConversationId(conversationId);
+        setScreen("chat");
+        await loadMessagesForConversation(conversationId, true, { scrollToLatest: true });
+        setNotice({ title: "Conversation opened", message: "Send your message below.", tone: "success" });
+        return;
+      }
+
+      setPendingConversationTarget(payload);
+      setActiveConversationId(null);
+      setMessages([]);
+      setScreen("chat");
+      setNotice({ title: "Conversation ready", message: "Type your message below to start.", tone: "success" });
     } catch (err) {
-      Alert.alert("Send failed", getErrorMessage(err, "Failed to send message."));
+      Alert.alert("Open failed", getErrorMessage(err, "Could not open conversation."));
     } finally {
       setSending(false);
     }
   }
 
-  async function sendNewMessage() {
-    if (!compose.message.trim()) {
-      Alert.alert("Validation", "Enter a message.");
+  async function sendReply() {
+    const trimmed = reply.trim();
+    if (!trimmed) return;
+    if (!activeConversationId && !pendingConversationTarget) {
+      Alert.alert("Validation", "Open a conversation first.");
       return;
     }
+
     setSending(true);
     try {
-      const payload: Parameters<typeof sendMessage>[0] = {
-        target_type: compose.target_type,
-        message: compose.message.trim(),
-      };
+      let conversationId = activeConversationId ? Number(activeConversationId) : null;
 
-      if (["direct", "parent", "teacher"].includes(compose.target_type)) {
-        if (!compose.recipient_user_id) {
-          Alert.alert("Validation", "Choose a recipient.");
-          return;
+      if (conversationId) {
+        await sendMessage({ conversation_id: conversationId, message: trimmed });
+      } else if (pendingConversationTarget) {
+        const result = await sendMessage({ ...pendingConversationTarget, message: trimmed });
+        conversationId = result.conversation_id ? Number(result.conversation_id) : null;
+
+        if (!conversationId) {
+          const rows = await getConversations();
+          setConversations(rows);
+          conversationId = Number(findConversationForTarget(pendingConversationTarget, rows)?.id || 0) || null;
         }
-        payload.recipient_user_id = Number(compose.recipient_user_id);
-      }
 
-      if (compose.target_type === "class") {
-        if (!compose.class_id) {
-          Alert.alert("Validation", "Choose a class.");
-          return;
+        setPendingConversationTarget(null);
+        if (conversationId) {
+          setActiveConversationId(conversationId);
         }
-        payload.class_id = Number(compose.class_id);
-        payload.name = `Class ${targets.classes.find((item) => String(item.id) === compose.class_id)?.name || compose.class_id}`;
       }
 
-      if (compose.target_type === "section") {
-        if (!compose.section_id) {
-          Alert.alert("Validation", "Choose a section.");
-          return;
-        }
-        payload.section_id = Number(compose.section_id);
-        const section = targets.sections.find((item) => String(item.id) === compose.section_id);
-        payload.name = `Section ${section?.class_name || ""} ${section?.name || compose.section_id}`.trim();
+      setReply("");
+      if (conversationId) {
+        await loadMessagesForConversation(conversationId, true, { scrollToLatest: true });
       }
-
-      if (compose.target_type === "broadcast") payload.name = "All Users";
-      if (compose.target_type === "all_classes") payload.name = "All Classes";
-      if (compose.target_type === "all_sections") payload.name = "All Sections";
-      if (compose.target_type === "all_parents") payload.name = "All Parents";
-      if (compose.target_type === "all_teachers") {
-        payload.teacher_type = compose.teacher_type;
-        payload.name =
-          compose.teacher_type === "college"
-            ? "All College Teachers"
-            : compose.teacher_type === "school"
-              ? "All School Teachers"
-              : "All Teachers";
-      }
-
-      const result = await sendMessage(payload);
-      setComposeOpen(false);
-      setCompose(EMPTY_COMPOSE);
-      setComposeSearch("");
-      setComposeRoleFilter("all");
-      setComposeClassFilter("");
-      setComposeSectionFilter("");
-      setComposeTeacherTypeFilter("all");
-      await loadConversations(true);
-      if (result.conversation_id) {
-        setActiveConversationId(Number(result.conversation_id));
-        setScreen("chat");
-        await loadMessagesForConversation(Number(result.conversation_id), true);
-      }
-      setNotice({ title: "Sent", message: "Conversation started successfully.", tone: "success" });
+      setNotice({ title: "Sent", message: "Message delivered.", tone: "success" });
     } catch (err) {
       Alert.alert("Send failed", getErrorMessage(err, "Failed to send message."));
     } finally {
@@ -572,7 +739,21 @@ export default function MessagingTab({
                 </View>
                 {isSuperAdmin ? (
                   <View style={styles.heroPrimaryActions}>
-                    <Pressable style={styles.topActionBtn} onPress={() => setComposeOpen(true)}>
+                    <Pressable
+                      style={styles.topActionBtn}
+                      onPress={() => {
+                        setPendingConversationTarget(null);
+                        setPendingConversationLabel("Conversation");
+                        setCompose(EMPTY_COMPOSE);
+                        setComposeSearch("");
+                        setComposeRoleFilter("all");
+                        setComposeClassFilter("");
+                        setComposeSectionFilter("");
+                        setComposeTeacherTypeFilter("all");
+                        void loadTargets();
+                        setComposeOpen(true);
+                      }}
+                    >
                       <Ionicons name="create-outline" size={18} color={theme.successText} />
                       <Text style={styles.topActionText}>New Conversation</Text>
                     </Pressable>
@@ -635,32 +816,48 @@ export default function MessagingTab({
 
         </View>
       ) : (
-        <View style={[styles.chatScreen, { backgroundColor: theme.bg }]}>
+        <KeyboardAvoidingView
+          style={[styles.chatScreen, { backgroundColor: theme.bg }]}
+          behavior={Platform.OS === "ios" ? "padding" : undefined}
+          keyboardVerticalOffset={Platform.OS === "ios" ? Math.max(insets.top, 8) : 0}
+        >
           <TopNotice notice={notice} style={styles.topNoticeOverlay} />
           <View style={styles.chatInnerContent}>
             <View style={styles.chatHeroCard}>
               <Text style={styles.heroEyebrow}>Conversation</Text>
               <View style={[styles.chatHeader, { borderColor: theme.border, backgroundColor: theme.card }]}>
-                <Pressable style={[styles.iconBtn, { backgroundColor: isDark ? theme.cardMuted : theme.bg }]} onPress={() => setScreen("list")}>
+                <Pressable style={[styles.iconBtn, { backgroundColor: isDark ? theme.cardMuted : theme.bg }]} onPress={closeChatView}>
                   <Ionicons name="arrow-back-outline" size={20} color={theme.icon} />
                 </Pressable>
                 <Avatar
-                  label={activeConversation?.name || activeConversation?.type}
+                  label={activeConversation?.name || pendingConversationLabel || activeConversation?.type}
                   online={activeConversation?.online}
                   imageUrl={activeConversation?.other_user_image_url}
                 />
                 <View style={styles.chatHeaderCopy}>
-                  <Text style={[styles.rowTitle, { color: theme.text }]}>{activeConversation?.name || "Chat"}</Text>
-                  <Text style={[styles.rowMeta, { color: theme.subText }]}>{presenceText(activeConversation)}</Text>
+                  <Text style={[styles.rowTitle, { color: theme.text }]}>
+                    {activeConversation?.name || pendingConversationLabel || "Chat"}
+                  </Text>
+                  <Text style={[styles.rowMeta, { color: theme.subText }]}>
+                    {activeConversation ? presenceText(activeConversation) : "New conversation"}
+                  </Text>
                 </View>
               </View>
             </View>
 
             <View style={[styles.chatMessagesPanel, { borderColor: theme.border, backgroundColor: theme.cardMuted }]}>
               <ScrollView
+                ref={messagesScrollRef}
                 style={styles.chatMessagesScroll}
                 contentContainerStyle={[styles.chatMessagesContent, { paddingBottom: 16 }]}
                 showsVerticalScrollIndicator={false}
+                onContentSizeChange={() => {
+                  if (!shouldScrollToLatestRef.current) return;
+                  requestAnimationFrame(() => {
+                    messagesScrollRef.current?.scrollToEnd({ animated: true });
+                    shouldScrollToLatestRef.current = false;
+                  });
+                }}
               >
                 {loadingMessages ? (
                   <View style={styles.centered}><ActivityIndicator size="small" color={theme.icon} /></View>
@@ -698,7 +895,9 @@ export default function MessagingTab({
             style={[
               styles.replyBarWrap,
               {
-                paddingBottom: Math.max(insets.bottom, 10),
+                paddingBottom:
+                  Math.max(insets.bottom, 10) +
+                  (Platform.OS === "android" ? Math.max(keyboardHeight - Math.max(insets.bottom, 0), 0) : 0),
                 backgroundColor: theme.bg,
               },
             ]}
@@ -716,13 +915,22 @@ export default function MessagingTab({
               </Pressable>
             </View>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       )}
 
       <Modal visible={composeOpen} transparent animationType="slide" onRequestClose={() => setComposeOpen(false)}>
         <View style={styles.modalOverlay}>
           <Pressable style={styles.modalBackdrop} onPress={() => setComposeOpen(false)} />
-          <View style={[styles.modalCard, { borderColor: theme.border, backgroundColor: theme.card }]}>
+          <View
+            style={[
+              styles.modalCard,
+              {
+                borderColor: theme.border,
+                backgroundColor: theme.card,
+                paddingBottom: 16 + Math.max(insets.bottom, 10),
+              },
+            ]}
+          >
             <Text style={[styles.modalTitle, { color: theme.text }]}>New Message</Text>
             <ScrollView showsVerticalScrollIndicator={false}>
               <View style={styles.composeSection}>
@@ -799,17 +1007,29 @@ export default function MessagingTab({
                   {selectedRecipient ? (
                     <View style={[styles.selectedCard, { borderColor: "#bfdbfe", backgroundColor: isDark ? theme.cardMuted : "#eff6ff" }]}>
                       <Text style={[styles.selectedLabel, { color: "#1d4ed8" }]}>Selected Recipient</Text>
-                      <Text style={[styles.rowTitle, { color: theme.text }]}>{selectedRecipient.name}</Text>
+                      <Text style={[styles.rowTitle, { color: theme.text }]}>
+                        {compose.target_type === "parent" && selectedRecipient.studentNames.length
+                          ? selectedRecipient.studentNames.join(", ")
+                          : selectedRecipient.name}
+                      </Text>
                       <Text style={[styles.rowMeta, { color: theme.subText }]}>
-                        {selectedRecipient.roles.join(", ")}
+                        {compose.target_type === "parent" && selectedRecipient.studentNames.length
+                          ? `Parent: ${selectedRecipient.name}`
+                          : selectedRecipient.roles.join(", ")}
                         {selectedRecipient.phones[0] ? ` - ${selectedRecipient.phones[0]}` : ""}
                         {selectedRecipient.classNames.length ? ` - ${selectedRecipient.classNames.join(", ")}` : ""}
+                        {selectedRecipient.sectionNames.length ? ` - ${selectedRecipient.sectionNames.join(", ")}` : ""}
                       </Text>
                     </View>
                   ) : null}
 
                   {recipientOptions.map((item) => {
                     const active = compose.recipient_user_id === String(item.user_id);
+                    const isParentRow = compose.target_type === "parent" && item.roles.includes("parent");
+                    const rowTitle =
+                      isParentRow && item.studentNames.length ? item.studentNames.join(", ") : item.name;
+                    const rowMetaPrefix =
+                      isParentRow && item.studentNames.length ? `Parent: ${item.name}` : item.roles.join(", ");
                     return (
                       <Pressable
                         key={item.user_id}
@@ -822,9 +1042,9 @@ export default function MessagingTab({
                         ]}
                         onPress={() => setCompose((prev) => ({ ...prev, recipient_user_id: String(item.user_id) }))}
                       >
-                        <Text style={[styles.rowTitle, { color: active ? "#1d4ed8" : theme.text }]}>{item.name}</Text>
+                        <Text style={[styles.rowTitle, { color: active ? "#1d4ed8" : theme.text }]}>{rowTitle}</Text>
                         <Text style={[styles.rowMeta, { color: theme.subText }]}>
-                          {item.roles.join(", ")}
+                          {rowMetaPrefix}
                           {item.phones[0] ? ` - ${item.phones[0]}` : ""}
                           {item.classNames.length ? ` - ${item.classNames.join(", ")}` : ""}
                           {item.sectionNames.length ? ` - ${item.sectionNames.join(", ")}` : ""}
@@ -878,22 +1098,13 @@ export default function MessagingTab({
                 </View>
               ) : null}
 
-              <TextInput
-                value={compose.message}
-                onChangeText={(value) => setCompose((prev) => ({ ...prev, message: value }))}
-                placeholder="Write your message"
-                placeholderTextColor={theme.mutedText}
-                multiline
-                textAlignVertical="top"
-                style={[styles.composeInput, { borderColor: theme.border, backgroundColor: theme.inputBg, color: theme.text }]}
-              />
             </ScrollView>
             <View style={styles.modalActions}>
-              <Pressable style={[styles.secondaryBtn, { borderColor: theme.border, backgroundColor: theme.card }]} onPress={() => setComposeOpen(false)}>
+              <Pressable style={[styles.secondaryBtn, { borderColor: theme.border, backgroundColor: theme.card }]} onPress={resetComposeState}>
                 <Text style={[styles.secondaryText, { color: theme.text }]}>Cancel</Text>
               </Pressable>
-              <Pressable style={[styles.primaryBtn, { backgroundColor: theme.success }]} onPress={() => void sendNewMessage()} disabled={sending}>
-                <Text style={styles.primaryText}>{sending ? "Sending..." : "Send"}</Text>
+              <Pressable style={[styles.primaryBtn, { backgroundColor: theme.success }]} onPress={() => void openNewConversationScreen()} disabled={sending}>
+                <Text style={styles.primaryText}>{sending ? "Opening..." : "Open Chat"}</Text>
               </Pressable>
             </View>
           </View>
@@ -986,7 +1197,6 @@ return StyleSheet.create({
   selectedLabel: { fontSize: 11, fontWeight: "800", textTransform: "uppercase", letterSpacing: 0.4 },
   targetRow: { borderWidth: 1, borderRadius: 14, padding: 12, marginBottom: 8 },
   emptyInline: { borderWidth: 1, borderRadius: 14, padding: 12 },
-  composeInput: { borderWidth: 1, borderRadius: 14, minHeight: 120, paddingHorizontal: 12, paddingVertical: 10, marginTop: 6 },
   modalActions: { flexDirection: "row", gap: 10 },
   secondaryBtn: { flex: 1, borderWidth: 1, borderRadius: 12, paddingVertical: 11, alignItems: "center" },
   secondaryText: { fontWeight: "700" },

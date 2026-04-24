@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import * as SecureStore from "expo-secure-store";
+import { clearApiCacheByUserScope } from "../services/apiCache";
 import type { AuthUser } from "../types/auth";
 
 const ACCESS_TOKEN_KEY = "lms.accessToken";
@@ -29,6 +30,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   isHydrated: false,
 
   async setAuth(payload) {
+    const previousUserId = get().user?.id ?? null;
     const nextAccessToken = payload.accessToken;
     const nextRefreshToken = payload.refreshToken ?? get().refreshToken;
     const nextUser = payload.user ?? get().user;
@@ -45,6 +47,10 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     }
     if (nextUser) {
       await SecureStore.setItemAsync(USER_KEY, JSON.stringify(nextUser));
+    }
+
+    if (previousUserId && nextUser && previousUserId !== nextUser.id) {
+      await clearApiCacheByUserScope(`u:${previousUserId}`);
     }
   },
 
@@ -73,6 +79,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
 
   async logout() {
+    const currentUserId = get().user?.id ?? null;
     set({
       accessToken: null,
       refreshToken: null,
@@ -83,6 +90,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       SecureStore.deleteItemAsync(ACCESS_TOKEN_KEY),
       SecureStore.deleteItemAsync(REFRESH_TOKEN_KEY),
       SecureStore.deleteItemAsync(USER_KEY),
+      currentUserId ? clearApiCacheByUserScope(`u:${currentUserId}`) : Promise.resolve(),
     ]);
   },
 }));

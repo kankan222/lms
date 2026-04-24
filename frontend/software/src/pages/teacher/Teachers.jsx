@@ -57,6 +57,7 @@ const columns = [
   { header: "Phone", accessor: "phone" },
   { header: "Email", accessor: "email" },
 ];
+const TABLE_ROWS_PER_PAGE_OPTIONS = [10, 20, 50, 100];
 
 const DEFAULT_SCOPE_OPTIONS = [
   { code: "school", name: "School" },
@@ -989,6 +990,8 @@ const Teachers = () => {
         <DataTable
           columns={columns}
           data={filteredTeachers}
+          rowsPerPageOptions={TABLE_ROWS_PER_PAGE_OPTIONS}
+          rowsPerPage={TABLE_ROWS_PER_PAGE_OPTIONS[0]}
           onEdit={handleEdit}
           onDelete={setDeletingTeacher}
           onRowClick={handleRowClick}

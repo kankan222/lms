@@ -158,7 +158,7 @@ function formatDateInputValue(value) {
 
 const FIELD_CLASSNAME =
   "w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground shadow-xs outline-hidden transition focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] disabled:cursor-not-allowed disabled:opacity-60";
-const TABLE_ROWS_PER_PAGE_OPTIONS = [5, 10, 20];
+const TABLE_ROWS_PER_PAGE_OPTIONS = [10, 20, 50, 100];
 const STUDENTS_TABLE_PAGE_KEY = "students.table.page";
 const STUDENTS_TABLE_ROWS_KEY = "students.table.rows";
 const STUDENTS_FILTER_CLASS_KEY = "students.filter.classId";

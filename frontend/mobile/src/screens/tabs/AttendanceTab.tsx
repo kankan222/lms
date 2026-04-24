@@ -35,6 +35,8 @@ import {
 } from "../../services/attendanceService";
 
 type AttendanceTabKey = "take" | "approved" | "history" | "review" | "notify" | "logs";
+type RangePreset = "today" | "week" | "month" | "custom";
+type DateRange = { from: string; to: string };
 
 const STATUS_OPTIONS: StudentAttendanceStatus[] = ["present", "absent"];
 const DEFAULT_THEME = {
@@ -63,6 +65,34 @@ let currentTheme = DEFAULT_THEME;
 function todayDate() {
   const now = new Date();
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+}
+
+function normalizeDateInput(value: Date | string) {
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+function resolvePresetRange(preset: Exclude<RangePreset, "custom">): DateRange {
+  const end = new Date();
+  end.setHours(0, 0, 0, 0);
+  const start = new Date(end);
+  if (preset === "week") {
+    start.setDate(start.getDate() - 6);
+  } else if (preset === "month") {
+    start.setDate(start.getDate() - 29);
+  }
+  return { from: normalizeDateInput(start), to: normalizeDateInput(end) };
+}
+
+function startOfDate(value: string) {
+  const date = new Date(`${value}T00:00:00`);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function endOfDate(value: string) {
+  const date = new Date(`${value}T23:59:59.999`);
+  return Number.isNaN(date.getTime()) ? null : date;
 }
 
 function formatDate(value?: string | null) {
@@ -215,6 +245,9 @@ export default function AttendanceTab() {
   const [approvedRows, setApprovedRows] = useState<StudentAttendanceSessionItem[]>([]);
   const [selectedApproved, setSelectedApproved] = useState<StudentAttendanceSessionDetails | null>(null);
   const [notifyFilters, setNotifyFilters] = useState({ class_id: "", section_id: "" });
+  const [notifyDatePreset, setNotifyDatePreset] = useState<RangePreset>("today");
+  const [notifyDraftRange, setNotifyDraftRange] = useState<DateRange>(() => resolvePresetRange("today"));
+  const [notifyAppliedRange, setNotifyAppliedRange] = useState<DateRange>(() => resolvePresetRange("today"));
   const [notifyForm, setNotifyForm] = useState({ template_key: "", message: "", student_ids: [] as number[] });
   const [messageTemplates, setMessageTemplates] = useState<AbsenceMessageTemplate[]>([]);
   const [notifyLoading, setNotifyLoading] = useState(false);
@@ -222,6 +255,9 @@ export default function AttendanceTab() {
   const [teacherLogs, setTeacherLogs] = useState<TeacherAttendanceItem[]>([]);
   const [teacherLogsLoading, setTeacherLogsLoading] = useState(false);
   const [teacherSearch, setTeacherSearch] = useState("");
+  const [teacherLogPreset, setTeacherLogPreset] = useState<RangePreset>("today");
+  const [teacherLogDraftRange, setTeacherLogDraftRange] = useState<DateRange>(() => resolvePresetRange("today"));
+  const [teacherLogAppliedRange, setTeacherLogAppliedRange] = useState<DateRange>(() => resolvePresetRange("today"));
 
   const availableClasses = useMemo(() => {
     if (!entryScopes.restricted) return classes;
@@ -289,8 +325,23 @@ export default function AttendanceTab() {
 
   const filteredTeacherLogs = useMemo(() => {
     const q = teacherSearch.trim().toLowerCase();
-    return teacherLogs.filter((row) => !q || String(row.teacher || "").toLowerCase().includes(q));
-  }, [teacherLogs, teacherSearch]);
+    const fromBoundary = startOfDate(teacherLogAppliedRange.from);
+    const toBoundary = endOfDate(teacherLogAppliedRange.to);
+    const fromTime = fromBoundary?.getTime() ?? null;
+    const toTime = toBoundary?.getTime() ?? null;
+
+    return [...teacherLogs]
+      .filter((row) => {
+        const punchDate = new Date(row.punch_time);
+        if (Number.isNaN(punchDate.getTime())) return false;
+        const punchTime = punchDate.getTime();
+        if (fromTime !== null && punchTime < fromTime) return false;
+        if (toTime !== null && punchTime > toTime) return false;
+        if (q && !String(row.teacher || "").toLowerCase().includes(q)) return false;
+        return true;
+      })
+      .sort((a, b) => new Date(b.punch_time).getTime() - new Date(a.punch_time).getTime());
+  }, [teacherLogs, teacherSearch, teacherLogAppliedRange.from, teacherLogAppliedRange.to]);
   const notifyFilterClassOptions = useMemo(() => {
     const classMap = new Map<string, { label: string; value: string }>();
     approvedRows.forEach((row) => {
@@ -360,7 +411,7 @@ export default function AttendanceTab() {
 
   useEffect(() => {
     if (activeTab === "review" && canReviewAttendance) loadPending();
-    if (activeTab === "notify" && canNotifyParents) loadApproved();
+    if (activeTab === "notify" && canNotifyParents) loadApproved(notifyAppliedRange);
     if ((activeTab === "approved" || activeTab === "history") && isTeacherOnly) loadApproved();
     if (activeTab === "logs" && canViewTeacherLogs) loadTeacherLogs();
   }, [activeTab]);
@@ -425,7 +476,7 @@ export default function AttendanceTab() {
       } else if (activeTab === "review") {
         await loadPending();
       } else if (activeTab === "notify" || activeTab === "approved" || activeTab === "history") {
-        await loadApproved();
+        await loadApproved(activeTab === "notify" ? notifyAppliedRange : undefined);
       } else if (activeTab === "logs") {
         await loadTeacherLogs();
       }
@@ -525,12 +576,18 @@ export default function AttendanceTab() {
     }
   }
 
-  async function loadApproved() {
+  async function loadApproved(range?: DateRange) {
     setApprovedLoading(true);
     try {
       const needsFullHistory = isTeacherOnly && activeTab === "history";
       const rows = await getStudentAttendanceSessions(
-        needsFullHistory ? undefined : { approval_status: "approved" },
+        needsFullHistory
+          ? undefined
+          : {
+              approval_status: "approved",
+              date_from: range?.from || undefined,
+              date_to: range?.to || undefined,
+            },
       );
 
       const scopedRows = (rows || []).filter((row) => {
@@ -563,6 +620,53 @@ export default function AttendanceTab() {
     } finally {
       setTeacherLogsLoading(false);
     }
+  }
+
+  function applyTeacherLogPreset(preset: Exclude<RangePreset, "custom">) {
+    const range = resolvePresetRange(preset);
+    setTeacherLogPreset(preset);
+    setTeacherLogDraftRange(range);
+    setTeacherLogAppliedRange(range);
+  }
+
+  function handleViewTeacherLogRange() {
+    const from = String(teacherLogDraftRange.from || "");
+    const to = String(teacherLogDraftRange.to || "");
+    if (!from || !to) {
+      Alert.alert("Validation", "Select both start and end dates.");
+      return;
+    }
+    if (from > to) {
+      Alert.alert("Validation", "Start date cannot be later than end date.");
+      return;
+    }
+    setTeacherLogPreset("custom");
+    setTeacherLogAppliedRange({ from, to });
+  }
+
+  async function applyNotifyPreset(preset: Exclude<RangePreset, "custom">) {
+    const range = resolvePresetRange(preset);
+    setNotifyDatePreset(preset);
+    setNotifyDraftRange(range);
+    setNotifyAppliedRange(range);
+    await loadApproved(range);
+  }
+
+  async function handleViewNotifyRange() {
+    const from = String(notifyDraftRange.from || "");
+    const to = String(notifyDraftRange.to || "");
+    if (!from || !to) {
+      Alert.alert("Validation", "Select both start and end dates.");
+      return;
+    }
+    if (from > to) {
+      Alert.alert("Validation", "Start date cannot be later than end date.");
+      return;
+    }
+    const range = { from, to };
+    setNotifyDatePreset("custom");
+    setNotifyAppliedRange(range);
+    await loadApproved(range);
   }
 
   async function openSessionDetails(sessionId: number, target: "pending" | "approved") {
@@ -640,7 +744,7 @@ export default function AttendanceTab() {
       });
       setSelectedPending(null);
       await loadPending();
-      if (canNotifyParents) await loadApproved();
+      if (canNotifyParents) await loadApproved(notifyAppliedRange);
     } catch (err: unknown) {
       Alert.alert("Review failed", getErrorMessage(err, "Could not review attendance."));
     }
@@ -770,37 +874,132 @@ export default function AttendanceTab() {
       </> : null}
 
       {(activeTab === "approved" || activeTab === "history" || activeTab === "notify") ? <>
-        <SectionCard title={activeTab === "notify" ? "Approved Sessions" : activeTab === "approved" ? "Approved Classes" : "Attendance History"} hint={`${approvedRows.length} sessions`}>
-          {activeTab === "notify" ? <>
-            <View style={styles.filterGrid}>
-              <SelectField
-                label="Class"
-                value={notifyFilters.class_id}
-                onChange={(value) => setNotifyFilters({ class_id: value, section_id: "" })}
-                options={notifyFilterClassOptions}
-                placeholder="All classes"
-                clearLabel="Clear class"
-              />
-              <SelectField
-                label="Section"
-                value={notifyFilters.section_id}
-                onChange={(value) => setNotifyFilters((prev) => ({ ...prev, section_id: value }))}
-                options={notifyFilterSectionOptions}
-                placeholder="All sections"
-                clearLabel="Clear section"
-              />
-            </View>
-            {(notifyFilters.class_id || notifyFilters.section_id) ? (
-              <Pressable
-                style={[styles.secondaryBtn, styles.notifyResetBtn]}
-                onPress={() => setNotifyFilters({ class_id: "", section_id: "" })}
-              >
-                <Text style={styles.secondaryBtnText}>Reset Filters</Text>
+        <SectionCard
+          title={activeTab === "notify" ? "Approved Sessions" : activeTab === "approved" ? "Approved Classes" : "Attendance History"}
+          hint={`${approvedRows.length} sessions`}
+        >
+          {activeTab === "notify" ? (
+            <>
+              <View style={styles.filterRow}>
+                <Pressable
+                  style={[styles.filterChip, notifyDatePreset === "today" && styles.filterChipActive]}
+                  onPress={() => void applyNotifyPreset("today")}
+                >
+                  <Text style={[styles.filterChipText, notifyDatePreset === "today" && styles.filterChipTextActive]}>Today</Text>
+                </Pressable>
+                <Pressable
+                  style={[styles.filterChip, notifyDatePreset === "week" && styles.filterChipActive]}
+                  onPress={() => void applyNotifyPreset("week")}
+                >
+                  <Text style={[styles.filterChipText, notifyDatePreset === "week" && styles.filterChipTextActive]}>Week</Text>
+                </Pressable>
+                <Pressable
+                  style={[styles.filterChip, notifyDatePreset === "month" && styles.filterChipActive]}
+                  onPress={() => void applyNotifyPreset("month")}
+                >
+                  <Text style={[styles.filterChipText, notifyDatePreset === "month" && styles.filterChipTextActive]}>Month</Text>
+                </Pressable>
+                <Pressable
+                  style={[styles.filterChip, notifyDatePreset === "custom" && styles.filterChipActive]}
+                  onPress={() => setNotifyDatePreset("custom")}
+                >
+                  <Text style={[styles.filterChipText, notifyDatePreset === "custom" && styles.filterChipTextActive]}>Custom</Text>
+                </Pressable>
+              </View>
+
+              <View style={styles.filterGrid}>
+                <DateField
+                  label="From"
+                  value={notifyDraftRange.from}
+                  onChange={(value) => {
+                    setNotifyDatePreset("custom");
+                    setNotifyDraftRange((prev) => ({ ...prev, from: value }));
+                  }}
+                  placeholder="From date"
+                />
+                <DateField
+                  label="To"
+                  value={notifyDraftRange.to}
+                  onChange={(value) => {
+                    setNotifyDatePreset("custom");
+                    setNotifyDraftRange((prev) => ({ ...prev, to: value }));
+                  }}
+                  placeholder="To date"
+                />
+              </View>
+
+              <Pressable style={[styles.secondaryBtn, styles.notifyResetBtn]} onPress={() => void handleViewNotifyRange()}>
+                <Text style={styles.secondaryBtnText}>View Range</Text>
               </Pressable>
-            ) : null}
-          </> : null}
-          {approvedLoading ? <ActivityIndicator size="large" color={theme.text} /> : filteredApprovedRows.length ? filteredApprovedRows.map((row) => { const selected = Number(selectedApproved?.id) === Number(row.id); return <Pressable key={row.id} style={[styles.sessionCard, selected && styles.sessionCardSelected]} onPress={() => openSessionDetails(Number(row.id), "approved")}><View style={styles.rowBetween}><Text style={[styles.sessionTitle, selected && styles.sessionTitleSelected]}>{row.class_name || "-"} / {row.section_name || "-"}</Text><StatusBadge status={row.approval_status || "approved"} /></View><Text style={[styles.detailText, selected && styles.sessionDetailTextSelected]}>{formatDate(row.date)} - Absent: {row.absent_count || 0}</Text>{row.reviewed_by_username ? <Text style={[styles.detailText, selected && styles.sessionDetailTextSelected]}>Reviewed by {row.reviewed_by_username}</Text> : null}</Pressable>; }) : <Text style={styles.emptyText}>{activeTab === "notify" ? "No approved sessions match the selected filters." : "No sessions found."}</Text>}
+
+              <View style={styles.filterGrid}>
+                <SelectField
+                  label="Class"
+                  value={notifyFilters.class_id}
+                  onChange={(value) => setNotifyFilters({ class_id: value, section_id: "" })}
+                  options={notifyFilterClassOptions}
+                  placeholder="All classes"
+                  clearLabel="Clear class"
+                />
+                <SelectField
+                  label="Section"
+                  value={notifyFilters.section_id}
+                  onChange={(value) => setNotifyFilters((prev) => ({ ...prev, section_id: value }))}
+                  options={notifyFilterSectionOptions}
+                  placeholder="All sections"
+                  clearLabel="Clear section"
+                />
+              </View>
+              {(notifyFilters.class_id || notifyFilters.section_id) ? (
+                <Pressable
+                  style={[styles.secondaryBtn, styles.notifyResetBtn]}
+                  onPress={() => setNotifyFilters({ class_id: "", section_id: "" })}
+                >
+                  <Text style={styles.secondaryBtnText}>Reset Filters</Text>
+                </Pressable>
+              ) : null}
+              <Text style={styles.detailText}>
+                Showing {filteredApprovedRows.length} session{filteredApprovedRows.length === 1 ? "" : "s"} for{" "}
+                {notifyAppliedRange.from} to {notifyAppliedRange.to}.
+              </Text>
+            </>
+          ) : null}
+
+          {approvedLoading ? (
+            <ActivityIndicator size="large" color={theme.text} />
+          ) : filteredApprovedRows.length ? (
+            filteredApprovedRows.map((row) => {
+              const selected = Number(selectedApproved?.id) === Number(row.id);
+              return (
+                <Pressable
+                  key={row.id}
+                  style={[styles.sessionCard, selected && styles.sessionCardSelected]}
+                  onPress={() => openSessionDetails(Number(row.id), "approved")}
+                >
+                  <View style={styles.rowBetween}>
+                    <Text style={[styles.sessionTitle, selected && styles.sessionTitleSelected]}>
+                      {row.class_name || "-"} / {row.section_name || "-"}
+                    </Text>
+                    <StatusBadge status={row.approval_status || "approved"} />
+                  </View>
+                  <Text style={[styles.detailText, selected && styles.sessionDetailTextSelected]}>
+                    {formatDate(row.date)} - Absent: {row.absent_count || 0}
+                  </Text>
+                  {row.reviewed_by_username ? (
+                    <Text style={[styles.detailText, selected && styles.sessionDetailTextSelected]}>
+                      Reviewed by {row.reviewed_by_username}
+                    </Text>
+                  ) : null}
+                </Pressable>
+              );
+            })
+          ) : (
+            <Text style={styles.emptyText}>
+              {activeTab === "notify" ? "No approved sessions match the selected filters." : "No sessions found."}
+            </Text>
+          )}
         </SectionCard>
+
         <SectionCard title={activeTab === "notify" ? "Parent Message" : "Session Details"} hint={selectedApproved ? "Selected" : "Choose a session"}>
           {selectedApproved ? <>
             <View style={styles.infoCard}><Text style={styles.infoText}>Date: {formatDate(selectedApproved.date)}</Text><Text style={styles.infoText}>Class: {selectedApproved.class_name || "-"}</Text><Text style={styles.infoText}>Section: {selectedApproved.section_name || "-"}</Text><Text style={styles.infoText}>Approval: {selectedApproved.approval_status || "-"}</Text></View>
@@ -818,10 +1017,68 @@ export default function AttendanceTab() {
         </SectionCard>
       </> : null}
 
-      {activeTab === "logs" ? <SectionCard title="Teacher Logs" hint={`${filteredTeacherLogs.length} records`}>
-        <TextInput style={styles.input} value={teacherSearch} onChangeText={setTeacherSearch} placeholder="Search teacher name" placeholderTextColor="#94a3b8" />
-        {teacherLogsLoading ? <ActivityIndicator size="large" color="#0f172a" /> : filteredTeacherLogs.length ? filteredTeacherLogs.map((row) => <View key={row.id} style={styles.sessionCard}><View style={styles.rowBetween}><Text style={styles.sessionTitle}>{row.teacher}</Text><StatusBadge status={row.punch_type} /></View><Text style={styles.detailText}>Punch Time: {formatDateTime(row.punch_time)}</Text><Text style={styles.detailText}>Device: {row.device_name || row.device_code || "-"}</Text><Text style={styles.detailText}>Location: {row.location || "-"}</Text></View>) : <Text style={styles.emptyText}>No teacher attendance records found.</Text>}
-      </SectionCard> : null}
+      {activeTab === "logs" ? (
+        <SectionCard title="Teacher Logs" hint={`${filteredTeacherLogs.length} records`}>
+          <View style={styles.filterRow}>
+            <Pressable
+              style={[styles.filterChip, teacherLogPreset === "today" && styles.filterChipActive]}
+              onPress={() => applyTeacherLogPreset("today")}
+            >
+              <Text style={[styles.filterChipText, teacherLogPreset === "today" && styles.filterChipTextActive]}>Today</Text>
+            </Pressable>
+            <Pressable
+              style={[styles.filterChip, teacherLogPreset === "week" && styles.filterChipActive]}
+              onPress={() => applyTeacherLogPreset("week")}
+            >
+              <Text style={[styles.filterChipText, teacherLogPreset === "week" && styles.filterChipTextActive]}>Week</Text>
+            </Pressable>
+            <Pressable
+              style={[styles.filterChip, teacherLogPreset === "month" && styles.filterChipActive]}
+              onPress={() => applyTeacherLogPreset("month")}
+            >
+              <Text style={[styles.filterChipText, teacherLogPreset === "month" && styles.filterChipTextActive]}>Month</Text>
+            </Pressable>
+            <Pressable
+              style={[styles.filterChip, teacherLogPreset === "custom" && styles.filterChipActive]}
+              onPress={() => setTeacherLogPreset("custom")}
+            >
+              <Text style={[styles.filterChipText, teacherLogPreset === "custom" && styles.filterChipTextActive]}>Custom</Text>
+            </Pressable>
+          </View>
+
+          <View style={styles.filterGrid}>
+            <DateField
+              label="From"
+              value={teacherLogDraftRange.from}
+              onChange={(value) => {
+                setTeacherLogPreset("custom");
+                setTeacherLogDraftRange((prev) => ({ ...prev, from: value }));
+              }}
+              placeholder="From date"
+            />
+            <DateField
+              label="To"
+              value={teacherLogDraftRange.to}
+              onChange={(value) => {
+                setTeacherLogPreset("custom");
+                setTeacherLogDraftRange((prev) => ({ ...prev, to: value }));
+              }}
+              placeholder="To date"
+            />
+          </View>
+
+          <Pressable style={[styles.secondaryBtn, styles.notifyResetBtn]} onPress={handleViewTeacherLogRange}>
+            <Text style={styles.secondaryBtnText}>View Range</Text>
+          </Pressable>
+
+          <TextInput style={styles.input} value={teacherSearch} onChangeText={setTeacherSearch} placeholder="Search teacher name" placeholderTextColor="#94a3b8" />
+          <Text style={styles.detailText}>
+            Showing {filteredTeacherLogs.length} record{filteredTeacherLogs.length === 1 ? "" : "s"} for{" "}
+            {teacherLogAppliedRange.from} to {teacherLogAppliedRange.to}.
+          </Text>
+          {teacherLogsLoading ? <ActivityIndicator size="large" color="#0f172a" /> : filteredTeacherLogs.length ? filteredTeacherLogs.map((row) => <View key={row.id} style={styles.sessionCard}><View style={styles.rowBetween}><Text style={styles.sessionTitle}>{row.teacher}</Text><StatusBadge status={row.punch_type} /></View><Text style={styles.detailText}>Punch Time: {formatDateTime(row.punch_time)}</Text><Text style={styles.detailText}>Device: {row.device_name || row.device_code || "-"}</Text><Text style={styles.detailText}>Location: {row.location || "-"}</Text></View>) : <Text style={styles.emptyText}>No teacher attendance records found.</Text>}
+        </SectionCard>
+      ) : null}
       </View>
     </ScrollView>
     </View>

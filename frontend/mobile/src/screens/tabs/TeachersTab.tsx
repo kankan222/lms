@@ -6,6 +6,7 @@ import TopNotice from "../../components/feedback/TopNotice";
 import { useAuthStore } from "../../store/authStore";
 import { assignTeacher, createTeacher, deleteTeacher, getTeacherAssignments, getTeachers, removeAssignment, resolveTeacherPhotoUrl, TeacherAssignment, TeacherItem, updateTeacher } from "../../services/teachersService";
 import { ClassStructureItem, getClassStructure, getScopes, getSessions, SessionItem } from "../../services/classesService";
+import { getTargets } from "../../services/messagingService";
 import TeacherDetailsModule from "./teachers/TeacherDetailsModule";
 import { useAppTheme } from "../../theme/AppThemeProvider";
 
@@ -18,6 +19,15 @@ type TeacherPhoto = { uri: string; name?: string; type?: string } | null;
 type TeacherForm = { id?: number | null; employee_id: string; name: string; phone: string; email: string; class_scope: TeacherScope; password?: string; photo: TeacherPhoto; photo_preview: string | null };
 type AssignmentForm = { class_id: number | null; section_id: number | null; subject_id: number | null; session_id: number | null };
 type AssignmentSelections = { sections: number[]; subjects: number[] };
+export type TeacherConversationRequest = {
+  recipientUserId: number;
+  recipientName?: string;
+  classId?: number | null;
+  sectionId?: number | null;
+};
+type Props = {
+  onStartTeacherMessage?: (payload: TeacherConversationRequest) => void;
+};
 
 const DEFAULT_SCOPE_OPTIONS: ScopeOption[] = [
   { code: "school", name: "School" },
@@ -28,6 +38,8 @@ const EMPTY_EDIT: TeacherForm = { id: null, employee_id: "", name: "", phone: ""
 const EMPTY_ASSIGNMENT: AssignmentForm = { class_id: null, section_id: null, subject_id: null, session_id: null };
 
 const getErrorMessage = (err: unknown, fallback: string) => typeof err === "object" && err && "response" in err ? ((err as { response?: { data?: { message?: string; error?: string } } }).response?.data?.error || (err as { response?: { data?: { message?: string; error?: string } } }).response?.data?.message || fallback) : fallback;
+const normalizePhone = (value?: string | null) => String(value || "").replace(/\D/g, "");
+const normalizeText = (value?: string | null) => String(value || "").trim().toLowerCase();
 function resolveScopeCode(scopeCode?: string | null, scopeName?: string | null): TeacherScope {
   const code = String(scopeCode || "").trim().toLowerCase();
   if (code === "hs" || code === "school") return code;
@@ -115,11 +127,12 @@ function CardAction({ icon, label, onPress, tone = "default" }: { icon: keyof ty
   return <Pressable style={[styles.cardActionBtn, { borderColor: isDanger ? theme.dangerBorder : theme.border, backgroundColor: isDanger ? theme.dangerSoft : theme.card }, isDanger && styles.cardDeleteBtn]} onPress={onPress}><Ionicons name={icon} size={15} color={isDanger ? theme.danger : theme.text} /><Text style={[styles.cardActionText, { color: isDanger ? theme.danger : theme.text }, isDanger && styles.cardDeleteText]}>{label}</Text></Pressable>;
 }
 
-export default function TeachersTab() {
+export default function TeachersTab({ onStartTeacherMessage }: Props) {
   const { theme } = useAppTheme();
   const user = useAuthStore((state) => state.user);
   const permissions = user?.permissions || [];
   const canManageTeachers = permissions.includes("teacher.update");
+  const canSendMessages = permissions.includes("messages.send");
   const [teachers, setTeachers] = useState<TeacherItem[]>([]);
   const [classStructure, setClassStructure] = useState<ClassStructureItem[]>([]);
   const [sessions, setSessions] = useState<SessionItem[]>([]);
@@ -388,6 +401,63 @@ export default function TeachersTab() {
     }
   }
 
+  async function handleMessageTeacher(teacher: TeacherItem) {
+    if (!canSendMessages || !onStartTeacherMessage) return;
+
+    try {
+      const targets = await getTargets();
+      const teacherTargets = Array.isArray(targets?.teachers) ? targets.teachers : [];
+      if (!teacherTargets.length) {
+        showNotice("Teacher Not Found", "No teacher recipients are available in messaging targets.", "error");
+        return;
+      }
+
+      const teacherUserId = Number(teacher.user_id);
+      const teacherPhone = normalizePhone(teacher.phone);
+      const teacherEmail = normalizeText(teacher.email);
+      const teacherName = normalizeText(teacher.name);
+
+      const byUserId = teacherUserId > 0
+        ? teacherTargets.find((target) => Number(target.user_id) === teacherUserId && Number(target.user_id) > 0)
+        : null;
+      const byTeacherId = teacherTargets.find((target) => Number(target.teacher_id) === Number(teacher.id) && Number(target.user_id) > 0) || null;
+      const byPhone = teacherPhone
+        ? teacherTargets.find((target) => normalizePhone(target.phone) === teacherPhone && Number(target.user_id) > 0)
+        : null;
+      const byEmail = teacherEmail
+        ? teacherTargets.find((target) => normalizeText(target.email) === teacherEmail && Number(target.user_id) > 0)
+        : null;
+      const exactNameMatches = teacherName
+        ? teacherTargets.filter((target) => normalizeText(target.name) === teacherName && Number(target.user_id) > 0)
+        : [];
+      const partialNameMatches = teacherName
+        ? teacherTargets.filter((target) => normalizeText(target.name).includes(teacherName) && Number(target.user_id) > 0)
+        : [];
+
+      const selected =
+        byUserId ||
+        byTeacherId ||
+        byPhone ||
+        byEmail ||
+        (exactNameMatches.length === 1 ? exactNameMatches[0] : null) ||
+        (partialNameMatches.length === 1 ? partialNameMatches[0] : null);
+
+      if (!selected?.user_id) {
+        showNotice("Teacher Not Found", "Could not resolve the teacher messaging recipient.", "error");
+        return;
+      }
+
+      onStartTeacherMessage({
+        recipientUserId: Number(selected.user_id),
+        recipientName: selected.name || teacher.name || undefined,
+        classId: selected.class_id ?? null,
+        sectionId: selected.section_id ?? null,
+      });
+    } catch (err: unknown) {
+      showNotice("Open Messaging Failed", getErrorMessage(err, "Could not prepare teacher conversation."), "error");
+    }
+  }
+
   return (
     <View style={styles.screen}>
       <TopNotice notice={notice} style={styles.topNoticeOverlay} />
@@ -421,6 +491,7 @@ export default function TeachersTab() {
           <View style={styles.cardActions}>
             <CardAction icon="eye-outline" label="Details" onPress={() => openDetails(selfTeacher)} />
             <CardAction icon="git-network-outline" label="Assignments" onPress={() => openAssignments(selfTeacher)} />
+            {canSendMessages ? <CardAction icon="chatbubble-ellipses-outline" label="Message" onPress={() => void handleMessageTeacher(selfTeacher)} /> : null}
           </View>
         </View> : <View style={styles.grid}>
           {filteredTeachers.map((teacher) => <View key={teacher.id} style={[styles.teacherCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
@@ -429,6 +500,7 @@ export default function TeachersTab() {
             <View style={styles.cardActions}>
               <CardAction icon="eye-outline" label="Details" onPress={() => openDetails(teacher)} />
               <CardAction icon="git-network-outline" label="Assignments" onPress={() => openAssignments(teacher)} />
+              {canSendMessages ? <CardAction icon="chatbubble-ellipses-outline" label="Message" onPress={() => void handleMessageTeacher(teacher)} /> : null}
               {canManageTeachers ? <>
                 <CardAction icon="create-outline" label="Edit" onPress={() => openEdit(teacher)} />
                 <CardAction icon="trash-outline" label="Delete" tone="danger" onPress={() => confirmDelete(teacher.id)} />

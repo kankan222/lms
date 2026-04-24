@@ -4,7 +4,7 @@ import type { ExpoConfig } from "expo/config";
 const config: ExpoConfig = {
   name: "Kalong Kapili Vidyapith",
   slug: "kalong-kapili-vidyapith",
-  version: "1.0.0",
+  version: "1.0.3",
   orientation: "portrait",
   icon: "./assets/logo.png",
   userInterfaceStyle: "light",
@@ -19,15 +19,22 @@ const config: ExpoConfig = {
   },
   android: {
     package: "com.kalongkapilividyapith.mobile",
+    versionCode: 2,
+    blockedPermissions: [
+      "android.permission.CAMERA",
+      "android.permission.RECORD_AUDIO",
+    ],
     adaptiveIcon: {
       foregroundImage: "./assets/logo.png",
       backgroundColor: "#E6F4FE",
+      backgroundImage: "./assets/logo.png",
     },
+    predictiveBackGestureEnabled: false,
   },
   web: {
     favicon: "./assets/logo.png",
   },
-  plugins: ["expo-secure-store"],
+  plugins: ["expo-secure-store", "expo-font"],
   extra: {
     apiBaseUrl: process.env.EXPO_PUBLIC_API_BASE_URL,
     eas: {

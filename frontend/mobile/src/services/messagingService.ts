@@ -42,6 +42,10 @@ export type ParentTarget = {
   mobile: string | null;
   email: string | null;
   user_id: number;
+  student_id?: number | null;
+  student_name?: string | null;
+  roll_number?: string | number | null;
+  relationship?: string | null;
   class_id: number | null;
   section_id: number | null;
   class_name: string | null;

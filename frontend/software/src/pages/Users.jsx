@@ -147,10 +147,10 @@ export default function Users() {
   const [classId, setClassId] = useState("");
   const [sectionId, setSectionId] = useState("");
   const [page, setPage] = useState(1);
-  const [limit, setLimit] = useState(5);
+  const [limit, setLimit] = useState(10);
   const [pagination, setPagination] = useState({
     page: 1,
-    limit: 5,
+    limit: 10,
     total: 0,
     totalPages: 1,
   });
@@ -589,7 +589,7 @@ export default function Users() {
         <DataTable
           columns={columns}
           data={users}
-          rowsPerPageOptions={[5, 10, 20, 50]}
+          rowsPerPageOptions={[10, 20, 50, 100]}
           paginationMode="server"
           page={pagination.page}
           totalPages={pagination.totalPages}

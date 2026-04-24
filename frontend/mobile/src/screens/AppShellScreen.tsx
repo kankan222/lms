@@ -27,6 +27,7 @@ import ProfileTab from "./tabs/ProfileTab";
 import ReportsTab from "./tabs/ReportsTab";
 import ModulePlaceholderTab from "./tabs/ModulePlaceholderTab";
 import type { ParentConversationRequest } from "./tabs/StudentsTab";
+import type { TeacherConversationRequest } from "./tabs/TeachersTab";
 import type { ParentConversationIntent } from "./tabs/MessagingTab";
 
 type TabKey =
@@ -300,6 +301,20 @@ export default function AppShellScreen() {
   function startParentConversation(payload: ParentConversationRequest) {
     setParentConversationIntent({
       token: Date.now(),
+      targetType: "parent",
+      recipientUserId: payload.recipientUserId,
+      recipientName: payload.recipientName,
+      classId: payload.classId ?? null,
+      sectionId: payload.sectionId ?? null,
+    });
+    setActiveTab("messaging");
+    setIsMoreOpen(false);
+  }
+
+  function startTeacherConversation(payload: TeacherConversationRequest) {
+    setParentConversationIntent({
+      token: Date.now(),
+      targetType: "teacher",
       recipientUserId: payload.recipientUserId,
       recipientName: payload.recipientName,
       classId: payload.classId ?? null,
@@ -342,7 +357,7 @@ export default function AppShellScreen() {
       case "students":
         return <StudentsTab onStartParentMessage={startParentConversation} />;
       case "teachers":
-        return <TeachersTab />;
+        return <TeachersTab onStartTeacherMessage={startTeacherConversation} />;
       case "attendance":
         return <AttendanceTab />;
       case "fees":

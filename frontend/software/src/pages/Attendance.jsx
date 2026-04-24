@@ -45,9 +45,46 @@ const teacherAttendanceColumns = [
 
 const FIELD_CLASSNAME =
   "w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground shadow-xs outline-hidden transition focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] disabled:cursor-not-allowed disabled:opacity-60";
+const ATTENDANCE_LOG_ROWS_PER_PAGE_OPTIONS = [10, 20, 50, 100];
 
 function todayDate() {
   return new Date().toISOString().slice(0, 10);
+}
+
+function formatDateInputValue(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const year = String(date.getFullYear());
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function startOfInputDate(value) {
+  const date = new Date(`${value}T00:00:00`);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function endOfInputDate(value) {
+  const date = new Date(`${value}T23:59:59.999`);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function resolveTeacherLogPresetRange(preset) {
+  const end = new Date();
+  end.setHours(0, 0, 0, 0);
+  const start = new Date(end);
+
+  if (preset === "week") {
+    start.setDate(start.getDate() - 6);
+  } else if (preset === "month") {
+    start.setDate(start.getDate() - 29);
+  }
+
+  return {
+    from: formatDateInputValue(start),
+    to: formatDateInputValue(end),
+  };
 }
 
 function sectionDedupKey(section) {
@@ -113,6 +150,13 @@ export default function Attendance() {
 
   const [teacherAttendance, setTeacherAttendance] = useState([]);
   const [teacherLoading, setTeacherLoading] = useState(false);
+  const [teacherLogPreset, setTeacherLogPreset] = useState("today");
+  const [teacherLogDraftRange, setTeacherLogDraftRange] = useState(() =>
+    resolveTeacherLogPresetRange("today")
+  );
+  const [teacherLogAppliedRange, setTeacherLogAppliedRange] = useState(() =>
+    resolveTeacherLogPresetRange("today")
+  );
 
   const [classes, setClasses] = useState([]);
   const [sessions, setSessions] = useState([]);
@@ -153,6 +197,13 @@ export default function Attendance() {
     class_id: "",
     section_id: "",
   });
+  const [notifyDatePreset, setNotifyDatePreset] = useState("today");
+  const [notifyDraftRange, setNotifyDraftRange] = useState(() =>
+    resolveTeacherLogPresetRange("today")
+  );
+  const [notifyAppliedRange, setNotifyAppliedRange] = useState(() =>
+    resolveTeacherLogPresetRange("today")
+  );
   const [dailyRows, setDailyRows] = useState([]);
   const [dailyLoading, setDailyLoading] = useState(false);
   const [selectedDaily, setSelectedDaily] = useState(null);
@@ -173,7 +224,7 @@ export default function Attendance() {
       loadPendingAttendance();
     }
     if (canNotifyParents) {
-      loadApprovedAttendance();
+      loadApprovedAttendance(resolveTeacherLogPresetRange("today"));
       loadMessageTemplates();
     }
   }, [canViewTeacherLogs, canReviewStudentAttendance, canNotifyParents]);
@@ -204,7 +255,7 @@ export default function Attendance() {
     }
 
     if (activeTab === "parent-messages" && canNotifyParents) {
-      loadApprovedAttendance();
+      loadApprovedAttendance(notifyAppliedRange);
       return;
     }
 
@@ -333,6 +384,100 @@ export default function Attendance() {
     }
   }
 
+  function handleTeacherLogPresetChange(preset) {
+    const nextRange = resolveTeacherLogPresetRange(preset);
+    setTeacherLogPreset(preset);
+    setTeacherLogDraftRange(nextRange);
+    setTeacherLogAppliedRange(nextRange);
+    setError("");
+  }
+
+  function handleViewTeacherLogRange() {
+    const from = String(teacherLogDraftRange.from || "");
+    const to = String(teacherLogDraftRange.to || "");
+
+    if (!from || !to) {
+      setError("Select both start and end date to view teacher logs.");
+      return;
+    }
+    if (from > to) {
+      setError("Start date cannot be later than end date.");
+      return;
+    }
+
+    setTeacherLogAppliedRange({ from, to });
+    setTeacherLogPreset("custom");
+    setError("");
+  }
+
+  function handleDownloadTeacherLogs(rows) {
+    if (!rows.length) {
+      setError("No teacher logs available for the selected range.");
+      return;
+    }
+
+    const escapeCsv = (value) => `"${String(value ?? "").replace(/"/g, '""')}"`;
+    const lines = [
+      ["Teacher", "Punch Time", "Punch Type", "Device", "Location"]
+        .map(escapeCsv)
+        .join(","),
+      ...rows.map((row) =>
+        [
+          row.teacher || "-",
+          formatReadableDateTime(row.punch_time),
+          String(row.punch_type || "-").toUpperCase(),
+          row.device_name || row.device_code || "-",
+          row.location || "-",
+        ]
+          .map(escapeCsv)
+          .join(",")
+      ),
+    ];
+
+    const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8;" });
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `teacher-logs-${teacherLogAppliedRange.from || "from"}-to-${teacherLogAppliedRange.to || "to"}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.URL.revokeObjectURL(url);
+    setError("");
+    setNotice({
+      title: "Teacher Logs Downloaded",
+      message: `${rows.length} log row${rows.length > 1 ? "s" : ""} exported to CSV.`,
+    });
+  }
+
+  async function handleNotifyDatePresetChange(preset) {
+    const nextRange = resolveTeacherLogPresetRange(preset);
+    setNotifyDatePreset(preset);
+    setNotifyDraftRange(nextRange);
+    setNotifyAppliedRange(nextRange);
+    setError("");
+    await loadApprovedAttendance(nextRange);
+  }
+
+  async function handleViewNotifyDateRange() {
+    const from = String(notifyDraftRange.from || "");
+    const to = String(notifyDraftRange.to || "");
+    if (!from || !to) {
+      setError("Select both start and end date to view approved absence sessions.");
+      return;
+    }
+    if (from > to) {
+      setError("Start date cannot be later than end date.");
+      return;
+    }
+
+    const nextRange = { from, to };
+    setNotifyDatePreset("custom");
+    setNotifyAppliedRange(nextRange);
+    setError("");
+    await loadApprovedAttendance(nextRange);
+  }
+
   async function loadPendingAttendance() {
     setPendingLoading(true);
     try {
@@ -346,10 +491,17 @@ export default function Attendance() {
     }
   }
 
-  async function loadApprovedAttendance() {
+  async function loadApprovedAttendance(range = null) {
     setApprovedLoading(true);
     try {
-      const res = await getStudentAttendanceSessions({ approval_status: "approved" });
+      const params = { approval_status: "approved" };
+      if (range?.from) {
+        params.date_from = range.from;
+      }
+      if (range?.to) {
+        params.date_to = range.to;
+      }
+      const res = await getStudentAttendanceSessions(params);
       setApprovedRows((res?.data || []).filter((row) => Number(row.absent_count || 0) > 0));
     } catch (err) {
       setApprovedRows([]);
@@ -551,7 +703,7 @@ export default function Attendance() {
       setReviewRemarks("");
       await loadPendingAttendance();
       if (status === "approved" && canNotifyParents) {
-        await loadApprovedAttendance();
+        await loadApprovedAttendance(notifyAppliedRange);
       }
     } catch (err) {
       setError(err?.message || "Failed to review attendance.");
@@ -609,7 +761,7 @@ export default function Attendance() {
       }
       await loadPendingAttendance();
       if (canNotifyParents) {
-        await loadApprovedAttendance();
+        await loadApprovedAttendance(notifyAppliedRange);
       }
     } catch (err) {
       setError(err?.message || "Failed to approve selected attendance sessions.");
@@ -707,6 +859,27 @@ export default function Attendance() {
       classSections.filter((section) => allowedSectionIds.has(String(section.id)))
     );
   }, [entryScopeMap, form.class_id, form.session_id, selectedClass]);
+  const filteredTeacherAttendance = useMemo(() => {
+    const fromBoundary = startOfInputDate(teacherLogAppliedRange.from);
+    const toBoundary = endOfInputDate(teacherLogAppliedRange.to);
+    const fromTime = fromBoundary?.getTime() ?? null;
+    const toTime = toBoundary?.getTime() ?? null;
+
+    return [...teacherAttendance]
+      .filter((row) => {
+        const punchDate = new Date(row.punch_time);
+        if (Number.isNaN(punchDate.getTime())) return false;
+        const punchTime = punchDate.getTime();
+        if (fromTime !== null && punchTime < fromTime) return false;
+        if (toTime !== null && punchTime > toTime) return false;
+        return true;
+      })
+      .sort((a, b) => {
+        const aTime = new Date(a.punch_time).getTime();
+        const bTime = new Date(b.punch_time).getTime();
+        return bTime - aTime;
+      });
+  }, [teacherAttendance, teacherLogAppliedRange.from, teacherLogAppliedRange.to]);
   const notifyFilterClasses = useMemo(() => {
     const uniqueClasses = new Map();
     approvedRows.forEach((row) => {
@@ -739,6 +912,19 @@ export default function Attendance() {
   const filteredApprovedRows = useMemo(
     () =>
       approvedRows.filter((row) => {
+        const fromBoundary = startOfInputDate(notifyAppliedRange.from);
+        const toBoundary = endOfInputDate(notifyAppliedRange.to);
+        const rowDate = new Date(row.date);
+        const rowTime = rowDate.getTime();
+        if (Number.isNaN(rowTime)) {
+          return false;
+        }
+        if (fromBoundary && rowTime < fromBoundary.getTime()) {
+          return false;
+        }
+        if (toBoundary && rowTime > toBoundary.getTime()) {
+          return false;
+        }
         if (notifyFilters.class_id && String(row.class_id) !== String(notifyFilters.class_id)) {
           return false;
         }
@@ -750,7 +936,13 @@ export default function Attendance() {
         }
         return true;
       }),
-    [approvedRows, notifyFilters.class_id, notifyFilters.section_id]
+    [
+      approvedRows,
+      notifyAppliedRange.from,
+      notifyAppliedRange.to,
+      notifyFilters.class_id,
+      notifyFilters.section_id,
+    ]
   );
   const pendingFilterClasses = useMemo(() => {
     if (entryScopeMap.restricted) {
@@ -1709,11 +1901,85 @@ export default function Attendance() {
                   <div>
                     <h3 className="font-semibold">Approved Absence Sessions</h3>
                     <p className="text-sm text-muted-foreground">
-                      Select an approved session and notify parents of absent students.
+                      By default, this shows today&apos;s approved absence sessions. Change date range to view past data.
                     </p>
                   </div>
-                  <Button variant="outline" onClick={loadApprovedAttendance} disabled={approvedLoading}>
+                  <Button
+                    variant="outline"
+                    onClick={() => loadApprovedAttendance(notifyAppliedRange)}
+                    disabled={approvedLoading}
+                  >
                     {approvedLoading ? "Refreshing..." : "Refresh"}
+                  </Button>
+                </div>
+
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={notifyDatePreset === "today" ? "default" : "outline"}
+                    onClick={() => void handleNotifyDatePresetChange("today")}
+                  >
+                    Today
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={notifyDatePreset === "week" ? "default" : "outline"}
+                    onClick={() => void handleNotifyDatePresetChange("week")}
+                  >
+                    Week
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={notifyDatePreset === "month" ? "default" : "outline"}
+                    onClick={() => void handleNotifyDatePresetChange("month")}
+                  >
+                    Month
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={notifyDatePreset === "custom" ? "default" : "outline"}
+                    onClick={() => setNotifyDatePreset("custom")}
+                  >
+                    Custom
+                  </Button>
+                </div>
+
+                <div className="grid gap-3 md:grid-cols-[minmax(140px,1fr)_minmax(140px,1fr)_auto] md:items-end">
+                  <div className="grid gap-2">
+                    <Label htmlFor="notify-date-from">From</Label>
+                    <Input
+                      id="notify-date-from"
+                      type="date"
+                      value={notifyDraftRange.from}
+                      onChange={(e) => {
+                        setNotifyDatePreset("custom");
+                        setNotifyDraftRange((prev) => ({ ...prev, from: e.target.value }));
+                      }}
+                    />
+                  </div>
+                  <div className="grid gap-2">
+                    <Label htmlFor="notify-date-to">To</Label>
+                    <Input
+                      id="notify-date-to"
+                      type="date"
+                      value={notifyDraftRange.to}
+                      onChange={(e) => {
+                        setNotifyDatePreset("custom");
+                        setNotifyDraftRange((prev) => ({ ...prev, to: e.target.value }));
+                      }}
+                    />
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => void handleViewNotifyDateRange()}
+                    disabled={approvedLoading || !notifyDraftRange.from || !notifyDraftRange.to}
+                  >
+                    View
                   </Button>
                 </div>
 
@@ -1755,6 +2021,12 @@ export default function Attendance() {
                     </select>
                   </div>
                 </div>
+
+                <p className="text-sm text-muted-foreground">
+                  Showing {filteredApprovedRows.length} approved absence session
+                  {filteredApprovedRows.length === 1 ? "" : "s"} for {notifyAppliedRange.from || "-"} to{" "}
+                  {notifyAppliedRange.to || "-"}.
+                </p>
 
                 <div className="rounded-xl border">
                   <table className="w-full text-sm">
@@ -1916,13 +2188,110 @@ export default function Attendance() {
 
         {canViewTeacherLogs ? (
           <TabsContent value="teacher-logs" className="mt-4 space-y-4">
-            <DataTable
-              columns={teacherAttendanceColumns}
-              data={teacherAttendance}
-            />
-            {teacherLoading ? (
-              <p className="mt-3 text-sm text-muted-foreground">Loading teacher attendance...</p>
-            ) : null}
+            <SectionShell
+              title="Teacher Machine Logs"
+              description="View logs for today, week, month, or a custom date range and download filtered data."
+              action={
+                <Button variant="outline" onClick={loadTeacherAttendance} disabled={teacherLoading}>
+                  {teacherLoading ? "Refreshing..." : "Refresh Logs"}
+                </Button>
+              }
+            >
+              <div className="space-y-4">
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={teacherLogPreset === "today" ? "default" : "outline"}
+                    onClick={() => handleTeacherLogPresetChange("today")}
+                  >
+                    Today
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={teacherLogPreset === "week" ? "default" : "outline"}
+                    onClick={() => handleTeacherLogPresetChange("week")}
+                  >
+                    Week
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={teacherLogPreset === "month" ? "default" : "outline"}
+                    onClick={() => handleTeacherLogPresetChange("month")}
+                  >
+                    Month
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={teacherLogPreset === "custom" ? "default" : "outline"}
+                    onClick={() => setTeacherLogPreset("custom")}
+                  >
+                    Custom
+                  </Button>
+                </div>
+
+                <div className="grid gap-3 md:grid-cols-[minmax(140px,1fr)_minmax(140px,1fr)_auto_auto] md:items-end">
+                  <div className="grid gap-2">
+                    <Label htmlFor="teacher-log-from">From</Label>
+                    <Input
+                      id="teacher-log-from"
+                      type="date"
+                      value={teacherLogDraftRange.from}
+                      onChange={(e) => {
+                        setTeacherLogPreset("custom");
+                        setTeacherLogDraftRange((prev) => ({ ...prev, from: e.target.value }));
+                      }}
+                    />
+                  </div>
+                  <div className="grid gap-2">
+                    <Label htmlFor="teacher-log-to">To</Label>
+                    <Input
+                      id="teacher-log-to"
+                      type="date"
+                      value={teacherLogDraftRange.to}
+                      onChange={(e) => {
+                        setTeacherLogPreset("custom");
+                        setTeacherLogDraftRange((prev) => ({ ...prev, to: e.target.value }));
+                      }}
+                    />
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={handleViewTeacherLogRange}
+                    disabled={teacherLoading || !teacherLogDraftRange.from || !teacherLogDraftRange.to}
+                  >
+                    View
+                  </Button>
+                  <Button
+                    type="button"
+                    onClick={() => handleDownloadTeacherLogs(filteredTeacherAttendance)}
+                    disabled={!filteredTeacherAttendance.length}
+                  >
+                    Download CSV
+                  </Button>
+                </div>
+
+                <p className="text-sm text-muted-foreground">
+                  Showing {filteredTeacherAttendance.length} of {teacherAttendance.length} log row
+                  {teacherAttendance.length === 1 ? "" : "s"} for {teacherLogAppliedRange.from || "-"} to{" "}
+                  {teacherLogAppliedRange.to || "-"}.
+                </p>
+
+                <DataTable
+                  columns={teacherAttendanceColumns}
+                  data={filteredTeacherAttendance}
+                  rowsPerPageOptions={ATTENDANCE_LOG_ROWS_PER_PAGE_OPTIONS}
+                  rowsPerPage={ATTENDANCE_LOG_ROWS_PER_PAGE_OPTIONS[0]}
+                />
+                {teacherLoading ? (
+                  <p className="text-sm text-muted-foreground">Loading teacher attendance...</p>
+                ) : null}
+              </div>
+            </SectionShell>
           </TabsContent>
         ) : null}
 

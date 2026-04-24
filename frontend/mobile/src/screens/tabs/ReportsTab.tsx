@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Dimensions,
   Keyboard,
   Platform,
   Pressable,
@@ -337,8 +338,8 @@ export default function ReportsTab() {
   const [approvalSummary, setApprovalSummary] = useState<MarksApprovalSummary>({ pending: 0, draft: 0, approved: 0 });
   const [reviewQueueSnapshot, setReviewQueueSnapshot] = useState<PendingApprovalQueue | null>(null);
   const scrollRef = useRef<ScrollView | null>(null);
-  const rowOffsetsRef = useRef<Record<number, number>>({});
-  const gridBaseOffsetRef = useRef(0);
+  const scrollOffsetYRef = useRef(0);
+  const focusedStudentIdRef = useRef<number | null>(null);
   const focusScrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [keyboardHeight, setKeyboardHeight] = useState(0);
 
@@ -490,9 +491,19 @@ export default function ReportsTab() {
     const showSub = Keyboard.addListener(showEvent, (event) => {
       const nextHeight = Number(event?.endCoordinates?.height || 0);
       setKeyboardHeight(nextHeight > 0 ? nextHeight : 0);
+      if (focusedStudentIdRef.current !== null) {
+        if (focusScrollTimerRef.current) {
+          clearTimeout(focusScrollTimerRef.current);
+        }
+        focusScrollTimerRef.current = setTimeout(() => {
+          ensureFocusedInputVisible(nextHeight);
+          focusScrollTimerRef.current = null;
+        }, Platform.OS === "ios" ? 60 : 110);
+      }
     });
     const hideSub = Keyboard.addListener(hideEvent, () => {
       setKeyboardHeight(0);
+      focusedStudentIdRef.current = null;
     });
 
     return () => {
@@ -811,26 +822,41 @@ export default function ReportsTab() {
     setEditedMarks((prev) => ({ ...prev, [studentId]: value }));
   }
 
-  function registerRowOffset(studentId: number, y: number) {
-    rowOffsetsRef.current[studentId] = y;
+  function getFocusedInputNode() {
+    const textInputState = (TextInput as unknown as { State?: { currentlyFocusedInput?: () => unknown } }).State;
+    const input = textInputState?.currentlyFocusedInput?.();
+    if (input && typeof (input as { measureInWindow?: unknown }).measureInWindow === "function") {
+      return input as { measureInWindow: (callback: (x: number, y: number, width: number, height: number) => void) => void };
+    }
+    return null;
   }
 
-  function registerGridBaseOffset(y: number) {
-    gridBaseOffsetRef.current = y;
+  function ensureFocusedInputVisible(nextKeyboardHeight?: number) {
+    const inputNode = getFocusedInputNode();
+    if (!inputNode) return;
+
+    const keyboardInset = Math.max(Number(nextKeyboardHeight ?? keyboardHeight ?? 0), 0);
+    if (!keyboardInset) return;
+
+    const viewportHeight = Dimensions.get("window").height;
+    const keyboardTop = viewportHeight - keyboardInset;
+    const minimumGap = 16;
+
+    inputNode.measureInWindow((_x, y, _width, height) => {
+      const inputBottom = y + height;
+      const overlap = inputBottom + minimumGap - keyboardTop;
+      if (overlap > 0) {
+        scrollRef.current?.scrollTo({
+          y: Math.max(scrollOffsetYRef.current + overlap + 12, 0),
+          animated: true,
+        });
+      }
+    });
   }
 
   function focusMarksInput(studentId: number) {
-    const rowY = rowOffsetsRef.current[studentId];
-    if (typeof rowY !== "number") return;
-    const absoluteY = gridBaseOffsetRef.current + rowY;
-    const preKeyboardTarget = Math.max(absoluteY - 120, 0);
-
-    requestAnimationFrame(() => {
-      scrollRef.current?.scrollTo({
-        y: preKeyboardTarget,
-        animated: true,
-      });
-    });
+    focusedStudentIdRef.current = studentId;
+    ensureFocusedInputVisible();
 
     if (focusScrollTimerRef.current) {
       clearTimeout(focusScrollTimerRef.current);
@@ -838,14 +864,9 @@ export default function ReportsTab() {
     }
 
     focusScrollTimerRef.current = setTimeout(() => {
-      const keyboardAwareOffset =
-        keyboardHeight > 0 ? Math.min(Math.max(keyboardHeight * 0.45, 150), 260) : 160;
-      scrollRef.current?.scrollTo({
-        y: Math.max(absoluteY - keyboardAwareOffset, 0),
-        animated: true,
-      });
+      ensureFocusedInputVisible();
       focusScrollTimerRef.current = null;
-    }, 120);
+    }, Platform.OS === "ios" ? 70 : 120);
   }
 
   function buildMutationPayload(extra: Record<string, unknown> = {}) {
@@ -1246,7 +1267,7 @@ export default function ReportsTab() {
         {gridLoading ? <ActivityIndicator size="large" color={theme.primary} /> : null}
 
         {grid?.rows?.length ? (
-          <View onLayout={(event) => registerGridBaseOffset(event.nativeEvent.layout.y)}>
+          <View>
             {grid.rows.map((row) => (
               <Pressable
                 key={row.student_id}
@@ -1257,7 +1278,6 @@ export default function ReportsTab() {
                     selectedStudentIds.includes(Number(row.student_id)) &&
                     [styles.studentCardSelected, { borderColor: theme.primary, backgroundColor: theme.isDark ? "#1e293b" : "#eef2ff" }],
                 ]}
-                onLayout={(event) => registerRowOffset(Number(row.student_id), event.nativeEvent.layout.y)}
                 onPress={() => toggleRow(Number(row.student_id))}
                 disabled={!canSelectRows}
               >
@@ -1301,6 +1321,11 @@ export default function ReportsTab() {
                         value={editedMarks[Number(row.student_id)] ?? ""}
                         onChangeText={(value) => updateMarksValue(Number(row.student_id), value)}
                         onFocus={() => focusMarksInput(Number(row.student_id))}
+                        onBlur={() => {
+                          if (focusedStudentIdRef.current === Number(row.student_id)) {
+                            focusedStudentIdRef.current = null;
+                          }
+                        }}
                         placeholder={`0-${grid.subject.max_marks}`}
                         placeholderTextColor={theme.mutedText}
                       />
@@ -1389,6 +1414,10 @@ export default function ReportsTab() {
         style={styles.root}
         contentContainerStyle={[styles.content, keyboardHeight > 0 ? { paddingBottom: 120 + keyboardHeight } : null]}
         showsVerticalScrollIndicator={false}
+        onScroll={(event) => {
+          scrollOffsetYRef.current = event.nativeEvent.contentOffset.y;
+        }}
+        scrollEventThrottle={16}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="on-drag"
         automaticallyAdjustKeyboardInsets

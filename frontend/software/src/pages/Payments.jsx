@@ -62,6 +62,7 @@ const columns = [
   { header: "Amount Paid", accessor: "amount_paid" },
   { header: "Status", accessor: "display_status" },
 ];
+const PAYMENTS_ROWS_PER_PAGE_OPTIONS = [10, 20, 50, 100];
 
 function formatStatus(status) {
   const value = String(status || "").trim().toLowerCase();
@@ -838,6 +839,8 @@ export default function Payments() {
       <DataTable
         columns={columns}
         data={payments}
+        rowsPerPageOptions={PAYMENTS_ROWS_PER_PAGE_OPTIONS}
+        rowsPerPage={PAYMENTS_ROWS_PER_PAGE_OPTIONS[0]}
         onEdit={handleEditPayment}
         onDelete={setDeletingPayment}
         onRowClick={(row) => navigate(`/students/${row.student_id}`)}
