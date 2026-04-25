@@ -22,6 +22,18 @@ export type Student = {
   session?: string;
 };
 
+export type PaginationMeta = {
+  page: number;
+  limit: number;
+  total: number;
+  totalPages: number;
+};
+
+export type StudentListResponse = {
+  data: Student[];
+  pagination: PaginationMeta | null;
+};
+
 export type StudentParent = {
   relationship: "father" | "mother" | string;
   name: string;
@@ -88,9 +100,26 @@ export type CreateStudentPayload = {
   };
 };
 
-export async function getStudents(params?: { class_id?: string; section_id?: string }) {
-  const response = await api.get<Student[]>("/students", { params });
-  return response.data;
+export async function getStudents(params?: {
+  class_id?: string;
+  section_id?: string;
+  page?: number;
+  limit?: number;
+}) {
+  const response = await api.get<Student[] | { data?: Student[]; pagination?: PaginationMeta }>("/students", { params });
+  const payload = response.data;
+
+  if (Array.isArray(payload)) {
+    return {
+      data: payload,
+      pagination: null,
+    } as StudentListResponse;
+  }
+
+  return {
+    data: Array.isArray(payload?.data) ? payload.data : [],
+    pagination: payload?.pagination ?? null,
+  } as StudentListResponse;
 }
 
 export async function getStudentById(id: number | string) {

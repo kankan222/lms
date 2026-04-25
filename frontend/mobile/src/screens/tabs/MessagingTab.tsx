@@ -39,6 +39,7 @@ type Props = {
   onConversationViewChange?: (isConversationOpen: boolean) => void;
   parentConversationIntent?: ParentConversationIntent | null;
   onParentConversationIntentHandled?: (token: number) => void;
+  isVisible?: boolean;
 };
 
 export type ParentConversationIntent = {
@@ -144,6 +145,7 @@ export default function MessagingTab({
   onConversationViewChange,
   parentConversationIntent,
   onParentConversationIntentHandled,
+  isVisible = true,
 }: Props) {
   const { theme, isDark } = useAppTheme();
   styles = useMemo(() => createStyles(theme), [theme]);
@@ -396,9 +398,9 @@ export default function MessagingTab({
   }, [activeConversationId, screen]);
 
   useEffect(() => {
-    onConversationViewChange?.(screen === "chat" || composeOpen);
+    onConversationViewChange?.(isVisible && (screen === "chat" || composeOpen));
     return () => onConversationViewChange?.(false);
-  }, [onConversationViewChange, screen, composeOpen]);
+  }, [onConversationViewChange, screen, composeOpen, isVisible]);
 
   useEffect(() => {
     if (screen !== "chat") return undefined;
@@ -410,6 +412,7 @@ export default function MessagingTab({
   }, [screen]);
 
   useEffect(() => {
+    if (!isVisible) return undefined;
     const timer = setInterval(() => {
       void loadConversations(true);
       if (screen === "chat" && activeConversationId) {
@@ -418,7 +421,7 @@ export default function MessagingTab({
     }, 4000);
 
     return () => clearInterval(timer);
-  }, [activeConversationId, screen]);
+  }, [activeConversationId, screen, isVisible]);
 
   useEffect(() => {
     const intent = parentConversationIntent;
@@ -455,9 +458,14 @@ export default function MessagingTab({
     try {
       const rows = await getConversations();
       setConversations(rows);
-      if (rows.length) {
-        setActiveConversationId((prev) => prev ?? Number(rows[0].id));
-      }
+      const shouldAutoSelectFirst =
+        screen === "list" && !pendingConversationTarget && !composeOpen;
+      setActiveConversationId((prev) => {
+        const hasPrevious = prev !== null && rows.some((item) => Number(item.id) === Number(prev));
+        if (hasPrevious) return prev;
+        if (shouldAutoSelectFirst && rows.length) return Number(rows[0].id);
+        return null;
+      });
     } catch (err) {
       if (!silent) Alert.alert("Error", getErrorMessage(err, "Could not load conversations."));
       setConversations([]);

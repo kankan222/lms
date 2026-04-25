@@ -87,6 +87,11 @@ router.post(
 
 /* ---------- TEACHER ATTENDANCE ---------- */
 router.get(
+  "/attendance/matrix/pdf",
+  requirePermission("teacher.view"),
+  controller.downloadTeacherAttendanceMatrixPdf
+);
+router.get(
   "/attendance/all",
   requirePermission("teacher.view"),
   controller.getAllTeacherAttendance

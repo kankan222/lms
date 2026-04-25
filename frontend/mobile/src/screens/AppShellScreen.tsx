@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Pressable,
@@ -70,6 +70,17 @@ type NavTab = {
   label: string;
   icon: keyof typeof Ionicons.glyphMap;
 };
+
+const MemoClassesTab = memo(ClassesTab);
+const MemoSubjectsTab = memo(SubjectsTab);
+const MemoStudentsTab = memo(StudentsTab);
+const MemoTeachersTab = memo(TeachersTab);
+const MemoAttendanceTab = memo(AttendanceTab);
+const MemoFeesTab = memo(FeesTab);
+const MemoPaymentsTab = memo(PaymentsTab);
+const MemoExamsTab = memo(ExamsTab);
+const MemoReportsTab = memo(ReportsTab);
+const MemoProfileTab = memo(ProfileTab);
 
 function hasAny(permissions: string[], list: string[]) {
   return list.some((permission) => permissions.includes(permission));
@@ -227,6 +238,7 @@ export default function AppShellScreen() {
   );
 
   const [activeTab, setActiveTab] = useState<TabKey>(defaultTab);
+  const [mountedTabs, setMountedTabs] = useState<TabKey[]>([defaultTab]);
   const [isMoreOpen, setIsMoreOpen] = useState(false);
   const [isMessagingConversationOpen, setIsMessagingConversationOpen] = useState(false);
   const [parentConversationIntent, setParentConversationIntent] = useState<ParentConversationIntent | null>(null);
@@ -239,6 +251,19 @@ export default function AppShellScreen() {
       setActiveTab(defaultTab);
     }
   }, [activeTab, defaultTab, visibleTabs]);
+
+  useEffect(() => {
+    setMountedTabs((prev) => {
+      const next = prev.filter((tab) => visibleTabs.includes(tab));
+      if (visibleTabs.includes(activeTab) && !next.includes(activeTab)) {
+        return [...next, activeTab];
+      }
+      if (!next.length && visibleTabs.length) {
+        return [visibleTabs[0]];
+      }
+      return next;
+    });
+  }, [activeTab, visibleTabs]);
 
   useEffect(() => {
     if (!permissions.includes("dashboard.view") && !roles.includes("super_admin")) {
@@ -298,7 +323,7 @@ export default function AppShellScreen() {
     }
   }
 
-  function startParentConversation(payload: ParentConversationRequest) {
+  const startParentConversation = useCallback((payload: ParentConversationRequest) => {
     setParentConversationIntent({
       token: Date.now(),
       targetType: "parent",
@@ -309,9 +334,9 @@ export default function AppShellScreen() {
     });
     setActiveTab("messaging");
     setIsMoreOpen(false);
-  }
+  }, []);
 
-  function startTeacherConversation(payload: TeacherConversationRequest) {
+  const startTeacherConversation = useCallback((payload: TeacherConversationRequest) => {
     setParentConversationIntent({
       token: Date.now(),
       targetType: "teacher",
@@ -322,9 +347,9 @@ export default function AppShellScreen() {
     });
     setActiveTab("messaging");
     setIsMoreOpen(false);
-  }
+  }, []);
 
-  async function refreshDashboard() {
+  const refreshDashboard = useCallback(async () => {
     if (!permissions.includes("dashboard.view") && !roles.includes("super_admin")) return;
     setIsLoading(true);
     setError(null);
@@ -337,10 +362,10 @@ export default function AppShellScreen() {
     } finally {
       setIsLoading(false);
     }
-  }
+  }, [permissions, roles]);
 
-  function renderContent() {
-    switch (activeTab) {
+  function renderTabContent(tab: TabKey) {
+    switch (tab) {
       case "dashboard":
         return (
           <DashboardTab
@@ -351,22 +376,23 @@ export default function AppShellScreen() {
           />
         );
       case "classes":
-        return <ClassesTab />;
+        return <MemoClassesTab />;
       case "subjects":
-        return <SubjectsTab />;
+        return <MemoSubjectsTab />;
       case "students":
-        return <StudentsTab onStartParentMessage={startParentConversation} />;
+        return <MemoStudentsTab onStartParentMessage={startParentConversation} />;
       case "teachers":
-        return <TeachersTab onStartTeacherMessage={startTeacherConversation} />;
+        return <MemoTeachersTab onStartTeacherMessage={startTeacherConversation} />;
       case "attendance":
-        return <AttendanceTab />;
+        return <MemoAttendanceTab />;
       case "fees":
-        return <FeesTab />;
+        return <MemoFeesTab />;
       case "payments":
-        return <PaymentsTab />;
+        return <MemoPaymentsTab />;
       case "messaging":
         return (
           <MessagingTab
+            isVisible={activeTab === "messaging"}
             onConversationViewChange={setIsMessagingConversationOpen}
             parentConversationIntent={parentConversationIntent}
             onParentConversationIntentHandled={(token) => {
@@ -375,11 +401,11 @@ export default function AppShellScreen() {
           />
         );
       case "exams":
-        return <ExamsTab />;
+        return <MemoExamsTab />;
       case "reports":
-        return <ReportsTab />;
+        return <MemoReportsTab />;
       case "users":
-        return <ProfileTab />;
+        return <MemoProfileTab />;
       default:
         return <ModulePlaceholderTab title="Module" subtitle="No data available." stats={[]} />;
     }
@@ -491,27 +517,43 @@ export default function AppShellScreen() {
         </>
       ) : null}
 
-      {activeTab === "dashboard" ? (
-        <ScrollView
-          style={styles.content}
-          contentContainerStyle={styles.contentContainer}
-          showsVerticalScrollIndicator={false}
-          bounces
-          refreshControl={<RefreshControl refreshing={isLoading} onRefresh={refreshDashboard} />}
-        >
-          {isLoading ? (
-            <View style={styles.centeredBlock}>
-              <ActivityIndicator size="large" color={theme.icon} />
+      <View style={styles.contentStatic}>
+        {mountedTabs.map((tab) => {
+          const isActive = tab === activeTab;
+
+          if (!visibleTabs.includes(tab)) {
+            return null;
+          }
+
+          return (
+            <View
+              key={tab}
+              style={[styles.tabPane, !isActive && styles.tabPaneHidden]}
+              pointerEvents={isActive ? "auto" : "none"}
+            >
+              {tab === "dashboard" ? (
+                <ScrollView
+                  style={styles.content}
+                  contentContainerStyle={styles.contentContainer}
+                  showsVerticalScrollIndicator={false}
+                  bounces
+                  refreshControl={<RefreshControl refreshing={isLoading} onRefresh={refreshDashboard} />}
+                >
+                  {isLoading ? (
+                    <View style={styles.centeredBlock}>
+                      <ActivityIndicator size="large" color={theme.icon} />
+                    </View>
+                  ) : (
+                    renderTabContent(tab)
+                  )}
+                </ScrollView>
+              ) : (
+                renderTabContent(tab)
+              )}
             </View>
-          ) : (
-            renderContent()
-          )}
-        </ScrollView>
-      ) : (
-        <View style={styles.contentStatic}>
-          {renderContent()}
-        </View>
-      )}
+          );
+        })}
+      </View>
 
       {!isMessagingConversationOpen ? (
         <View pointerEvents="box-none" style={[styles.floatingNavWrap, { paddingBottom: Math.max(insets.bottom, 10) }]}>
@@ -665,6 +707,12 @@ const styles = StyleSheet.create({
   contentStatic: {
     flex: 1,
     backgroundColor: "transparent",
+  },
+  tabPane: {
+    flex: 1,
+  },
+  tabPaneHidden: {
+    display: "none",
   },
   contentContainer: {
     backgroundColor: "transparent",

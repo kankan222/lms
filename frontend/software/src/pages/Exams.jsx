@@ -145,7 +145,7 @@ export default function Exams() {
 
       const dedupe = new Map();
       responses.forEach((res) => {
-        const rows = Array.isArray(res?.data) ? res.data : [];
+        const rows = Array.isArray(res) ? res : Array.isArray(res?.data) ? res.data : [];
         rows.forEach((row) => {
           const id = Number(row.id);
           if (!id) return;

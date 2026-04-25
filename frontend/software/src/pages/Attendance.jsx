@@ -6,7 +6,18 @@ import { Button } from "../components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { getAllTeacherAttendance } from "../api/teachers.api";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  downloadTeacherAttendanceMatrixPdf,
+  getAllTeacherAttendance,
+  getTeachers,
+} from "../api/teachers.api";
 import { getClassStructure, getSessions } from "../api/academic.api";
 import {
   getAbsenceMessageTemplates,
@@ -23,8 +34,22 @@ import TeacherDeviceMapping from "./TeacherDeviceMapping";
 import { usePermissions } from "../hooks/usePermissions";
 import { formatReadableDate, formatReadableDateTime } from "../lib/dateTime";
 
+const FIELD_CLASSNAME =
+  "w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground shadow-xs outline-hidden transition focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] disabled:cursor-not-allowed disabled:opacity-60";
+const ATTENDANCE_LOG_ROWS_PER_PAGE_OPTIONS = [10, 20, 50, 100];
+
 const teacherAttendanceColumns = [
   { header: "Teacher", accessor: "teacher" },
+  {
+    header: "Scope",
+    accessor: "class_scope",
+    cell: (row) => {
+      const scope = String(row.class_scope || "").trim().toLowerCase();
+      if (scope === "hs") return "HS";
+      if (scope === "school") return "School";
+      return "-";
+    },
+  },
   {
     header: "Punch Time",
     accessor: "punch_time",
@@ -42,10 +67,6 @@ const teacherAttendanceColumns = [
   },
   { header: "Location", accessor: "location" },
 ];
-
-const FIELD_CLASSNAME =
-  "w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground shadow-xs outline-hidden transition focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] disabled:cursor-not-allowed disabled:opacity-60";
-const ATTENDANCE_LOG_ROWS_PER_PAGE_OPTIONS = [10, 20, 50, 100];
 
 function todayDate() {
   return new Date().toISOString().slice(0, 10);
@@ -85,6 +106,52 @@ function resolveTeacherLogPresetRange(preset) {
     from: formatDateInputValue(start),
     to: formatDateInputValue(end),
   };
+}
+
+function toDateKey(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const year = String(date.getFullYear());
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function buildDateRangeKeys(from, to) {
+  if (!from || !to || from > to) return [];
+
+  const fromDate = startOfInputDate(from);
+  const toDate = startOfInputDate(to);
+  if (!fromDate || !toDate) return [];
+
+  const keys = [];
+  const cursor = new Date(fromDate);
+  while (cursor.getTime() <= toDate.getTime()) {
+    keys.push(formatDateInputValue(cursor));
+    cursor.setDate(cursor.getDate() + 1);
+  }
+  return keys;
+}
+
+function formatDateHeader(value) {
+  const date = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleDateString("en-GB", {
+    day: "2-digit",
+    month: "short",
+  });
+}
+
+function normalizeClassScope(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (normalized === "school" || normalized === "hs") return normalized;
+  return "";
+}
+
+function formatScopeLabel(value) {
+  if (value === "hs") return "HS";
+  if (value === "school") return "School";
+  return "All Scopes";
 }
 
 function sectionDedupKey(section) {
@@ -149,7 +216,9 @@ export default function Attendance() {
   const [activeTab, setActiveTab] = useState("student-attendance");
 
   const [teacherAttendance, setTeacherAttendance] = useState([]);
+  const [teacherProfiles, setTeacherProfiles] = useState([]);
   const [teacherLoading, setTeacherLoading] = useState(false);
+  const [teacherPdfDownloading, setTeacherPdfDownloading] = useState(false);
   const [teacherLogPreset, setTeacherLogPreset] = useState("today");
   const [teacherLogDraftRange, setTeacherLogDraftRange] = useState(() =>
     resolveTeacherLogPresetRange("today")
@@ -157,6 +226,11 @@ export default function Attendance() {
   const [teacherLogAppliedRange, setTeacherLogAppliedRange] = useState(() =>
     resolveTeacherLogPresetRange("today")
   );
+  const [teacherLogFilters, setTeacherLogFilters] = useState({
+    teacher_id: "all",
+    class_scope: "all",
+  });
+  const [teacherMatrixDialogOpen, setTeacherMatrixDialogOpen] = useState(false);
 
   const [classes, setClasses] = useState([]);
   const [sessions, setSessions] = useState([]);
@@ -219,6 +293,7 @@ export default function Attendance() {
     loadAcademicOptions();
     if (canViewTeacherLogs) {
       loadTeacherAttendance();
+      loadTeacherProfiles();
     }
     if (canReviewStudentAttendance) {
       loadPendingAttendance();
@@ -384,6 +459,15 @@ export default function Attendance() {
     }
   }
 
+  async function loadTeacherProfiles() {
+    try {
+      const res = await getTeachers();
+      setTeacherProfiles(Array.isArray(res?.data) ? res.data : []);
+    } catch {
+      setTeacherProfiles([]);
+    }
+  }
+
   function handleTeacherLogPresetChange(preset) {
     const nextRange = resolveTeacherLogPresetRange(preset);
     setTeacherLogPreset(preset);
@@ -410,24 +494,26 @@ export default function Attendance() {
     setError("");
   }
 
-  function handleDownloadTeacherLogs(rows) {
-    if (!rows.length) {
+  function handleDownloadTeacherLogs() {
+    if (!teacherMatrixRows.length || !teacherLogDateKeys.length) {
       setError("No teacher logs available for the selected range.");
       return;
     }
 
     const escapeCsv = (value) => `"${String(value ?? "").replace(/"/g, '""')}"`;
     const lines = [
-      ["Teacher", "Punch Time", "Punch Type", "Device", "Location"]
+      ["Teacher", "Scope", "Present Days", "Absent Days", ...teacherLogDateKeys]
         .map(escapeCsv)
         .join(","),
-      ...rows.map((row) =>
+      ...teacherMatrixRows.map((row) =>
         [
-          row.teacher || "-",
-          formatReadableDateTime(row.punch_time),
-          String(row.punch_type || "-").toUpperCase(),
-          row.device_name || row.device_code || "-",
-          row.location || "-",
+          row.name || "-",
+          String(row.class_scope || "").trim().toUpperCase() || "-",
+          row.presentDays,
+          Math.max(teacherLogDateKeys.length - row.presentDays, 0),
+          ...teacherLogDateKeys.map((dateKey) =>
+            row.statusByDate[dateKey] === "present" ? "Present" : "Absent"
+          ),
         ]
           .map(escapeCsv)
           .join(",")
@@ -446,8 +532,48 @@ export default function Attendance() {
     setError("");
     setNotice({
       title: "Teacher Logs Downloaded",
-      message: `${rows.length} log row${rows.length > 1 ? "s" : ""} exported to CSV.`,
+      message: `${teacherMatrixRows.length} teacher row${teacherMatrixRows.length > 1 ? "s" : ""} exported to CSV matrix.`,
     });
+  }
+
+  async function handleDownloadTeacherLogsPdf() {
+    if (!teacherMatrixRows.length || !teacherLogDateKeys.length) {
+      setError("No teacher attendance matrix data available for PDF.");
+      return;
+    }
+
+    setTeacherPdfDownloading(true);
+    try {
+      const blob = await downloadTeacherAttendanceMatrixPdf({
+        startDate: teacherLogAppliedRange.from,
+        endDate: teacherLogAppliedRange.to,
+        teacher_id: teacherLogFilters.teacher_id,
+        class_scope: teacherLogFilters.class_scope,
+      });
+
+      if (!blob || blob.size === 0) {
+        throw new Error("Downloaded PDF is empty.");
+      }
+
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `teacher-attendance-matrix-${teacherLogAppliedRange.from || "from"}-to-${teacherLogAppliedRange.to || "to"}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+
+      setError("");
+      setNotice({
+        title: "Teacher Logs Downloaded",
+        message: "Teacher attendance matrix PDF has been downloaded.",
+      });
+    } catch (err) {
+      setError(err?.message || "Failed to download teacher attendance matrix PDF.");
+    } finally {
+      setTeacherPdfDownloading(false);
+    }
   }
 
   async function handleNotifyDatePresetChange(preset) {
@@ -859,19 +985,95 @@ export default function Attendance() {
       classSections.filter((section) => allowedSectionIds.has(String(section.id)))
     );
   }, [entryScopeMap, form.class_id, form.session_id, selectedClass]);
+  const teacherScopeById = useMemo(() => {
+    const map = new Map();
+    teacherProfiles.forEach((teacher) => {
+      const teacherId = Number(teacher?.id);
+      if (!teacherId) return;
+      map.set(teacherId, normalizeClassScope(teacher.class_scope));
+    });
+    return map;
+  }, [teacherProfiles]);
+  const teacherAttendanceWithScope = useMemo(
+    () =>
+      teacherAttendance.map((row) => {
+        const teacherId = Number(row?.teacher_id);
+        const mappedScope = teacherScopeById.get(teacherId);
+        return {
+          ...row,
+          class_scope: normalizeClassScope(row?.class_scope) || mappedScope || "",
+        };
+      }),
+    [teacherAttendance, teacherScopeById]
+  );
+  const teacherCatalog = useMemo(() => {
+    const map = new Map();
+
+    teacherProfiles.forEach((teacher) => {
+      const teacherId = Number(teacher?.id);
+      if (!teacherId) return;
+      map.set(teacherId, {
+        id: teacherId,
+        name: String(teacher?.name || `Teacher ${teacherId}`),
+        class_scope: normalizeClassScope(teacher?.class_scope) || "",
+      });
+    });
+
+    teacherAttendanceWithScope.forEach((row) => {
+      const teacherId = Number(row?.teacher_id);
+      if (!teacherId) return;
+      if (!map.has(teacherId)) {
+        map.set(teacherId, {
+          id: teacherId,
+          name: String(row?.teacher || `Teacher ${teacherId}`),
+          class_scope: normalizeClassScope(row?.class_scope) || "",
+        });
+      } else {
+        const existing = map.get(teacherId);
+        if (!existing.class_scope) {
+          existing.class_scope = normalizeClassScope(row?.class_scope) || "";
+        }
+      }
+    });
+
+    return [...map.values()].sort((a, b) => a.name.localeCompare(b.name));
+  }, [teacherAttendanceWithScope, teacherProfiles]);
+  const teacherLogTeacherOptions = useMemo(() => {
+    return teacherCatalog
+      .filter((teacher) => {
+        if (teacherLogFilters.class_scope === "all") return true;
+        return teacher.class_scope === teacherLogFilters.class_scope;
+      })
+      .map((teacher) => ({
+        id: teacher.id,
+        name: teacher.name,
+      }));
+  }, [teacherCatalog, teacherLogFilters.class_scope]);
   const filteredTeacherAttendance = useMemo(() => {
     const fromBoundary = startOfInputDate(teacherLogAppliedRange.from);
     const toBoundary = endOfInputDate(teacherLogAppliedRange.to);
     const fromTime = fromBoundary?.getTime() ?? null;
     const toTime = toBoundary?.getTime() ?? null;
 
-    return [...teacherAttendance]
+    return [...teacherAttendanceWithScope]
       .filter((row) => {
         const punchDate = new Date(row.punch_time);
         if (Number.isNaN(punchDate.getTime())) return false;
         const punchTime = punchDate.getTime();
         if (fromTime !== null && punchTime < fromTime) return false;
         if (toTime !== null && punchTime > toTime) return false;
+        if (
+          teacherLogFilters.teacher_id !== "all" &&
+          Number(row.teacher_id) !== Number(teacherLogFilters.teacher_id)
+        ) {
+          return false;
+        }
+        if (
+          teacherLogFilters.class_scope !== "all" &&
+          normalizeClassScope(row.class_scope) !== teacherLogFilters.class_scope
+        ) {
+          return false;
+        }
         return true;
       })
       .sort((a, b) => {
@@ -879,7 +1081,101 @@ export default function Attendance() {
         const bTime = new Date(b.punch_time).getTime();
         return bTime - aTime;
       });
-  }, [teacherAttendance, teacherLogAppliedRange.from, teacherLogAppliedRange.to]);
+  }, [
+    teacherAttendanceWithScope,
+    teacherLogAppliedRange.from,
+    teacherLogAppliedRange.to,
+    teacherLogFilters.teacher_id,
+    teacherLogFilters.class_scope,
+  ]);
+  useEffect(() => {
+    if (teacherLogFilters.teacher_id === "all") return;
+    const teacherExists = teacherLogTeacherOptions.some(
+      (item) => Number(item.id) === Number(teacherLogFilters.teacher_id)
+    );
+    if (!teacherExists) {
+      setTeacherLogFilters((prev) => ({ ...prev, teacher_id: "all" }));
+    }
+  }, [teacherLogFilters.teacher_id, teacherLogTeacherOptions]);
+  const selectedTeacherLabel = useMemo(() => {
+    if (teacherLogFilters.teacher_id === "all") return "All Teachers";
+    const selected = teacherLogTeacherOptions.find(
+      (item) => Number(item.id) === Number(teacherLogFilters.teacher_id)
+    );
+    return selected?.name || "Selected Teacher";
+  }, [teacherLogFilters.teacher_id, teacherLogTeacherOptions]);
+  const teacherLogDateKeys = useMemo(
+    () => buildDateRangeKeys(teacherLogAppliedRange.from, teacherLogAppliedRange.to),
+    [teacherLogAppliedRange.from, teacherLogAppliedRange.to]
+  );
+  const teacherPresenceByDate = useMemo(() => {
+    const map = new Map();
+
+    filteredTeacherAttendance.forEach((row) => {
+      const teacherId = Number(row?.teacher_id);
+      const dateKey = toDateKey(row?.punch_time);
+      if (!teacherId || !dateKey) return;
+
+      if (!map.has(teacherId)) {
+        map.set(teacherId, new Set());
+      }
+      map.get(teacherId).add(dateKey);
+    });
+
+    return map;
+  }, [filteredTeacherAttendance]);
+  const teacherMatrixRows = useMemo(() => {
+    const selectedTeachers = teacherCatalog.filter((teacher) => {
+      if (
+        teacherLogFilters.class_scope !== "all" &&
+        teacher.class_scope !== teacherLogFilters.class_scope
+      ) {
+        return false;
+      }
+      if (
+        teacherLogFilters.teacher_id !== "all" &&
+        Number(teacher.id) !== Number(teacherLogFilters.teacher_id)
+      ) {
+        return false;
+      }
+      return true;
+    });
+
+    return selectedTeachers.map((teacher) => {
+      const presentDates = teacherPresenceByDate.get(Number(teacher.id)) || new Set();
+      const statusByDate = {};
+      teacherLogDateKeys.forEach((dateKey) => {
+        statusByDate[dateKey] = presentDates.has(dateKey) ? "present" : "absent";
+      });
+      return {
+        id: teacher.id,
+        name: teacher.name,
+        class_scope: teacher.class_scope,
+        statusByDate,
+        presentDays: teacherLogDateKeys.filter((dateKey) => statusByDate[dateKey] === "present").length,
+      };
+    });
+  }, [
+    teacherCatalog,
+    teacherPresenceByDate,
+    teacherLogDateKeys,
+    teacherLogFilters.class_scope,
+    teacherLogFilters.teacher_id,
+  ]);
+  const teacherLogSummary = useMemo(
+    () =>
+      filteredTeacherAttendance.reduce(
+        (acc, row) => {
+          const punchType = String(row?.punch_type || "").trim().toLowerCase();
+          if (punchType === "in") acc.in += 1;
+          else if (punchType === "out") acc.out += 1;
+          else acc.unknown += 1;
+          return acc;
+        },
+        { in: 0, out: 0, unknown: 0 }
+      ),
+    [filteredTeacherAttendance]
+  );
   const notifyFilterClasses = useMemo(() => {
     const uniqueClasses = new Map();
     approvedRows.forEach((row) => {
@@ -2197,88 +2493,178 @@ export default function Attendance() {
                 </Button>
               }
             >
-              <div className="space-y-4">
-                <div className="flex flex-wrap gap-2">
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant={teacherLogPreset === "today" ? "default" : "outline"}
-                    onClick={() => handleTeacherLogPresetChange("today")}
-                  >
-                    Today
-                  </Button>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant={teacherLogPreset === "week" ? "default" : "outline"}
-                    onClick={() => handleTeacherLogPresetChange("week")}
-                  >
-                    Week
-                  </Button>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant={teacherLogPreset === "month" ? "default" : "outline"}
-                    onClick={() => handleTeacherLogPresetChange("month")}
-                  >
-                    Month
-                  </Button>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant={teacherLogPreset === "custom" ? "default" : "outline"}
-                    onClick={() => setTeacherLogPreset("custom")}
-                  >
-                    Custom
-                  </Button>
+              <div className="space-y-3">
+                <div className="space-y-3 rounded-xl border border-border/70 bg-background/70 p-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant={teacherLogPreset === "today" ? "default" : "outline"}
+                      onClick={() => handleTeacherLogPresetChange("today")}
+                    >
+                      Today
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant={teacherLogPreset === "week" ? "default" : "outline"}
+                      onClick={() => handleTeacherLogPresetChange("week")}
+                    >
+                      Week
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant={teacherLogPreset === "month" ? "default" : "outline"}
+                      onClick={() => handleTeacherLogPresetChange("month")}
+                    >
+                      Month
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant={teacherLogPreset === "custom" ? "default" : "outline"}
+                      onClick={() => setTeacherLogPreset("custom")}
+                    >
+                      Custom
+                    </Button>
+                  </div>
+
+                  <div className="grid gap-2 lg:grid-cols-6 lg:items-end">
+                    <div className="grid gap-1.5">
+                      <Label htmlFor="teacher-log-teacher">Teacher</Label>
+                      <select
+                        id="teacher-log-teacher"
+                        className={FIELD_CLASSNAME}
+                        value={teacherLogFilters.teacher_id}
+                        onChange={(e) =>
+                          setTeacherLogFilters((prev) => ({
+                            ...prev,
+                            teacher_id: e.target.value,
+                          }))
+                        }
+                      >
+                        <option value="all">All Teachers</option>
+                        {teacherLogTeacherOptions.map((item) => (
+                          <option key={item.id} value={item.id}>
+                            {item.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="grid gap-1.5">
+                      <Label htmlFor="teacher-log-scope">Scope</Label>
+                      <select
+                        id="teacher-log-scope"
+                        className={FIELD_CLASSNAME}
+                        value={teacherLogFilters.class_scope}
+                        onChange={(e) =>
+                          setTeacherLogFilters((prev) => ({
+                            ...prev,
+                            class_scope: e.target.value,
+                          }))
+                        }
+                      >
+                        <option value="all">All Scopes</option>
+                        <option value="school">School</option>
+                        <option value="hs">HS</option>
+                      </select>
+                    </div>
+                    <div className="grid gap-1.5">
+                      <Label htmlFor="teacher-log-from">From</Label>
+                      <Input
+                        id="teacher-log-from"
+                        type="date"
+                        value={teacherLogDraftRange.from}
+                        onChange={(e) => {
+                          setTeacherLogPreset("custom");
+                          setTeacherLogDraftRange((prev) => ({ ...prev, from: e.target.value }));
+                        }}
+                      />
+                    </div>
+                    <div className="grid gap-1.5">
+                      <Label htmlFor="teacher-log-to">To</Label>
+                      <Input
+                        id="teacher-log-to"
+                        type="date"
+                        value={teacherLogDraftRange.to}
+                        onChange={(e) => {
+                          setTeacherLogPreset("custom");
+                          setTeacherLogDraftRange((prev) => ({ ...prev, to: e.target.value }));
+                        }}
+                      />
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={handleViewTeacherLogRange}
+                      disabled={teacherLoading || !teacherLogDraftRange.from || !teacherLogDraftRange.to}
+                    >
+                      View
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => setTeacherMatrixDialogOpen(true)}
+                      disabled={!teacherMatrixRows.length || !teacherLogDateKeys.length}
+                    >
+                      Matrix View
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={handleDownloadTeacherLogsPdf}
+                      disabled={
+                        teacherPdfDownloading ||
+                        !teacherMatrixRows.length ||
+                        !teacherLogDateKeys.length
+                      }
+                    >
+                      {teacherPdfDownloading ? "Downloading..." : "Download PDF"}
+                    </Button>
+                    <Button
+                      type="button"
+                      onClick={handleDownloadTeacherLogs}
+                      disabled={!teacherMatrixRows.length || !teacherLogDateKeys.length}
+                    >
+                      Download CSV
+                    </Button>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2 text-xs">
+                    <span className="rounded-full border border-border/80 bg-card px-2.5 py-1 font-medium text-foreground">
+                      Teacher: {selectedTeacherLabel}
+                    </span>
+                    <span className="rounded-full border border-border/80 bg-card px-2.5 py-1 font-medium text-foreground">
+                      Scope: {formatScopeLabel(teacherLogFilters.class_scope)}
+                    </span>
+                    <span className="rounded-full border border-border/80 bg-card px-2.5 py-1 font-medium text-foreground">
+                      Range: {teacherLogAppliedRange.from || "-"} to {teacherLogAppliedRange.to || "-"}
+                    </span>
+                  </div>
                 </div>
 
-                <div className="grid gap-3 md:grid-cols-[minmax(140px,1fr)_minmax(140px,1fr)_auto_auto] md:items-end">
-                  <div className="grid gap-2">
-                    <Label htmlFor="teacher-log-from">From</Label>
-                    <Input
-                      id="teacher-log-from"
-                      type="date"
-                      value={teacherLogDraftRange.from}
-                      onChange={(e) => {
-                        setTeacherLogPreset("custom");
-                        setTeacherLogDraftRange((prev) => ({ ...prev, from: e.target.value }));
-                      }}
-                    />
+                <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+                  <div className="rounded-lg border border-border/70 bg-card px-3 py-2">
+                    <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Log Rows</p>
+                    <p className="text-base font-semibold text-foreground">{filteredTeacherAttendance.length}</p>
                   </div>
-                  <div className="grid gap-2">
-                    <Label htmlFor="teacher-log-to">To</Label>
-                    <Input
-                      id="teacher-log-to"
-                      type="date"
-                      value={teacherLogDraftRange.to}
-                      onChange={(e) => {
-                        setTeacherLogPreset("custom");
-                        setTeacherLogDraftRange((prev) => ({ ...prev, to: e.target.value }));
-                      }}
-                    />
+                  <div className="rounded-lg border border-emerald-200/70 bg-emerald-50 px-3 py-2">
+                    <p className="text-[11px] font-medium uppercase tracking-wide text-emerald-700">IN</p>
+                    <p className="text-base font-semibold text-emerald-800">{teacherLogSummary.in}</p>
                   </div>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={handleViewTeacherLogRange}
-                    disabled={teacherLoading || !teacherLogDraftRange.from || !teacherLogDraftRange.to}
-                  >
-                    View
-                  </Button>
-                  <Button
-                    type="button"
-                    onClick={() => handleDownloadTeacherLogs(filteredTeacherAttendance)}
-                    disabled={!filteredTeacherAttendance.length}
-                  >
-                    Download CSV
-                  </Button>
+                  <div className="rounded-lg border border-orange-200/70 bg-orange-50 px-3 py-2">
+                    <p className="text-[11px] font-medium uppercase tracking-wide text-orange-700">OUT</p>
+                    <p className="text-base font-semibold text-orange-800">{teacherLogSummary.out}</p>
+                  </div>
+                  <div className="rounded-lg border border-amber-200/70 bg-amber-50 px-3 py-2">
+                    <p className="text-[11px] font-medium uppercase tracking-wide text-amber-700">UNKNOWN</p>
+                    <p className="text-base font-semibold text-amber-800">{teacherLogSummary.unknown}</p>
+                  </div>
                 </div>
 
-                <p className="text-sm text-muted-foreground">
-                  Showing {filteredTeacherAttendance.length} of {teacherAttendance.length} log row
-                  {teacherAttendance.length === 1 ? "" : "s"} for {teacherLogAppliedRange.from || "-"} to{" "}
-                  {teacherLogAppliedRange.to || "-"}.
+                <p className="text-xs text-muted-foreground">
+                  Main table shows raw logs. Use Matrix View for teacher-wise present/absent across {teacherLogDateKeys.length} selected date{teacherLogDateKeys.length === 1 ? "" : "s"}.
                 </p>
 
                 <DataTable
@@ -2288,8 +2674,92 @@ export default function Attendance() {
                   rowsPerPage={ATTENDANCE_LOG_ROWS_PER_PAGE_OPTIONS[0]}
                 />
                 {teacherLoading ? (
-                  <p className="text-sm text-muted-foreground">Loading teacher attendance...</p>
+                  <p className="text-xs text-muted-foreground">Loading teacher attendance...</p>
                 ) : null}
+
+                <Dialog open={teacherMatrixDialogOpen} onOpenChange={setTeacherMatrixDialogOpen}>
+                  <DialogContent className="max-h-[88vh] overflow-hidden p-0 sm:max-w-[95vw]">
+                    <DialogHeader className="border-b bg-card px-6 py-4">
+                      <DialogTitle>Teacher Attendance Matrix</DialogTitle>
+                      <DialogDescription>
+                        One row per teacher, with Present/Absent status for each selected date.
+                      </DialogDescription>
+                    </DialogHeader>
+
+                    <div className="max-h-[calc(88vh-86px)] overflow-auto p-4">
+                      <div className="overflow-x-auto rounded-xl border border-border/70">
+                        <table className="w-full text-sm">
+                          <thead className="border-b bg-muted/40">
+                            <tr>
+                              <th className="sticky left-0 z-20 min-w-[220px] border-r bg-muted/40 px-3 py-2 text-left text-[11px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
+                                Teacher
+                              </th>
+                              <th className="px-3 py-2 text-left text-[11px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
+                                Scope
+                              </th>
+                              <th className="px-3 py-2 text-left text-[11px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
+                                Present
+                              </th>
+                              <th className="px-3 py-2 text-left text-[11px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
+                                Absent
+                              </th>
+                              {teacherLogDateKeys.map((dateKey) => (
+                                <th
+                                  key={dateKey}
+                                  className="px-3 py-2 text-center text-[11px] font-medium uppercase tracking-[0.16em] text-muted-foreground"
+                                >
+                                  {formatDateHeader(dateKey)}
+                                </th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {teacherMatrixRows.map((row) => (
+                              <tr key={row.id} className="border-b">
+                                <td className="sticky left-0 z-10 border-r bg-background px-3 py-2 font-medium text-foreground">
+                                  {row.name}
+                                </td>
+                                <td className="px-3 py-2 text-foreground">
+                                  {row.class_scope === "hs" ? "HS" : row.class_scope === "school" ? "School" : "-"}
+                                </td>
+                                <td className="px-3 py-2 text-emerald-700">{row.presentDays}</td>
+                                <td className="px-3 py-2 text-amber-700">
+                                  {Math.max(teacherLogDateKeys.length - row.presentDays, 0)}
+                                </td>
+                                {teacherLogDateKeys.map((dateKey) => {
+                                  const isPresent = row.statusByDate[dateKey] === "present";
+                                  return (
+                                    <td key={`${row.id}-${dateKey}`} className="px-3 py-2 text-center">
+                                      <span
+                                        className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${
+                                          isPresent
+                                            ? "border border-emerald-200 bg-emerald-50 text-emerald-700"
+                                            : "border border-rose-200 bg-rose-50 text-rose-700"
+                                        }`}
+                                      >
+                                        {isPresent ? "P" : "A"}
+                                      </span>
+                                    </td>
+                                  );
+                                })}
+                              </tr>
+                            ))}
+                            {!teacherLoading && teacherMatrixRows.length === 0 ? (
+                              <tr>
+                                <td
+                                  colSpan={Math.max(4 + teacherLogDateKeys.length, 4)}
+                                  className="px-3 py-8 text-center text-sm text-muted-foreground"
+                                >
+                                  No teacher attendance data found for the selected filters and date range.
+                                </td>
+                              </tr>
+                            ) : null}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  </DialogContent>
+                </Dialog>
               </div>
             </SectionShell>
           </TabsContent>

@@ -255,6 +255,12 @@ export async function getStudents(filters = {}) {
   const classId = filters.class_id ?? filters.classId;
   const sectionId = filters.section_id ?? filters.sectionId;
   const studentIds = Array.isArray(filters.student_ids) ? filters.student_ids : [];
+  const rawPage = Number(filters.page);
+  const rawLimit = Number(filters.limit);
+  const hasPagination = Number.isFinite(rawPage) || Number.isFinite(rawLimit);
+  const page = Math.max(1, Number.isFinite(rawPage) ? Math.trunc(rawPage) : 1);
+  const limit = Math.min(100, Math.max(1, Number.isFinite(rawLimit) ? Math.trunc(rawLimit) : 25));
+  const offset = (page - 1) * limit;
 
   const where = [];
   const params = [];
@@ -275,9 +281,7 @@ export async function getStudents(filters = {}) {
   }
 
   const whereClause = where.length ? `WHERE ${where.join(" AND ")}` : "";
-
-  const [rows] = await pool.execute(
-    `SELECT
+  const selectSql = `SELECT
       s.id,
       s.admission_no,
       s.name,
@@ -304,12 +308,46 @@ export async function getStudents(filters = {}) {
        ON se.section_id = sec.id
      LEFT JOIN streams str
        ON se.stream_id = str.id
-     ${whereClause}
-     ORDER BY s.id DESC`,
+     ${whereClause}`;
+
+  const [rows] = hasPagination
+    ? await pool.execute(
+      `${selectSql}
+       ORDER BY s.id DESC
+       LIMIT ?, ?`,
+      [...params, offset, limit]
+    )
+    : await pool.execute(
+      `${selectSql}
+       ORDER BY s.id DESC`,
+      params
+    );
+
+  if (!hasPagination) {
+    return rows;
+  }
+
+  const [countRows] = await pool.execute(
+    `SELECT COUNT(*) AS total
+     FROM students s
+     LEFT JOIN student_enrollments se
+       ON s.id = se.student_id AND se.status='active'
+     ${whereClause}`,
     params
   );
 
-  return rows;
+  const total = Number(countRows?.[0]?.total || 0);
+  const totalPages = Math.ceil(total / limit);
+
+  return {
+    data: rows,
+    pagination: {
+      page,
+      limit,
+      total,
+      totalPages,
+    },
+  };
 }
 
 export async function getParentStudentIdsByUser(userId) {

@@ -60,10 +60,15 @@ export async function createTeacher(data, conn) {
 
 /* ------------------ READ ------------------ */
 
-export async function getTeachers() {
+export async function getTeachers(filters = {}) {
   const hasClassScope = await hasTeacherClassScopeColumn();
-
-  return query(`
+  const rawPage = Number(filters.page);
+  const rawLimit = Number(filters.limit);
+  const hasPagination = Number.isFinite(rawPage) || Number.isFinite(rawLimit);
+  const page = Math.max(1, Number.isFinite(rawPage) ? Math.trunc(rawPage) : 1);
+  const limit = Math.min(100, Math.max(1, Number.isFinite(rawLimit) ? Math.trunc(rawLimit) : 25));
+  const offset = (page - 1) * limit;
+  const selectSql = `
     SELECT
       t.id,
       t.user_id,
@@ -73,9 +78,33 @@ export async function getTeachers() {
       t.email,
       ${hasClassScope ? "t.class_scope" : "'school' AS class_scope"},
       t.photo_url
-    FROM teachers t
-    ORDER BY t.id DESC
-  `);
+    FROM teachers t`;
+
+  const rows = await query(
+    hasPagination
+      ? `${selectSql}
+         ORDER BY t.id DESC
+         LIMIT ${offset}, ${limit}`
+      : `${selectSql}
+         ORDER BY t.id DESC`
+  );
+
+  if (!hasPagination) {
+    return rows;
+  }
+
+  const countRows = await query(`SELECT COUNT(*) AS total FROM teachers`);
+  const total = Number(countRows?.[0]?.total || 0);
+
+  return {
+    data: rows,
+    pagination: {
+      page,
+      limit,
+      total,
+      totalPages: Math.ceil(total / limit),
+    },
+  };
 }
 
 export async function getTeacherById(id) {

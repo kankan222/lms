@@ -33,6 +33,85 @@ function normalizeMachineUserId(value) {
   return normalized || "0";
 }
 
+function readClassScope(value) {
+  const raw = String(value || "").trim().toLowerCase();
+  if (!raw) return "";
+  return ALLOWED_CLASS_SCOPES.has(raw) ? raw : "";
+}
+
+function normalizeClassScopeFilter(value) {
+  const raw = String(value || "").trim().toLowerCase();
+  if (!raw || raw === "all") return "";
+  if (!ALLOWED_CLASS_SCOPES.has(raw)) {
+    throw new AppError("Invalid class_scope filter. Allowed: school, hs", 400);
+  }
+  return raw;
+}
+
+function normalizeTeacherIdFilter(value) {
+  const raw = String(value || "").trim();
+  if (!raw || raw.toLowerCase() === "all") return null;
+  const parsed = Number(raw);
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    throw new AppError("Invalid teacher_id filter", 400);
+  }
+  return parsed;
+}
+
+function normalizeDateInput(value, fieldName) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+    throw new AppError(`Invalid ${fieldName}. Expected YYYY-MM-DD`, 400);
+  }
+  const date = new Date(`${raw}T00:00:00Z`);
+  if (Number.isNaN(date.getTime())) {
+    throw new AppError(`Invalid ${fieldName}. Expected YYYY-MM-DD`, 400);
+  }
+  return raw;
+}
+
+function resolveMatrixDateRange(startDate, endDate) {
+  const today = new Date().toISOString().slice(0, 10);
+  const from = normalizeDateInput(startDate, "startDate") || today;
+  const to = normalizeDateInput(endDate, "endDate") || today;
+  if (from > to) {
+    throw new AppError("startDate cannot be later than endDate", 400);
+  }
+  return { from, to };
+}
+
+function buildDateRangeKeys(from, to) {
+  if (!from || !to || from > to) return [];
+  const fromDate = new Date(`${from}T00:00:00Z`);
+  const toDate = new Date(`${to}T00:00:00Z`);
+  if (Number.isNaN(fromDate.getTime()) || Number.isNaN(toDate.getTime())) return [];
+
+  const keys = [];
+  const cursor = new Date(fromDate);
+  while (cursor.getTime() <= toDate.getTime()) {
+    keys.push(cursor.toISOString().slice(0, 10));
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
+  }
+  return keys;
+}
+
+function toDateKey(value) {
+  const raw = String(value || "").trim();
+  const direct = raw.match(/^\d{4}-\d{2}-\d{2}/);
+  if (direct) return direct[0];
+
+  const date = new Date(raw);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toISOString().slice(0, 10);
+}
+
+function formatScopeFilterLabel(value) {
+  if (value === "hs") return "HS";
+  if (value === "school") return "School";
+  return "All Scopes";
+}
+
 /* ------------------ TEACHERS ------------------ */
 
 export async function createTeacher(data) {
@@ -103,13 +182,40 @@ function canManageTeachers(actorPermissions = []) {
   return actorPermissions.includes("teacher.update");
 }
 
-export async function getTeachersForActor({ actorUserId, actorPermissions = [] }) {
+export async function getTeachersForActor({
+  actorUserId,
+  actorPermissions = [],
+  page,
+  limit,
+}) {
+  const paging = {};
+  if (page !== undefined) paging.page = page;
+  if (limit !== undefined) paging.limit = limit;
+  const hasPaging = Object.prototype.hasOwnProperty.call(paging, "page")
+    || Object.prototype.hasOwnProperty.call(paging, "limit");
+
   if (canManageTeachers(actorPermissions)) {
-    return repo.getTeachers();
+    return repo.getTeachers(hasPaging ? paging : undefined);
   }
 
   const teacher = await resolveActorTeacher(actorUserId);
-  return [teacher];
+  if (!hasPaging) {
+    return [teacher];
+  }
+
+  const currentPage = Math.max(1, Number(page || 1));
+  const currentLimit = Math.min(100, Math.max(1, Number(limit || 25)));
+  const total = 1;
+
+  return {
+    data: currentPage === 1 ? [teacher] : [],
+    pagination: {
+      page: currentPage,
+      limit: currentLimit,
+      total,
+      totalPages: Math.ceil(total / currentLimit),
+    },
+  };
 }
 
 export async function getTeacherById(id) {
@@ -523,6 +629,108 @@ export async function getAllTeacherAttendanceForActor({
     startDate,
     endDate,
   });
+}
+
+export async function getTeacherAttendanceMatrixForActor({
+  actorUserId,
+  actorPermissions = [],
+  startDate,
+  endDate,
+  teacherId,
+  classScope,
+}) {
+  const { from, to } = resolveMatrixDateRange(startDate, endDate);
+  const selectedTeacherId = normalizeTeacherIdFilter(teacherId);
+  const selectedScope = normalizeClassScopeFilter(classScope);
+
+  const teachersForActor = await getTeachersForActor({
+    actorUserId,
+    actorPermissions,
+  });
+
+  if (
+    !canManageTeachers(actorPermissions) &&
+    selectedTeacherId &&
+    Number(teachersForActor?.[0]?.id) !== selectedTeacherId
+  ) {
+    throw new AppError("Forbidden", 403);
+  }
+
+  const eligibleTeachers = (Array.isArray(teachersForActor) ? teachersForActor : [])
+    .map((teacher) => ({
+      id: Number(teacher.id),
+      name: String(teacher.name || `Teacher ${teacher.id}`),
+      class_scope: readClassScope(teacher.class_scope) || "school",
+    }))
+    .filter((teacher) => {
+      if (!teacher.id) return false;
+      if (selectedTeacherId && teacher.id !== selectedTeacherId) return false;
+      if (selectedScope && teacher.class_scope !== selectedScope) return false;
+      return true;
+    });
+
+  const eligibleTeacherIds = new Set(eligibleTeachers.map((teacher) => teacher.id));
+  const dateKeys = buildDateRangeKeys(from, to);
+  const validDateKeys = new Set(dateKeys);
+
+  const logs = await getAllTeacherAttendanceForActor({
+    actorUserId,
+    actorPermissions,
+    startDate: from,
+    endDate: to,
+  });
+
+  const teacherPresenceByDate = new Map();
+  (Array.isArray(logs) ? logs : []).forEach((row) => {
+    const currentTeacherId = Number(row?.teacher_id);
+    if (!eligibleTeacherIds.has(currentTeacherId)) return;
+
+    const dateKey = toDateKey(row?.punch_time);
+    if (!dateKey || !validDateKeys.has(dateKey)) return;
+
+    if (!teacherPresenceByDate.has(currentTeacherId)) {
+      teacherPresenceByDate.set(currentTeacherId, new Set());
+    }
+
+    teacherPresenceByDate.get(currentTeacherId).add(dateKey);
+  });
+
+  const rows = eligibleTeachers
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .map((teacher) => {
+      const presentDates = teacherPresenceByDate.get(teacher.id) || new Set();
+      const statusByDate = {};
+
+      dateKeys.forEach((dateKey) => {
+        statusByDate[dateKey] = presentDates.has(dateKey) ? "present" : "absent";
+      });
+
+      const presentDays = dateKeys.filter((dateKey) => statusByDate[dateKey] === "present").length;
+
+      return {
+        id: teacher.id,
+        name: teacher.name,
+        class_scope: teacher.class_scope,
+        presentDays,
+        absentDays: Math.max(dateKeys.length - presentDays, 0),
+        statusByDate,
+      };
+    });
+
+  const selectedTeacher = selectedTeacherId
+    ? eligibleTeachers.find((teacher) => teacher.id === selectedTeacherId)
+    : null;
+
+  return {
+    meta: {
+      from,
+      to,
+      teacherLabel: selectedTeacher?.name || (selectedTeacherId ? `Teacher ${selectedTeacherId}` : "All Teachers"),
+      scopeLabel: formatScopeFilterLabel(selectedScope),
+    },
+    dateKeys,
+    rows,
+  };
 }
 export async function generateDailyAttendance(data) {
 

@@ -1,4 +1,5 @@
 import * as service from "./teacher.service.js";
+import { generateTeacherAttendanceMatrixPdf } from "./teacherPdf.service.js";
 import fs from "node:fs/promises";
 
 function parseCsvLine(line) {
@@ -82,7 +83,18 @@ export async function getTeachers(req, res, next) {
     const teachers = await service.getTeachersForActor({
       actorUserId: req.user?.userId,
       actorPermissions: req.user?.permissions || [],
+      page: req.query.page,
+      limit: req.query.limit,
     });
+
+    if (teachers && typeof teachers === "object" && Array.isArray(teachers.data)) {
+      return res.json({
+        success: true,
+        data: teachers.data,
+        pagination: teachers.pagination || null,
+      });
+    }
+
     res.json({ success: true, data: teachers });
   } catch (err) {
     next(err);
@@ -304,6 +316,32 @@ export async function getAllTeacherAttendance(req,res,next){
     next(err);
   }
 
+}
+export async function downloadTeacherAttendanceMatrixPdf(req, res, next) {
+  try {
+    const matrixData = await service.getTeacherAttendanceMatrixForActor({
+      actorUserId: req.user?.userId,
+      actorPermissions: req.user?.permissions || [],
+      startDate: req.query.startDate,
+      endDate: req.query.endDate,
+      teacherId: req.query.teacher_id || req.query.teacherId,
+      classScope: req.query.class_scope || req.query.classScope,
+    });
+
+    const pdfBuffer = await generateTeacherAttendanceMatrixPdf(matrixData);
+    const from = matrixData?.meta?.from || "from";
+    const to = matrixData?.meta?.to || "to";
+
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename=teacher-attendance-matrix-${from}-to-${to}.pdf`
+    );
+
+    res.send(pdfBuffer);
+  } catch (err) {
+    next(err);
+  }
 }
 export async function generateDailyAttendance(req, res, next) {
   try {

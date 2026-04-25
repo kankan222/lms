@@ -1,5 +1,5 @@
 import { ReactNode, useCallback, useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, Alert, BackHandler, Modal, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, Alert, BackHandler, FlatList, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { getClassStructure, getSessions, type ClassStructureItem } from "../../services/classesService";
 import { getExams } from "../../services/examsService";
@@ -34,6 +34,7 @@ type EditForm = { id: number | null; admission_no: string; name: string; mobile:
 const EMPTY_CREATE: CreateForm = { admission_no: "", name: "", mobile: "", gender: "", dob: "", date_of_admission: "", session_id: null, class_id: null, section_id: null, roll_number: "", stream: "", father_name: "", father_mobile: "", mother_name: "", mother_mobile: "" };
 const EMPTY_EDIT: EditForm = { id: null, admission_no: "", name: "", mobile: "", gender: "", dob: "", date_of_admission: "", session_id: null, class_id: null, section_id: null, roll_number: "", stream: "", class_scope: "school" };
 const STREAM_OPTIONS = ["Arts", "Commerce", "Science"] as const;
+const STUDENTS_PAGE_SIZE = 30;
 const resolveScopeCodeFromClass = (item?: { class_scope?: string | null; scope_name?: string | null } | null): StudentScope => {
   const code = String(item?.class_scope || "").trim().toLowerCase();
   if (code === "hs" || code === "school") return code;
@@ -76,6 +77,10 @@ export default function StudentsTab({ onStartParentMessage }: Props) {
   const isParent = Array.isArray(user?.roles) && user.roles.includes("parent");
   const canSendMessages = Array.isArray(user?.permissions) && user.permissions.includes("messages.send");
   const [students, setStudents] = useState<Student[]>([]);
+  const [studentsPage, setStudentsPage] = useState(1);
+  const [studentsTotal, setStudentsTotal] = useState<number | null>(null);
+  const [studentsHasMore, setStudentsHasMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [classes, setClasses] = useState<ClassStructureItem[]>([]);
   const [sessions, setSessions] = useState<SessionItem[]>([]);
   const [exams, setExams] = useState<Array<{ id: number; name: string }>>([]);
@@ -120,21 +125,56 @@ export default function StudentsTab({ onStartParentMessage }: Props) {
     ];
   }, [students, theme]);
 
-  const loadStudentsList = useCallback(async (mode: "initial" | "refresh" = "initial") => {
-    if (mode === "refresh") setRefreshing(true); else setLoading(true);
+  const loadStudentsList = useCallback(async (mode: "initial" | "refresh" | "loadMore" = "initial") => {
+    if (mode === "loadMore") {
+      if (loadingMore || !studentsHasMore) return;
+      setLoadingMore(true);
+    } else if (mode === "refresh") {
+      setRefreshing(true);
+    } else {
+      setLoading(true);
+    }
+
+    const nextPage = mode === "loadMore" ? studentsPage + 1 : 1;
+
     try {
-      const rows = await getStudents({ class_id: classId ? String(classId) : undefined, section_id: sectionId ? String(sectionId) : undefined });
-      setStudents(rows);
+      const result = await getStudents({
+        class_id: classId ? String(classId) : undefined,
+        section_id: sectionId ? String(sectionId) : undefined,
+        page: nextPage,
+        limit: STUDENTS_PAGE_SIZE,
+      });
+
+      const rows = Array.isArray(result?.data) ? result.data : [];
+      if (mode === "loadMore") {
+        setStudents((prev) => [...prev, ...rows]);
+      } else {
+        setStudents(rows);
+      }
+
+      setStudentsPage(nextPage);
+      setStudentsTotal(result?.pagination?.total ?? null);
+      if (result?.pagination) {
+        setStudentsHasMore(nextPage < Number(result.pagination.totalPages || 0));
+      } else {
+        setStudentsHasMore(rows.length >= STUDENTS_PAGE_SIZE);
+      }
     } catch (err: unknown) {
       Alert.alert("Error", getErr(err, "Failed to load students."));
-      setStudents([]);
+      if (mode !== "loadMore") {
+        setStudents([]);
+        setStudentsTotal(null);
+        setStudentsHasMore(false);
+      }
     } finally {
-      if (mode === "refresh") setRefreshing(false); else setLoading(false);
+      if (mode === "loadMore") setLoadingMore(false);
+      else if (mode === "refresh") setRefreshing(false);
+      else setLoading(false);
     }
-  }, [classId, sectionId]);
+  }, [classId, loadingMore, sectionId, studentsHasMore, studentsPage]);
 
   useEffect(() => { if (!notice) return undefined; const t = setTimeout(() => setNotice(null), 3200); return () => clearTimeout(t); }, [notice]);
-  useEffect(() => { (async () => { try { const [c, s, e] = await Promise.all([getClassStructure(), getSessions(), getExams()]); setClasses(c as ClassStructureItem[]); setSessions((s || []).map((x) => ({ id: Number(x.id), name: x.name, is_active: x.is_active }))); setExams((e || []).map((x) => ({ id: Number(x.id), name: x.name }))); } catch { setClasses([]); setSessions([]); setExams([]); } await loadStudentsList(); })(); }, []);
+  useEffect(() => { (async () => { try { const [c, s, e] = await Promise.all([getClassStructure(), getSessions(), getExams()]); setClasses(c as ClassStructureItem[]); setSessions((s || []).map((x) => ({ id: Number(x.id), name: x.name, is_active: x.is_active }))); setExams((e || []).map((x) => ({ id: Number(x.id), name: x.name }))); } catch { setClasses([]); setSessions([]); setExams([]); } })(); }, []);
   useEffect(() => { loadStudentsList(); }, [classId, sectionId]);
 
   function showNotice(title: string, message: string, tone: "success" | "error" = "success") { setNotice({ title, message, tone }); }
@@ -425,7 +465,7 @@ export default function StudentsTab({ onStartParentMessage }: Props) {
       ) : null}
 
       <View style={[styles.sectionCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
-        <View style={styles.rowBetween}><Text style={[styles.sectionTitle, { color: theme.text }]}>{isParent ? "My Students" : "Browse Students"}</Text><Text style={[styles.hint, { color: theme.subText }]}>{filteredStudents.length} visible</Text></View>
+        <View style={styles.rowBetween}><Text style={[styles.sectionTitle, { color: theme.text }]}>{isParent ? "My Students" : "Browse Students"}</Text><Text style={[styles.hint, { color: theme.subText }]}>{filteredStudents.length} visible{studentsTotal !== null ? ` • ${students.length}/${studentsTotal} loaded` : ""}</Text></View>
         <View style={styles.searchRow}>
           <View style={styles.searchWrap}>
             <TextInput style={[styles.input, styles.searchInput, { borderColor: theme.border, backgroundColor: theme.inputBg, color: theme.text }]} value={search} onChangeText={setSearch} placeholder={isParent ? "Search child..." : "Search..."} placeholderTextColor={theme.mutedText} />
@@ -492,60 +532,81 @@ export default function StudentsTab({ onStartParentMessage }: Props) {
       </Modal>
 
       {loading ? <View style={styles.centered}><ActivityIndicator size="large" color={theme.text} /></View> : !filteredStudents.length ? <View style={[styles.emptyCard, { backgroundColor: theme.card, borderColor: theme.border }]}><Text style={[styles.emptyTitle, { color: theme.text }]}>No students found</Text><Text style={[styles.emptyText, { color: theme.subText }]}>{isParent ? "No linked student records are available right now." : "Try changing the search or class filters, or add a new student."}</Text></View> : <View style={styles.grid}>
-        {filteredStudents.map((student) => {
-          const matched = classes.find((x) => x.id === student.class_id) || classes.find((x) => x.name?.toLowerCase() === String(student.class || "").toLowerCase()) || null;
-          const matchedSection = (matched?.sections || []).find((section) => String(section.id) === String(student.section_id || ""));
-          const medium = student.medium || matchedSection?.medium || "Not set";
-          const scopeLabel = fmtScope(resolveScopeCodeFromClass({
-            class_scope: student.class_scope || matched?.class_scope,
-            scope_name: (student as Student & { scope_name?: string | null }).scope_name || matched?.scope_name,
-          }));
-          return (
-            <Pressable key={student.id} style={[styles.studentCard, { backgroundColor: theme.card, borderColor: theme.border }]} onPress={() => openDetails(student)}>
-              <View style={styles.cardTop}>
-                <View style={[styles.avatarBadge, { backgroundColor: theme.cardMuted }]}><Text style={[styles.avatarText, { color: theme.text }]}>{student.name?.slice(0, 1)?.toUpperCase() || "S"}</Text></View>
-                <View style={styles.cardCopy}>
-                  <Text style={[styles.studentName, { color: theme.text }]}>{student.name}</Text>
-                  <Text style={[styles.studentMeta, { color: theme.subText }]}>{student.admission_no ? `Adm ${student.admission_no}` : `KKV-${student.id}`}</Text>
+        <FlatList
+          data={filteredStudents}
+          keyExtractor={(item) => String(item.id)}
+          scrollEnabled={false}
+          removeClippedSubviews
+          initialNumToRender={12}
+          maxToRenderPerBatch={12}
+          windowSize={7}
+          ItemSeparatorComponent={() => <View style={{ height: 12 }} />}
+          renderItem={({ item: student }) => {
+            const matched = classes.find((x) => x.id === student.class_id) || classes.find((x) => x.name?.toLowerCase() === String(student.class || "").toLowerCase()) || null;
+            const matchedSection = (matched?.sections || []).find((section) => String(section.id) === String(student.section_id || ""));
+            const medium = student.medium || matchedSection?.medium || "Not set";
+            const scopeLabel = fmtScope(resolveScopeCodeFromClass({
+              class_scope: student.class_scope || matched?.class_scope,
+              scope_name: (student as Student & { scope_name?: string | null }).scope_name || matched?.scope_name,
+            }));
+            return (
+              <Pressable style={[styles.studentCard, { backgroundColor: theme.card, borderColor: theme.border }]} onPress={() => openDetails(student)}>
+                <View style={styles.cardTop}>
+                  <View style={[styles.avatarBadge, { backgroundColor: theme.cardMuted }]}><Text style={[styles.avatarText, { color: theme.text }]}>{student.name?.slice(0, 1)?.toUpperCase() || "S"}</Text></View>
+                  <View style={styles.cardCopy}>
+                    <Text style={[styles.studentName, { color: theme.text }]}>{student.name}</Text>
+                    <Text style={[styles.studentMeta, { color: theme.subText }]}>{student.admission_no ? `Adm ${student.admission_no}` : `KKV-${student.id}`}</Text>
+                  </View>
+                  <View style={styles.compactClassBlock}>
+                    <Text style={[styles.compactClassValue, { color: theme.text }]}>{student.class || "-"}</Text>
+                    <Text style={[styles.compactClassMeta, { color: theme.subText }]}>{student.section || "-"}</Text>
+                  </View>
                 </View>
-                <View style={styles.compactClassBlock}>
-                  <Text style={[styles.compactClassValue, { color: theme.text }]}>{student.class || "-"}</Text>
-                  <Text style={[styles.compactClassMeta, { color: theme.subText }]}>{student.section || "-"}</Text>
-                </View>
-              </View>
 
-              <View style={styles.metaStack}>
-                <View style={styles.metaLine}>
-                  <Text style={[styles.detailText, styles.metaLineText, { color: theme.subText }]}>Roll: {student.roll_number || "-"}</Text>
-                  <Text style={[styles.detailText, styles.metaLineText, { color: theme.subText }]}>Scope: {scopeLabel}</Text>
+                <View style={styles.metaStack}>
+                  <View style={styles.metaLine}>
+                    <Text style={[styles.detailText, styles.metaLineText, { color: theme.subText }]}>Roll: {student.roll_number || "-"}</Text>
+                    <Text style={[styles.detailText, styles.metaLineText, { color: theme.subText }]}>Scope: {scopeLabel}</Text>
+                  </View>
+                  <View style={styles.metaLine}>
+                    <Text style={[styles.detailText, styles.metaLineText, { color: theme.subText }]}>Medium: {medium}</Text>
+                    {resolveScopeCodeFromClass({
+                      class_scope: student.class_scope || matched?.class_scope,
+                      scope_name: (student as Student & { scope_name?: string | null }).scope_name || matched?.scope_name,
+                    }) === "hs" ? <Text style={[styles.detailText, styles.metaLineText, { color: theme.subText }]}>Stream: {student.stream_name || "-"}</Text> : null}
+                  </View>
+                  <View style={styles.metaLine}>
+                    <Text style={[styles.detailText, styles.metaLineText, { color: theme.subText }]}>Phone: {student.phone || student.mobile || "-"}</Text>
+                  </View>
+                  <View style={styles.metaLine}>
+                    <Text style={[styles.detailText, styles.metaLineText, { color: theme.subText }]}>Admission: {fmtDate(student.date_of_admission)}</Text>
+                  </View>
                 </View>
-                <View style={styles.metaLine}>
-                  <Text style={[styles.detailText, styles.metaLineText, { color: theme.subText }]}>Medium: {medium}</Text>
-                  {resolveScopeCodeFromClass({
-                    class_scope: student.class_scope || matched?.class_scope,
-                    scope_name: (student as Student & { scope_name?: string | null }).scope_name || matched?.scope_name,
-                  }) === "hs" ? <Text style={[styles.detailText, styles.metaLineText, { color: theme.subText }]}>Stream: {student.stream_name || "-"}</Text> : null}
-                </View>
-                <View style={styles.metaLine}>
-                  <Text style={[styles.detailText, styles.metaLineText, { color: theme.subText }]}>Phone: {student.phone || student.mobile || "-"}</Text>
-                </View>
-                <View style={styles.metaLine}>
-                  <Text style={[styles.detailText, styles.metaLineText, { color: theme.subText }]}>Admission: {fmtDate(student.date_of_admission)}</Text>
-                </View>
-              </View>
-              {!isParent ? (
-                <View style={styles.cardIconActions}>
-                  <CardIconAction icon="eye-outline" onPress={() => openDetails(student)} />
-                  {canSendMessages ? (
-                    <CardIconAction icon="chatbubble-ellipses-outline" onPress={() => void handleMessageParent(student)} />
-                  ) : null}
-                  <CardIconAction icon="create-outline" onPress={() => openEdit(student)} />
-                  <CardIconAction icon="trash-outline" tone="danger" onPress={() => confirmDelete(student)} />
-                </View>
-              ) : null}
-            </Pressable>
-          );
-        })}
+                {!isParent ? (
+                  <View style={styles.cardIconActions}>
+                    <CardIconAction icon="eye-outline" onPress={() => openDetails(student)} />
+                    {canSendMessages ? (
+                      <CardIconAction icon="chatbubble-ellipses-outline" onPress={() => void handleMessageParent(student)} />
+                    ) : null}
+                    <CardIconAction icon="create-outline" onPress={() => openEdit(student)} />
+                    <CardIconAction icon="trash-outline" tone="danger" onPress={() => confirmDelete(student)} />
+                  </View>
+                ) : null}
+              </Pressable>
+            );
+          }}
+        />
+        {studentsHasMore ? (
+          <Pressable
+            style={[styles.secondaryBtn, { borderColor: theme.border, backgroundColor: theme.card }]}
+            onPress={() => loadStudentsList("loadMore")}
+            disabled={loadingMore}
+          >
+            <Text style={[styles.secondaryBtnText, { color: theme.text }]}>
+              {loadingMore ? "Loading..." : "Load More"}
+            </Text>
+          </Pressable>
+        ) : null}
       </View>}
 
       <Modal visible={createOpen} transparent animationType="slide" onRequestClose={() => setCreateOpen(false)}>

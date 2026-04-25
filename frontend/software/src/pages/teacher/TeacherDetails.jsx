@@ -1,4 +1,4 @@
-import { useEffect, useEffectEvent, useState } from "react";
+import { useEffect, useEffectEvent, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
 import TopBar from "../../components/TopBar";
 import { usePermissions } from "../../hooks/usePermissions";
@@ -32,14 +32,6 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import {
-  Pagination,
-  PaginationContent,
-  PaginationItem,
-  PaginationLink,
-  PaginationNext,
-  PaginationPrevious,
-} from "@/components/ui/pagination";
 
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -65,6 +57,61 @@ import { Label } from "@/components/ui/label";
 import { resolveServerImageUrl } from "../../lib/serverImage";
 import { formatReadableDateTime } from "../../lib/dateTime";
 
+function formatDateInputValue(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const year = String(date.getFullYear());
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function startOfInputDate(value) {
+  const date = new Date(`${value}T00:00:00`);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function resolveAttendancePresetRange(preset) {
+  const end = new Date();
+  end.setHours(0, 0, 0, 0);
+  const start = new Date(end);
+
+  if (preset === "week") {
+    start.setDate(start.getDate() - 6);
+  } else if (preset === "month") {
+    start.setDate(start.getDate() - 29);
+  }
+
+  return {
+    from: formatDateInputValue(start),
+    to: formatDateInputValue(end),
+  };
+}
+
+function toDateKey(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const year = String(date.getFullYear());
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function buildDateRangeKeys(from, to) {
+  if (!from || !to || from > to) return [];
+  const fromDate = startOfInputDate(from);
+  const toDate = startOfInputDate(to);
+  if (!fromDate || !toDate) return [];
+
+  const keys = [];
+  const cursor = new Date(fromDate);
+  while (cursor.getTime() <= toDate.getTime()) {
+    keys.push(formatDateInputValue(cursor));
+    cursor.setDate(cursor.getDate() + 1);
+  }
+  return keys;
+}
+
 export default function TeacherDetails() {
   const { id } = useParams();
   const { can } = usePermissions();
@@ -74,6 +121,15 @@ export default function TeacherDetails() {
   const [classes, setClasses] = useState([]);
   const [assignments, setAssignments] = useState([]);
   const [attendance, setAttendance] = useState([]);
+  const [attendanceLoading, setAttendanceLoading] = useState(false);
+  const [attendanceError, setAttendanceError] = useState("");
+  const [attendancePreset, setAttendancePreset] = useState("month");
+  const [attendanceDraftRange, setAttendanceDraftRange] = useState(() =>
+    resolveAttendancePresetRange("month")
+  );
+  const [attendanceAppliedRange, setAttendanceAppliedRange] = useState(() =>
+    resolveAttendancePresetRange("month")
+  );
 
   const [selectedSections, setSelectedSections] = useState([]);
   const [selectedSession, setSelectedSession] = useState("");
@@ -169,10 +225,27 @@ export default function TeacherDetails() {
     ).values(),
   );
 
+  async function loadTeacherAttendance(range = null) {
+    setAttendanceLoading(true);
+    try {
+      const targetRange = range || attendanceAppliedRange;
+      const attendanceRes = await getTeacherAttendance(id, {
+        startDate: targetRange?.from,
+        endDate: targetRange?.to,
+      });
+      setAttendance(attendanceRes?.data || []);
+      setAttendanceError("");
+    } catch (err) {
+      setAttendance([]);
+      setAttendanceError(err?.message || "Failed to load teacher attendance.");
+    } finally {
+      setAttendanceLoading(false);
+    }
+  }
+
   async function loadTeacher() {
     const teacherRes = await getTeacher(id);
     const assignmentRes = await getTeacherAssignments(id);
-    const attendanceRes = await getTeacherAttendance(id);
 
     const sessionRes = await getSessions();
     const classesRes = await getClassStructure();
@@ -182,9 +255,9 @@ export default function TeacherDetails() {
       class_scope: resolveScopeCode(teacherRes?.data?.class_scope, teacherRes?.data?.scope_name),
     });
     setAssignments(assignmentRes.data);
-    setAttendance(attendanceRes.data || []);
     setClasses(classesRes.data || []);
     setSessions(sessionRes.data || []);
+    await loadTeacherAttendance(attendanceAppliedRange);
   }
 
   const loadTeacherDetails = useEffectEvent(() => {
@@ -195,7 +268,9 @@ export default function TeacherDetails() {
     loadTeacherDetails();
   }, [id]);
 
-  if (!teacher) return <div>Loading...</div>;
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [attendance]);
 
   async function handleAssignSubjects() {
     if (!selectedSubjects.length) {
@@ -295,12 +370,75 @@ export default function TeacherDetails() {
 
 }
 
-  const totalPages = Math.ceil(attendance.length / rowsPerPage);
+  function handleAttendancePresetChange(preset) {
+    const nextRange = resolveAttendancePresetRange(preset);
+    setAttendancePreset(preset);
+    setAttendanceDraftRange(nextRange);
+    setAttendanceAppliedRange(nextRange);
+    loadTeacherAttendance(nextRange);
+  }
+
+  function handleViewAttendanceRange() {
+    const from = String(attendanceDraftRange.from || "");
+    const to = String(attendanceDraftRange.to || "");
+    if (!from || !to) {
+      setAttendanceError("Select both start and end date.");
+      return;
+    }
+    if (from > to) {
+      setAttendanceError("Start date cannot be later than end date.");
+      return;
+    }
+    const nextRange = { from, to };
+    setAttendancePreset("custom");
+    setAttendanceAppliedRange(nextRange);
+    loadTeacherAttendance(nextRange);
+  }
+
+  const attendanceDateKeys = useMemo(
+    () => buildDateRangeKeys(attendanceAppliedRange.from, attendanceAppliedRange.to),
+    [attendanceAppliedRange.from, attendanceAppliedRange.to]
+  );
+
+  const presentDays = useMemo(() => {
+    const set = new Set();
+    attendance.forEach((row) => {
+      const key = toDateKey(row?.punch_time);
+      if (key) set.add(key);
+    });
+    return set.size;
+  }, [attendance]);
+
+  const totalDaysInRange = attendanceDateKeys.length;
+  const absentDays = Math.max(totalDaysInRange - presentDays, 0);
+
+  const logSummary = useMemo(
+    () =>
+      attendance.reduce(
+        (acc, row) => {
+          const punchType = String(row?.punch_type || "").trim().toLowerCase();
+          if (punchType === "in") acc.in += 1;
+          else if (punchType === "out") acc.out += 1;
+          else acc.unknown += 1;
+          return acc;
+        },
+        { in: 0, out: 0, unknown: 0 }
+      ),
+    [attendance]
+  );
+
+  const totalPages = Math.max(1, Math.ceil(attendance.length / rowsPerPage));
 
   const paginatedAttendance = attendance.slice(
     (currentPage - 1) * rowsPerPage,
     currentPage * rowsPerPage,
   );
+
+  const currentStart = attendance.length ? (currentPage - 1) * rowsPerPage + 1 : 0;
+  const currentEnd = Math.min(currentPage * rowsPerPage, attendance.length);
+
+  if (!teacher) return <div>Loading...</div>;
+
   return (
     <>
       <TopBar title="Teacher Information" />
@@ -610,8 +748,106 @@ export default function TeacherDetails() {
           </div>
         </div>
       </div>
-      <div className="mt-5">
+      <div className="mt-5 space-y-4">
         <h3 className="text-lg font-semibold">Attendance</h3>
+        <div className="space-y-3 rounded-xl border border-border/70 bg-background/70 p-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              type="button"
+              size="sm"
+              variant={attendancePreset === "today" ? "default" : "outline"}
+              onClick={() => handleAttendancePresetChange("today")}
+            >
+              Today
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant={attendancePreset === "week" ? "default" : "outline"}
+              onClick={() => handleAttendancePresetChange("week")}
+            >
+              Week
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant={attendancePreset === "month" ? "default" : "outline"}
+              onClick={() => handleAttendancePresetChange("month")}
+            >
+              Month
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant={attendancePreset === "custom" ? "default" : "outline"}
+              onClick={() => setAttendancePreset("custom")}
+            >
+              Custom
+            </Button>
+          </div>
+
+          <div className="grid gap-2 md:grid-cols-[minmax(140px,1fr)_minmax(140px,1fr)_auto] md:items-end">
+            <div className="grid gap-1.5">
+              <Label htmlFor="attendance-from">From</Label>
+              <Input
+                id="attendance-from"
+                type="date"
+                value={attendanceDraftRange.from}
+                onChange={(e) => {
+                  setAttendancePreset("custom");
+                  setAttendanceDraftRange((prev) => ({ ...prev, from: e.target.value }));
+                }}
+              />
+            </div>
+            <div className="grid gap-1.5">
+              <Label htmlFor="attendance-to">To</Label>
+              <Input
+                id="attendance-to"
+                type="date"
+                value={attendanceDraftRange.to}
+                onChange={(e) => {
+                  setAttendancePreset("custom");
+                  setAttendanceDraftRange((prev) => ({ ...prev, to: e.target.value }));
+                }}
+              />
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={handleViewAttendanceRange}
+              disabled={attendanceLoading || !attendanceDraftRange.from || !attendanceDraftRange.to}
+            >
+              View
+            </Button>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2 text-xs">
+            <span className="rounded-full border border-border/80 bg-card px-2.5 py-1 font-medium text-foreground">
+              Range: {attendanceAppliedRange.from || "-"} to {attendanceAppliedRange.to || "-"}
+            </span>
+            <span className="rounded-full border border-emerald-200/80 bg-emerald-50 px-2.5 py-1 font-medium text-emerald-700">
+              Present Days: {presentDays}
+            </span>
+            <span className="rounded-full border border-rose-200/80 bg-rose-50 px-2.5 py-1 font-medium text-rose-700">
+              Absent Days: {absentDays}
+            </span>
+            <span className="rounded-full border border-border/80 bg-card px-2.5 py-1 font-medium text-foreground">
+              Total Days: {totalDaysInRange}
+            </span>
+            <span className="rounded-full border border-orange-200/80 bg-orange-50 px-2.5 py-1 font-medium text-orange-700">
+              IN/OUT: {logSummary.in}/{logSummary.out}
+            </span>
+            <span className="rounded-full border border-amber-200/80 bg-amber-50 px-2.5 py-1 font-medium text-amber-700">
+              Unknown: {logSummary.unknown}
+            </span>
+          </div>
+          {attendanceError ? (
+            <p className="text-sm text-red-600">{attendanceError}</p>
+          ) : null}
+          {attendanceLoading ? (
+            <p className="text-sm text-muted-foreground">Loading attendance...</p>
+          ) : null}
+        </div>
         <Table>
           <TableCaption>A list of recent machine punch logs</TableCaption>
           <TableHeader>
@@ -633,40 +869,45 @@ export default function TeacherDetails() {
                 <TableCell>{attendance.location || "-"}</TableCell>
               </TableRow>
             ))}
+            {!attendanceLoading && paginatedAttendance.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={4} className="text-center text-sm text-muted-foreground">
+                  No attendance logs found for the selected range.
+                </TableCell>
+              </TableRow>
+            ) : null}
           </TableBody>
           <TableFooter>
             <TableRow>
               <TableCell colSpan={4}>
-                <Pagination>
-                  <PaginationContent>
-                    <PaginationItem>
-                      <PaginationPrevious
-                        onClick={() =>
-                          setCurrentPage((p) => Math.max(p - 1, 1))
-                        }
-                      />
-                    </PaginationItem>
-
-                    {Array.from({ length: totalPages }).map((_, i) => (
-                      <PaginationItem key={i}>
-                        <PaginationLink
-                          isActive={currentPage === i + 1}
-                          onClick={() => setCurrentPage(i + 1)}
-                        >
-                          {i + 1}
-                        </PaginationLink>
-                      </PaginationItem>
-                    ))}
-
-                    <PaginationItem>
-                      <PaginationNext
-                        onClick={() =>
-                          setCurrentPage((p) => Math.min(p + 1, totalPages))
-                        }
-                      />
-                    </PaginationItem>
-                  </PaginationContent>
-                </Pagination>
+                <div className="flex items-center justify-between gap-2 py-1">
+                  <p className="text-xs text-muted-foreground">
+                    Showing {currentStart}-{currentEnd} of {attendance.length}
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => setCurrentPage((p) => Math.max(p - 1, 1))}
+                      disabled={currentPage <= 1}
+                    >
+                      Previous
+                    </Button>
+                    <span className="text-xs text-muted-foreground">
+                      Page {currentPage} of {totalPages}
+                    </span>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => setCurrentPage((p) => Math.min(p + 1, totalPages))}
+                      disabled={currentPage >= totalPages}
+                    >
+                      Next
+                    </Button>
+                  </div>
+                </div>
               </TableCell>
             </TableRow>
           </TableFooter>

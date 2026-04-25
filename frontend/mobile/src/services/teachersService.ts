@@ -19,6 +19,18 @@ export type TeacherItem = {
   photo_url?: string | null;
 };
 
+export type PaginationMeta = {
+  page: number;
+  limit: number;
+  total: number;
+  totalPages: number;
+};
+
+export type TeacherListResponse = {
+  data: TeacherItem[];
+  pagination: PaginationMeta | null;
+};
+
 export type CreateTeacherPayload = {
   employee_id: string;
   name: string;
@@ -87,9 +99,15 @@ export type AssignTeacherPayload = {
   session_id: number;
 };
 
-export async function getTeachers() {
-  const response = await api.get<ApiEnvelope<TeacherItem[]>>("/teachers");
-  return response.data.data ?? [];
+export async function getTeachers(params: { page?: number; limit?: number } = {}) {
+  const response = await api.get<ApiEnvelope<TeacherItem[]> & { pagination?: PaginationMeta }>("/teachers", {
+    params,
+  });
+
+  return {
+    data: response.data.data ?? [],
+    pagination: response.data.pagination ?? null,
+  } as TeacherListResponse;
 }
 
 export async function getTeacher(id: number) {

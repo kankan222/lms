@@ -1,4 +1,46 @@
 import { apiRequest } from "../../../shared/api/client.js";
+import { refreshToken } from "./auth.api";
+
+const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000/api/v1";
+
+function buildQuery(params = {}) {
+  const query = new URLSearchParams();
+  Object.entries(params).forEach(([key, value]) => {
+    if (
+      value !== undefined &&
+      value !== null &&
+      String(value).trim() !== "" &&
+      String(value).trim().toLowerCase() !== "all"
+    ) {
+      query.set(key, value);
+    }
+  });
+  return query.toString() ? `?${query.toString()}` : "";
+}
+
+async function fetchAuthorizedBlob(path, fallbackMessage = "Failed to download file") {
+  async function request() {
+    const token = localStorage.getItem("accessToken");
+    return fetch(`${API_URL}${path}`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+  }
+
+  let response = await request();
+  if (response.status === 401) {
+    const refreshed = await refreshToken();
+    if (refreshed) {
+      response = await request();
+    }
+  }
+
+  if (!response.ok) {
+    const payload = await response.json().catch(() => ({}));
+    throw new Error(payload?.message || fallbackMessage);
+  }
+
+  return response.blob();
+}
 
 /* ---------- TEACHERS ---------- */
 
@@ -61,17 +103,17 @@ export function removeAssignment(assignmentId) {
 }
 
 export function getTeacherAttendance(id, params = {}) {
-
-  const query = new URLSearchParams(params).toString();
-  const url = query
-    ? `/teachers/${id}/attendance?${query}`
-    : `/teachers/${id}/attendance`;
-
-  return apiRequest(url);
+  return apiRequest(`/teachers/${id}/attendance${buildQuery(params)}`);
 }
 export function getAllTeacherAttendance() {
-
   return apiRequest("/teachers/attendance/all");
+}
+
+export function downloadTeacherAttendanceMatrixPdf(params = {}) {
+  return fetchAuthorizedBlob(
+    `/teachers/attendance/matrix/pdf${buildQuery(params)}`,
+    "Failed to download teacher attendance PDF"
+  );
 }
 
 export function getAttendanceDevices() {
