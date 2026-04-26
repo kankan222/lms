@@ -1,5 +1,5 @@
 import { ReactNode, useCallback, useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, Alert, Image, Modal, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, Alert, FlatList, Image, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
 import TopNotice from "../../components/feedback/TopNotice";
@@ -36,6 +36,7 @@ const DEFAULT_SCOPE_OPTIONS: ScopeOption[] = [
 const EMPTY_CREATE: TeacherForm = { employee_id: "", name: "", phone: "", email: "", class_scope: "school", password: "", photo: null, photo_preview: null };
 const EMPTY_EDIT: TeacherForm = { id: null, employee_id: "", name: "", phone: "", email: "", class_scope: "school", photo: null, photo_preview: null };
 const EMPTY_ASSIGNMENT: AssignmentForm = { class_id: null, section_id: null, subject_id: null, session_id: null };
+const TEACHERS_PAGE_SIZE = 30;
 
 const getErrorMessage = (err: unknown, fallback: string) => typeof err === "object" && err && "response" in err ? ((err as { response?: { data?: { message?: string; error?: string } } }).response?.data?.error || (err as { response?: { data?: { message?: string; error?: string } } }).response?.data?.message || fallback) : fallback;
 const normalizePhone = (value?: string | null) => String(value || "").replace(/\D/g, "");
@@ -124,7 +125,7 @@ function PhotoField({ label, previewUri, onPick, onRemove }: { label: string; pr
 function CardAction({ icon, label, onPress, tone = "default" }: { icon: keyof typeof Ionicons.glyphMap; label: string; onPress: () => void; tone?: "default" | "danger" }) {
   const { theme } = useAppTheme();
   const isDanger = tone === "danger";
-  return <Pressable style={[styles.cardActionBtn, { borderColor: isDanger ? theme.dangerBorder : theme.border, backgroundColor: isDanger ? theme.dangerSoft : theme.card }, isDanger && styles.cardDeleteBtn]} onPress={onPress}><Ionicons name={icon} size={15} color={isDanger ? theme.danger : theme.text} /><Text style={[styles.cardActionText, { color: isDanger ? theme.danger : theme.text }, isDanger && styles.cardDeleteText]}>{label}</Text></Pressable>;
+  return <Pressable accessibilityRole="button" accessibilityLabel={label} style={[styles.cardActionBtn, { borderColor: isDanger ? theme.dangerBorder : theme.border, backgroundColor: isDanger ? theme.dangerSoft : theme.card }, isDanger && styles.cardDeleteBtn]} onPress={onPress}><Ionicons name={icon} size={18} color={isDanger ? theme.danger : theme.text} /></Pressable>;
 }
 
 export default function TeachersTab({ onStartTeacherMessage }: Props) {
@@ -134,6 +135,10 @@ export default function TeachersTab({ onStartTeacherMessage }: Props) {
   const canManageTeachers = permissions.includes("teacher.update");
   const canSendMessages = permissions.includes("messages.send");
   const [teachers, setTeachers] = useState<TeacherItem[]>([]);
+  const [teachersPage, setTeachersPage] = useState(1);
+  const [teachersTotal, setTeachersTotal] = useState<number | null>(null);
+  const [teachersHasMore, setTeachersHasMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [classStructure, setClassStructure] = useState<ClassStructureItem[]>([]);
   const [sessions, setSessions] = useState<SessionItem[]>([]);
   const [scopeOptions, setScopeOptions] = useState<ScopeOption[]>(DEFAULT_SCOPE_OPTIONS);
@@ -194,11 +199,62 @@ export default function TeachersTab({ onStartTeacherMessage }: Props) {
     ];
   }, [teachers, theme, getScopeLabel]);
 
-  const loadData = useCallback(async (mode: "initial" | "refresh" = "initial") => {
-    if (mode === "refresh") setRefreshing(true); else setLoading(true);
+  const loadTeacherRows = useCallback(async (mode: "initial" | "refresh" | "loadMore" = "initial") => {
+    if (mode === "loadMore") {
+      if (loadingMore || !teachersHasMore) return;
+      setLoadingMore(true);
+    } else if (mode === "refresh") {
+      setRefreshing(true);
+    } else {
+      setLoading(true);
+    }
+
     setError(null);
+    const nextPage = mode === "loadMore" ? teachersPage + 1 : 1;
+
     try {
-      const [teacherRows, structureRows, sessionRows, scopeRows] = await Promise.all([getTeachers(), getClassStructure(), getSessions(), getScopes()]);
+      const result = await getTeachers({ page: nextPage, limit: TEACHERS_PAGE_SIZE });
+      const rows = (result?.data || []).map((teacher) => ({ ...teacher, class_scope: resolveScopeCode(teacher.class_scope, teacher.scope_name) }));
+
+      if (mode === "loadMore") {
+        setTeachers((prev) => {
+          const seen = new Set(prev.map((item) => Number(item.id)));
+          const incoming = rows.filter((item) => !seen.has(Number(item.id)));
+          return [...prev, ...incoming];
+        });
+      } else {
+        setTeachers(rows);
+      }
+
+      setTeachersPage(nextPage);
+      setTeachersTotal(result?.pagination?.total ?? null);
+      if (result?.pagination) {
+        setTeachersHasMore(nextPage < Number(result.pagination.totalPages || 0));
+      } else {
+        setTeachersHasMore(rows.length >= TEACHERS_PAGE_SIZE);
+      }
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, "Could not load teachers."));
+      if (mode !== "loadMore") {
+        setTeachers([]);
+        setTeachersTotal(null);
+        setTeachersHasMore(false);
+      }
+    } finally {
+      if (mode === "loadMore") setLoadingMore(false);
+      else if (mode === "refresh") setRefreshing(false);
+      else setLoading(false);
+    }
+  }, [loadingMore, teachersHasMore, teachersPage]);
+
+  const loadData = useCallback(async (mode: "initial" | "refresh" | "loadMore" = "initial") => {
+    if (mode === "loadMore") {
+      await loadTeacherRows("loadMore");
+      return;
+    }
+
+    try {
+      const [structureRows, sessionRows, scopeRows] = await Promise.all([getClassStructure(), getSessions(), getScopes()]);
       const mappedScopeOptions = Array.from(
         new Map(
           scopeRows
@@ -212,18 +268,17 @@ export default function TeachersTab({ onStartTeacherMessage }: Props) {
         ).values(),
       );
       setScopeOptions(mappedScopeOptions.length ? mappedScopeOptions : DEFAULT_SCOPE_OPTIONS);
-      setTeachers(teacherRows.map((teacher) => ({ ...teacher, class_scope: resolveScopeCode(teacher.class_scope, teacher.scope_name) })));
       setClassStructure(structureRows);
       setSessions(sessionRows);
     } catch (err: unknown) {
       setScopeOptions(DEFAULT_SCOPE_OPTIONS);
-      setError(getErrorMessage(err, "Could not load teachers."));
-    } finally {
-      if (mode === "refresh") setRefreshing(false); else setLoading(false);
+      setError(getErrorMessage(err, "Could not load teacher filters."));
     }
-  }, []);
 
-  useEffect(() => { loadData(); }, [loadData]);
+    await loadTeacherRows(mode);
+  }, [loadTeacherRows]);
+
+  useEffect(() => { void loadData("initial"); }, []);
   useEffect(() => { if (activeSession && assignmentForm.session_id === null) setAssignmentForm((prev) => ({ ...prev, session_id: activeSession.id })); }, [activeSession, assignmentForm.session_id]);
   useEffect(() => { if (!notice) return undefined; const timer = setTimeout(() => setNotice(null), 3200); return () => clearTimeout(timer); }, [notice]);
   useEffect(() => {
@@ -321,6 +376,7 @@ export default function TeachersTab({ onStartTeacherMessage }: Props) {
     try {
       await deleteTeacher(deleteTarget.id);
       setTeachers((prev) => prev.filter((item) => item.id !== deleteTarget.id));
+      setTeachersTotal((prev) => (prev === null ? null : Math.max(0, prev - 1)));
       setDeleteTarget(null);
       showNotice("Teacher Deleted", "Teacher record deleted successfully.");
     } catch (err: unknown) {
@@ -461,55 +517,119 @@ export default function TeachersTab({ onStartTeacherMessage }: Props) {
   return (
     <View style={styles.screen}>
       <TopNotice notice={notice} style={styles.topNoticeOverlay} />
-    <ScrollView style={styles.root} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => loadData("refresh")} />}>
-      <View style={styles.innerContent}>
-      <View style={styles.heroCard}>
-        <View style={styles.heroCopy}>
-          <Text style={[styles.heroEyebrow, { color: theme.subText }]}>Overview</Text>
-          <Text style={[styles.title, { color: theme.text }]}>{canManageTeachers ? "Teachers" : "My Profile"}</Text>
-          <Text style={[styles.subtitle, { color: theme.subText }]}>{canManageTeachers ? "Manage teacher records and assignment scopes." : "View your teacher profile and assignments."}</Text>
-        </View>
-          <View style={styles.heroPrimaryActions}>
-            {canManageTeachers ? <Pressable style={[styles.heroPrimaryBtn, { backgroundColor: theme.primary }]} onPress={() => setCreateOpen(true)}><Text style={[styles.primaryBtnText, { color: theme.primaryText }]}>Add Teacher</Text></Pressable> : null}
-          </View>
-      </View>
-
-      {canManageTeachers ? <View style={styles.statsGrid}>{stats.map((item) => <View key={item.label} style={[styles.statCard, { backgroundColor: item.accent, borderColor: item.border }]}><Text style={[styles.statLabel, { color: theme.subText }]}>{item.label}</Text><Text style={[styles.statValue, { color: item.tone }]}>{item.value}</Text></View>)}</View> : null}
-
-      {loading ? <View style={styles.centered}><ActivityIndicator size="large" color={theme.text} /></View> : <>
-        {error ? <Text style={[styles.errorText, { color: theme.danger }]}>{error}</Text> : null}
-        {canManageTeachers ? <View style={[styles.sectionCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
-          <View style={styles.rowBetween}><Text style={[styles.sectionTitle, { color: theme.text }]}>Teacher Directory</Text><Text style={[styles.hint, { color: theme.subText }]}>{filteredTeachers.length} visible</Text></View>
-          <FormInput label="Search" value={search} onChangeText={setSearch} placeholder="Name, employee ID, phone or email" autoCapitalize="none" />
-          <Text style={[styles.inputLabel, { color: theme.subText }]}>Scope</Text>
-          <View style={styles.filterRow}>{scopeFilterOptions.map((scope) => <Pressable key={scope.code} style={[styles.filterChip, { borderColor: theme.border, backgroundColor: theme.cardMuted }, scopeFilter === scope.code && { borderColor: theme.primary, backgroundColor: theme.isDark ? "#f8fafc" : theme.primary }]} onPress={() => setScopeFilter(scope.code as ScopeFilter)}><Text style={[styles.filterChipText, { color: theme.subText }, scopeFilter === scope.code && { color: theme.isDark ? "#0f172a" : theme.primaryText }]}>{scope.name}</Text></Pressable>)}</View>
-        </View> : null}
-
-        {selfTeacher ? <View style={[styles.teacherCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
-          <View style={styles.cardTop}><View style={[styles.avatarBadge, { backgroundColor: theme.cardMuted }]}>{resolveTeacherPhotoUrl(selfTeacher.photo_url) ? <Image source={{ uri: resolveTeacherPhotoUrl(selfTeacher.photo_url)! }} style={styles.avatarImage} /> : <Text style={[styles.avatarText, { color: theme.text }]}>{selfTeacher.name?.slice(0, 1)?.toUpperCase() || "T"}</Text>}</View><View style={styles.cardCopy}><Text style={[styles.teacherName, { color: theme.text }]}>{selfTeacher.name}</Text><Text style={[styles.teacherMeta, { color: theme.subText }]}>{getScopeLabel(selfTeacher.class_scope, selfTeacher.scope_name)}</Text></View></View>
-          <View style={styles.detailList}><Text style={[styles.detailText, { color: theme.subText }]}>Employee ID: {selfTeacher.employee_id || "-"}</Text><Text style={[styles.detailText, { color: theme.subText }]}>Phone: {selfTeacher.phone || "-"}</Text><Text style={[styles.detailText, { color: theme.subText }]}>Email: {selfTeacher.email || "-"}</Text></View>
-          <View style={styles.cardActions}>
-            <CardAction icon="eye-outline" label="Details" onPress={() => openDetails(selfTeacher)} />
-            <CardAction icon="git-network-outline" label="Assignments" onPress={() => openAssignments(selfTeacher)} />
-            {canSendMessages ? <CardAction icon="chatbubble-ellipses-outline" label="Message" onPress={() => void handleMessageTeacher(selfTeacher)} /> : null}
-          </View>
-        </View> : <View style={styles.grid}>
-          {filteredTeachers.map((teacher) => <View key={teacher.id} style={[styles.teacherCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
-            <View style={styles.cardTop}><View style={[styles.avatarBadge, { backgroundColor: theme.cardMuted }]}>{resolveTeacherPhotoUrl(teacher.photo_url) ? <Image source={{ uri: resolveTeacherPhotoUrl(teacher.photo_url)! }} style={styles.avatarImage} /> : <Text style={[styles.avatarText, { color: theme.text }]}>{teacher.name?.slice(0, 1)?.toUpperCase() || "T"}</Text>}</View><View style={styles.cardCopy}><Text style={[styles.teacherName, { color: theme.text }]}>{teacher.name}</Text><Text style={[styles.teacherMeta, { color: theme.subText }]}>{getScopeLabel(teacher.class_scope, teacher.scope_name)}</Text></View></View>
-            <View style={styles.detailList}><Text style={[styles.detailText, { color: theme.subText }]}>Employee ID: {teacher.employee_id || "-"}</Text><Text style={[styles.detailText, { color: theme.subText }]}>Phone: {teacher.phone || "-"}</Text><Text style={[styles.detailText, { color: theme.subText }]}>Email: {teacher.email || "-"}</Text></View>
-            <View style={styles.cardActions}>
-              <CardAction icon="eye-outline" label="Details" onPress={() => openDetails(teacher)} />
-              <CardAction icon="git-network-outline" label="Assignments" onPress={() => openAssignments(teacher)} />
-              {canSendMessages ? <CardAction icon="chatbubble-ellipses-outline" label="Message" onPress={() => void handleMessageTeacher(teacher)} /> : null}
-              {canManageTeachers ? <>
-                <CardAction icon="create-outline" label="Edit" onPress={() => openEdit(teacher)} />
-                <CardAction icon="trash-outline" label="Delete" tone="danger" onPress={() => confirmDelete(teacher.id)} />
-              </> : null}
+      <FlatList
+        style={styles.root}
+        contentContainerStyle={styles.content}
+        data={loading ? [] : (selfTeacher ? [selfTeacher] : filteredTeachers)}
+        keyExtractor={(item) => String(item.id)}
+        refreshing={refreshing}
+        onRefresh={() => loadData("refresh")}
+        showsVerticalScrollIndicator={false}
+        removeClippedSubviews
+        initialNumToRender={12}
+        maxToRenderPerBatch={12}
+        windowSize={7}
+        ListHeaderComponent={
+          <View style={styles.innerContent}>
+            <View style={styles.heroCard}>
+              <View style={styles.heroCopy}>
+                <Text style={[styles.heroEyebrow, { color: theme.subText }]}>Overview</Text>
+                <Text style={[styles.title, { color: theme.text }]}>{canManageTeachers ? "Teachers" : "My Profile"}</Text>
+                <Text style={[styles.subtitle, { color: theme.subText }]}>{canManageTeachers ? "Manage teacher records and assignment scopes." : "View your teacher profile and assignments."}</Text>
+              </View>
+              <View style={styles.heroPrimaryActions}>
+                {canManageTeachers ? <Pressable style={[styles.heroPrimaryBtn, { backgroundColor: theme.primary }]} onPress={() => setCreateOpen(true)}><Text style={[styles.primaryBtnText, { color: theme.primaryText }]}>Add Teacher</Text></Pressable> : null}
+              </View>
             </View>
-          </View>)}
-          {!filteredTeachers.length ? <View style={[styles.emptyCard, { backgroundColor: theme.cardMuted, borderColor: theme.border }]}><Text style={[styles.emptyTitle, { color: theme.text }]}>No teachers found</Text><Text style={[styles.emptyText, { color: theme.subText }]}>Adjust the search or scope filter.</Text></View> : null}
-        </View>}
-      </>}
+
+            {canManageTeachers ? <View style={styles.statsGrid}>{stats.map((item) => <View key={item.label} style={[styles.statCard, { backgroundColor: item.accent, borderColor: item.border }]}><Text style={[styles.statLabel, { color: theme.subText }]}>{item.label}</Text><Text style={[styles.statValue, { color: item.tone }]}>{item.value}</Text></View>)}</View> : null}
+
+            {error ? <Text style={[styles.errorText, { color: theme.danger }]}>{error}</Text> : null}
+
+            {canManageTeachers ? <View style={[styles.sectionCard, { backgroundColor: theme.card, borderColor: theme.border }] }>
+              <View style={styles.rowBetween}><Text style={[styles.sectionTitle, { color: theme.text }]}>Teacher Directory</Text><Text style={[styles.hint, { color: theme.subText }]}>{filteredTeachers.length} visible{teachersTotal !== null ? ` | ${teachers.length}/${teachersTotal} loaded` : ""}</Text></View>
+              <FormInput label="Search" value={search} onChangeText={setSearch} placeholder="Name, employee ID, phone or email" autoCapitalize="none" />
+              <Text style={[styles.inputLabel, { color: theme.subText }]}>Scope</Text>
+              <View style={styles.filterRow}>{scopeFilterOptions.map((scope) => <Pressable key={scope.code} style={[styles.filterChip, { borderColor: theme.border, backgroundColor: theme.cardMuted }, scopeFilter === scope.code && { borderColor: theme.primary, backgroundColor: theme.isDark ? "#f8fafc" : theme.primary }]} onPress={() => setScopeFilter(scope.code as ScopeFilter)}><Text style={[styles.filterChipText, { color: theme.subText }, scopeFilter === scope.code && { color: theme.isDark ? "#0f172a" : theme.primaryText }]}>{scope.name}</Text></Pressable>)}</View>
+            </View> : null}
+          </View>
+        }
+        ListEmptyComponent={
+          loading ? (
+            <View style={styles.centered}><ActivityIndicator size="large" color={theme.text} /></View>
+          ) : selfTeacher ? (
+            <View style={[styles.emptyCard, { backgroundColor: theme.cardMuted, borderColor: theme.border }]}><Text style={[styles.emptyTitle, { color: theme.text }]}>No teacher profile found</Text><Text style={[styles.emptyText, { color: theme.subText }]}>No linked teacher account is available for this user.</Text></View>
+          ) : (
+            <View style={[styles.emptyCard, { backgroundColor: theme.cardMuted, borderColor: theme.border }]}><Text style={[styles.emptyTitle, { color: theme.text }]}>No teachers found</Text><Text style={[styles.emptyText, { color: theme.subText }]}>Adjust the search or scope filter.</Text></View>
+          )
+        }
+        ListFooterComponent={
+          <View style={styles.listFooter}>
+            {loadingMore ? (
+              <ActivityIndicator size="small" color={theme.text} />
+            ) : !loading && !selfTeacher && teachersHasMore ? (
+              <Pressable
+                style={[styles.ghostBtn, { borderColor: theme.border, backgroundColor: theme.cardMuted }]}
+                onPress={() => void loadData("loadMore")}
+              >
+                <Text style={[styles.ghostBtnText, { color: theme.text }]}>
+                  Load More
+                  {teachersTotal !== null ? ` (${teachers.length}/${teachersTotal})` : ""}
+                </Text>
+              </Pressable>
+            ) : null}
+          </View>
+        }
+        onEndReachedThreshold={0.35}
+        onEndReached={() => {
+          if (!loading && !selfTeacher && !loadingMore && teachersHasMore) {
+            void loadData("loadMore");
+          }
+        }}
+        ItemSeparatorComponent={() => <View style={styles.rowGap} />}
+        renderItem={({ item: teacher }) => {
+          const scopeLabel = getScopeLabel(teacher.class_scope, teacher.scope_name);
+          const identityLine = [`Emp ${teacher.employee_id || "-"}`, `Phone ${teacher.phone || "-"}`].join(" | ");
+          const contactLine = `Email ${teacher.email || "-"}`;
+
+          return (
+            <View style={styles.rowWrap}>
+              <View style={[styles.teacherCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                <View style={styles.cardTop}>
+                  <View style={[styles.avatarBadge, { backgroundColor: theme.cardMuted }]}>
+                    {resolveTeacherPhotoUrl(teacher.photo_url) ? (
+                      <Image source={{ uri: resolveTeacherPhotoUrl(teacher.photo_url)! }} style={styles.avatarImage} />
+                    ) : (
+                      <Text style={[styles.avatarText, { color: theme.text }]}>{teacher.name?.slice(0, 1)?.toUpperCase() || "T"}</Text>
+                    )}
+                  </View>
+                  <View style={styles.cardCopy}>
+                    <Text style={[styles.teacherName, { color: theme.text }]} numberOfLines={1}>{teacher.name}</Text>
+                    <Text style={[styles.teacherMeta, { color: theme.subText }]} numberOfLines={1}>{scopeLabel}</Text>
+                  </View>
+                </View>
+
+                <View style={styles.metaStack}>
+                  <Text style={[styles.detailText, styles.metaLineText, { color: theme.subText }]} numberOfLines={1}>{identityLine}</Text>
+                  <Text style={[styles.detailText, styles.metaLineText, { color: theme.subText }]} numberOfLines={1}>{contactLine}</Text>
+                </View>
+
+                <View style={styles.cardActions}>
+                  <CardAction icon="eye-outline" label="Details" onPress={() => openDetails(teacher)} />
+                  <CardAction icon="git-network-outline" label="Assignments" onPress={() => openAssignments(teacher)} />
+                  {canSendMessages ? <CardAction icon="chatbubble-ellipses-outline" label="Message" onPress={() => void handleMessageTeacher(teacher)} /> : null}
+                  {!selfTeacher && canManageTeachers ? (
+                    <>
+                      <CardAction icon="create-outline" label="Edit" onPress={() => openEdit(teacher)} />
+                      <CardAction icon="trash-outline" label="Delete" tone="danger" onPress={() => confirmDelete(teacher.id)} />
+                    </>
+                  ) : null}
+                </View>
+              </View>
+            </View>
+          );
+        }}
+      />
 
       <Modal visible={createOpen} transparent animationType="slide" onRequestClose={() => setCreateOpen(false)}>
         <Sheet title="Add Teacher" subtitle="Create a teacher profile and linked user account." onClose={() => { setCreateOpen(false); setCreateForm({ ...EMPTY_CREATE, class_scope: defaultScopeCode }); }}>
@@ -564,7 +684,7 @@ export default function TeachersTab({ onStartTeacherMessage }: Props) {
           <Pressable style={[styles.modalBackdrop, { backgroundColor: theme.overlay }]} onPress={() => setDeleteTarget(null)} />
           <View style={[styles.confirmCard, { backgroundColor: theme.card, borderColor: theme.dangerBorder }]}>
             <View style={[styles.confirmIcon, { backgroundColor: theme.dangerSoft, borderColor: theme.dangerBorder }]}>
-              <Text style={[styles.confirmIconText, { color: theme.danger }]}>×</Text>
+              <Text style={[styles.confirmIconText, { color: theme.danger }]}>X</Text>
             </View>
             <Text style={[styles.confirmTitle, { color: theme.text }]}>Delete Teacher</Text>
             <Text style={[styles.confirmMessage, { color: theme.subText }]}>
@@ -581,8 +701,6 @@ export default function TeachersTab({ onStartTeacherMessage }: Props) {
           </View>
         </View>
       </Modal>
-      </View>
-    </ScrollView>
     </View>
   );
 }
@@ -622,22 +740,27 @@ const styles = StyleSheet.create({
   filterChipActive: { borderColor: "#0f172a", backgroundColor: "#0f172a" },
   filterChipText: { color: "#475569", fontWeight: "700", fontSize: 12 },
   filterChipTextActive: { color: "#fff" },
+  rowWrap: { paddingHorizontal: 14 },
+  rowGap: { height: 12 },
+  listFooter: { paddingHorizontal: 14, paddingVertical: 14, alignItems: "center", justifyContent: "center" },
   grid: { gap: 12 },
-  teacherCard: { backgroundColor: "#fff", borderRadius: 22, borderWidth: 1, borderColor: "#e2e8f0", padding: 16, gap: 14 },
+  teacherCard: { backgroundColor: "#fff", borderRadius: 22, borderWidth: 1, borderColor: "#e2e8f0", padding: 16, gap: 8 },
   cardTop: { flexDirection: "row", alignItems: "center", gap: 12 },
   avatarBadge: { width: 44, height: 44, borderRadius: 14, backgroundColor: "#e2e8f0", alignItems: "center", justifyContent: "center" },
   avatarImage: { width: "100%", height: "100%", borderRadius: 14 },
   avatarText: { color: "#0f172a", fontWeight: "800", fontSize: 16 },
-  cardCopy: { flex: 1, gap: 3 },
+  cardCopy: { flex: 1, minWidth: 0, gap: 3 },
   teacherName: { color: "#0f172a", fontWeight: "800", fontSize: 18 },
   teacherMeta: { color: "#475569", fontWeight: "700", fontSize: 12 },
   detailList: { gap: 4 },
+  metaStack: { gap: 2 },
+  metaLineText: { fontSize: 12 },
   detailText: { color: "#475569", lineHeight: 20 },
   rowActions: { flexDirection: "row", gap: 10, marginTop: 14 },
-  cardActions: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 2 },
-  cardActionBtn: { width: "48%", borderWidth: 1, borderColor: "#cbd5e1", backgroundColor: "#fff", paddingHorizontal: 10, paddingVertical: 9, borderRadius: 10, alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 6 },
+  cardActions: { flexDirection: "row", flexWrap: "nowrap", justifyContent: "flex-end", gap: 8, marginTop: 4 },
+  cardActionBtn: { width: 38, height: 38, borderWidth: 1, borderColor: "#cbd5e1", backgroundColor: "#fff", borderRadius: 12, alignItems: "center", justifyContent: "center" },
   cardActionText: { color: "#334155", fontWeight: "700", fontSize: 12 },
-  cardDeleteBtn: { width: "48%", backgroundColor: "#fee2e2", borderWidth: 1, borderColor: "#fecaca", paddingHorizontal: 10, paddingVertical: 9, borderRadius: 10, alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 6 },
+  cardDeleteBtn: { backgroundColor: "#fee2e2", borderWidth: 1, borderColor: "#fecaca" },
   cardDeleteText: { color: "#b91c1c", fontWeight: "700", fontSize: 12 },
   primaryBtn: { backgroundColor: "#0f172a", paddingHorizontal: 16, paddingVertical: 11, borderRadius: 12, alignItems: "center", justifyContent: "center" },
   heroPrimaryBtn: { flex: 1, backgroundColor: "#0f172a", paddingHorizontal: 16, paddingVertical: 11, borderRadius: 12, alignItems: "center", justifyContent: "center" },
@@ -685,3 +808,4 @@ const styles = StyleSheet.create({
   confirmMessage: { fontSize: 14, lineHeight: 20, textAlign: "center" },
   disabledBtn: { opacity: 0.7 },
 });
+

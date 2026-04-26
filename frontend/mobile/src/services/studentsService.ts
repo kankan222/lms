@@ -138,10 +138,10 @@ export async function updateStudent(
   id: number | string,
   payload: {
     admission_no?: string | null;
-    name: string;
+    name?: string;
     mobile?: string;
-    gender: string;
-    dob: string;
+    gender?: string;
+    dob?: string;
     date_of_admission?: string;
     photo_url?: string | null;
     session_id?: number;
@@ -150,6 +150,20 @@ export async function updateStudent(
     roll_number?: string | number;
     stream?: string;
     stream_id?: number | null;
+    father?: {
+      name?: string;
+      mobile?: string;
+      email?: string;
+      occupation?: string;
+      qualification?: string;
+    };
+    mother?: {
+      name?: string;
+      mobile?: string;
+      email?: string;
+      occupation?: string;
+      qualification?: string;
+    };
   }
 ) {
   const response = await api.patch(`/students/${id}`, payload);

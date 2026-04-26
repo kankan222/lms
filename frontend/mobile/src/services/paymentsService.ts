@@ -8,6 +8,14 @@ type ApiEnvelope<T> = {
   success?: boolean;
   data: T;
   message?: string;
+  pagination?: PaginationMeta | null;
+};
+
+export type PaginationMeta = {
+  page: number;
+  limit: number;
+  total: number;
+  totalPages: number;
 };
 
 export type PaymentItem = {
@@ -68,9 +76,33 @@ export type PaymentFilters = {
   date_to?: string;
 };
 
+export type PaymentListResult = {
+  data: PaymentItem[];
+  pagination: PaginationMeta | null;
+};
+
+export async function getPaymentsList(
+  filters: PaymentFilters = {},
+  options?: { page?: number; limit?: number }
+): Promise<PaymentListResult> {
+  const params: Record<string, string | number> = { ...filters };
+  if (Number.isFinite(options?.page)) {
+    params.page = Number(options?.page);
+  }
+  if (Number.isFinite(options?.limit)) {
+    params.limit = Number(options?.limit);
+  }
+
+  const response = await api.get<ApiEnvelope<PaymentItem[]>>("/fees/payments", { params });
+  return {
+    data: response.data?.data ?? [],
+    pagination: response.data?.pagination ?? null,
+  };
+}
+
 export async function getPayments(filters: PaymentFilters = {}) {
-  const response = await api.get<ApiEnvelope<PaymentItem[]>>("/fees/payments", { params: filters });
-  return response.data?.data ?? [];
+  const result = await getPaymentsList(filters);
+  return result.data;
 }
 
 export async function downloadAndSharePaymentsCsv(filters: PaymentFilters = {}) {

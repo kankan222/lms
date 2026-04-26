@@ -250,7 +250,13 @@ export async function getConversationMessages(conversationId, limit, offset) {
   );
 }
 
-export async function getUserConversations(userId) {
+export async function getUserConversations(userId, filters = {}) {
+  const rawPage = Number(filters.page);
+  const rawLimit = Number(filters.limit);
+  const hasPagination = Number.isFinite(rawPage) || Number.isFinite(rawLimit);
+  const page = Math.max(1, Number.isFinite(rawPage) ? Math.trunc(rawPage) : 1);
+  const limit = Math.min(100, Math.max(1, Number.isFinite(rawLimit) ? Math.trunc(rawLimit) : 25));
+  const offset = (page - 1) * limit;
   const hasStaffUserId = await hasStaffUserIdColumn();
   const staffJoin = hasStaffUserId
     ? "LEFT JOIN staff st ON st.user_id = u.id"
@@ -259,8 +265,7 @@ export async function getUserConversations(userId) {
     ? "LEFT JOIN staff st ON st.user_id = u.id"
     : "LEFT JOIN staff st ON 1 = 0";
 
-  return query(
-    `SELECT
+  const baseSql = `SELECT
       c.id,
       c.type,
       CASE
@@ -328,9 +333,34 @@ export async function getUserConversations(userId) {
     JOIN conversation_members cm
       ON cm.conversation_id = c.id
     WHERE cm.user_id = ?
-    ORDER BY COALESCE(c.last_message_at, c.created_at) DESC`,
+    ORDER BY COALESCE(c.last_message_at, c.created_at) DESC`;
+
+  const rows = await query(
+    hasPagination ? `${baseSql} LIMIT ${limit} OFFSET ${offset}` : baseSql,
     [userId, userId, userId, userId, userId]
   );
+
+  if (!hasPagination) {
+    return rows;
+  }
+
+  const countRows = await query(
+    `SELECT COUNT(*) AS total
+     FROM conversation_members cm
+     WHERE cm.user_id = ?`,
+    [userId]
+  );
+  const total = Number(countRows?.[0]?.total || 0);
+
+  return {
+    data: rows,
+    pagination: {
+      page,
+      limit,
+      total,
+      totalPages: Math.ceil(total / limit),
+    },
+  };
 }
 
 export async function getConversationMemberUserIds(conversationId) {

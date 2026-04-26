@@ -95,7 +95,15 @@ export async function deleteStream(req, res, next) {
 // GET 
 export async function getClasses(req, res, next) {
   try {
-    const data = await service.getClasses();
+    const filters = {};
+    if (req.query.page !== undefined) filters.page = req.query.page;
+    if (req.query.limit !== undefined) filters.limit = req.query.limit;
+
+    const data = await service.getClasses(filters);
+    if (data && typeof data === "object" && Array.isArray(data.data)) {
+      return res.json({ success: true, data: data.data, pagination: data.pagination || null });
+    }
+
     res.json({ success: true, data });
   } catch (err) {
     next(err);

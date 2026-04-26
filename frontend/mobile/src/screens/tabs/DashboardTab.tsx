@@ -1,5 +1,5 @@
 import { Pressable, StyleSheet, Text, View } from "react-native";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { DashboardSummary } from "../../services/dashboardService";
 import { useAppTheme } from "../../theme/AppThemeProvider";
 import { DEFAULT_MOBILE_THEME, type MobileTheme } from "../../theme/mobileTheme";
@@ -17,6 +17,13 @@ type StatItem = {
   value: number;
   tone?: "default" | "success" | "warning";
 };
+
+const CLASS_OVERVIEW_INITIAL_LIMIT = 16;
+const INR_CURRENCY_FORMATTER = new Intl.NumberFormat("en-IN", {
+  style: "currency",
+  currency: "INR",
+  maximumFractionDigits: 0,
+});
 
 function formatDate(value?: string | null) {
   if (!value) return "-";
@@ -64,11 +71,7 @@ function toneStyles(theme: MobileTheme, tone?: "default" | "success" | "warning"
 }
 
 function formatCurrency(value?: number | null) {
-  return new Intl.NumberFormat("en-IN", {
-    style: "currency",
-    currency: "INR",
-    maximumFractionDigits: 0,
-  }).format(Number(value || 0));
+  return INR_CURRENCY_FORMATTER.format(Number(value || 0));
 }
 
 function buildCombinedTrend(summary: DashboardSummary) {
@@ -92,6 +95,7 @@ function maxMetric<T extends Record<string, unknown>>(rows: T[], keys: string[])
 
 export default function DashboardTab({ summary, loading, error, onRefresh }: Props) {
   const { theme } = useAppTheme();
+  const [showAllClassOverview, setShowAllClassOverview] = useState(false);
   const styles = useMemo(() => createStyles(theme), [theme]);
   if (loading) {
     return (
@@ -124,7 +128,7 @@ export default function DashboardTab({ summary, loading, error, onRefresh }: Pro
     );
   }
 
-  const stats: StatItem[] = [
+  const stats: StatItem[] = useMemo(() => ([
     { key: "students", label: "Total Students", value: summary.stats.totalStudents },
     { key: "teachers", label: "Total Teachers", value: summary.stats.totalTeachers },
     {
@@ -146,10 +150,18 @@ export default function DashboardTab({ summary, loading, error, onRefresh }: Pro
       tone: "warning",
     },
     { key: "newAdmissions", label: "New Admissions", value: summary.stats.newAdmissionsThisMonth },
-  ];
-  const combinedTrend = buildCombinedTrend(summary);
-  const studentTrend = summary.analytics?.studentAttendanceTrend || [];
-  const feeStatus = summary.analytics?.feeStatusBreakdown || [];
+  ]), [summary]);
+  const combinedTrend = useMemo(() => buildCombinedTrend(summary), [summary]);
+  const studentTrend = useMemo(() => summary.analytics?.studentAttendanceTrend || [], [summary]);
+  const feeStatus = useMemo(() => summary.analytics?.feeStatusBreakdown || [], [summary]);
+  const classOverview = useMemo(
+    () =>
+      showAllClassOverview
+        ? summary.classOverview
+        : summary.classOverview.slice(0, CLASS_OVERVIEW_INITIAL_LIMIT),
+    [showAllClassOverview, summary],
+  );
+  const remainingClassOverview = Math.max(summary.classOverview.length - classOverview.length, 0);
   const combinedTrendMax = maxMetric(combinedTrend, ["admissions", "collections"]) || 1;
   const studentTrendMax = maxMetric(studentTrend, ["present", "absent", "late"]) || 1;
 
@@ -376,8 +388,8 @@ export default function DashboardTab({ summary, loading, error, onRefresh }: Pro
 
       <View style={[styles.sectionCard, { borderColor: theme.border, backgroundColor: theme.card }]}>
         <Text style={[styles.sectionTitle, { color: theme.text }]}>Class Overview</Text>
-        {summary.classOverview.length ? (
-          summary.classOverview.map((row) => (
+        {classOverview.length ? (
+          classOverview.map((row) => (
             <View key={`${row.class_id}-${row.section_id}`} style={styles.listRow}>
               <View style={styles.listRowContent}>
                 <Text style={[styles.listTitle, { color: theme.text }]}>
@@ -391,6 +403,11 @@ export default function DashboardTab({ summary, loading, error, onRefresh }: Pro
         ) : (
           <Text style={[styles.emptyText, { color: theme.subText }]}>No active class overview available.</Text>
         )}
+        {remainingClassOverview > 0 ? (
+          <Pressable style={[styles.secondaryGhostBtn, { borderColor: theme.border, backgroundColor: theme.cardMuted }]} onPress={() => setShowAllClassOverview(true)}>
+            <Text style={[styles.secondaryGhostBtnText, { color: theme.text }]}>Show {remainingClassOverview} More</Text>
+          </Pressable>
+        ) : null}
       </View>
     </View>
   );
@@ -705,6 +722,18 @@ return StyleSheet.create({
   retryButtonText: {
     color: theme.primaryText,
     fontWeight: theme.typography.fontWeight.bold,
+  },
+  secondaryGhostBtn: {
+    alignSelf: "flex-start",
+    marginTop: 2,
+    borderWidth: 1,
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  secondaryGhostBtnText: {
+    fontWeight: theme.typography.fontWeight.bold,
+    fontSize: theme.typography.fontSize.sm,
   },
 });
 }

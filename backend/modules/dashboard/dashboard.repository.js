@@ -148,20 +148,33 @@ export async function getClassOverview() {
       c.name AS class_name,
       sec.id AS section_id,
       sec.name AS section_name,
-      COUNT(DISTINCT se.student_id) AS students,
-      COALESCE(SUM(CASE WHEN sa.status IN ('present', 'late') THEN 1 ELSE 0 END), 0) AS present_today
-     FROM student_enrollments se
-     JOIN classes c ON c.id = se.class_id
-     JOIN sections sec ON sec.id = se.section_id
-     LEFT JOIN attendance_sessions sess
-       ON sess.class_id = se.class_id
-      AND sess.section_id = se.section_id
-      AND sess.date = CURDATE()
-     LEFT JOIN student_attendance sa
-       ON sa.attendance_session_id = sess.id
-      AND sa.student_id = se.student_id
-     WHERE se.status = 'active'
-     GROUP BY c.id, c.name, sec.id, sec.name
+      ac.students,
+      COALESCE(pc.present_today, 0) AS present_today
+     FROM (
+       SELECT
+         class_id,
+         section_id,
+         COUNT(DISTINCT student_id) AS students
+       FROM student_enrollments
+       WHERE status = 'active'
+       GROUP BY class_id, section_id
+     ) ac
+     JOIN classes c ON c.id = ac.class_id
+     JOIN sections sec ON sec.id = ac.section_id
+     LEFT JOIN (
+       SELECT
+         sess.class_id,
+         sess.section_id,
+         COUNT(*) AS present_today
+       FROM attendance_sessions sess
+       JOIN student_attendance sa
+         ON sa.attendance_session_id = sess.id
+       WHERE sess.date = CURDATE()
+         AND sa.status IN ('present', 'late')
+       GROUP BY sess.class_id, sess.section_id
+     ) pc
+       ON pc.class_id = ac.class_id
+      AND pc.section_id = ac.section_id
      ORDER BY c.name ASC, sec.name ASC`
   );
 }

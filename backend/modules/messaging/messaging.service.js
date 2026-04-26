@@ -241,11 +241,12 @@ export async function fetchMessages(conversationId, page = 1, limit = 30) {
   return repo.getConversationMessages(conversationId, limit, offset);
 }
 
-export async function fetchUserConversations(userId) {
+export async function fetchUserConversations(userId, filters = {}) {
   await syncTeacherMemberships(userId);
-  const rows = await repo.getUserConversations(userId);
+  const payload = await repo.getUserConversations(userId, filters);
+  const rows = Array.isArray(payload) ? payload : payload?.data || [];
 
-  return rows.map((row) => {
+  const mappedRows = rows.map((row) => {
     if (row.type !== "direct" || !row.other_user_id) {
       return row;
     }
@@ -258,6 +259,15 @@ export async function fetchUserConversations(userId) {
       last_seen_at: presence.last_seen_at,
     };
   });
+
+  if (Array.isArray(payload)) {
+    return mappedRows;
+  }
+
+  return {
+    data: mappedRows,
+    pagination: payload?.pagination || null,
+  };
 }
 
 export async function markRead(conversationId, userId) {

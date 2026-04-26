@@ -931,9 +931,7 @@ export async function getPaymentReceipt(paymentId){
   return rows[0];
 }
 
-export async function getPayments(filters = {}) {
-  const hasScopesTable = await supportsScopesTable();
-  const classScopeExpr = buildClassScopeExpression(hasScopesTable);
+function buildPaymentsWhereClause(filters = {}, classScopeExpr = "COALESCE(c.class_scope, 'school')") {
   const where = [];
   const params = [];
 
@@ -978,7 +976,30 @@ export async function getPayments(filters = {}) {
     params.push(filters.teacher_user_id);
   }
 
-  const whereClause = where.length ? `WHERE ${where.join(" AND ")}` : "";
+  return {
+    whereClause: where.length ? `WHERE ${where.join(" AND ")}` : "",
+    params,
+  };
+}
+
+function buildPaymentsBaseSql(hasScopesTable, whereClause = "") {
+  return `
+    FROM payments p
+    JOIN student_fees sf ON p.student_fee_id = sf.id
+    JOIN student_enrollments e ON sf.enrollment_id = e.id
+    JOIN students s ON e.student_id = s.id
+    JOIN classes c ON e.class_id = c.id
+    ${hasScopesTable ? "LEFT JOIN scopes sc ON sc.id = c.scope_id" : ""}
+    LEFT JOIN streams st ON st.id = e.stream_id
+    JOIN sections sec ON e.section_id = sec.id
+    ${whereClause}
+  `;
+}
+
+export async function getPayments(filters = {}) {
+  const hasScopesTable = await supportsScopesTable();
+  const classScopeExpr = buildClassScopeExpression(hasScopesTable);
+  const { whereClause, params } = buildPaymentsWhereClause(filters, classScopeExpr);
 
   const sql = `
     SELECT
@@ -1000,19 +1021,65 @@ export async function getPayments(filters = {}) {
       sec.name AS section_name,
       sec.medium AS medium,
       DATE(p.created_at) AS payment_date
-    FROM payments p
-    JOIN student_fees sf ON p.student_fee_id = sf.id
-    JOIN student_enrollments e ON sf.enrollment_id = e.id
-    JOIN students s ON e.student_id = s.id
-    JOIN classes c ON e.class_id = c.id
-    ${hasScopesTable ? "LEFT JOIN scopes sc ON sc.id = c.scope_id" : ""}
-    LEFT JOIN streams st ON st.id = e.stream_id
-    JOIN sections sec ON e.section_id = sec.id
-    ${whereClause}
+    ${buildPaymentsBaseSql(hasScopesTable, whereClause)}
     ORDER BY p.created_at DESC
   `;
 
   return query(sql, params);
+}
+
+export async function getPaymentsPaginated(filters = {}, options = {}) {
+  const hasScopesTable = await supportsScopesTable();
+  const classScopeExpr = buildClassScopeExpression(hasScopesTable);
+  const { whereClause, params } = buildPaymentsWhereClause(filters, classScopeExpr);
+  const page = Math.max(1, Number.isFinite(Number(options.page)) ? Math.trunc(Number(options.page)) : 1);
+  const limit = Math.min(100, Math.max(1, Number.isFinite(Number(options.limit)) ? Math.trunc(Number(options.limit)) : 30));
+  const offset = (page - 1) * limit;
+
+  const sql = `
+    SELECT
+      p.id,
+      p.student_fee_id,
+      p.amount_paid,
+      p.remarks,
+      p.status,
+      p.created_at,
+      sf.fee_type,
+      sf.amount AS fee_amount,
+      sf.status AS fee_status,
+      s.id AS student_id,
+      s.name AS student_name,
+      c.name AS class_name,
+      e.stream_id,
+      st.name AS stream_name,
+      ${classScopeExpr} AS class_scope,
+      sec.name AS section_name,
+      sec.medium AS medium,
+      DATE(p.created_at) AS payment_date
+    ${buildPaymentsBaseSql(hasScopesTable, whereClause)}
+    ORDER BY p.created_at DESC
+    LIMIT ? OFFSET ?
+  `;
+
+  const rows = await query(sql, [...params, limit, offset]);
+  const countRows = await query(
+    `
+      SELECT COUNT(*) AS total
+      ${buildPaymentsBaseSql(hasScopesTable, whereClause)}
+    `,
+    params
+  );
+  const total = Number(countRows?.[0]?.total || 0);
+
+  return {
+    data: rows,
+    pagination: {
+      page,
+      limit,
+      total,
+      totalPages: Math.ceil(total / limit),
+    },
+  };
 }
 
 export async function getUserRoleNames(userId) {

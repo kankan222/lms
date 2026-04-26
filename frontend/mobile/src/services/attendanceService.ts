@@ -1,4 +1,8 @@
+import * as FileSystem from "expo-file-system/legacy";
+import * as Sharing from "expo-sharing";
 import { api } from "./api";
+import { ENV } from "../constants/env";
+import { useAuthStore } from "../store/authStore";
 
 type ApiEnvelope<T> = {
   success: boolean;
@@ -120,11 +124,72 @@ export type SubmitStudentAttendancePayload = {
   }>;
 };
 
+type TeacherAttendanceMatrixPdfFilters = {
+  startDate?: string;
+  endDate?: string;
+  teacher_id?: number | string;
+  class_scope?: string;
+};
+
+function buildQuery(params: Record<string, string | number | undefined | null>) {
+  const query = new URLSearchParams();
+  Object.entries(params).forEach(([key, value]) => {
+    if (
+      value !== undefined &&
+      value !== null &&
+      String(value).trim() !== "" &&
+      String(value).trim().toLowerCase() !== "all"
+    ) {
+      query.set(key, String(value));
+    }
+  });
+  return query.toString() ? `?${query.toString()}` : "";
+}
+
 export async function getAllTeacherAttendance(params?: { startDate?: string; endDate?: string }) {
   const response = await api.get<ApiEnvelope<TeacherAttendanceItem[]>>("/teachers/attendance/all", {
     params,
   });
   return response.data.data ?? [];
+}
+
+export async function downloadTeacherAttendanceMatrixPdf(params: TeacherAttendanceMatrixPdfFilters = {}) {
+  const accessToken = useAuthStore.getState().accessToken;
+  if (!accessToken) {
+    throw new Error("Not authenticated");
+  }
+
+  if (!FileSystem.cacheDirectory) {
+    throw new Error("File cache is not available on this device");
+  }
+
+  const query = buildQuery(params);
+  const from = String(params.startDate || "from");
+  const to = String(params.endDate || "to");
+  const url = `${ENV.API_BASE_URL}/teachers/attendance/matrix/pdf${query}`;
+  const target = `${FileSystem.cacheDirectory}teacher-attendance-matrix-${from}-to-${to}.pdf`;
+
+  const download = await FileSystem.downloadAsync(url, target, {
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+    },
+  });
+
+  if (download.status !== 200) {
+    await FileSystem.deleteAsync(download.uri, { idempotent: true });
+    throw new Error("Failed to download teacher attendance PDF");
+  }
+
+  const canShare = await Sharing.isAvailableAsync();
+  if (canShare) {
+    await Sharing.shareAsync(download.uri, {
+      mimeType: "application/pdf",
+      dialogTitle: "Teacher Attendance Matrix",
+      UTI: "com.adobe.pdf",
+    });
+  }
+
+  return download.uri;
 }
 
 export async function getStudentAttendanceEntryScopes() {

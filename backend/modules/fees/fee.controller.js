@@ -172,11 +172,16 @@ export async function downloadReceipt(req,res){
 }
 
 export async function getPayments(req, res) {
-  const result = await feeService.getPayments({
+  const data = await feeService.getPayments({
     ...(req.query || {}),
     userId: req.user?.userId
   });
-  res.json({ data: result });
+
+  if (data && typeof data === "object" && Array.isArray(data.data)) {
+    return res.json({ data: data.data, pagination: data.pagination || null });
+  }
+
+  res.json({ data });
 }
 
 export async function exportPaymentsCsv(req, res) {

@@ -26,7 +26,15 @@ export async function getMessages(req, res) {
 export async function getConversations(req, res) {
   try {
     const userId = req.user.userId;
-    const data = await service.fetchUserConversations(userId);
+    const filters = {};
+    if (req.query.page !== undefined) filters.page = req.query.page;
+    if (req.query.limit !== undefined) filters.limit = req.query.limit;
+
+    const data = await service.fetchUserConversations(userId, filters);
+    if (data && typeof data === "object" && Array.isArray(data.data)) {
+      return res.json({ success: true, data: data.data, pagination: data.pagination || null });
+    }
+
     res.json({ success: true, data });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });

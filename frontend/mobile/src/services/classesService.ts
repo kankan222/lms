@@ -4,6 +4,12 @@ type ApiEnvelope<T> = {
   success: boolean;
   data: T;
   message?: string;
+  pagination?: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+  } | null;
 };
 
 export type ClassScope = "school" | "hs";
@@ -59,9 +65,32 @@ export type ClassPayload = {
   sections: Array<{ name: string; medium: SectionMedium }>;
 };
 
-export async function getClasses() {
-  const response = await api.get<ApiEnvelope<ClassItem[]>>("/academic/classes");
-  return response.data.data ?? [];
+export type PaginationMeta = {
+  page: number;
+  limit: number;
+  total: number;
+  totalPages: number;
+};
+
+export type ClassListResult = {
+  data: ClassItem[];
+  pagination: PaginationMeta | null;
+};
+
+export async function getClasses(options?: { page?: number; limit?: number }): Promise<ClassListResult> {
+  const params: Record<string, number> = {};
+  if (Number.isFinite(options?.page)) {
+    params.page = Number(options?.page);
+  }
+  if (Number.isFinite(options?.limit)) {
+    params.limit = Number(options?.limit);
+  }
+
+  const response = await api.get<ApiEnvelope<ClassItem[]>>("/academic/classes", { params });
+  return {
+    data: response.data.data ?? [],
+    pagination: response.data.pagination ?? null,
+  };
 }
 
 export async function createClass(payload: ClassPayload) {

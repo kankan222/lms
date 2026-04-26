@@ -105,7 +105,13 @@ function csvEscape(value) {
 function buildPaymentQueryFilters(filters = {}) {
   const queryFilters = { ...(filters || {}) };
   const userId = queryFilters.userId;
+  const rawPage = Number(queryFilters.page);
+  const rawLimit = Number(queryFilters.limit);
+  const hasPagination = Number.isFinite(rawPage) || Number.isFinite(rawLimit);
+
   delete queryFilters.userId;
+  delete queryFilters.page;
+  delete queryFilters.limit;
 
   if (queryFilters.stream_id !== undefined && queryFilters.stream_id !== null && queryFilters.stream_id !== "") {
     const parsedStreamId = parsePositiveInt(queryFilters.stream_id);
@@ -131,7 +137,14 @@ function buildPaymentQueryFilters(filters = {}) {
     throw new AppError("date_from cannot be after date_to", 400);
   }
 
-  return { userId, queryFilters };
+  const pagination = hasPagination
+    ? {
+        page: Math.max(1, Number.isFinite(rawPage) ? Math.trunc(rawPage) : 1),
+        limit: Math.min(100, Math.max(1, Number.isFinite(rawLimit) ? Math.trunc(rawLimit) : 30)),
+      }
+    : null;
+
+  return { userId, queryFilters, pagination };
 }
 
 async function getUserFlags(userId) {
@@ -499,7 +512,7 @@ export async function generateReceipt(paymentId, user) {
 }
 
 export async function getPayments(filters = {}) {
-  const { userId, queryFilters } = buildPaymentQueryFilters(filters);
+  const { userId, queryFilters, pagination } = buildPaymentQueryFilters(filters);
 
   if (userId) {
     const flags = await getUserFlags(userId);
@@ -508,11 +521,16 @@ export async function getPayments(filters = {}) {
     }
   }
 
+  if (pagination) {
+    return repo.getPaymentsPaginated(queryFilters, pagination);
+  }
+
   return repo.getPayments(queryFilters);
 }
 
 export async function exportPaymentsCsv(filters = {}) {
-  const rows = await getPayments(filters);
+  const result = await getPayments(filters);
+  const rows = Array.isArray(result) ? result : result?.data || [];
 
   const headers = [
     "payment_id",

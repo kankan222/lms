@@ -18,6 +18,7 @@ import DateField from "../../components/form/DateField";
 import SelectField from "../../components/form/SelectField";
 import {
   AbsenceMessageTemplate,
+  downloadTeacherAttendanceMatrixPdf,
   getAbsenceMessageTemplates,
   getAllTeacherAttendance,
   getPendingStudentAttendance,
@@ -258,6 +259,7 @@ export default function AttendanceTab() {
   const [teacherLogPreset, setTeacherLogPreset] = useState<RangePreset>("today");
   const [teacherLogDraftRange, setTeacherLogDraftRange] = useState<DateRange>(() => resolvePresetRange("today"));
   const [teacherLogAppliedRange, setTeacherLogAppliedRange] = useState<DateRange>(() => resolvePresetRange("today"));
+  const [teacherPdfDownloading, setTeacherPdfDownloading] = useState(false);
 
   const availableClasses = useMemo(() => {
     if (!entryScopes.restricted) return classes;
@@ -642,6 +644,32 @@ export default function AttendanceTab() {
     }
     setTeacherLogPreset("custom");
     setTeacherLogAppliedRange({ from, to });
+  }
+
+  async function handleDownloadTeacherLogsPdf() {
+    const from = String(teacherLogAppliedRange.from || "");
+    const to = String(teacherLogAppliedRange.to || "");
+    if (!from || !to) {
+      Alert.alert("Validation", "Select both start and end dates.");
+      return;
+    }
+
+    setTeacherPdfDownloading(true);
+    try {
+      await downloadTeacherAttendanceMatrixPdf({
+        startDate: from,
+        endDate: to,
+      });
+      setNotice({
+        title: "Teacher Logs Downloaded",
+        message: "Teacher attendance matrix PDF has been downloaded.",
+        tone: "success",
+      });
+    } catch (err: unknown) {
+      Alert.alert("Download failed", getErrorMessage(err, "Could not download teacher attendance PDF."));
+    } finally {
+      setTeacherPdfDownloading(false);
+    }
   }
 
   async function applyNotifyPreset(preset: Exclude<RangePreset, "custom">) {
@@ -1067,9 +1095,18 @@ export default function AttendanceTab() {
             />
           </View>
 
-          <Pressable style={[styles.secondaryBtn, styles.notifyResetBtn]} onPress={handleViewTeacherLogRange}>
-            <Text style={styles.secondaryBtnText}>View Range</Text>
-          </Pressable>
+          <View style={styles.rowActions}>
+            <Pressable style={styles.secondaryBtn} onPress={handleViewTeacherLogRange}>
+              <Text style={styles.secondaryBtnText}>View Range</Text>
+            </Pressable>
+            <Pressable
+              style={[styles.successBtn, teacherPdfDownloading && styles.btnDisabled]}
+              onPress={handleDownloadTeacherLogsPdf}
+              disabled={teacherPdfDownloading}
+            >
+              <Text style={styles.successBtnText}>{teacherPdfDownloading ? "Downloading..." : "Download PDF"}</Text>
+            </Pressable>
+          </View>
 
           <TextInput style={styles.input} value={teacherSearch} onChangeText={setTeacherSearch} placeholder="Search teacher name" placeholderTextColor="#94a3b8" />
           <Text style={styles.detailText}>
@@ -1147,6 +1184,7 @@ return StyleSheet.create({
   successBtnText: { color: theme.successText, fontWeight: "700" },
   deleteBtn: { backgroundColor: theme.dangerSoft, borderWidth: 1, borderColor: theme.dangerBorder, paddingHorizontal: 14, paddingVertical: 11, borderRadius: 12, alignItems: "center", justifyContent: "center" },
   deleteBtnText: { color: theme.danger, fontWeight: "700" },
+  btnDisabled: { opacity: 0.55 },
   infoCard: { borderWidth: 1, borderColor: theme.border, borderRadius: 16, padding: 12, backgroundColor: theme.cardMuted, gap: 4 },
   infoTitle: { color: theme.text, fontWeight: "800" },
   infoText: { color: theme.subText, lineHeight: 18 },

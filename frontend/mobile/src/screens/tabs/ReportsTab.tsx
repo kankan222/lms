@@ -72,6 +72,7 @@ const EMPTY_SELF_FILTERS = {
   exam_id: "",
   student_id: "",
 };
+const GRID_BATCH_SIZE = 30;
 
 const DEFAULT_THEME = {
   isDark: false,
@@ -333,6 +334,7 @@ export default function ReportsTab() {
   const [selfReport, setSelfReport] = useState<StudentReport | null>(null);
   const [selectedStudentIds, setSelectedStudentIds] = useState<number[]>([]);
   const [editedMarks, setEditedMarks] = useState<Record<number, string>>({});
+  const [visibleRowCount, setVisibleRowCount] = useState(GRID_BATCH_SIZE);
   const [editMode, setEditMode] = useState(false);
   const [pendingQueue, setPendingQueue] = useState<PendingApprovalQueue>({ total_pending: 0, groups: [] });
   const [approvalSummary, setApprovalSummary] = useState<MarksApprovalSummary>({ pending: 0, draft: 0, approved: 0 });
@@ -472,7 +474,13 @@ export default function ReportsTab() {
     );
   }, [grid]);
 
-  const allSelected = Boolean(grid?.rows?.length) && selectedStudentIds.length === (grid?.rows?.length || 0);
+  const visibleGridRows = useMemo(
+    () => (grid?.rows || []).slice(0, visibleRowCount),
+    [grid?.rows, visibleRowCount],
+  );
+  const hasMoreGridRows = (grid?.rows?.length || 0) > visibleRowCount;
+  const allVisibleSelected = Boolean(visibleGridRows.length)
+    && visibleGridRows.every((row) => selectedStudentIds.includes(Number(row.student_id)));
 
   useEffect(() => {
     setActiveTab(tabs[0]?.key || "entry");
@@ -696,6 +704,61 @@ export default function ReportsTab() {
     }
   }, [activeTab, pendingQueue, loading, isAdmin, filters.exam_id, filters.class_id, filters.section_id, filters.subject_id, filters.approval_status, editMode]);
 
+  useEffect(() => {
+    if (!isAdmin || loading || activeTab !== "review") return undefined;
+
+    let cancelled = false;
+
+    const refreshPendingReview = async () => {
+      if (cancelled || gridLoading) return;
+
+      try {
+        const [queue, summary] = await Promise.all([
+          getPendingApprovalQueue(),
+          getMarksApprovalSummary(),
+        ]);
+        if (cancelled) return;
+
+        setPendingQueue(queue || { total_pending: 0, groups: [] });
+        setApprovalSummary(summary || { pending: 0, draft: 0, approved: 0 });
+
+        if (
+          !editMode &&
+          !selectedStudentIds.length &&
+          filters.exam_id &&
+          filters.class_id &&
+          filters.section_id &&
+          filters.subject_id
+        ) {
+          const data = await getMarksGrid(filters);
+          if (!cancelled) {
+            resetGridState(data);
+          }
+        }
+      } catch {
+        // Silent background refresh failure to preserve current review state.
+      }
+    };
+
+    void refreshPendingReview();
+    const timer = setInterval(() => {
+      void refreshPendingReview();
+    }, 8000);
+
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [
+    activeTab,
+    editMode,
+    filters,
+    gridLoading,
+    isAdmin,
+    loading,
+    selectedStudentIds.length,
+  ]);
+
   async function loadBootstrap() {
     setLoading(true);
     try {
@@ -754,6 +817,7 @@ export default function ReportsTab() {
 
   function resetGridState(nextGrid: MarksGridData) {
     setGrid(nextGrid);
+    setVisibleRowCount(GRID_BATCH_SIZE);
     setSelectedStudentIds([]);
     const draft: Record<number, string> = {};
     (nextGrid.rows || []).forEach((row) => {
@@ -808,18 +872,34 @@ export default function ReportsTab() {
   }
 
   function toggleAllRows() {
-    if (!grid?.rows?.length) {
+    if (!visibleGridRows.length) {
       setSelectedStudentIds([]);
       return;
     }
 
-    setSelectedStudentIds((prev) =>
-      prev.length === grid.rows.length ? [] : grid.rows.map((row) => Number(row.student_id)),
-    );
+    setSelectedStudentIds((prev) => {
+      const visibleIds = visibleGridRows.map((row) => Number(row.student_id));
+      const visibleSet = new Set(visibleIds);
+      const hasUnselectedVisible = visibleIds.some((id) => !prev.includes(id));
+
+      if (!hasUnselectedVisible) {
+        return prev.filter((id) => !visibleSet.has(id));
+      }
+
+      return [...new Set([...prev, ...visibleIds])];
+    });
   }
 
   function updateMarksValue(studentId: number, value: string) {
     setEditedMarks((prev) => ({ ...prev, [studentId]: value }));
+  }
+
+  function loadMoreGridRows() {
+    setVisibleRowCount((prev) => {
+      const total = grid?.rows?.length || 0;
+      if (!total) return GRID_BATCH_SIZE;
+      return Math.min(prev + GRID_BATCH_SIZE, total);
+    });
   }
 
   function getFocusedInputNode() {
@@ -1190,7 +1270,7 @@ export default function ReportsTab() {
               onPress={toggleAllRows}
               disabled={!canSelectRows}
             >
-              <Text style={[styles.secondaryBtnText, { color: theme.text }]}>{allSelected ? "Clear Selection" : "Select All"}</Text>
+              <Text style={[styles.secondaryBtnText, { color: theme.text }]}>{allVisibleSelected ? "Clear Visible" : "Select Visible"}</Text>
             </Pressable>
           ) : null}
 
@@ -1266,9 +1346,9 @@ export default function ReportsTab() {
 
         {gridLoading ? <ActivityIndicator size="large" color={theme.primary} /> : null}
 
-        {grid?.rows?.length ? (
+        {visibleGridRows.length ? (
           <View>
-            {grid.rows.map((row) => (
+            {visibleGridRows.map((row) => (
               <Pressable
                 key={row.student_id}
                 style={[
@@ -1326,7 +1406,7 @@ export default function ReportsTab() {
                             focusedStudentIdRef.current = null;
                           }
                         }}
-                        placeholder={`0-${grid.subject.max_marks}`}
+                        placeholder={`0-${grid?.subject?.max_marks ?? ""}`}
                         placeholderTextColor={theme.mutedText}
                       />
                     ) : (
@@ -1346,6 +1426,16 @@ export default function ReportsTab() {
                 </View>
               </Pressable>
             ))}
+            {hasMoreGridRows ? (
+              <Pressable
+                style={[styles.loadMoreBtn, { borderColor: theme.border, backgroundColor: theme.cardMuted }]}
+                onPress={loadMoreGridRows}
+              >
+                <Text style={[styles.loadMoreBtnText, { color: theme.text }]}>
+                  Load More ({visibleGridRows.length}/{grid?.rows?.length || 0})
+                </Text>
+              </Pressable>
+            ) : null}
           </View>
         ) : (
           <Text style={[styles.emptyText, { color: theme.subText }]}>{emptyMessage}</Text>
@@ -1830,6 +1920,19 @@ return StyleSheet.create({
   },
   smallSecondaryBtnText: {
     color: "#334155",
+    fontWeight: "700",
+    fontSize: 12,
+  },
+  loadMoreBtn: {
+    marginTop: 10,
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  loadMoreBtnText: {
     fontWeight: "700",
     fontSize: 12,
   },

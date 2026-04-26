@@ -10,7 +10,7 @@ import {
   type TeacherAttendanceRow,
   type TeacherItem,
 } from "../../../services/teachersService";
-import { formatDateLabel } from "../../../utils/format";
+import { formatDateLabel, formatTimeLabel } from "../../../utils/format";
 import DateField from "../../../components/form/DateField";
 import TopNotice from "../../../components/feedback/TopNotice";
 import { useAppTheme } from "../../../theme/AppThemeProvider";
@@ -22,6 +22,61 @@ type Props = {
 
 type TabKey = "overview" | "assignments" | "attendance" | "security";
 type Notice = { title: string; message: string; tone: "success" | "error" } | null;
+type AttendancePreset = "today" | "week" | "month" | "custom";
+type DateRange = { from: string; to: string };
+
+const ATTENDANCE_PAGE_SIZE = 10;
+
+function formatDateInputValue(value: Date | string) {
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const year = String(date.getFullYear());
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function startOfInputDate(value: string) {
+  const date = new Date(`${value}T00:00:00`);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function resolveAttendancePresetRange(preset: Exclude<AttendancePreset, "custom">): DateRange {
+  const end = new Date();
+  end.setHours(0, 0, 0, 0);
+  const start = new Date(end);
+
+  if (preset === "week") {
+    start.setDate(start.getDate() - 6);
+  } else if (preset === "month") {
+    start.setDate(start.getDate() - 29);
+  }
+
+  return {
+    from: formatDateInputValue(start),
+    to: formatDateInputValue(end),
+  };
+}
+
+function toDateKey(value?: string | null) {
+  if (!value) return "";
+  return formatDateInputValue(value);
+}
+
+function buildDateRangeKeys(from?: string, to?: string) {
+  if (!from || !to || from > to) return [] as string[];
+  const fromDate = startOfInputDate(from);
+  const toDate = startOfInputDate(to);
+  if (!fromDate || !toDate) return [] as string[];
+
+  const keys: string[] = [];
+  const cursor = new Date(fromDate);
+  while (cursor.getTime() <= toDate.getTime()) {
+    keys.push(formatDateInputValue(cursor));
+    cursor.setDate(cursor.getDate() + 1);
+  }
+  return keys;
+}
 
 function getErrorMessage(err: unknown, fallback: string) {
   if (typeof err === "object" && err && "response" in err) {
@@ -137,7 +192,14 @@ export default function TeacherDetailsModule({ teacherId, canManageTeachers }: P
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<TabKey>("overview");
-  const [attendanceFilters, setAttendanceFilters] = useState({ startDate: "", endDate: "" });
+  const [attendancePreset, setAttendancePreset] = useState<AttendancePreset>("month");
+  const [attendanceDraftRange, setAttendanceDraftRange] = useState<DateRange>(() =>
+    resolveAttendancePresetRange("month"),
+  );
+  const [attendanceAppliedRange, setAttendanceAppliedRange] = useState<DateRange>(() =>
+    resolveAttendancePresetRange("month"),
+  );
+  const [currentPage, setCurrentPage] = useState(1);
   const [passwordForm, setPasswordForm] = useState({ newPassword: "", confirmPassword: "" });
   const [resetting, setResetting] = useState(false);
   const [notice, setNotice] = useState<Notice>(null);
@@ -159,8 +221,8 @@ export default function TeacherDetailsModule({ teacherId, canManageTeachers }: P
           getTeacher(teacherId),
           getTeacherAssignments(teacherId),
           getTeacherAttendance(teacherId, {
-            startDate: attendanceFilters.startDate || undefined,
-            endDate: attendanceFilters.endDate || undefined,
+            startDate: attendanceAppliedRange.from || undefined,
+            endDate: attendanceAppliedRange.to || undefined,
           }),
         ]);
         if (ignore) return;
@@ -174,7 +236,11 @@ export default function TeacherDetailsModule({ teacherId, canManageTeachers }: P
       }
     })();
     return () => { ignore = true; };
-  }, [teacherId, attendanceFilters.startDate, attendanceFilters.endDate]);
+  }, [teacherId, attendanceAppliedRange.from, attendanceAppliedRange.to]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [attendance]);
 
   const photoUri = resolveTeacherPhotoUrl(teacher?.photo_url);
   const punchInCount = useMemo(() => attendance.filter((row) => String(row.punch_type || "").toLowerCase() === "in").length, [attendance]);
@@ -210,6 +276,63 @@ export default function TeacherDetailsModule({ teacherId, canManageTeachers }: P
       ),
     [assignments],
   );
+  const attendanceDateKeys = useMemo(
+    () => buildDateRangeKeys(attendanceAppliedRange.from, attendanceAppliedRange.to),
+    [attendanceAppliedRange.from, attendanceAppliedRange.to],
+  );
+  const presentDays = useMemo(() => {
+    const daySet = new Set<string>();
+    attendance.forEach((row) => {
+      const dateKey = toDateKey(row.punch_time);
+      if (dateKey) daySet.add(dateKey);
+    });
+    return daySet.size;
+  }, [attendance]);
+  const totalDaysInRange = attendanceDateKeys.length;
+  const absentDays = Math.max(totalDaysInRange - presentDays, 0);
+  const logSummary = useMemo(
+    () =>
+      attendance.reduce(
+        (acc, row) => {
+          const punchType = String(row?.punch_type || "").trim().toLowerCase();
+          if (punchType === "in") acc.in += 1;
+          else if (punchType === "out") acc.out += 1;
+          else acc.unknown += 1;
+          return acc;
+        },
+        { in: 0, out: 0, unknown: 0 },
+      ),
+    [attendance],
+  );
+  const totalPages = Math.max(1, Math.ceil(attendance.length / ATTENDANCE_PAGE_SIZE));
+  const paginatedAttendance = useMemo(
+    () => attendance.slice((currentPage - 1) * ATTENDANCE_PAGE_SIZE, currentPage * ATTENDANCE_PAGE_SIZE),
+    [attendance, currentPage],
+  );
+  const currentStart = attendance.length ? (currentPage - 1) * ATTENDANCE_PAGE_SIZE + 1 : 0;
+  const currentEnd = Math.min(currentPage * ATTENDANCE_PAGE_SIZE, attendance.length);
+
+  function handleAttendancePresetChange(preset: Exclude<AttendancePreset, "custom">) {
+    const nextRange = resolveAttendancePresetRange(preset);
+    setAttendancePreset(preset);
+    setAttendanceDraftRange(nextRange);
+    setAttendanceAppliedRange(nextRange);
+  }
+
+  function handleViewAttendanceRange() {
+    const from = String(attendanceDraftRange.from || "");
+    const to = String(attendanceDraftRange.to || "");
+    if (!from || !to) {
+      Alert.alert("Validation", "Select both start and end date.");
+      return;
+    }
+    if (from > to) {
+      Alert.alert("Validation", "Start date cannot be later than end date.");
+      return;
+    }
+    setAttendancePreset("custom");
+    setAttendanceAppliedRange({ from, to });
+  }
 
   async function handleResetPassword() {
     if (!teacher?.user_id) return;
@@ -336,28 +459,94 @@ export default function TeacherDetailsModule({ teacherId, canManageTeachers }: P
       {activeTab === "attendance" ? (
         <SectionCard title="Attendance Logs" hint={`${attendance.length} records`}>
           <View style={styles.filterBlock}>
-            <Text style={styles.inputLabel}>Date range</Text>
+            <Text style={[styles.inputLabel, { color: theme.text }]}>Date range</Text>
+            <View style={styles.filterRow}>
+              <FilterChip label="Today" active={attendancePreset === "today"} onPress={() => handleAttendancePresetChange("today")} />
+              <FilterChip label="Week" active={attendancePreset === "week"} onPress={() => handleAttendancePresetChange("week")} />
+              <FilterChip label="Month" active={attendancePreset === "month"} onPress={() => handleAttendancePresetChange("month")} />
+              <FilterChip label="Custom" active={attendancePreset === "custom"} onPress={() => setAttendancePreset("custom")} />
+            </View>
             <View style={styles.inputRow}>
               <View style={styles.inputHalf}>
-                <DateField value={attendanceFilters.startDate} onChange={(value) => setAttendanceFilters((prev) => ({ ...prev, startDate: value }))} placeholder="From date" />
+                <DateField
+                  value={attendanceDraftRange.from}
+                  onChange={(value) => {
+                    setAttendancePreset("custom");
+                    setAttendanceDraftRange((prev) => ({ ...prev, from: value }));
+                  }}
+                  placeholder="From date"
+                />
               </View>
               <View style={styles.inputHalf}>
-                <DateField value={attendanceFilters.endDate} onChange={(value) => setAttendanceFilters((prev) => ({ ...prev, endDate: value }))} placeholder="To date" />
+                <DateField
+                  value={attendanceDraftRange.to}
+                  onChange={(value) => {
+                    setAttendancePreset("custom");
+                    setAttendanceDraftRange((prev) => ({ ...prev, to: value }));
+                  }}
+                  placeholder="To date"
+                />
               </View>
             </View>
-            <Pressable style={[styles.secondaryBtn, { borderColor: theme.border, backgroundColor: theme.card }]} onPress={() => setAttendanceFilters({ startDate: "", endDate: "" })}><Text style={[styles.secondaryBtnText, { color: theme.text }]}>Reset Filters</Text></Pressable>
+            <Pressable
+              style={[styles.secondaryBtn, { borderColor: theme.border, backgroundColor: theme.card }]}
+              onPress={handleViewAttendanceRange}
+            >
+              <Text style={[styles.secondaryBtnText, { color: theme.text }]}>View Range</Text>
+            </Pressable>
           </View>
-          {attendance.length ? attendance.map((row) => (
+
+          <View style={styles.summaryPills}>
+            <Text style={[styles.summaryPill, styles.summaryPillDefault]}>Range: {attendanceAppliedRange.from || "-"} to {attendanceAppliedRange.to || "-"}</Text>
+            <Text style={[styles.summaryPill, styles.summaryPillGreen]}>Present Days: {presentDays}</Text>
+            <Text style={[styles.summaryPill, styles.summaryPillRed]}>Absent Days: {absentDays}</Text>
+            <Text style={[styles.summaryPill, styles.summaryPillDefault]}>Total Days: {totalDaysInRange}</Text>
+            <Text style={[styles.summaryPill, styles.summaryPillBlue]}>IN/OUT: {logSummary.in}/{logSummary.out}</Text>
+            <Text style={[styles.summaryPill, styles.summaryPillAmber]}>Unknown: {logSummary.unknown}</Text>
+          </View>
+
+          {paginatedAttendance.length ? paginatedAttendance.map((row) => (
             <View key={row.id} style={[styles.listCard, { borderColor: theme.border, backgroundColor: theme.cardMuted }]}>
               <View style={styles.rowBetween}>
-                <Text style={[styles.listTitle, { color: theme.text }]}>{formatDateLabel(row.punch_time)}</Text>
+                <Text style={[styles.listTitle, { color: theme.text }]}>{formatTimeLabel(row.punch_time)}</Text>
                 <StatusChip value={row.punch_type} />
               </View>
-              <Text style={[styles.listMeta, { color: theme.subText }]}>Punch time: {formatDateLabel(row.punch_time)}</Text>
+              <Text style={[styles.listMeta, { color: theme.subText }]}>Date: {formatDateLabel(row.punch_time)}</Text>
               <Text style={[styles.listMeta, { color: theme.subText }]}>Device: {row.device_name || row.device_code || "-"}</Text>
               <Text style={[styles.listMeta, { color: theme.subText }]}>Location: {row.location || "-"}</Text>
             </View>
-          )) : <Text style={[styles.emptyText, { color: theme.subText }]}>No attendance records found for this teacher.</Text>}
+          )) : <Text style={[styles.emptyText, { color: theme.subText }]}>No attendance logs found for the selected range.</Text>}
+
+          <View style={styles.paginationRow}>
+            <Text style={[styles.paginationMeta, { color: theme.subText }]}>
+              Showing {currentStart}-{currentEnd} of {attendance.length}
+            </Text>
+            <View style={styles.paginationActions}>
+              <Pressable
+                style={[
+                  styles.pageBtn,
+                  { borderColor: theme.border, backgroundColor: theme.card },
+                  currentPage <= 1 && styles.btnDisabled,
+                ]}
+                onPress={() => setCurrentPage((prev) => Math.max(prev - 1, 1))}
+                disabled={currentPage <= 1}
+              >
+                <Text style={[styles.secondaryBtnText, { color: theme.text }]}>Previous</Text>
+              </Pressable>
+              <Text style={[styles.paginationMeta, { color: theme.subText }]}>Page {currentPage} of {totalPages}</Text>
+              <Pressable
+                style={[
+                  styles.pageBtn,
+                  { borderColor: theme.border, backgroundColor: theme.card },
+                  currentPage >= totalPages && styles.btnDisabled,
+                ]}
+                onPress={() => setCurrentPage((prev) => Math.min(prev + 1, totalPages))}
+                disabled={currentPage >= totalPages}
+              >
+                <Text style={[styles.secondaryBtnText, { color: theme.text }]}>Next</Text>
+              </Pressable>
+            </View>
+          </View>
         </SectionCard>
       ) : null}
 
@@ -417,12 +606,24 @@ const styles = StyleSheet.create({
   statusChip: { borderWidth: 1, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 5 },
   statusChipText: { fontSize: 12, fontWeight: "700" },
   filterBlock: { gap: 10 },
+  filterRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   inputLabel: { color: "#334155", fontWeight: "700" },
   inputRow: { flexDirection: "row", gap: 10 },
   input: { borderWidth: 1, borderColor: "#cbd5e1", borderRadius: 14, backgroundColor: "#ffffff", paddingHorizontal: 12, paddingVertical: 11, color: "#0f172a" },
   inputHalf: { flex: 1 },
   secondaryBtn: { alignSelf: "flex-start", borderWidth: 1, borderColor: "#cbd5e1", backgroundColor: "#ffffff", paddingHorizontal: 14, paddingVertical: 11, borderRadius: 12, alignItems: "center", justifyContent: "center" },
   secondaryBtnText: { color: "#334155", fontWeight: "700" },
+  summaryPills: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  summaryPill: { borderWidth: 1, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 6, fontSize: 12, fontWeight: "700" },
+  summaryPillDefault: { borderColor: "#cbd5e1", backgroundColor: "#f8fafc", color: "#334155" },
+  summaryPillGreen: { borderColor: "#bbf7d0", backgroundColor: "#f0fdf4", color: "#166534" },
+  summaryPillRed: { borderColor: "#fecaca", backgroundColor: "#fef2f2", color: "#b91c1c" },
+  summaryPillBlue: { borderColor: "#bfdbfe", backgroundColor: "#eff6ff", color: "#1d4ed8" },
+  summaryPillAmber: { borderColor: "#fde68a", backgroundColor: "#fffbeb", color: "#b45309" },
+  paginationRow: { gap: 10, paddingTop: 2 },
+  paginationMeta: { color: "#64748b", fontSize: 12, fontWeight: "600" },
+  paginationActions: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 8 },
+  pageBtn: { borderWidth: 1, borderColor: "#cbd5e1", backgroundColor: "#ffffff", paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10, alignItems: "center", justifyContent: "center" },
   successBtn: { backgroundColor: "#15803d", paddingHorizontal: 14, paddingVertical: 11, borderRadius: 12, alignItems: "center", justifyContent: "center" },
   successBtnText: { color: "#ffffff", fontWeight: "700" },
   btnDisabled: { opacity: 0.45 },

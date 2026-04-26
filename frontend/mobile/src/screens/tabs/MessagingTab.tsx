@@ -3,13 +3,13 @@ import {
   ActivityIndicator,
   Alert,
   BackHandler,
+  FlatList,
   Image,
   Keyboard,
   KeyboardAvoidingView,
   Modal,
   Platform,
   Pressable,
-  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
@@ -70,6 +70,10 @@ const EMPTY_COMPOSE: Compose = {
   section_id: "",
   teacher_type: "all",
 };
+const CONVERSATIONS_PAGE_SIZE = 30;
+const MESSAGE_PAGE_SIZE = 40;
+const MESSAGE_SYNC_INTERVAL_MS = 6000;
+const RECIPIENTS_INITIAL_LIMIT = 80;
 
 const DEFAULT_THEME = {
   bg: "#f8fafc",
@@ -166,9 +170,17 @@ export default function MessagingTab({
   const [composeClassFilter, setComposeClassFilter] = useState("");
   const [composeSectionFilter, setComposeSectionFilter] = useState("");
   const [composeTeacherTypeFilter, setComposeTeacherTypeFilter] = useState<"all" | "school" | "college">("all");
+  const [showAllRecipients, setShowAllRecipients] = useState(false);
   const [composeOpen, setComposeOpen] = useState(false);
   const [loadingConversations, setLoadingConversations] = useState(true);
+  const [loadingMoreConversations, setLoadingMoreConversations] = useState(false);
+  const [conversationsPage, setConversationsPage] = useState(1);
+  const [conversationsHasMore, setConversationsHasMore] = useState(false);
+  const [conversationsTotal, setConversationsTotal] = useState<number | null>(null);
   const [loadingMessages, setLoadingMessages] = useState(false);
+  const [loadingMoreMessages, setLoadingMoreMessages] = useState(false);
+  const [messagesPage, setMessagesPage] = useState(1);
+  const [messagesHasMore, setMessagesHasMore] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [sending, setSending] = useState(false);
   const [pendingConversationTarget, setPendingConversationTarget] = useState<ConversationTargetPayload | null>(null);
@@ -176,8 +188,7 @@ export default function MessagingTab({
   const [keyboardHeight, setKeyboardHeight] = useState(0);
   const [notice, setNotice] = useState<Notice>(null);
   const lastHandledIntentTokenRef = useRef<number | null>(null);
-  const messagesScrollRef = useRef<ScrollView | null>(null);
-  const shouldScrollToLatestRef = useRef(false);
+  const messagesListRef = useRef<FlatList<MessageItem> | null>(null);
 
   const activeConversation = useMemo(
     () => conversations.find((item) => Number(item.id) === Number(activeConversationId)) ?? null,
@@ -309,6 +320,11 @@ export default function MessagingTab({
     () => recipientOptions.find((item) => String(item.user_id) === compose.recipient_user_id) ?? null,
     [recipientOptions, compose.recipient_user_id],
   );
+  const visibleRecipientOptions = useMemo(
+    () => (showAllRecipients ? recipientOptions : recipientOptions.slice(0, RECIPIENTS_INITIAL_LIMIT)),
+    [recipientOptions, showAllRecipients],
+  );
+  const hiddenRecipientCount = Math.max(recipientOptions.length - visibleRecipientOptions.length, 0);
   const sectionsBySelectedClass = useMemo(
     () => targets.sections.filter((item) => String(item.class_id) === compose.class_id),
     [targets.sections, compose.class_id],
@@ -394,7 +410,7 @@ export default function MessagingTab({
 
   useEffect(() => {
     if (screen !== "chat" || !activeConversationId) return;
-    void loadMessagesForConversation(activeConversationId, false, { scrollToLatest: true });
+    void loadMessagesForConversation(activeConversationId, false, { scrollToLatest: true, mode: "reset" });
   }, [activeConversationId, screen]);
 
   useEffect(() => {
@@ -416,9 +432,9 @@ export default function MessagingTab({
     const timer = setInterval(() => {
       void loadConversations(true);
       if (screen === "chat" && activeConversationId) {
-        void loadMessagesForConversation(activeConversationId, true);
+        void loadMessagesForConversation(activeConversationId, true, { mode: "poll" });
       }
-    }, 4000);
+    }, MESSAGE_SYNC_INTERVAL_MS);
 
     return () => clearInterval(timer);
   }, [activeConversationId, screen, isVisible]);
@@ -445,32 +461,74 @@ export default function MessagingTab({
     setComposeClassFilter(intent.classId ? String(intent.classId) : "");
     setComposeSectionFilter(intent.sectionId ? String(intent.sectionId) : "");
     setComposeTeacherTypeFilter("all");
+    setShowAllRecipients(false);
     void loadTargets();
     onParentConversationIntentHandled?.(intent.token);
   }, [parentConversationIntent, onParentConversationIntentHandled]);
+
+  useEffect(() => {
+    setShowAllRecipients(false);
+  }, [compose.target_type, composeSearch, composeRoleFilter, composeClassFilter, composeSectionFilter, composeTeacherTypeFilter]);
 
   async function loadBootstrap() {
     await Promise.all([loadConversations(), loadTargets()]);
   }
 
-  async function loadConversations(silent = false) {
-    if (!silent) setLoadingConversations(true);
+  async function loadConversations(silent = false, mode: "reset" | "loadMore" = "reset") {
+    if (mode === "loadMore") {
+      if (loadingMoreConversations || !conversationsHasMore) return;
+      setLoadingMoreConversations(true);
+    } else if (!silent) {
+      setLoadingConversations(true);
+    }
+
     try {
-      const rows = await getConversations();
-      setConversations(rows);
+      const nextPage = mode === "loadMore" ? conversationsPage + 1 : 1;
+      const result = await getConversations({ page: nextPage, limit: CONVERSATIONS_PAGE_SIZE });
+      const rows = result.data || [];
+
+      if (mode === "loadMore") {
+        setConversations((prev) => {
+          const ids = new Set(prev.map((item) => Number(item.id)));
+          return [...prev, ...rows.filter((item) => !ids.has(Number(item.id)))];
+        });
+      } else {
+        setConversations(rows);
+      }
+      setConversationsPage(nextPage);
+      setConversationsTotal(result.pagination?.total ?? null);
+      if (result.pagination) {
+        setConversationsHasMore(nextPage < Number(result.pagination.totalPages || 0));
+      } else {
+        setConversationsHasMore(rows.length >= CONVERSATIONS_PAGE_SIZE);
+      }
+
       const shouldAutoSelectFirst =
-        screen === "list" && !pendingConversationTarget && !composeOpen;
-      setActiveConversationId((prev) => {
-        const hasPrevious = prev !== null && rows.some((item) => Number(item.id) === Number(prev));
-        if (hasPrevious) return prev;
-        if (shouldAutoSelectFirst && rows.length) return Number(rows[0].id);
-        return null;
-      });
+        mode !== "loadMore" && screen === "list" && !pendingConversationTarget && !composeOpen;
+      if (shouldAutoSelectFirst) {
+        setActiveConversationId((prev) => {
+          const hasPrevious = prev !== null && rows.some((item) => Number(item.id) === Number(prev));
+          if (hasPrevious) return prev;
+          if (rows.length) return Number(rows[0].id);
+          return null;
+        });
+      }
     } catch (err) {
-      if (!silent) Alert.alert("Error", getErrorMessage(err, "Could not load conversations."));
-      setConversations([]);
+      if (!silent) {
+        Alert.alert("Error", getErrorMessage(err, "Could not load conversations."));
+      }
+      if (mode !== "loadMore") {
+        setConversations([]);
+        setConversationsPage(1);
+        setConversationsHasMore(false);
+        setConversationsTotal(null);
+      }
     } finally {
-      if (!silent) setLoadingConversations(false);
+      if (mode === "loadMore") {
+        setLoadingMoreConversations(false);
+      } else if (!silent) {
+        setLoadingConversations(false);
+      }
     }
   }
 
@@ -487,30 +545,82 @@ export default function MessagingTab({
     }
   }
 
-  function queueScrollToLatest() {
-    shouldScrollToLatestRef.current = true;
+  function scrollToLatestMessage(animated = true) {
+    requestAnimationFrame(() => {
+      messagesListRef.current?.scrollToOffset({ offset: 0, animated });
+    });
+  }
+
+  function appendOlderMessages(existing: MessageItem[], older: MessageItem[]) {
+    if (!older.length) return existing;
+    const ids = new Set(existing.map((item) => Number(item.id)));
+    const next = [...existing];
+    older.forEach((item) => {
+      if (!ids.has(Number(item.id))) {
+        next.push(item);
+      }
+    });
+    return next;
+  }
+
+  function mergeLatestMessages(existing: MessageItem[], latest: MessageItem[]) {
+    if (!latest.length) return existing;
+    const latestIds = new Set(latest.map((item) => Number(item.id)));
+    return [...latest, ...existing.filter((item) => !latestIds.has(Number(item.id)))];
   }
 
   async function loadMessagesForConversation(
     conversationId: number,
     silent = false,
-    options?: { scrollToLatest?: boolean },
+    options?: { scrollToLatest?: boolean; mode?: "reset" | "loadMore" | "poll" },
   ) {
-    if (options?.scrollToLatest) {
-      queueScrollToLatest();
+    const mode = options?.mode ?? "reset";
+    if (mode === "loadMore") {
+      if (loadingMoreMessages || !messagesHasMore) return;
+      setLoadingMoreMessages(true);
+    } else if (!silent) {
+      setLoadingMessages(true);
     }
 
-    if (!silent) setLoadingMessages(true);
     try {
-      const rows = await getMessages(conversationId, 1, 100);
-      setMessages([...rows].reverse());
-      await markAsRead(conversationId);
+      const nextPage = mode === "loadMore" ? messagesPage + 1 : 1;
+      const rows = await getMessages(conversationId, nextPage, MESSAGE_PAGE_SIZE);
+
+      if (mode === "loadMore") {
+        setMessages((prev) => appendOlderMessages(prev, rows));
+        setMessagesPage(nextPage);
+        setMessagesHasMore(rows.length >= MESSAGE_PAGE_SIZE);
+      } else if (mode === "poll" && messagesPage > 1) {
+        setMessages((prev) => mergeLatestMessages(prev, rows));
+        setMessagesHasMore(rows.length >= MESSAGE_PAGE_SIZE || messagesHasMore);
+      } else {
+        setMessages(rows);
+        setMessagesPage(1);
+        setMessagesHasMore(rows.length >= MESSAGE_PAGE_SIZE);
+      }
+
+      if (mode !== "loadMore") {
+        await markAsRead(conversationId);
+      }
       await loadConversations(true);
+      if (options?.scrollToLatest) {
+        scrollToLatestMessage(mode === "reset");
+      }
     } catch (err) {
-      if (!silent) Alert.alert("Error", getErrorMessage(err, "Could not load messages."));
-      setMessages([]);
+      if (!silent) {
+        Alert.alert("Error", getErrorMessage(err, "Could not load messages."));
+      }
+      if (mode !== "loadMore") {
+        setMessages([]);
+        setMessagesPage(1);
+        setMessagesHasMore(false);
+      }
     } finally {
-      if (!silent) setLoadingMessages(false);
+      if (mode === "loadMore") {
+        setLoadingMoreMessages(false);
+      } else if (!silent) {
+        setLoadingMessages(false);
+      }
     }
   }
 
@@ -519,7 +629,7 @@ export default function MessagingTab({
     try {
       await Promise.all([loadConversations(true), loadTargets()]);
       if (screen === "chat" && activeConversationId) {
-        await loadMessagesForConversation(activeConversationId, true, { scrollToLatest: true });
+        await loadMessagesForConversation(activeConversationId, true, { scrollToLatest: true, mode: "poll" });
       }
     } finally {
       setRefreshing(false);
@@ -534,11 +644,15 @@ export default function MessagingTab({
     setComposeClassFilter("");
     setComposeSectionFilter("");
     setComposeTeacherTypeFilter("all");
+    setShowAllRecipients(false);
   }
 
   function closeChatView() {
     setScreen("list");
     setReply("");
+    setMessages([]);
+    setMessagesPage(1);
+    setMessagesHasMore(false);
     setPendingConversationTarget(null);
     setPendingConversationLabel("Conversation");
   }
@@ -664,9 +778,12 @@ export default function MessagingTab({
       if (existing?.id) {
         const conversationId = Number(existing.id);
         setPendingConversationTarget(null);
+        setMessages([]);
+        setMessagesPage(1);
+        setMessagesHasMore(false);
         setActiveConversationId(conversationId);
         setScreen("chat");
-        await loadMessagesForConversation(conversationId, true, { scrollToLatest: true });
+        await loadMessagesForConversation(conversationId, true, { scrollToLatest: true, mode: "reset" });
         setNotice({ title: "Conversation opened", message: "Send your message below.", tone: "success" });
         return;
       }
@@ -674,6 +791,8 @@ export default function MessagingTab({
       setPendingConversationTarget(payload);
       setActiveConversationId(null);
       setMessages([]);
+      setMessagesPage(1);
+      setMessagesHasMore(false);
       setScreen("chat");
       setNotice({ title: "Conversation ready", message: "Type your message below to start.", tone: "success" });
     } catch (err) {
@@ -702,8 +821,11 @@ export default function MessagingTab({
         conversationId = result.conversation_id ? Number(result.conversation_id) : null;
 
         if (!conversationId) {
-          const rows = await getConversations();
+          const rows = (await getConversations({ page: 1, limit: CONVERSATIONS_PAGE_SIZE })).data;
           setConversations(rows);
+          setConversationsPage(1);
+          setConversationsHasMore(rows.length >= CONVERSATIONS_PAGE_SIZE);
+          setConversationsTotal(null);
           conversationId = Number(findConversationForTarget(pendingConversationTarget, rows)?.id || 0) || null;
         }
 
@@ -715,7 +837,7 @@ export default function MessagingTab({
 
       setReply("");
       if (conversationId) {
-        await loadMessagesForConversation(conversationId, true, { scrollToLatest: true });
+        await loadMessagesForConversation(conversationId, true, { scrollToLatest: true, mode: "poll" });
       }
       setNotice({ title: "Sent", message: "Message delivered.", tone: "success" });
     } catch (err) {
@@ -730,86 +852,73 @@ export default function MessagingTab({
       {screen === "list" ? (
         <View style={[styles.screen, { backgroundColor: theme.bg }]}>
           <TopNotice notice={notice} style={styles.topNoticeOverlay} />
-          <ScrollView
+          <FlatList
             style={styles.root}
             contentContainerStyle={styles.content}
-            refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void onRefresh()} />}
+            data={loadingConversations ? [] : filteredConversations}
+            keyExtractor={(item) => String(item.id)}
+            refreshing={refreshing}
+            onRefresh={() => void onRefresh()}
             showsVerticalScrollIndicator={false}
-          >
-            <View style={styles.innerContent}>
-              <View style={styles.heroCard}>
-                <View style={styles.heroCopy}>
-                  <Text style={styles.heroEyebrow}>Overview</Text>
-                  <Text style={styles.heroTitle}>Messaging</Text>
-                  <Text style={styles.heroSubtitle}>
-                    Review conversations, continue live chat threads, and send new messages.
-                  </Text>
-                </View>
-                {isSuperAdmin ? (
-                  <View style={styles.heroPrimaryActions}>
-                    <Pressable
-                      style={styles.topActionBtn}
-                      onPress={() => {
-                        setPendingConversationTarget(null);
-                        setPendingConversationLabel("Conversation");
-                        setCompose(EMPTY_COMPOSE);
-                        setComposeSearch("");
-                        setComposeRoleFilter("all");
-                        setComposeClassFilter("");
-                        setComposeSectionFilter("");
-                        setComposeTeacherTypeFilter("all");
-                        void loadTargets();
-                        setComposeOpen(true);
-                      }}
-                    >
-                      <Ionicons name="create-outline" size={18} color={theme.successText} />
-                      <Text style={styles.topActionText}>New Conversation</Text>
-                    </Pressable>
+            keyboardShouldPersistTaps="handled"
+            removeClippedSubviews
+            initialNumToRender={12}
+            maxToRenderPerBatch={12}
+            windowSize={7}
+            ListHeaderComponent={
+              <View style={styles.innerContent}>
+                <View style={styles.heroCard}>
+                  <View style={styles.heroCopy}>
+                    <Text style={styles.heroEyebrow}>Overview</Text>
+                    <Text style={styles.heroTitle}>Messaging</Text>
+                    <Text style={styles.heroSubtitle}>
+                      Review conversations, continue live chat threads, and send new messages.
+                    </Text>
                   </View>
-                ) : null}
-              </View>
-
-              <View style={[styles.searchWrap, { borderColor: theme.border, backgroundColor: theme.card }]}>
-                <Ionicons name="search-outline" size={16} color={theme.icon} />
-                <TextInput
-                  value={search}
-                  onChangeText={setSearch}
-                  placeholder="Search conversations"
-                  placeholderTextColor={theme.mutedText}
-                  style={[styles.searchInput, { color: theme.text }]}
-                />
-              </View>
-
-              {loadingConversations ? (
-                <View style={styles.centered}><ActivityIndicator size="small" color={theme.icon} /></View>
-              ) : filteredConversations.length ? (
-                filteredConversations.map((conversation) => (
-                  <Pressable
-                    key={conversation.id}
-                    style={[styles.rowCard, { borderColor: theme.border, backgroundColor: theme.card }]}
-                    onPress={() => {
-                      setActiveConversationId(Number(conversation.id));
-                      setScreen("chat");
-                    }}
-                  >
-                    <Avatar
-                      label={conversation.name || conversation.type}
-                      online={conversation.online}
-                      imageUrl={conversation.other_user_image_url}
-                    />
-                    <View style={styles.rowBody}>
-                      <View style={styles.rowTop}>
-                        <Text style={[styles.rowTitle, { color: theme.text }]} numberOfLines={1}>
-                          {conversation.name || conversation.type}
-                        </Text>
-                        {Number(conversation.unread || 0) > 0 ? <Text style={styles.unread}>{conversation.unread}</Text> : null}
-                      </View>
-                      <Text style={[styles.rowPreview, { color: theme.subText }]} numberOfLines={1}>
-                        {conversation.last_message || "No messages yet"}
-                      </Text>
+                  {isSuperAdmin ? (
+                    <View style={styles.heroPrimaryActions}>
+                      <Pressable
+                        style={styles.topActionBtn}
+                        onPress={() => {
+                          setPendingConversationTarget(null);
+                          setPendingConversationLabel("Conversation");
+                          setCompose(EMPTY_COMPOSE);
+                          setComposeSearch("");
+                          setComposeRoleFilter("all");
+                          setComposeClassFilter("");
+                          setComposeSectionFilter("");
+                          setComposeTeacherTypeFilter("all");
+                          setShowAllRecipients(false);
+                          void loadTargets();
+                          setComposeOpen(true);
+                        }}
+                      >
+                        <Ionicons name="create-outline" size={18} color={theme.successText} />
+                        <Text style={styles.topActionText}>New Conversation</Text>
+                      </Pressable>
                     </View>
-                  </Pressable>
-                ))
+                  ) : null}
+                </View>
+
+                <View style={[styles.searchWrap, { borderColor: theme.border, backgroundColor: theme.card }]}>
+                  <Ionicons name="search-outline" size={16} color={theme.icon} />
+                  <TextInput
+                    value={search}
+                    onChangeText={setSearch}
+                    placeholder="Search conversations"
+                    placeholderTextColor={theme.mutedText}
+                    style={[styles.searchInput, { color: theme.text }]}
+                  />
+                </View>
+                <Text style={[styles.rowMeta, { color: theme.subText }]}>
+                  {filteredConversations.length} visible
+                  {conversationsTotal !== null ? ` | ${conversations.length}/${conversationsTotal} loaded` : ""}
+                </Text>
+              </View>
+            }
+            ListEmptyComponent={
+              loadingConversations ? (
+                <View style={styles.centered}><ActivityIndicator size="small" color={theme.icon} /></View>
               ) : (
                 <View style={[styles.emptyCard, { borderColor: theme.border, backgroundColor: theme.card }]}>
                   <Ionicons name="chatbubble-ellipses-outline" size={24} color={theme.icon} />
@@ -818,9 +927,52 @@ export default function MessagingTab({
                     {search.trim() ? "Try a different search." : "Your conversations will appear here."}
                   </Text>
                 </View>
-              )}
-            </View>
-          </ScrollView>
+              )
+            }
+            ItemSeparatorComponent={() => <View style={{ height: 10 }} />}
+            ListFooterComponent={
+              !loadingConversations && conversationsHasMore ? (
+                <Pressable
+                  style={[styles.secondaryBtn, { borderColor: theme.border, backgroundColor: theme.card }]}
+                  onPress={() => void loadConversations(true, "loadMore")}
+                  disabled={loadingMoreConversations}
+                >
+                  <Text style={[styles.secondaryText, { color: theme.text }]}>
+                    {loadingMoreConversations ? "Loading..." : "Load More Conversations"}
+                  </Text>
+                </Pressable>
+              ) : null
+            }
+            renderItem={({ item: conversation }) => (
+              <Pressable
+                style={[styles.rowCard, { borderColor: theme.border, backgroundColor: theme.card }]}
+                onPress={() => {
+                  setMessages([]);
+                  setMessagesPage(1);
+                  setMessagesHasMore(false);
+                  setActiveConversationId(Number(conversation.id));
+                  setScreen("chat");
+                }}
+              >
+                <Avatar
+                  label={conversation.name || conversation.type}
+                  online={conversation.online}
+                  imageUrl={conversation.other_user_image_url}
+                />
+                <View style={styles.rowBody}>
+                  <View style={styles.rowTop}>
+                    <Text style={[styles.rowTitle, { color: theme.text }]} numberOfLines={1}>
+                      {conversation.name || conversation.type}
+                    </Text>
+                    {Number(conversation.unread || 0) > 0 ? <Text style={styles.unread}>{conversation.unread}</Text> : null}
+                  </View>
+                  <Text style={[styles.rowPreview, { color: theme.subText }]} numberOfLines={1}>
+                    {conversation.last_message || "No messages yet"}
+                  </Text>
+                </View>
+              </Pressable>
+            )}
+          />
 
         </View>
       ) : (
@@ -854,27 +1006,46 @@ export default function MessagingTab({
             </View>
 
             <View style={[styles.chatMessagesPanel, { borderColor: theme.border, backgroundColor: theme.cardMuted }]}>
-              <ScrollView
-                ref={messagesScrollRef}
+              <FlatList
+                ref={messagesListRef}
                 style={styles.chatMessagesScroll}
                 contentContainerStyle={[styles.chatMessagesContent, { paddingBottom: 16 }]}
                 showsVerticalScrollIndicator={false}
-                onContentSizeChange={() => {
-                  if (!shouldScrollToLatestRef.current) return;
-                  requestAnimationFrame(() => {
-                    messagesScrollRef.current?.scrollToEnd({ animated: true });
-                    shouldScrollToLatestRef.current = false;
-                  });
+                data={messages}
+                keyExtractor={(item) => String(item.id)}
+                inverted
+                keyboardShouldPersistTaps="handled"
+                removeClippedSubviews
+                initialNumToRender={20}
+                maxToRenderPerBatch={20}
+                windowSize={9}
+                onEndReachedThreshold={0.2}
+                onEndReached={() => {
+                  if (!activeConversationId || loadingMessages || loadingMoreMessages || !messagesHasMore) return;
+                  void loadMessagesForConversation(activeConversationId, true, { mode: "loadMore" });
                 }}
-              >
-                {loadingMessages ? (
+                ItemSeparatorComponent={() => <View style={{ height: 10 }} />}
+                ListFooterComponent={
+                  loadingMoreMessages ? (
+                    <View style={styles.centered}><ActivityIndicator size="small" color={theme.icon} /></View>
+                  ) : null
+                }
+                ListEmptyComponent={
+                  loadingMessages ? (
                   <View style={styles.centered}><ActivityIndicator size="small" color={theme.icon} /></View>
-                ) : messages.length ? (
-                  messages.map((message) => {
-                    const mine = Number(message.sender_id) === Number(user?.id);
-                    return (
-                      <View key={message.id} style={[styles.messageRow, mine ? styles.mine : styles.other]}>
-                        {!mine ? <Avatar label={message.sender_name || message.username} imageUrl={message.sender_image_url} /> : null}
+                  ) : (
+                    <View style={[styles.emptyCard, { borderColor: theme.border, backgroundColor: theme.card }]}>
+                    <Ionicons name="chatbox-outline" size={24} color={theme.icon} />
+                      <Text style={[styles.emptyTitle, { color: theme.text }]}>No messages yet</Text>
+                      <Text style={[styles.emptyText, { color: theme.subText }]}>Start the conversation with a reply below.</Text>
+                    </View>
+                  )
+                }
+                renderItem={({ item: message }) => {
+                  const mine = Number(message.sender_id) === Number(user?.id);
+                  return (
+                    <View style={[styles.messageRow, mine ? styles.mine : styles.other]}>
+                      {!mine ? <Avatar label={message.sender_name || message.username} imageUrl={message.sender_image_url} /> : null}
                       <View style={[
                         styles.bubble,
                         mine
@@ -885,17 +1056,10 @@ export default function MessagingTab({
                         <Text style={[styles.messageText, { color: theme.text }]}>{message.message}</Text>
                         <Text style={[styles.bubbleTime, { color: theme.subText }]}>{formatTimeLabel(message.created_at)}</Text>
                       </View>
-                      </View>
-                    );
-                  })
-                ) : (
-                  <View style={[styles.emptyCard, { borderColor: theme.border, backgroundColor: theme.card }]}>
-                  <Ionicons name="chatbox-outline" size={24} color={theme.icon} />
-                    <Text style={[styles.emptyTitle, { color: theme.text }]}>No messages yet</Text>
-                    <Text style={[styles.emptyText, { color: theme.subText }]}>Start the conversation with a reply below.</Text>
-                  </View>
-                )}
-              </ScrollView>
+                    </View>
+                  );
+                }}
+              />
             </View>
           </View>
 
@@ -1031,7 +1195,7 @@ export default function MessagingTab({
                     </View>
                   ) : null}
 
-                  {recipientOptions.map((item) => {
+                  {visibleRecipientOptions.map((item) => {
                     const active = compose.recipient_user_id === String(item.user_id);
                     const isParentRow = compose.target_type === "parent" && item.roles.includes("parent");
                     const rowTitle =
@@ -1060,6 +1224,14 @@ export default function MessagingTab({
                       </Pressable>
                     );
                   })}
+                  {hiddenRecipientCount > 0 ? (
+                    <Pressable
+                      style={[styles.secondaryBtn, { borderColor: theme.border, backgroundColor: theme.cardMuted }]}
+                      onPress={() => setShowAllRecipients(true)}
+                    >
+                      <Text style={[styles.secondaryText, { color: theme.text }]}>Show {hiddenRecipientCount} More Recipients</Text>
+                    </Pressable>
+                  ) : null}
                   {!recipientOptions.length ? (
                     <View style={[styles.emptyInline, { borderColor: theme.border, backgroundColor: theme.inputBg }]}>
                       <Text style={[styles.rowMeta, { color: theme.subText }]}>No matching recipients found.</Text>

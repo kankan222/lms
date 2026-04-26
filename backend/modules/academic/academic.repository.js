@@ -119,8 +119,15 @@ export async function deleteStream(id) {
   return query(`DELETE FROM streams WHERE id = ?`, [id]);
 }
 // CLASSES 7 SECTIONS
-export async function getClasses() {
-  return query(`
+export async function getClasses(filters = {}) {
+  const rawPage = Number(filters.page);
+  const rawLimit = Number(filters.limit);
+  const hasPagination = Number.isFinite(rawPage) || Number.isFinite(rawLimit);
+  const page = Math.max(1, Number.isFinite(rawPage) ? Math.trunc(rawPage) : 1);
+  const limit = Math.min(100, Math.max(1, Number.isFinite(rawLimit) ? Math.trunc(rawLimit) : 30));
+  const offset = (page - 1) * limit;
+
+  const rows = await query(`
   SELECT
   c.id,
   c.name,
@@ -139,7 +146,31 @@ LEFT JOIN subjects sub ON sub.id = cs.subject_id
 WHERE c.is_active = TRUE
 GROUP BY c.id, c.name, c.scope_id, COALESCE(sc.code, c.class_scope, 'school'), sc.name, c.medium
 ORDER BY c.id
+${hasPagination ? `LIMIT ${limit} OFFSET ${offset}` : ""}
   `);
+
+  if (!hasPagination) {
+    return rows;
+  }
+
+  const countRows = await query(
+    `
+      SELECT COUNT(*) AS total
+      FROM classes c
+      WHERE c.is_active = TRUE
+    `
+  );
+  const total = Number(countRows?.[0]?.total || 0);
+
+  return {
+    data: rows,
+    pagination: {
+      page,
+      limit,
+      total,
+      totalPages: Math.ceil(total / limit),
+    },
+  };
 }
 export async function getClassStructure() {
   return query(`

@@ -142,8 +142,7 @@ export async function deleteStream(id) {
   }
 }
 
-export async function getClasses() {
-  const rows = await repo.getClasses();
+function mapClassRows(rows = []) {
   return rows.map((row) => {
     const sectionMediumPairs = String(row.section_mediums || "")
       .split(",")
@@ -164,6 +163,20 @@ export async function getClasses() {
       mediums
     };
   });
+}
+export async function getClasses(filters = {}) {
+  const payload = await repo.getClasses(filters);
+  const rows = Array.isArray(payload) ? payload : payload?.data || [];
+  const mappedRows = mapClassRows(rows);
+
+  if (Array.isArray(payload)) {
+    return mappedRows;
+  }
+
+  return {
+    data: mappedRows,
+    pagination: payload?.pagination || null,
+  };
 }
 export async function getClassStructure() {
 

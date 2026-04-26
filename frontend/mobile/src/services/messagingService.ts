@@ -9,6 +9,13 @@ type ApiEnvelope<T> = {
   message_id?: number;
 };
 
+export type PaginationMeta = {
+  page: number;
+  limit: number;
+  total: number;
+  totalPages: number;
+};
+
 export type ConversationItem = {
   id: number;
   type: "direct" | "class" | "section" | "broadcast";
@@ -99,6 +106,11 @@ export type MessagingTargets = {
   broadcast_targets: BroadcastTarget[];
 };
 
+export type ConversationListResponse = {
+  data: ConversationItem[];
+  pagination: PaginationMeta | null;
+};
+
 export type SendMessagePayload = {
   conversation_id?: number;
   target_type?:
@@ -121,9 +133,15 @@ export type SendMessagePayload = {
   attachment_url?: string;
 };
 
-export async function getConversations() {
-  const response = await api.get<ApiEnvelope<ConversationItem[]>>("/messages/conversations");
-  return response.data.data ?? [];
+export async function getConversations(params: { page?: number; limit?: number } = {}) {
+  const response = await api.get<ApiEnvelope<ConversationItem[]> & { pagination?: PaginationMeta }>(
+    "/messages/conversations",
+    { params },
+  );
+  return {
+    data: response.data.data ?? [],
+    pagination: response.data.pagination ?? null,
+  } as ConversationListResponse;
 }
 
 export async function getMessages(conversationId: number, page = 1, limit = 30) {

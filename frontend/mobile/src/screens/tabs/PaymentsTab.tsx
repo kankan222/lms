@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  FlatList,
   Modal,
   Pressable,
   RefreshControl,
@@ -20,10 +21,10 @@ import {
   createPayment,
   deletePayment,
   downloadAndShareReceipt,
+  getPaymentsList,
   getMyPayments,
   getMyStudentFeeOptions,
   getMyStudentsForFees,
-  getPayments,
   getStudentFeeOptions,
   getStudentsForPayment,
   PaymentItem,
@@ -133,6 +134,7 @@ const DEFAULT_THEME = {
   dangerSoft: "#fee2e2",
   dangerBorder: "#fecaca",
 };
+const PAYMENT_PAGE_SIZE = 30;
 
 function SummaryCard({
   label,
@@ -434,9 +436,13 @@ export default function PaymentsTab() {
   const [myStudents, setMyStudents] = useState<PaymentStudentItem[]>([]);
   const [feeOptions, setFeeOptions] = useState<StudentFeeOption[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState<NoticeState>(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [hasMore, setHasMore] = useState(false);
+  const [totalRows, setTotalRows] = useState<number | null>(null);
 
   const [filterClassId, setFilterClassId] = useState<number | null>(null);
   const [filterSectionId, setFilterSectionId] = useState<number | null>(null);
@@ -469,13 +475,8 @@ export default function PaymentsTab() {
     [feeOptions, createForm.student_fee_id],
   );
 
-  const filteredPayments = useMemo(
-    () => payments,
-    [payments],
-  );
-
   const summary = useMemo(() => {
-    return filteredPayments.reduce(
+    return payments.reduce(
       (acc, payment) => {
         const status = getPaymentStatus(payment);
         acc.total += 1;
@@ -486,7 +487,7 @@ export default function PaymentsTab() {
       },
       { total: 0, paid: 0, partial: 0, amount: 0 },
     );
-  }, [filteredPayments]);
+  }, [payments]);
 
   const summaryCards = useMemo(
     () => [
@@ -523,7 +524,7 @@ export default function PaymentsTab() {
   );
 
   useEffect(() => {
-    loadBootstrap();
+    void loadBootstrap("initial");
   }, []);
 
   useEffect(() => {
@@ -534,10 +535,10 @@ export default function PaymentsTab() {
 
   useEffect(() => {
     if (isParentOnly) {
-      loadParentPayments();
+      void loadParentPayments("initial");
       return;
     }
-    loadPaymentsList();
+    void loadPaymentsList("initial");
   }, [filterClassId, filterSectionId, filterScope, paymentDate, parentStudentId, isParentOnly]);
 
   useEffect(() => {
@@ -582,39 +583,102 @@ export default function PaymentsTab() {
     }
   }
 
-  async function loadPaymentsList() {
-    setLoading(true);
+  async function loadPaymentsList(mode: "initial" | "refresh" | "loadMore" = "initial") {
+    if (isParentOnly) return;
+
+    if (mode === "loadMore") {
+      if (loading || refreshing || loadingMore || !hasMore) return;
+      setLoadingMore(true);
+    } else if (mode === "refresh") {
+      setRefreshing(true);
+    } else {
+      setLoading(true);
+    }
+
     try {
-      const rows = await getPayments({
-        class_id: filterClassId ?? undefined,
-        section_id: filterSectionId ?? undefined,
-        scope: filterScope || undefined,
-        payment_date: paymentDate || undefined,
-      });
-      setPayments(rows);
+      const nextPage = mode === "loadMore" ? currentPage + 1 : 1;
+      const result = await getPaymentsList(
+        {
+          class_id: filterClassId ?? undefined,
+          section_id: filterSectionId ?? undefined,
+          scope: filterScope || undefined,
+          payment_date: paymentDate || undefined,
+        },
+        { page: nextPage, limit: PAYMENT_PAGE_SIZE }
+      );
+      const rows = result.data || [];
+
+      if (mode === "loadMore") {
+        setPayments((prev) => {
+          const seen = new Set(prev.map((item) => item.id));
+          const incoming = rows.filter((item) => !seen.has(item.id));
+          return [...prev, ...incoming];
+        });
+      } else {
+        setPayments(rows);
+      }
+
+      setCurrentPage(nextPage);
+      setTotalRows(result.pagination?.total ?? null);
+      if (result.pagination) {
+        setHasMore(nextPage < Number(result.pagination.totalPages || 0));
+      } else {
+        setHasMore(rows.length >= PAYMENT_PAGE_SIZE);
+      }
     } catch (err: unknown) {
-      setPayments([]);
+      if (mode !== "loadMore") {
+        setPayments([]);
+        setCurrentPage(1);
+        setTotalRows(null);
+      }
+      setHasMore(false);
       Alert.alert("Load failed", getErrorMessage(err, "Could not load payments."));
     } finally {
-      setLoading(false);
+      if (mode === "loadMore") setLoadingMore(false);
+      else if (mode === "refresh") setRefreshing(false);
+      else setLoading(false);
     }
   }
 
-  async function loadParentPayments() {
+  async function loadParentPayments(mode: "initial" | "refresh" = "initial") {
+    if (mode === "refresh") setRefreshing(true);
+    else setLoading(true);
+
     if (!parentStudentId) {
       setPayments([]);
+      setCurrentPage(1);
+      setHasMore(false);
+      setTotalRows(0);
+      if (mode === "refresh") setRefreshing(false);
+      else setLoading(false);
       return;
     }
-    setLoading(true);
+
     try {
       const rows = await getMyPayments({ student_id: parentStudentId });
       setPayments(rows);
+      setCurrentPage(1);
+      setHasMore(false);
+      setTotalRows(rows.length);
     } catch (err: unknown) {
       setPayments([]);
+      setCurrentPage(1);
+      setHasMore(false);
+      setTotalRows(0);
       Alert.alert("Load failed", getErrorMessage(err, "Could not load student payments."));
     } finally {
-      setLoading(false);
+      if (mode === "refresh") setRefreshing(false);
+      else setLoading(false);
     }
+  }
+
+  async function handleRefresh() {
+    await loadBootstrap("refresh");
+    if (isParentOnly) {
+      await loadParentPayments("refresh");
+      return;
+    }
+    await loadPaymentsList("refresh");
   }
 
   async function loadStudentsForCreate(classId: number, sectionId: number) {
@@ -665,7 +729,8 @@ export default function PaymentsTab() {
       });
       setCreateOpen(false);
       resetCreateForm();
-      await loadPaymentsList();
+      if (isParentOnly) await loadParentPayments("refresh");
+      else await loadPaymentsList("refresh");
       showNotice("Payment Saved", "Payment recorded successfully.");
     } catch (err: unknown) {
       showNotice("Create Failed", getErrorMessage(err, "Failed to create payment."), "error");
@@ -696,7 +761,8 @@ export default function PaymentsTab() {
       });
       setEditOpen(false);
       setEditForm(EMPTY_EDIT_FORM);
-      await loadPaymentsList();
+      if (isParentOnly) await loadParentPayments("refresh");
+      else await loadPaymentsList("refresh");
       showNotice("Payment Updated", "Payment updated successfully.");
     } catch (err: unknown) {
       showNotice("Update Failed", getErrorMessage(err, "Failed to update payment."), "error");
@@ -715,7 +781,8 @@ export default function PaymentsTab() {
     try {
       await deletePayment(deleteTarget.id);
       setDeleteTarget(null);
-      await loadPaymentsList();
+      if (isParentOnly) await loadParentPayments("refresh");
+      else await loadPaymentsList("refresh");
       showNotice("Payment Deleted", "Payment deleted successfully.");
     } catch (err: unknown) {
       showNotice("Delete Failed", getErrorMessage(err, "Failed to delete payment."), "error");
@@ -732,78 +799,186 @@ export default function PaymentsTab() {
     }
   }
 
+  const showInitialLoader = loading && payments.length === 0;
+
   return (
     <View style={styles.screen}>
       <TopNotice notice={notice} style={styles.topNoticeOverlay} />
-    <ScrollView
-      style={styles.root}
-      contentContainerStyle={styles.content}
-      showsVerticalScrollIndicator={false}
-      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => loadBootstrap("refresh")} />}
-    >
-      <View style={styles.innerContent}>
-      <View style={styles.heroCard}>
-        <View style={styles.heroCopy}>
-          <Text style={[styles.heroEyebrow, { color: theme.subText }]}>Overview</Text>
-          <Text style={[styles.title, { color: theme.text }]}>Payments</Text>
-          <Text style={[styles.subtitle, { color: theme.subText }]}>
-            {isParentOnly
-              ? "Review your child payment history and due items."
-              : isAccounts
-                ? "Record, review, and update fee payments from the finance workspace."
-                : "Record, review, export, and update fee payments."}
-          </Text>
-        </View>
-          {!isParentOnly ? (
-            <View style={styles.heroActions}>
-              {canCreatePayment ? (
-                <Pressable style={[styles.primaryBtn, styles.fullWidthBtn, { backgroundColor: theme.primary }]} onPress={() => setCreateOpen(true)}>
-                  <Text style={[styles.primaryBtnText, { color: theme.primaryText }]}>Record Payment</Text>
-                </Pressable>
+      <FlatList
+        style={styles.root}
+        data={payments}
+        keyExtractor={(item) => String(item.id)}
+        contentContainerStyle={styles.content}
+        showsVerticalScrollIndicator={false}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />}
+        removeClippedSubviews
+        initialNumToRender={10}
+        maxToRenderPerBatch={10}
+        windowSize={9}
+        onEndReachedThreshold={0.4}
+        onEndReached={() => {
+          if (!isParentOnly && hasMore && !loading && !refreshing && !loadingMore) {
+            void loadPaymentsList("loadMore");
+          }
+        }}
+        ListHeaderComponent={
+          <View style={styles.innerContent}>
+            <View style={styles.heroCard}>
+              <View style={styles.heroCopy}>
+                <Text style={[styles.heroEyebrow, { color: theme.subText }]}>Overview</Text>
+                <Text style={[styles.title, { color: theme.text }]}>Payments</Text>
+                <Text style={[styles.subtitle, { color: theme.subText }]}> 
+                  {isParentOnly
+                    ? "Review your child payment history and due items."
+                    : isAccounts
+                      ? "Record, review, and update fee payments from the finance workspace."
+                      : "Record, review, export, and update fee payments."}
+                </Text>
+              </View>
+              {!isParentOnly ? (
+                <View style={styles.heroActions}>
+                  {canCreatePayment ? (
+                    <Pressable style={[styles.primaryBtn, styles.fullWidthBtn, { backgroundColor: theme.primary }]} onPress={() => setCreateOpen(true)}>
+                      <Text style={[styles.primaryBtnText, { color: theme.primaryText }]}>Record Payment</Text>
+                    </Pressable>
+                  ) : null}
+                  <Pressable
+                    style={[styles.iconUtilityBtn, { borderColor: theme.border, backgroundColor: theme.card }]}
+                    onPress={() => setFiltersOpen(true)}
+                  >
+                    <Ionicons name="options-outline" size={18} color={theme.icon} />
+                  </Pressable>
+                </View>
               ) : null}
-              <Pressable
-                style={[styles.iconUtilityBtn, { borderColor: theme.border, backgroundColor: theme.card }]}
-                onPress={() => setFiltersOpen(true)}
-              >
-                <Ionicons name="options-outline" size={18} color={theme.icon} />
-              </Pressable>
             </View>
-          ) : null}
-      </View>
 
-      {!isParentOnly && (filterClassId !== null || filterSectionId !== null || filterScope || paymentDate) ? (
-        <Text style={[styles.activeFiltersText, { color: theme.subText }]}>
-          {filterScope ? `Scope: ${filterScope === "hs" ? "Higher Secondary" : "School"}` : "All scope"}
-          {filterClassId !== null ? ` • Class: ${selectedFilterClass?.name || "-"}` : ""}
-          {filterSectionId !== null ? ` • Section: ${selectedFilterClass?.sections?.find((section) => section.id === filterSectionId)?.name || "-"}` : ""}
-          {paymentDate ? ` • Date: ${paymentDate}` : ""}
-        </Text>
-      ) : null}
+            {!isParentOnly && (filterClassId !== null || filterSectionId !== null || filterScope || paymentDate) ? (
+              <Text style={[styles.activeFiltersText, { color: theme.subText }]}> 
+                {filterScope ? `Scope: ${filterScope === "hs" ? "Higher Secondary" : "School"}` : "All scope"}
+                {filterClassId !== null ? ` - Class: ${selectedFilterClass?.name || "-"}` : ""}
+                {filterSectionId !== null ? ` - Section: ${selectedFilterClass?.sections?.find((section) => section.id === filterSectionId)?.name || "-"}` : ""}
+                {paymentDate ? ` - Date: ${paymentDate}` : ""}
+              </Text>
+            ) : null}
 
-      {isParentOnly ? (
-        <SectionCard title="Student" hint={`${myStudents.length} linked`}>
-          <View style={styles.chipWrap}>
-            {myStudents.map((student) => {
-              const active = parentStudentId === Number(student.id);
-              return (
-                <Pressable
-                  key={student.id}
-                  style={[styles.chip, active && styles.chipActive]}
-                  onPress={() => setParentStudentId(Number(student.id))}
-                >
-                  <Text style={[styles.chipText, active && styles.chipTextActive]}>{student.name}</Text>
-                </Pressable>
-              );
-            })}
+            {isParentOnly ? (
+              <SectionCard title="Student" hint={`${myStudents.length} linked`}>
+                <View style={styles.chipWrap}>
+                  {myStudents.map((student) => {
+                    const active = parentStudentId === Number(student.id);
+                    return (
+                      <Pressable
+                        key={student.id}
+                        style={[styles.chip, active && styles.chipActive]}
+                        onPress={() => setParentStudentId(Number(student.id))}
+                      >
+                        <Text style={[styles.chipText, active && styles.chipTextActive]}>{student.name}</Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              </SectionCard>
+            ) : null}
+
+            <View style={styles.summaryGrid}>
+              {summaryCards.map((item) => (
+                <SummaryCard
+                  key={item.label}
+                  label={item.label}
+                  value={item.value}
+                  accent={item.accent}
+                  border={item.border}
+                  tone={item.tone}
+                />
+              ))}
+            </View>
+
+            {showInitialLoader ? (
+              <View style={styles.centered}>
+                <ActivityIndicator size="large" color={theme.text} />
+              </View>
+            ) : null}
           </View>
-        </SectionCard>
-      ) : null}
+        }
+        renderItem={({ item: row }) => {
+          const palette = statusStyle(getPaymentStatus(row));
+          return (
+            <View style={styles.rowWrap}>
+              <View style={[styles.paymentCard, { backgroundColor: theme.card, borderColor: theme.border }]}> 
+                <View style={styles.rowBetween}>
+                  <View style={styles.paymentHeaderCopy}>
+                    <Text style={[styles.paymentTitle, { color: theme.text }]}>{row.student_name}</Text>
+                    <Text style={[styles.metaCompact, { color: theme.subText }]}> 
+                      {formatScope(row.class_scope)} - {formatDateLabel(row.payment_date || row.created_at)}
+                    </Text>
+                  </View>
+                  <View style={[styles.statusBadge, { borderColor: palette.borderColor, backgroundColor: palette.backgroundColor }]}> 
+                    <Text style={[styles.statusBadgeText, { color: palette.color }]}> 
+                      {toTitle(getPaymentStatus(row))}
+                    </Text>
+                  </View>
+                </View>
+                <View style={styles.metaStack}>
+                  <Text style={[styles.metaCompact, { color: theme.subText }]}> 
+                    {row.class_name || "-"} - {row.section_name || "-"}
+                  </Text>
+                  <Text style={[styles.metaCompact, { color: theme.subText }]}> 
+                    {row.fee_type || "-"} - Paid: {formatCurrency(row.amount_paid)}
+                  </Text>
+                  {row.remarks ? (
+                    <Text style={[styles.metaCompact, { color: theme.subText }]}>Remarks: {row.remarks}</Text>
+                  ) : null}
+                </View>
+                <View style={styles.cardIconActions}>
+                  {canUpdatePayment && !isParentOnly ? (
+                    <IconAction icon="create-outline" onPress={() => openEditPayment(row)} />
+                  ) : null}
+                  {canDeletePayment && !isParentOnly ? (
+                    <IconAction icon="trash-outline" tone="danger" onPress={() => confirmDelete(row)} />
+                  ) : null}
+                  <IconAction icon="receipt-outline" onPress={() => handleReceipt(row)} />
+                </View>
+              </View>
+            </View>
+          );
+        }}
+        ItemSeparatorComponent={() => <View style={styles.rowGap} />}
+        ListEmptyComponent={
+          !loading ? (
+            <View style={styles.rowWrap}>
+              <View style={[styles.emptyCard, { backgroundColor: theme.card, borderColor: theme.border }]}> 
+                <Text style={[styles.emptyTitle, { color: theme.text }]}>No payment records found</Text>
+                <Text style={[styles.emptyText, { color: theme.subText }]}> 
+                  {isParentOnly
+                    ? "Select a linked student to review payment history."
+                    : "Adjust the filters or record the first payment for this class."}
+                </Text>
+              </View>
+            </View>
+          ) : null
+        }
+        ListFooterComponent={
+          <View style={styles.listFooter}>
+            {loadingMore ? <ActivityIndicator color={theme.text} /> : null}
+            {!isParentOnly && hasMore && !loadingMore ? (
+              <Pressable
+                style={[styles.loadMoreBtn, { borderColor: theme.border, backgroundColor: theme.cardMuted }]}
+                onPress={() => void loadPaymentsList("loadMore")}
+              >
+                <Text style={[styles.loadMoreText, { color: theme.text }]}> 
+                  Load More {totalRows !== null ? `(${payments.length}/${totalRows})` : ""}
+                </Text>
+              </Pressable>
+            ) : null}
+          </View>
+        }
+      />
 
       {!isParentOnly ? (
         <Modal visible={filtersOpen} transparent animationType="fade" onRequestClose={() => setFiltersOpen(false)}>
           <View style={styles.popoverOverlay}>
             <Pressable style={styles.popoverBackdrop} onPress={() => setFiltersOpen(false)} />
-            <View style={[styles.filterPopover, { backgroundColor: theme.card, borderColor: theme.border }]}>
+            <View style={[styles.filterPopover, { backgroundColor: theme.card, borderColor: theme.border }]}> 
               <View style={styles.rowBetween}>
                 <Text style={[styles.sectionTitle, { color: theme.text }]}>Filters</Text>
                 <Pressable onPress={resetBrowseFilters}>
@@ -878,77 +1053,6 @@ export default function PaymentsTab() {
         </Modal>
       ) : null}
 
-      <View style={styles.summaryGrid}>
-        {summaryCards.map((item) => (
-          <SummaryCard
-            key={item.label}
-            label={item.label}
-            value={item.value}
-            accent={item.accent}
-            border={item.border}
-            tone={item.tone}
-          />
-        ))}
-      </View>
-
-      {loading ? (
-        <View style={styles.centered}>
-          <ActivityIndicator size="large" color={theme.text} />
-        </View>
-      ) : filteredPayments.length ? (
-        <View style={styles.listContent}>
-          {filteredPayments.map((row) => {
-            const palette = statusStyle(getPaymentStatus(row));
-            return (
-              <View key={row.id} style={[styles.paymentCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
-                <View style={styles.rowBetween}>
-                  <View style={styles.paymentHeaderCopy}>
-                    <Text style={[styles.paymentTitle, { color: theme.text }]}>{row.student_name}</Text>
-                    <Text style={[styles.metaCompact, { color: theme.subText }]}>
-                      {formatScope(row.class_scope)} • {formatDateLabel(row.payment_date || row.created_at)}
-                    </Text>
-                  </View>
-                  <View style={[styles.statusBadge, { borderColor: palette.borderColor, backgroundColor: palette.backgroundColor }]}>
-                    <Text style={[styles.statusBadgeText, { color: palette.color }]}>
-                      {toTitle(getPaymentStatus(row))}
-                    </Text>
-                  </View>
-                </View>
-                <View style={styles.metaStack}>
-                  <Text style={[styles.metaCompact, { color: theme.subText }]}>
-                    {row.class_name || "-"} • {row.section_name || "-"}
-                  </Text>
-                  <Text style={[styles.metaCompact, { color: theme.subText }]}>
-                    {row.fee_type || "-"} • Paid: {formatCurrency(row.amount_paid)}
-                  </Text>
-                  {row.remarks ? (
-                    <Text style={[styles.metaCompact, { color: theme.subText }]}>Remarks: {row.remarks}</Text>
-                  ) : null}
-                </View>
-                <View style={styles.cardIconActions}>
-                  {canUpdatePayment && !isParentOnly ? (
-                    <IconAction icon="create-outline" onPress={() => openEditPayment(row)} />
-                  ) : null}
-                  {canDeletePayment && !isParentOnly ? (
-                    <IconAction icon="trash-outline" tone="danger" onPress={() => confirmDelete(row)} />
-                  ) : null}
-                  <IconAction icon="receipt-outline" onPress={() => handleReceipt(row)} />
-                </View>
-              </View>
-            );
-          })}
-        </View>
-      ) : (
-        <View style={[styles.emptyCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
-          <Text style={[styles.emptyTitle, { color: theme.text }]}>No payment records found</Text>
-          <Text style={[styles.emptyText, { color: theme.subText }]}>
-            {isParentOnly
-              ? "Select a linked student to review payment history."
-              : "Adjust the filters or record the first payment for this class."}
-          </Text>
-        </View>
-      )}
-
       {canCreatePayment && !isParentOnly ? (
         <RecordPaymentModal
           visible={createOpen}
@@ -982,15 +1086,16 @@ export default function PaymentsTab() {
           onChange={setEditForm}
         />
       ) : null}
+
       <Modal visible={deleteTarget !== null} transparent animationType="fade" onRequestClose={() => setDeleteTarget(null)}>
         <View style={styles.modalOverlay}>
           <Pressable style={[styles.modalBackdrop, { backgroundColor: theme.overlay }]} onPress={() => setDeleteTarget(null)} />
-          <View style={[styles.confirmCard, { backgroundColor: theme.card, borderColor: theme.dangerBorder }]}>
+          <View style={[styles.confirmCard, { backgroundColor: theme.card, borderColor: theme.dangerBorder }]}> 
             <View style={[styles.confirmIcon, { backgroundColor: theme.dangerSoft, borderColor: theme.dangerBorder }]}>
               <Text style={[styles.confirmIconText, { color: theme.danger }]}>x</Text>
             </View>
             <Text style={[styles.confirmTitle, { color: theme.text }]}>Delete Payment</Text>
-            <Text style={[styles.confirmMessage, { color: theme.subText }]}>
+            <Text style={[styles.confirmMessage, { color: theme.subText }]}> 
               {deleteTarget ? `This will remove the payment record for ${deleteTarget.name}.` : ""}
             </Text>
             <View style={styles.rowActions}>
@@ -1004,12 +1109,9 @@ export default function PaymentsTab() {
           </View>
         </View>
       </Modal>
-      </View>
-    </ScrollView>
     </View>
   );
 }
-
 const styles = StyleSheet.create({
   screen: { flex: 1 },
   root: { flex: 1 },
@@ -1045,6 +1147,11 @@ const styles = StyleSheet.create({
   summaryLabel: { color: "#334155", fontSize: 12, fontWeight: "700" },
   centered: { alignItems: "center", justifyContent: "center", paddingVertical: 40 },
   listContent: { gap: 12 },
+  rowWrap: { paddingHorizontal: 14 },
+  rowGap: { height: 12 },
+  listFooter: { alignItems: "center", justifyContent: "center", paddingHorizontal: 14, paddingVertical: 14, gap: 10 },
+  loadMoreBtn: { borderWidth: 1, borderRadius: 999, paddingHorizontal: 14, paddingVertical: 9, alignItems: "center", justifyContent: "center" },
+  loadMoreText: { fontWeight: "700", fontSize: 12 },
   paymentCard: { backgroundColor: "#ffffff", borderRadius: 20, borderWidth: 1, borderColor: "#e2e8f0", paddingHorizontal: 14, paddingVertical: 12, gap: 7 },
   paymentHeaderCopy: { flex: 1, gap: 2 },
   paymentTitle: { color: "#0f172a", fontWeight: "800", fontSize: 16 },
@@ -1095,3 +1202,5 @@ const styles = StyleSheet.create({
   disabledBtn: { opacity: 0.7 },
   spaceTop: { marginTop: 10 },
 });
+
+

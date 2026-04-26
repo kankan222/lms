@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { ActivityIndicator, Alert, Image, Linking, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
-import { getStudentById, type StudentDetails } from "../../../services/studentsService";
+import { getStudentById, updateStudent, type StudentDetails } from "../../../services/studentsService";
 import { getMyPayments, getMyStudentFeeOptions, getPayments, getStudentFeeOptions, type PaymentItem, type StudentFeeOption } from "../../../services/paymentsService";
 import { downloadMyMarksheet, downloadStudentMarksheet, getAccessibleExams, getMyResults, getStudentReport, type StudentReport } from "../../../services/reportsService";
 import { getStudentAttendanceSessions, type StudentAttendanceSessionItem } from "../../../services/attendanceService";
@@ -14,6 +14,14 @@ type TabKey = "overview" | "parents" | "attendance" | "fees" | "reports";
 type ExamOption = { id: number; name: string };
 type Props = { studentId: number | null; exams: ExamOption[] };
 type Notice = { title: string; message: string; tone: "success" | "error" } | null;
+type ParentRole = "father" | "mother";
+type ParentField = "name" | "mobile" | "email" | "occupation" | "qualification";
+type ParentDraft = Record<ParentRole, Record<ParentField, string>>;
+
+const EMPTY_PARENT_DRAFT: ParentDraft = {
+  father: { name: "", mobile: "", email: "", occupation: "", qualification: "" },
+  mother: { name: "", mobile: "", email: "", occupation: "", qualification: "" },
+};
 
 const fmtScope = (value?: string | null) => String(value || "").trim().toLowerCase() === "hs" ? "Higher Secondary" : "School";
 const fmtCurrency = (value?: number | string | null) => new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 }).format(Number(value || 0));
@@ -128,6 +136,7 @@ export default function StudentDetailsModule({ studentId, exams }: Props) {
   const { theme } = useAppTheme();
   const user = useAuthStore((state) => state.user);
   const isParent = Boolean(user?.roles?.includes("parent"));
+  const canEditParents = !isParent && Boolean(user?.permissions?.includes("student.update"));
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<Notice>(null);
@@ -145,6 +154,11 @@ export default function StudentDetailsModule({ studentId, exams }: Props) {
   const [attendanceLoading, setAttendanceLoading] = useState(false);
   const [attendanceError, setAttendanceError] = useState<string | null>(null);
   const [attendanceFilters, setAttendanceFilters] = useState({ status: "", approval_status: "", date_from: "", date_to: "" });
+  const [isEditingParents, setIsEditingParents] = useState(false);
+  const [parentDraft, setParentDraft] = useState<ParentDraft>(EMPTY_PARENT_DRAFT);
+  const [parentSaveError, setParentSaveError] = useState<string>("");
+  const [parentSaveMessage, setParentSaveMessage] = useState<string>("");
+  const [savingParents, setSavingParents] = useState(false);
 
   useEffect(() => { if (!notice) return undefined; const timer = setTimeout(() => setNotice(null), 3200); return () => clearTimeout(timer); }, [notice]);
 
@@ -256,12 +270,157 @@ export default function StudentDetailsModule({ studentId, exams }: Props) {
   );
   const fatherDisplay = father || guardian || null;
   const motherDisplay = mother || guardian || null;
+
+  useEffect(() => {
+    setParentDraft({
+      father: {
+        name: String(fatherDisplay?.name || "").trim(),
+        mobile: String(fatherDisplay?.mobile || "").trim(),
+        email: String(fatherDisplay?.email || "").trim(),
+        occupation: String(fatherDisplay?.occupation || "").trim(),
+        qualification: String(fatherDisplay?.qualification || "").trim(),
+      },
+      mother: {
+        name: String(motherDisplay?.name || "").trim(),
+        mobile: String(motherDisplay?.mobile || "").trim(),
+        email: String(motherDisplay?.email || "").trim(),
+        occupation: String(motherDisplay?.occupation || "").trim(),
+        qualification: String(motherDisplay?.qualification || "").trim(),
+      },
+    });
+    setIsEditingParents(false);
+    setParentSaveError("");
+    setParentSaveMessage("");
+  }, [
+    student?.id,
+    fatherDisplay?.name,
+    fatherDisplay?.mobile,
+    fatherDisplay?.email,
+    fatherDisplay?.occupation,
+    fatherDisplay?.qualification,
+    motherDisplay?.name,
+    motherDisplay?.mobile,
+    motherDisplay?.email,
+    motherDisplay?.occupation,
+    motherDisplay?.qualification,
+  ]);
+
   const photoUri = resolvePhoto(student?.photo_url);
   const totalDue = useMemo(() => feeItems.reduce((sum, item) => sum + Number(item.remaining || 0), 0), [feeItems]);
   const totalPaid = useMemo(() => payments.reduce((sum, item) => sum + Number(item.amount_paid || 0), 0), [payments]);
   const approvedAttendance = useMemo(() => attendanceRows.filter((row) => norm(row.approval_status, "") === "approved").length, [attendanceRows]);
   const attendanceTotal = attendanceRows.length;
   const paymentTotal = totalPaid + totalDue;
+
+  function updateParentDraft(role: ParentRole, field: ParentField, value: string) {
+    setParentDraft((prev) => ({
+      ...prev,
+      [role]: {
+        ...prev[role],
+        [field]: value,
+      },
+    }));
+  }
+
+  function validateParentDraft() {
+    const fatherMobile = String(parentDraft?.father?.mobile || "").trim();
+    const motherMobile = String(parentDraft?.mother?.mobile || "").trim();
+    const fatherName = String(parentDraft?.father?.name || "").trim();
+    const motherName = String(parentDraft?.mother?.name || "").trim();
+    const fatherEmail = String(parentDraft?.father?.email || "").trim();
+    const motherEmail = String(parentDraft?.mother?.email || "").trim();
+
+    if (!fatherMobile && !motherMobile) {
+      return "At least one parent phone is required.";
+    }
+    if (fatherMobile && !/^\d{10}$/.test(fatherMobile)) {
+      return "Father phone must be 10 digits.";
+    }
+    if (motherMobile && !/^\d{10}$/.test(motherMobile)) {
+      return "Mother phone must be 10 digits.";
+    }
+    if (fatherMobile && !fatherName) {
+      return "Father name is required when father phone is provided.";
+    }
+    if (motherMobile && !motherName) {
+      return "Mother name is required when mother phone is provided.";
+    }
+    if (fatherEmail && !/^\S+@\S+\.\S+$/.test(fatherEmail)) {
+      return "Father email is invalid.";
+    }
+    if (motherEmail && !/^\S+@\S+\.\S+$/.test(motherEmail)) {
+      return "Mother email is invalid.";
+    }
+    return "";
+  }
+
+  async function handleSaveParents() {
+    if (!student?.id || savingParents) return;
+    setParentSaveError("");
+    setParentSaveMessage("");
+
+    const validation = validateParentDraft();
+    if (validation) {
+      setParentSaveError(validation);
+      return;
+    }
+
+    setSavingParents(true);
+    try {
+      await updateStudent(student.id, {
+        father: {
+          name: String(parentDraft?.father?.name || "").trim(),
+          mobile: String(parentDraft?.father?.mobile || "").trim(),
+          email: String(parentDraft?.father?.email || "").trim(),
+          occupation: String(parentDraft?.father?.occupation || "").trim(),
+          qualification: String(parentDraft?.father?.qualification || "").trim(),
+        },
+        mother: {
+          name: String(parentDraft?.mother?.name || "").trim(),
+          mobile: String(parentDraft?.mother?.mobile || "").trim(),
+          email: String(parentDraft?.mother?.email || "").trim(),
+          occupation: String(parentDraft?.mother?.occupation || "").trim(),
+          qualification: String(parentDraft?.mother?.qualification || "").trim(),
+        },
+      });
+
+      const refreshed = await getStudentById(student.id);
+      setStudent(refreshed);
+      setIsEditingParents(false);
+      setParentSaveMessage("Parent details updated.");
+      setNotice({
+        title: "Parent Details Updated",
+        message: "Parent information has been updated successfully.",
+        tone: "success",
+      });
+    } catch (err: unknown) {
+      setParentSaveError(getErrorMessage(err, "Failed to update parent details."));
+    } finally {
+      setSavingParents(false);
+    }
+  }
+
+  function handleCancelParentEdit() {
+    setIsEditingParents(false);
+    setParentSaveError("");
+    setParentSaveMessage("");
+    setParentDraft({
+      father: {
+        name: String(fatherDisplay?.name || "").trim(),
+        mobile: String(fatherDisplay?.mobile || "").trim(),
+        email: String(fatherDisplay?.email || "").trim(),
+        occupation: String(fatherDisplay?.occupation || "").trim(),
+        qualification: String(fatherDisplay?.qualification || "").trim(),
+      },
+      mother: {
+        name: String(motherDisplay?.name || "").trim(),
+        mobile: String(motherDisplay?.mobile || "").trim(),
+        email: String(motherDisplay?.email || "").trim(),
+        occupation: String(motherDisplay?.occupation || "").trim(),
+        qualification: String(motherDisplay?.qualification || "").trim(),
+      },
+    });
+  }
 
   async function handleCallPress(phone?: string | null) {
     const dialable = toDialablePhone(phone);
@@ -342,27 +501,148 @@ export default function StudentDetailsModule({ studentId, exams }: Props) {
 
       {activeTab === "parents" ? (
         <View style={styles.twoColumn}>
+          {canEditParents ? (
+            <View style={styles.parentActionBar}>
+              {!isEditingParents ? (
+                <Pressable style={styles.secondaryBtn} onPress={() => { setIsEditingParents(true); setParentSaveError(""); setParentSaveMessage(""); }}>
+                  <Text style={styles.secondaryBtnText}>Edit Parent Details</Text>
+                </Pressable>
+              ) : (
+                <View style={styles.actionRow}>
+                  <Pressable style={[styles.primaryBtn, { backgroundColor: theme.primary }, savingParents && styles.btnDisabled]} onPress={handleSaveParents} disabled={savingParents}>
+                    <Text style={[styles.primaryBtnText, { color: theme.primaryText }]}>{savingParents ? "Saving..." : "Save Parent Details"}</Text>
+                  </Pressable>
+                  <Pressable style={[styles.secondaryBtn, savingParents && styles.btnDisabled]} onPress={handleCancelParentEdit} disabled={savingParents}>
+                    <Text style={styles.secondaryBtnText}>Cancel</Text>
+                  </Pressable>
+                </View>
+              )}
+            </View>
+          ) : null}
+          {parentSaveError ? <Text style={styles.errorText}>{parentSaveError}</Text> : null}
+          {parentSaveMessage ? <Text style={styles.successText}>{parentSaveMessage}</Text> : null}
+
           <SectionCard title="Father">
-            <InfoRow label="Name" value={fatherDisplay?.name || "-"} />
-            <InfoRow
-              label="Phone"
-              value={fatherDisplay?.mobile || "-"}
-              onPress={toDialablePhone(fatherDisplay?.mobile) ? () => handleCallPress(fatherDisplay?.mobile) : undefined}
-            />
-            <InfoRow label="Email" value={fatherDisplay?.email || "-"} />
-            <InfoRow label="Occupation" value={fatherDisplay?.occupation || "-"} />
-            <InfoRow label="Qualification" value={fatherDisplay?.qualification || "-"} />
+            {isEditingParents ? (
+              <View style={styles.parentFormGrid}>
+                <Text style={styles.inputLabel}>Name</Text>
+                <TextInput
+                  style={[styles.input, { borderColor: theme.border, backgroundColor: theme.inputBg, color: theme.text }]}
+                  value={parentDraft.father.name}
+                  onChangeText={(value) => updateParentDraft("father", "name", value)}
+                  placeholder="Father name"
+                  placeholderTextColor={theme.mutedText}
+                />
+                <Text style={styles.inputLabel}>Phone</Text>
+                <TextInput
+                  style={[styles.input, { borderColor: theme.border, backgroundColor: theme.inputBg, color: theme.text }]}
+                  value={parentDraft.father.mobile}
+                  onChangeText={(value) => updateParentDraft("father", "mobile", value)}
+                  placeholder="10-digit phone"
+                  placeholderTextColor={theme.mutedText}
+                  keyboardType="phone-pad"
+                />
+                <Text style={styles.inputLabel}>Email</Text>
+                <TextInput
+                  style={[styles.input, { borderColor: theme.border, backgroundColor: theme.inputBg, color: theme.text }]}
+                  value={parentDraft.father.email}
+                  onChangeText={(value) => updateParentDraft("father", "email", value)}
+                  placeholder="Email"
+                  placeholderTextColor={theme.mutedText}
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                />
+                <Text style={styles.inputLabel}>Occupation</Text>
+                <TextInput
+                  style={[styles.input, { borderColor: theme.border, backgroundColor: theme.inputBg, color: theme.text }]}
+                  value={parentDraft.father.occupation}
+                  onChangeText={(value) => updateParentDraft("father", "occupation", value)}
+                  placeholder="Occupation"
+                  placeholderTextColor={theme.mutedText}
+                />
+                <Text style={styles.inputLabel}>Qualification</Text>
+                <TextInput
+                  style={[styles.input, { borderColor: theme.border, backgroundColor: theme.inputBg, color: theme.text }]}
+                  value={parentDraft.father.qualification}
+                  onChangeText={(value) => updateParentDraft("father", "qualification", value)}
+                  placeholder="Qualification"
+                  placeholderTextColor={theme.mutedText}
+                />
+              </View>
+            ) : (
+              <>
+                <InfoRow label="Name" value={fatherDisplay?.name || "-"} />
+                <InfoRow
+                  label="Phone"
+                  value={fatherDisplay?.mobile || "-"}
+                  onPress={toDialablePhone(fatherDisplay?.mobile) ? () => handleCallPress(fatherDisplay?.mobile) : undefined}
+                />
+                <InfoRow label="Email" value={fatherDisplay?.email || "-"} />
+                <InfoRow label="Occupation" value={fatherDisplay?.occupation || "-"} />
+                <InfoRow label="Qualification" value={fatherDisplay?.qualification || "-"} />
+              </>
+            )}
           </SectionCard>
           <SectionCard title="Mother">
-            <InfoRow label="Name" value={motherDisplay?.name || "-"} />
-            <InfoRow
-              label="Phone"
-              value={motherDisplay?.mobile || "-"}
-              onPress={toDialablePhone(motherDisplay?.mobile) ? () => handleCallPress(motherDisplay?.mobile) : undefined}
-            />
-            <InfoRow label="Email" value={motherDisplay?.email || "-"} />
-            <InfoRow label="Occupation" value={motherDisplay?.occupation || "-"} />
-            <InfoRow label="Qualification" value={motherDisplay?.qualification || "-"} />
+            {isEditingParents ? (
+              <View style={styles.parentFormGrid}>
+                <Text style={styles.inputLabel}>Name</Text>
+                <TextInput
+                  style={[styles.input, { borderColor: theme.border, backgroundColor: theme.inputBg, color: theme.text }]}
+                  value={parentDraft.mother.name}
+                  onChangeText={(value) => updateParentDraft("mother", "name", value)}
+                  placeholder="Mother name"
+                  placeholderTextColor={theme.mutedText}
+                />
+                <Text style={styles.inputLabel}>Phone</Text>
+                <TextInput
+                  style={[styles.input, { borderColor: theme.border, backgroundColor: theme.inputBg, color: theme.text }]}
+                  value={parentDraft.mother.mobile}
+                  onChangeText={(value) => updateParentDraft("mother", "mobile", value)}
+                  placeholder="10-digit phone"
+                  placeholderTextColor={theme.mutedText}
+                  keyboardType="phone-pad"
+                />
+                <Text style={styles.inputLabel}>Email</Text>
+                <TextInput
+                  style={[styles.input, { borderColor: theme.border, backgroundColor: theme.inputBg, color: theme.text }]}
+                  value={parentDraft.mother.email}
+                  onChangeText={(value) => updateParentDraft("mother", "email", value)}
+                  placeholder="Email"
+                  placeholderTextColor={theme.mutedText}
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                />
+                <Text style={styles.inputLabel}>Occupation</Text>
+                <TextInput
+                  style={[styles.input, { borderColor: theme.border, backgroundColor: theme.inputBg, color: theme.text }]}
+                  value={parentDraft.mother.occupation}
+                  onChangeText={(value) => updateParentDraft("mother", "occupation", value)}
+                  placeholder="Occupation"
+                  placeholderTextColor={theme.mutedText}
+                />
+                <Text style={styles.inputLabel}>Qualification</Text>
+                <TextInput
+                  style={[styles.input, { borderColor: theme.border, backgroundColor: theme.inputBg, color: theme.text }]}
+                  value={parentDraft.mother.qualification}
+                  onChangeText={(value) => updateParentDraft("mother", "qualification", value)}
+                  placeholder="Qualification"
+                  placeholderTextColor={theme.mutedText}
+                />
+              </View>
+            ) : (
+              <>
+                <InfoRow label="Name" value={motherDisplay?.name || "-"} />
+                <InfoRow
+                  label="Phone"
+                  value={motherDisplay?.mobile || "-"}
+                  onPress={toDialablePhone(motherDisplay?.mobile) ? () => handleCallPress(motherDisplay?.mobile) : undefined}
+                />
+                <InfoRow label="Email" value={motherDisplay?.email || "-"} />
+                <InfoRow label="Occupation" value={motherDisplay?.occupation || "-"} />
+                <InfoRow label="Qualification" value={motherDisplay?.qualification || "-"} />
+              </>
+            )}
           </SectionCard>
         </View>
       ) : null}
@@ -554,6 +834,8 @@ const styles = StyleSheet.create({
   infoValue: { color: "#0f172a", fontWeight: "700", flexShrink: 1, textAlign: "right" },
   infoValueLink: { textDecorationLine: "underline" },
   twoColumn: { gap: 14 },
+  parentActionBar: { gap: 8 },
+  parentFormGrid: { gap: 8 },
   inputLabel: { color: "#334155", fontWeight: "700" },
   filterBlock: { gap: 10 },
   inputRow: { flexDirection: "row", gap: 10 },
@@ -580,5 +862,6 @@ const styles = StyleSheet.create({
   subjectMarksValue: { color: "#0f172a", fontWeight: "800", fontSize: 18 },
   subjectMarksMeta: { color: "#64748b", fontSize: 12, fontWeight: "600" },
   emptyText: { color: "#64748b" },
+  successText: { color: "#15803d", fontWeight: "600" },
   errorText: { color: "#b91c1c" },
 });

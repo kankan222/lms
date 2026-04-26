@@ -106,6 +106,29 @@ export default function StudentsTab({ onStartParentMessage }: Props) {
   const createClass = useMemo(() => classes.find((x) => x.id === createForm.class_id) ?? null, [classes, createForm.class_id]);
   const editClass = useMemo(() => classes.find((x) => x.id === editForm.class_id) ?? null, [classes, editForm.class_id]);
   const activeSession = useMemo(() => sessions.find((x) => Number(x.is_active) === 1 || x.is_active === true), [sessions]);
+  const classById = useMemo(
+    () => new Map<number, ClassStructureItem>(classes.map((item) => [Number(item.id), item])),
+    [classes],
+  );
+  const classByName = useMemo(() => {
+    const map = new Map<string, ClassStructureItem>();
+    for (const item of classes) {
+      const key = String(item.name || "").trim().toLowerCase();
+      if (key && !map.has(key)) {
+        map.set(key, item);
+      }
+    }
+    return map;
+  }, [classes]);
+  const resolveMatchedClass = useCallback(
+    (student: Student) => {
+      const byId = student.class_id ? classById.get(Number(student.class_id)) : null;
+      if (byId) return byId;
+      const key = String(student.class || "").trim().toLowerCase();
+      return key ? classByName.get(key) ?? null : null;
+    },
+    [classById, classByName],
+  );
 
   const filteredStudents = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -147,7 +170,11 @@ export default function StudentsTab({ onStartParentMessage }: Props) {
 
       const rows = Array.isArray(result?.data) ? result.data : [];
       if (mode === "loadMore") {
-        setStudents((prev) => [...prev, ...rows]);
+        setStudents((prev) => {
+          const seen = new Set(prev.map((item) => Number(item.id)));
+          const incoming = rows.filter((item) => !seen.has(Number(item.id)));
+          return [...prev, ...incoming];
+        });
       } else {
         setStudents(rows);
       }
@@ -189,7 +216,7 @@ export default function StudentsTab({ onStartParentMessage }: Props) {
     if (!form.session_id) e.session_id = "Session is required.";
     if (!form.class_id) e.class_id = "Class is required.";
     if (!form.roll_number.trim()) e.roll_number = "Roll number is required.";
-    const chosen = classes.find((x) => x.id === form.class_id);
+    const chosen = form.class_id ? classById.get(Number(form.class_id)) ?? null : null;
     if (resolveScopeCodeFromClass(chosen) === "hs" && !form.stream.trim()) e.stream = "Stream is required for higher secondary classes.";
     if (!form.father_mobile.trim() && !form.mother_mobile.trim()) e.parent_mobile = "Enter at least one parent phone number.";
     if (form.father_mobile.trim() && !form.father_name.trim()) e.father_name = "Father name is required when father phone is entered.";
@@ -252,7 +279,7 @@ export default function StudentsTab({ onStartParentMessage }: Props) {
   }
 
   function openEdit(student: Student) {
-    const matched = classes.find((x) => x.id === student.class_id) || classes.find((x) => x.name?.toLowerCase() === String(student.class || "").toLowerCase()) || null;
+    const matched = resolveMatchedClass(student);
     setEditForm({
       id: student.id,
       admission_no: student.admission_no || "",
@@ -439,53 +466,171 @@ export default function StudentsTab({ onStartParentMessage }: Props) {
   return (
     <View style={styles.screen}>
       <TopNotice notice={notice} style={styles.topNoticeOverlay} />
-      <ScrollView style={styles.root} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => loadStudentsList("refresh")} />}>
-      <View style={styles.innerContent}>
-      <View style={styles.heroCard}>
-        <View style={styles.heroCopy}>
-          <Text style={[styles.heroEyebrow, { color: theme.subText }]}>Overview</Text>
-          <Text style={[styles.title, { color: theme.text }]}>Students</Text>
-          <Text style={[styles.subtitle, { color: theme.subText }]}>
-            {isParent
-              ? "View your child records, attendance, fees, and results"
-              : "Manage admissions, class placement, and parent linkage"}
-          </Text>
-        </View>
-          <View style={styles.heroPrimaryActions}>
+      <FlatList
+        style={styles.root}
+        contentContainerStyle={styles.content}
+        data={loading ? [] : filteredStudents}
+        keyExtractor={(item) => String(item.id)}
+        refreshing={refreshing}
+        onRefresh={() => loadStudentsList("refresh")}
+        showsVerticalScrollIndicator={false}
+        removeClippedSubviews
+        initialNumToRender={12}
+        maxToRenderPerBatch={12}
+        windowSize={7}
+        ListHeaderComponent={
+          <View style={styles.innerContent}>
+            <View style={styles.heroCard}>
+              <View style={styles.heroCopy}>
+                <Text style={[styles.heroEyebrow, { color: theme.subText }]}>Overview</Text>
+                <Text style={[styles.title, { color: theme.text }]}>Students</Text>
+                <Text style={[styles.subtitle, { color: theme.subText }]}>
+                  {isParent
+                    ? "View your child records, attendance, fees, and results"
+                    : "Manage admissions, class placement, and parent linkage"}
+                </Text>
+              </View>
+              <View style={styles.heroPrimaryActions}>
+                {!isParent ? (
+                  <Pressable style={[styles.heroPrimaryBtn, { backgroundColor: theme.primary }]} onPress={() => { setCreateOpen(true); setCreateErrors({}); setCreateForm((p) => ({ ...p, session_id: p.session_id ?? activeSession?.id ?? null })); }}><Text style={[styles.primaryBtnText, { color: theme.primaryText }]}>Add Student</Text></Pressable>
+                ) : null}
+              </View>
+            </View>
+
             {!isParent ? (
-              <Pressable style={[styles.heroPrimaryBtn, { backgroundColor: theme.primary }]} onPress={() => { setCreateOpen(true); setCreateErrors({}); setCreateForm((p) => ({ ...p, session_id: p.session_id ?? activeSession?.id ?? null })); }}><Text style={[styles.primaryBtnText, { color: theme.primaryText }]}>Add Student</Text></Pressable>
+              <View style={styles.statsGrid}>
+                {stats.map((item) => <View key={item.label} style={[styles.statCard, { backgroundColor: item.accent, borderColor: item.border }]}><Text style={[styles.statLabel, { color: theme.subText }]}>{item.label}</Text><Text style={[styles.statValue, { color: item.tone }]}>{item.value}</Text></View>)}
+              </View>
+            ) : null}
+
+            <View style={[styles.sectionCard, { backgroundColor: theme.card, borderColor: theme.border }] }>
+              <View style={styles.rowBetween}><Text style={[styles.sectionTitle, { color: theme.text }]}>{isParent ? "My Students" : "Browse Students"}</Text><Text style={[styles.hint, { color: theme.subText }]}>{filteredStudents.length} visible{studentsTotal !== null ? ` | ${students.length}/${studentsTotal} loaded` : ""}</Text></View>
+              <View style={styles.searchRow}>
+                <View style={styles.searchWrap}>
+                  <TextInput style={[styles.input, styles.searchInput, { borderColor: theme.border, backgroundColor: theme.inputBg, color: theme.text }]} value={search} onChangeText={setSearch} placeholder={isParent ? "Search child..." : "Search..."} placeholderTextColor={theme.mutedText} />
+                </View>
+                <Pressable style={[styles.iconUtilityBtn, { borderColor: theme.border, backgroundColor: theme.card }]} onPress={() => setFiltersOpen(true)}>
+                  <Ionicons name="options-outline" size={18} color={theme.icon} />
+                </Pressable>
+              </View>
+              {(classId !== null || sectionId !== null) ? (
+                <Text style={[styles.activeFiltersText, { color: theme.subText }]}>
+                  {classId !== null ? `Class: ${selectedClass?.name || "-"}` : "All classes"}
+                  {sectionId !== null ? ` | Section: ${selectedClass?.sections?.find((section) => section.id === sectionId)?.name || "-"}` : ""}
+                </Text>
+              ) : null}
+            </View>
+          </View>
+        }
+        ListEmptyComponent={
+          loading ? (
+            <View style={styles.centered}><ActivityIndicator size="large" color={theme.text} /></View>
+          ) : (
+            <View style={[styles.emptyCard, { backgroundColor: theme.card, borderColor: theme.border }]}><Text style={[styles.emptyTitle, { color: theme.text }]}>No students found</Text><Text style={[styles.emptyText, { color: theme.subText }]}>{isParent ? "No linked student records are available right now." : "Try changing the search or class filters, or add a new student."}</Text></View>
+          )
+        }
+        ListFooterComponent={
+          <View style={styles.listFooter}>
+            {loadingMore ? (
+              <ActivityIndicator size="small" color={theme.text} />
+            ) : !loading && studentsHasMore ? (
+              <Pressable
+                style={[styles.inlineGhostBtn, { borderColor: theme.border, backgroundColor: theme.cardMuted }]}
+                onPress={() => void loadStudentsList("loadMore")}
+              >
+                <Text style={[styles.ghostBtnText, { color: theme.text }]}>
+                  Load More
+                  {studentsTotal !== null ? ` (${students.length}/${studentsTotal})` : ""}
+                </Text>
+              </Pressable>
             ) : null}
           </View>
-      </View>
+        }
+        onEndReachedThreshold={0.35}
+        onEndReached={() => {
+          if (!loading && !loadingMore && studentsHasMore) {
+            void loadStudentsList("loadMore");
+          }
+        }}
+        ItemSeparatorComponent={() => <View style={styles.rowGap} />}
+        renderItem={({ item: student }) => {
+          const matched = resolveMatchedClass(student);
+          const matchedSection = (matched?.sections || []).find((section) => String(section.id) === String(student.section_id || ""));
+          const medium = student.medium || matchedSection?.medium || "Not set";
+          const scopeLabel = fmtScope(resolveScopeCodeFromClass({
+            class_scope: student.class_scope || matched?.class_scope,
+            scope_name: (student as Student & { scope_name?: string | null }).scope_name || matched?.scope_name,
+          }));
+          const isHsScope = resolveScopeCodeFromClass({
+            class_scope: student.class_scope || matched?.class_scope,
+            scope_name: (student as Student & { scope_name?: string | null }).scope_name || matched?.scope_name,
+          }) === "hs";
+          const summaryLine = [
+            `Roll ${student.roll_number || "-"}`,
+            scopeLabel,
+            `Medium ${medium}`,
+            isHsScope ? `Stream ${student.stream_name || "-"}` : null,
+          ]
+            .filter(Boolean)
+            .join(" | ");
+          const contactLine = [
+            `Phone ${student.phone || student.mobile || "-"}`,
+            `Admission ${fmtDate(student.date_of_admission)}`,
+          ].join(" | ");
+          return (
+            <View style={styles.rowWrap}>
+              <Pressable style={[styles.studentCard, { backgroundColor: theme.card, borderColor: theme.border }]} onPress={() => openDetails(student)}>
+                <View style={styles.cardTop}>
+                  <View style={[styles.avatarBadge, { backgroundColor: theme.cardMuted }]}>
+                    <Text style={[styles.avatarText, { color: theme.text }]}>{student.name?.slice(0, 1)?.toUpperCase() || "S"}</Text>
+                  </View>
+                  <View style={styles.cardCopy}>
+                    <Text style={[styles.studentName, { color: theme.text }]} numberOfLines={1}>
+                      {student.name}
+                    </Text>
+                    <Text style={[styles.studentMeta, { color: theme.subText }]} numberOfLines={1}>
+                      {student.admission_no ? `Adm ${student.admission_no}` : `KKV-${student.id}`}
+                    </Text>
+                  </View>
+                  <View style={styles.compactClassBlock}>
+                    <Text style={[styles.compactClassValue, { color: theme.text }]} numberOfLines={1}>
+                      {student.class || "-"}
+                    </Text>
+                    <Text style={[styles.compactClassMeta, { color: theme.subText }]} numberOfLines={1}>
+                      {student.section || "-"}
+                    </Text>
+                  </View>
+                </View>
 
-      {!isParent ? (
-        <View style={styles.statsGrid}>
-          {stats.map((item) => <View key={item.label} style={[styles.statCard, { backgroundColor: item.accent, borderColor: item.border }]}><Text style={[styles.statLabel, { color: theme.subText }]}>{item.label}</Text><Text style={[styles.statValue, { color: item.tone }]}>{item.value}</Text></View>)}
-        </View>
-      ) : null}
+                <View style={styles.metaStack}>
+                  <Text style={[styles.detailText, styles.metaLineText, { color: theme.subText }]} numberOfLines={1}>
+                    {summaryLine}
+                  </Text>
+                  <Text style={[styles.detailText, styles.metaLineText, { color: theme.subText }]} numberOfLines={1}>
+                    {contactLine}
+                  </Text>
+                </View>
 
-      <View style={[styles.sectionCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
-        <View style={styles.rowBetween}><Text style={[styles.sectionTitle, { color: theme.text }]}>{isParent ? "My Students" : "Browse Students"}</Text><Text style={[styles.hint, { color: theme.subText }]}>{filteredStudents.length} visible{studentsTotal !== null ? ` • ${students.length}/${studentsTotal} loaded` : ""}</Text></View>
-        <View style={styles.searchRow}>
-          <View style={styles.searchWrap}>
-            <TextInput style={[styles.input, styles.searchInput, { borderColor: theme.border, backgroundColor: theme.inputBg, color: theme.text }]} value={search} onChangeText={setSearch} placeholder={isParent ? "Search child..." : "Search..."} placeholderTextColor={theme.mutedText} />
-          </View>
-          <Pressable style={[styles.iconUtilityBtn, { borderColor: theme.border, backgroundColor: theme.card }]} onPress={() => setFiltersOpen(true)}>
-            <Ionicons name="options-outline" size={18} color={theme.icon} />
-          </Pressable>
-        </View>
-        {(classId !== null || sectionId !== null) ? (
-          <Text style={[styles.activeFiltersText, { color: theme.subText }]}>
-            {classId !== null ? `Class: ${selectedClass?.name || "-"}` : "All classes"}
-            {sectionId !== null ? ` • Section: ${selectedClass?.sections?.find((section) => section.id === sectionId)?.name || "-"}` : ""}
-          </Text>
-        ) : null}
-      </View>
+                {!isParent ? (
+                  <View style={styles.cardIconActions}>
+                    <CardIconAction icon="eye-outline" onPress={() => openDetails(student)} />
+                    {canSendMessages ? (
+                      <CardIconAction icon="chatbubble-ellipses-outline" onPress={() => void handleMessageParent(student)} />
+                    ) : null}
+                    <CardIconAction icon="create-outline" onPress={() => openEdit(student)} />
+                    <CardIconAction icon="trash-outline" tone="danger" onPress={() => confirmDelete(student)} />
+                  </View>
+                ) : null}
+              </Pressable>
+            </View>
+          );
+        }}
+      />
 
       <Modal visible={filtersOpen} transparent animationType="fade" onRequestClose={() => setFiltersOpen(false)}>
         <View style={styles.popoverOverlay}>
           <Pressable style={styles.popoverBackdrop} onPress={() => setFiltersOpen(false)} />
-          <View style={[styles.filterPopover, { backgroundColor: theme.card, borderColor: theme.border }]}>
+          <View style={[styles.filterPopover, { backgroundColor: theme.card, borderColor: theme.border }] }>
             <View style={styles.rowBetween}>
               <Text style={[styles.sectionTitle, { color: theme.text }]}>Filters</Text>
               <Pressable onPress={resetBrowseFilters}>
@@ -530,84 +675,6 @@ export default function StudentsTab({ onStartParentMessage }: Props) {
           </View>
         </View>
       </Modal>
-
-      {loading ? <View style={styles.centered}><ActivityIndicator size="large" color={theme.text} /></View> : !filteredStudents.length ? <View style={[styles.emptyCard, { backgroundColor: theme.card, borderColor: theme.border }]}><Text style={[styles.emptyTitle, { color: theme.text }]}>No students found</Text><Text style={[styles.emptyText, { color: theme.subText }]}>{isParent ? "No linked student records are available right now." : "Try changing the search or class filters, or add a new student."}</Text></View> : <View style={styles.grid}>
-        <FlatList
-          data={filteredStudents}
-          keyExtractor={(item) => String(item.id)}
-          scrollEnabled={false}
-          removeClippedSubviews
-          initialNumToRender={12}
-          maxToRenderPerBatch={12}
-          windowSize={7}
-          ItemSeparatorComponent={() => <View style={{ height: 12 }} />}
-          renderItem={({ item: student }) => {
-            const matched = classes.find((x) => x.id === student.class_id) || classes.find((x) => x.name?.toLowerCase() === String(student.class || "").toLowerCase()) || null;
-            const matchedSection = (matched?.sections || []).find((section) => String(section.id) === String(student.section_id || ""));
-            const medium = student.medium || matchedSection?.medium || "Not set";
-            const scopeLabel = fmtScope(resolveScopeCodeFromClass({
-              class_scope: student.class_scope || matched?.class_scope,
-              scope_name: (student as Student & { scope_name?: string | null }).scope_name || matched?.scope_name,
-            }));
-            return (
-              <Pressable style={[styles.studentCard, { backgroundColor: theme.card, borderColor: theme.border }]} onPress={() => openDetails(student)}>
-                <View style={styles.cardTop}>
-                  <View style={[styles.avatarBadge, { backgroundColor: theme.cardMuted }]}><Text style={[styles.avatarText, { color: theme.text }]}>{student.name?.slice(0, 1)?.toUpperCase() || "S"}</Text></View>
-                  <View style={styles.cardCopy}>
-                    <Text style={[styles.studentName, { color: theme.text }]}>{student.name}</Text>
-                    <Text style={[styles.studentMeta, { color: theme.subText }]}>{student.admission_no ? `Adm ${student.admission_no}` : `KKV-${student.id}`}</Text>
-                  </View>
-                  <View style={styles.compactClassBlock}>
-                    <Text style={[styles.compactClassValue, { color: theme.text }]}>{student.class || "-"}</Text>
-                    <Text style={[styles.compactClassMeta, { color: theme.subText }]}>{student.section || "-"}</Text>
-                  </View>
-                </View>
-
-                <View style={styles.metaStack}>
-                  <View style={styles.metaLine}>
-                    <Text style={[styles.detailText, styles.metaLineText, { color: theme.subText }]}>Roll: {student.roll_number || "-"}</Text>
-                    <Text style={[styles.detailText, styles.metaLineText, { color: theme.subText }]}>Scope: {scopeLabel}</Text>
-                  </View>
-                  <View style={styles.metaLine}>
-                    <Text style={[styles.detailText, styles.metaLineText, { color: theme.subText }]}>Medium: {medium}</Text>
-                    {resolveScopeCodeFromClass({
-                      class_scope: student.class_scope || matched?.class_scope,
-                      scope_name: (student as Student & { scope_name?: string | null }).scope_name || matched?.scope_name,
-                    }) === "hs" ? <Text style={[styles.detailText, styles.metaLineText, { color: theme.subText }]}>Stream: {student.stream_name || "-"}</Text> : null}
-                  </View>
-                  <View style={styles.metaLine}>
-                    <Text style={[styles.detailText, styles.metaLineText, { color: theme.subText }]}>Phone: {student.phone || student.mobile || "-"}</Text>
-                  </View>
-                  <View style={styles.metaLine}>
-                    <Text style={[styles.detailText, styles.metaLineText, { color: theme.subText }]}>Admission: {fmtDate(student.date_of_admission)}</Text>
-                  </View>
-                </View>
-                {!isParent ? (
-                  <View style={styles.cardIconActions}>
-                    <CardIconAction icon="eye-outline" onPress={() => openDetails(student)} />
-                    {canSendMessages ? (
-                      <CardIconAction icon="chatbubble-ellipses-outline" onPress={() => void handleMessageParent(student)} />
-                    ) : null}
-                    <CardIconAction icon="create-outline" onPress={() => openEdit(student)} />
-                    <CardIconAction icon="trash-outline" tone="danger" onPress={() => confirmDelete(student)} />
-                  </View>
-                ) : null}
-              </Pressable>
-            );
-          }}
-        />
-        {studentsHasMore ? (
-          <Pressable
-            style={[styles.secondaryBtn, { borderColor: theme.border, backgroundColor: theme.card }]}
-            onPress={() => loadStudentsList("loadMore")}
-            disabled={loadingMore}
-          >
-            <Text style={[styles.secondaryBtnText, { color: theme.text }]}>
-              {loadingMore ? "Loading..." : "Load More"}
-            </Text>
-          </Pressable>
-        ) : null}
-      </View>}
 
       <Modal visible={createOpen} transparent animationType="slide" onRequestClose={() => setCreateOpen(false)}>
         <Sheet title="Add Student" subtitle="Create a student, enrollment, and parent linkage in one flow." onClose={() => setCreateOpen(false)}>
@@ -679,8 +746,6 @@ export default function StudentsTab({ onStartParentMessage }: Props) {
           </View>
         </View>
       </Modal>
-      </View>
-    </ScrollView>
     </View>
   );
 }
@@ -726,23 +791,26 @@ const styles = StyleSheet.create({
   emptyCard: { backgroundColor: "#fff", borderRadius: 22, borderWidth: 1, borderColor: "#e2e8f0", padding: 18, gap: 6 },
   emptyTitle: { color: "#0f172a", fontWeight: "800", fontSize: 16 },
   emptyText: { color: "#64748b", lineHeight: 20 },
+  rowWrap: { paddingHorizontal: 14 },
+  rowGap: { height: 12 },
+  listFooter: { paddingHorizontal: 14, paddingVertical: 14, alignItems: "center", justifyContent: "center" },
   grid: { gap: 12 },
-  studentCard: { backgroundColor: "#fff", borderRadius: 20, borderWidth: 1, borderColor: "#e2e8f0", padding: 14, gap: 10 },
+  studentCard: { backgroundColor: "#fff", borderRadius: 20, borderWidth: 1, borderColor: "#e2e8f0", padding: 14, gap: 8 },
   cardTop: { flexDirection: "row", alignItems: "center", gap: 10 },
   avatarBadge: { width: 40, height: 40, borderRadius: 12, backgroundColor: "#e2e8f0", alignItems: "center", justifyContent: "center" },
   avatarText: { color: "#0f172a", fontWeight: "800", fontSize: 16 },
-  cardCopy: { flex: 1, gap: 3 },
+  cardCopy: { flex: 1, minWidth: 0, gap: 3 },
   studentName: { color: "#0f172a", fontWeight: "800", fontSize: 16 },
   studentMeta: { color: "#475569", fontWeight: "700", fontSize: 12 },
-  compactClassBlock: { alignItems: "flex-end", gap: 2 },
+  compactClassBlock: { alignItems: "flex-end", minWidth: 64, maxWidth: 112, gap: 2 },
   compactClassValue: { fontSize: 14, fontWeight: "800" },
   compactClassMeta: { fontSize: 11, fontWeight: "700" },
-  metaStack: { gap: 4 },
+  metaStack: { gap: 2 },
   metaLine: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
   detailText: { color: "#475569", lineHeight: 18 },
   metaLineText: { fontSize: 12 },
   rowActions: { flexDirection: "row", gap: 10, marginTop: 14 },
-  cardIconActions: { flexDirection: "row", justifyContent: "flex-end", gap: 8, marginTop: 0 },
+  cardIconActions: { flexDirection: "row", justifyContent: "flex-end", gap: 8, marginTop: 4 },
   iconActionBtn: { width: 38, height: 38, borderWidth: 1, borderColor: "#cbd5e1", borderRadius: 12, backgroundColor: "#fff", alignItems: "center", justifyContent: "center" },
   iconActionBtnDanger: { borderColor: "#fecaca", backgroundColor: "#fff5f5" },
   primaryBtn: { backgroundColor: "#0f172a", paddingHorizontal: 16, paddingVertical: 11, borderRadius: 12, alignItems: "center", justifyContent: "center" },
@@ -781,3 +849,4 @@ const styles = StyleSheet.create({
   confirmMessage: { fontSize: 14, lineHeight: 20, textAlign: "center" },
   disabledBtn: { opacity: 0.7 },
 });
+
