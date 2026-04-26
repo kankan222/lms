@@ -1058,10 +1058,10 @@ export async function getPaymentsPaginated(filters = {}, options = {}) {
       DATE(p.created_at) AS payment_date
     ${buildPaymentsBaseSql(hasScopesTable, whereClause)}
     ORDER BY p.created_at DESC
-    LIMIT ? OFFSET ?
+    LIMIT ${limit} OFFSET ${offset}
   `;
 
-  const rows = await query(sql, [...params, limit, offset]);
+  const rows = await query(sql, params);
   const countRows = await query(
     `
       SELECT COUNT(*) AS total

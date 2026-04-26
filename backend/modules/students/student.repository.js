@@ -314,8 +314,8 @@ export async function getStudents(filters = {}) {
     ? await pool.execute(
       `${selectSql}
        ORDER BY s.id DESC
-       LIMIT ?, ?`,
-      [...params, offset, limit]
+       LIMIT ${offset}, ${limit}`,
+      params
     )
     : await pool.execute(
       `${selectSql}
