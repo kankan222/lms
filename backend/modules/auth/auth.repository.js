@@ -136,3 +136,23 @@ export async function revokeAllUserSessions(userId) {
 
   return query(sql, [userId]);
 }
+
+export async function updateLastLogin(userId) {
+  return query(
+    `UPDATE users
+     SET last_login = NOW()
+     WHERE id = ?`,
+    [userId]
+  );
+}
+
+export async function findUserById(userId) {
+  const rows = await query(
+    `SELECT *
+     FROM users
+     WHERE id = ?
+     LIMIT 1`,
+    [userId]
+  );
+  return rows[0] || null;
+}

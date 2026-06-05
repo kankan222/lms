@@ -12,6 +12,17 @@ export type LoginResponseData = {
   user: AuthUser;
 };
 
+export type OtpChallengeResponseData = {
+  otpRequired: true;
+  challengeId: string;
+  expiresInMinutes: number;
+  resendAvailableInSeconds: number;
+  phone: string;
+  reason?: string;
+};
+
+export type AuthLoginResponseData = LoginResponseData | OtpChallengeResponseData;
+
 export type RefreshResponseData = {
   accessToken: string;
   refreshToken: string;

@@ -5,9 +5,11 @@ function normalizePhone(rawPhone) {
   const compact = rawPhone.trim().replace(/[^\d+]/g, "");
   if (!compact) return undefined;
   if (compact.startsWith("+")) {
-    return `+${compact.slice(1).replace(/\D/g, "")}`;
+    const digits = compact.slice(1).replace(/\D/g, "");
+    return digits.length === 12 && digits.startsWith("91") ? digits.slice(2) : digits;
   }
-  return compact.replace(/\D/g, "");
+  const digits = compact.replace(/\D/g, "");
+  return digits.length === 12 && digits.startsWith("91") ? digits.slice(2) : digits;
 }
 
 export async function login(req, res, next) {
@@ -64,6 +66,41 @@ export async function refresh(req, res, next) {
     next(err);
   }
 }
+
+export async function verifyOtp(req, res, next) {
+  try {
+    const result = await authService.verifyOtp(req.body || {}, {
+      deviceId: req.headers["x-device-id"],
+      deviceType: req.headers["x-device-type"],
+      ip: req.ip ?? null
+    });
+
+    res.json({
+      success: true,
+      data: result
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function resendOtp(req, res, next) {
+  try {
+    const result = await authService.resendOtp(req.body || {}, {
+      deviceId: req.headers["x-device-id"],
+      deviceType: req.headers["x-device-type"],
+      ip: req.ip ?? null
+    });
+
+    res.json({
+      success: true,
+      data: result
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
 export async function logout(req, res, next) {
   try {
 

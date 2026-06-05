@@ -6,6 +6,8 @@ const router = express.Router();
 
 router.post("/login", controller.login);
 router.post("/refresh", controller.refresh);
+router.post("/verify-otp", controller.verifyOtp);
+router.post("/resend-otp", controller.resendOtp);
 
 router.post(
   "/logout",

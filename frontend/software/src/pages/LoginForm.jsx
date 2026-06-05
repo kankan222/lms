@@ -61,6 +61,19 @@ export default function LoginForm({ className, ...props }) {
     try {
       const res = await loginApi(identifier, password);
       const data = res.data;
+      if (data?.otpRequired) {
+        const pendingChallenge = {
+          challengeId: data.challengeId,
+          phone: data.phone,
+          expiresInMinutes: data.expiresInMinutes,
+          resendAvailableInSeconds: data.resendAvailableInSeconds,
+          identifier,
+        };
+        sessionStorage.setItem("pendingOtpChallenge", JSON.stringify(pendingChallenge));
+        navigate("/verify-otp", { replace: true, state: pendingChallenge });
+        return;
+      }
+
       login(data);
       navigate(getDefaultLandingPath(data?.user), { replace: true });
     } catch (err) {

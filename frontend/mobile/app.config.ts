@@ -4,18 +4,21 @@ import type { ExpoConfig } from "expo/config";
 const config: ExpoConfig = {
   name: "Kalong Kapili Vidyapith",
   slug: "kalong-kapili-vidyapith",
-  version: "1.0.3",
+  version: "1.0.7",
   orientation: "portrait",
-  icon: "./assets/logo.png",
+  icon: "./assets/splash-icon.png",
   userInterfaceStyle: "light",
   splash: {
-    image: "./assets/logo.png",
+    image: "./assets/splash-icon.png",
     resizeMode: "contain",
     backgroundColor: "#ffffff",
   },
   ios: {
-    supportsTablet: true,
+    supportsTablet: false,
     bundleIdentifier: "com.kalongkapilividyapith.mobile",
+    infoPlist: {
+      ITSAppUsesNonExemptEncryption: false,
+    },
   },
   android: {
     package: "com.kalongkapilividyapith.mobile",

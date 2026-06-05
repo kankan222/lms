@@ -14,9 +14,10 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { login } from "../services/authService";
+import { isOtpChallenge, login, resendOtp, verifyOtp } from "../services/authService";
 import { useAuthStore } from "../store/authStore";
 import { useAppTheme } from "../theme/AppThemeProvider";
+import type { OtpChallengeResponseData } from "../types/auth";
 
 function validateCredentials(identifier: string, password: string) {
   const credential = identifier.trim();
@@ -49,8 +50,12 @@ export default function LoginScreen() {
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [resending, setResending] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [otpChallenge, setOtpChallenge] = useState<OtpChallengeResponseData | null>(null);
+  const [otp, setOtp] = useState("");
+  const [cooldown, setCooldown] = useState(0);
   const heroOpacity = useRef(new Animated.Value(0)).current;
   const heroTranslateY = useRef(new Animated.Value(18)).current;
   const formOpacity = useRef(new Animated.Value(0)).current;
@@ -86,7 +91,21 @@ export default function LoginScreen() {
     ]).start();
   }, [formOpacity, formTranslateY, heroOpacity, heroTranslateY]);
 
+  useEffect(() => {
+    if (cooldown <= 0) return undefined;
+    const timer = setInterval(() => {
+      setCooldown((value) => Math.max(0, value - 1));
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [cooldown]);
+
   async function handleLogin() {
+    if (otpChallenge) {
+      await handleVerifyOtp();
+      return;
+    }
+
     const credential = identifier.trim();
     const validationError = validateCredentials(credential, password);
     if (validationError) {
@@ -98,6 +117,13 @@ export default function LoginScreen() {
     setError(null);
     try {
       const data = await login(credential, password);
+      if (isOtpChallenge(data)) {
+        setOtpChallenge(data);
+        setCooldown(Number(data.resendAvailableInSeconds || 60));
+        setOtp("");
+        return;
+      }
+
       await setAuth({
         accessToken: data.accessToken,
         refreshToken: data.refreshToken,
@@ -116,6 +142,64 @@ export default function LoginScreen() {
       setError(message || fallback);
     } finally {
       setSubmitting(false);
+    }
+  }
+
+  async function handleVerifyOtp() {
+    if (!otpChallenge) return;
+    if (!/^\d{6}$/.test(otp.trim())) {
+      setError("Enter the 6 digit OTP.");
+      return;
+    }
+
+    setSubmitting(true);
+    setError(null);
+    try {
+      const data = await verifyOtp(otpChallenge.challengeId, otp.trim());
+      await setAuth({
+        accessToken: data.accessToken,
+        refreshToken: data.refreshToken,
+        user: data.user,
+      });
+    } catch (err: unknown) {
+      const fallback = "Could not verify OTP.";
+      const message =
+        typeof err === "object" &&
+        err &&
+        "response" in err &&
+        typeof (err as { response?: { data?: { message?: string } } }).response?.data
+          ?.message === "string"
+          ? (err as { response?: { data?: { message?: string } } }).response?.data?.message
+          : fallback;
+      setError(message || fallback);
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function handleResendOtp() {
+    if (!otpChallenge) return;
+    setResending(true);
+    setError(null);
+    try {
+      const data = await resendOtp(otpChallenge.challengeId);
+      setOtpChallenge(data);
+      setCooldown(Number(data.resendAvailableInSeconds || 60));
+      setOtp("");
+      Alert.alert("OTP sent", "A new OTP has been sent to your registered phone number.");
+    } catch (err: unknown) {
+      const fallback = "Could not resend OTP.";
+      const message =
+        typeof err === "object" &&
+        err &&
+        "response" in err &&
+        typeof (err as { response?: { data?: { message?: string } } }).response?.data
+          ?.message === "string"
+          ? (err as { response?: { data?: { message?: string } } }).response?.data?.message
+          : fallback;
+      setError(message || fallback);
+    } finally {
+      setResending(false);
     }
   }
 
@@ -161,41 +245,95 @@ export default function LoginScreen() {
                 </View>
               ) : null}
 
-              <Text style={[styles.label, { color: theme.subText }]}>Email or phone</Text>
-              <TextInput
-                value={identifier}
-                onChangeText={(value) => {
-                  setIdentifier(value);
-                  if (error) setError(null);
-                }}
-                autoCapitalize="none"
-                placeholder="m@example.com or 9876543210"
-                placeholderTextColor={theme.mutedText}
-                style={[styles.input, { borderColor: theme.border, backgroundColor: theme.inputBg, color: theme.text }]}
-                editable={!submitting}
-              />
-              <Text style={[styles.label, { color: theme.subText }]}>Password</Text>
-              <TextInput
-                value={password}
-                onChangeText={(value) => {
-                  setPassword(value);
-                  if (error) setError(null);
-                }}
-                secureTextEntry={!showPassword}
-                placeholder="Password"
-                placeholderTextColor={theme.mutedText}
-                style={[styles.input, { borderColor: theme.border, backgroundColor: theme.inputBg, color: theme.text }]}
-                editable={!submitting}
-              />
-              <Pressable
-                onPress={() => setShowPassword((prev) => !prev)}
-                disabled={submitting}
-                style={styles.passwordToggle}
-              >
-                <Text style={[styles.passwordToggleText, { color: theme.text }]}>
-                  {showPassword ? "Hide password" : "Show password"}
-                </Text>
-              </Pressable>
+              {!otpChallenge ? (
+                <>
+                  <Text style={[styles.label, { color: theme.subText }]}>Email or phone</Text>
+                  <TextInput
+                    value={identifier}
+                    onChangeText={(value) => {
+                      setIdentifier(value);
+                      if (error) setError(null);
+                    }}
+                    autoCapitalize="none"
+                    placeholder="m@example.com or 9876543210"
+                    placeholderTextColor={theme.mutedText}
+                    style={[styles.input, { borderColor: theme.border, backgroundColor: theme.inputBg, color: theme.text }]}
+                    editable={!submitting}
+                  />
+                  <Text style={[styles.label, { color: theme.subText }]}>Password</Text>
+                  <TextInput
+                    value={password}
+                    onChangeText={(value) => {
+                      setPassword(value);
+                      if (error) setError(null);
+                    }}
+                    secureTextEntry={!showPassword}
+                    placeholder="Password"
+                    placeholderTextColor={theme.mutedText}
+                    style={[styles.input, { borderColor: theme.border, backgroundColor: theme.inputBg, color: theme.text }]}
+                    editable={!submitting}
+                  />
+                  <Pressable
+                    onPress={() => setShowPassword((prev) => !prev)}
+                    disabled={submitting}
+                    style={styles.passwordToggle}
+                  >
+                    <Text style={[styles.passwordToggleText, { color: theme.text }]}>
+                      {showPassword ? "Hide password" : "Show password"}
+                    </Text>
+                  </Pressable>
+                </>
+              ) : (
+                <>
+                  <View style={[styles.otpNotice, { borderColor: theme.border, backgroundColor: theme.cardMuted }]}>
+                    <Text style={[styles.otpTitle, { color: theme.text }]}>Verify OTP</Text>
+                    <Text style={[styles.otpText, { color: theme.subText }]}>
+                      Enter the 6 digit code sent to {otpChallenge.phone || "your registered phone"}.
+                    </Text>
+                  </View>
+                  <Text style={[styles.label, { color: theme.subText }]}>OTP</Text>
+                  <TextInput
+                    value={otp}
+                    onChangeText={(value) => {
+                      setOtp(value.replace(/\D/g, "").slice(0, 6));
+                      if (error) setError(null);
+                    }}
+                    keyboardType="number-pad"
+                    textContentType="oneTimeCode"
+                    placeholder="123456"
+                    placeholderTextColor={theme.mutedText}
+                    style={[styles.input, { borderColor: theme.border, backgroundColor: theme.inputBg, color: theme.text }]}
+                    editable={!submitting}
+                    maxLength={6}
+                  />
+                  <View style={styles.otpActions}>
+                    <Pressable
+                      onPress={() => {
+                        setOtpChallenge(null);
+                        setOtp("");
+                        setError(null);
+                      }}
+                      disabled={submitting || resending}
+                    >
+                      <Text style={[styles.passwordToggleText, { color: theme.text }]}>Back</Text>
+                    </Pressable>
+                    <Pressable
+                      onPress={handleResendOtp}
+                      disabled={submitting || resending || cooldown > 0}
+                    >
+                      <Text
+                        style={[
+                          styles.passwordToggleText,
+                          { color: theme.text },
+                          (resending || cooldown > 0) && styles.disabledText,
+                        ]}
+                      >
+                        {cooldown > 0 ? `Resend in ${cooldown}s` : resending ? "Sending..." : "Resend OTP"}
+                      </Text>
+                    </Pressable>
+                  </View>
+                </>
+              )}
 
               <Pressable
                 onPress={handleLogin}
@@ -209,7 +347,9 @@ export default function LoginScreen() {
                 {submitting ? (
                   <ActivityIndicator color={theme.primaryText} />
                 ) : (
-                  <Text style={[styles.buttonText, { color: theme.primaryText }]}>Login</Text>
+                  <Text style={[styles.buttonText, { color: theme.primaryText }]}>
+                    {otpChallenge ? "Verify and login" : "Login"}
+                  </Text>
                 )}
               </Pressable>
             </Animated.View>
@@ -315,5 +455,26 @@ const styles = StyleSheet.create({
     color: "#0f172a",
     fontSize: 13,
     fontWeight: "700",
+  },
+  otpNotice: {
+    borderWidth: 1,
+    borderRadius: 16,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  otpTitle: {
+    fontWeight: "800",
+    marginBottom: 2,
+  },
+  otpText: {
+    lineHeight: 18,
+  },
+  otpActions: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  disabledText: {
+    opacity: 0.5,
   },
 });

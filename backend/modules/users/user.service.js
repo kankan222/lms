@@ -1,5 +1,6 @@
 import bcrypt from "bcrypt";
 import * as repo from "./user.repository.js";
+import { revokeTrustedDevicesForUser } from "../auth/auth.otp.repository.js";
 import AppError from "../../core/errors/AppError.js";
 
 export async function changePassword({
@@ -31,6 +32,7 @@ export async function changePassword({
   const hash = await bcrypt.hash(newPassword, 10);
 
   await repo.updatePassword(userId, hash);
+  await revokeTrustedDevicesForUser(userId, "password_reset");
 
   return { success: true };
 
@@ -64,6 +66,7 @@ export async function adminResetPassword({
     await bcrypt.hash(newPassword, 10);
 
   await repo.updatePassword(userId, hash);
+  await revokeTrustedDevicesForUser(userId, "password_reset");
 
   return { success: true };
 
@@ -84,6 +87,9 @@ export async function updateUserStatus({ userId, status, actorUserId }) {
   }
 
   await repo.updateUserStatus(userId, status);
+  if (status !== "active") {
+    await revokeTrustedDevicesForUser(userId, "account_inactive");
+  }
   return { success: true };
 }
 

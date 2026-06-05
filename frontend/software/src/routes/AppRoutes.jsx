@@ -13,6 +13,7 @@ import { useAuth } from "../hooks/useAuth";
 import { isRouteAllowedForUser } from "./RouteConfig";
 
 const Login = lazy(() => import("../pages/LoginForm"));
+const VerifyOtp = lazy(() => import("../pages/VerifyOtp"));
 const Unauthorized = lazy(() => import("../pages/Unauthorized"));
 
 function RouteFallback() {
@@ -46,6 +47,16 @@ const AppRoutes = () => {
               <Unauthorized />
             </Suspense>
           </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/verify-otp"
+        element={
+          <PublicRoute>
+            <Suspense fallback={<RouteFallback />}>
+              <VerifyOtp />
+            </Suspense>
+          </PublicRoute>
         }
       />
 

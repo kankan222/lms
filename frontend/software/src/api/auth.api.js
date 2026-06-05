@@ -1,4 +1,5 @@
 import { apiRequest } from "../../../shared/api/client.js";
+import { getDeviceHeaders } from "../utils/device.js";
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000/api/v1";
 
@@ -12,7 +13,24 @@ export async function loginApi(identifier, password) {
 
   return apiRequest("/auth/login", {
     method: "POST",
+    headers: getDeviceHeaders(),
     body: JSON.stringify(payload)
+  });
+}
+
+export async function verifyOtpApi(challengeId, otp) {
+  return apiRequest("/auth/verify-otp", {
+    method: "POST",
+    headers: getDeviceHeaders(),
+    body: JSON.stringify({ challengeId, otp })
+  });
+}
+
+export async function resendOtpApi(challengeId) {
+  return apiRequest("/auth/resend-otp", {
+    method: "POST",
+    headers: getDeviceHeaders(),
+    body: JSON.stringify({ challengeId })
   });
 }
 
