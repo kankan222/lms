@@ -8,8 +8,8 @@
   WHERE r.name = 'super_admin';
 
   UPDATE users
-  SET phone = '6000159030'
-  WHERE id = 1;
+  SET phone = '6002649802'
+  WHERE id = 55;
 
   UPDATE auth_trusted_devices
   SET revoked_at = NOW(),
@@ -22,3 +22,8 @@
   WHERE user_id = 1
   ORDER BY created_at DESC
   LIMIT 5;
+
+  SELECT id, user_id, phone, role_name, reason, created_at, expires_at
+  FROM auth_otp_challenges
+  WHERE user_id = 50
+  ORDER BY created_at DESC;

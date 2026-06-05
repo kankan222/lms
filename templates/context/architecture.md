@@ -63,6 +63,8 @@
 - Login accepts email, phone, or identifier plus password.
 - New devices and suspicious logins require a 6 digit SMS OTP through
   Fast2SMS Smart OTP before access and refresh tokens are issued.
+- Repeated password login attempts for the same active challenge should
+  reuse the existing OTP challenge instead of sending another OTP.
 - OTPs are sent only to the phone number stored on the user record.
 - Trusted devices are identified by client-generated device IDs and
   remain trusted until password reset, account deactivation, or

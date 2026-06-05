@@ -26,6 +26,8 @@ Update this file after every meaningful implementation change.
   and wrong-attempt blocking.
 - Added internal web `/verify-otp` flow and mobile OTP verification
   state for new-device login.
+- Hardened OTP login against duplicate sends by reusing active
+  challenges during cooldown and disabling duplicate web login submits.
 
 ## In Progress
 

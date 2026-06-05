@@ -74,6 +74,28 @@ export async function createOtpChallenge(data) {
   );
 }
 
+export async function findActiveOtpChallenge({ userId, deviceId }) {
+  const deviceFilter = deviceId
+    ? "AND device_id = ?"
+    : "AND device_id IS NULL";
+  const params = deviceId ? [userId, deviceId] : [userId];
+
+  const rows = await query(
+    `SELECT *
+     FROM auth_otp_challenges
+     WHERE user_id = ?
+       ${deviceFilter}
+       AND verified_at IS NULL
+       AND expires_at > NOW()
+       AND (blocked_until IS NULL OR blocked_until <= NOW())
+     ORDER BY created_at DESC
+     LIMIT 1`,
+    params
+  );
+
+  return rows[0] || null;
+}
+
 export async function getOtpChallenge(challengeId) {
   const rows = await query(
     `SELECT *

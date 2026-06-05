@@ -55,6 +55,10 @@ function addMinutes(date, minutes) {
   return new Date(date.getTime() + minutes * 60 * 1000);
 }
 
+function secondsUntil(date) {
+  return Math.max(0, Math.ceil((new Date(date).getTime() - Date.now()) / 1000));
+}
+
 async function loadAccessData(userId) {
   const [permissionsRows, roleRows] = await Promise.all([
     getUserPermissions(userId),
@@ -152,6 +156,26 @@ async function createAndSendOtpChallenge({ user, roles, phone, meta, reason }) {
   }
 
   const { expiryMinutes, otpLength } = getOtpSettings();
+  const activeChallenge = await otpRepo.findActiveOtpChallenge({
+    userId: user.id,
+    deviceId: meta.deviceId ?? null
+  });
+
+  if (activeChallenge) {
+    const resendAvailableAt = new Date(
+      new Date(activeChallenge.last_sent_at).getTime() + OTP_RESEND_COOLDOWN_MS
+    );
+
+    return {
+      otpRequired: true,
+      challengeId: activeChallenge.id,
+      expiresInMinutes: Math.max(1, Math.ceil(secondsUntil(activeChallenge.expires_at) / 60)),
+      resendAvailableInSeconds: secondsUntil(resendAvailableAt),
+      phone: maskPhone(activeChallenge.phone),
+      reason: activeChallenge.reason || reason
+    };
+  }
+
   const otp = generateOtp(otpLength);
   const otpHash = await bcrypt.hash(otp, 10);
   const challengeId = uuid();

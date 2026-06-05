@@ -20,6 +20,7 @@ export default function LoginForm({ className, ...props }) {
   const {login} = useAuth();
   const [error, setError] = useState("");
   const [showPassword, setShowPassword] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
 
   function validateCredentials(identifier, password) {
     const credential = identifier.trim();
@@ -49,6 +50,7 @@ export default function LoginForm({ className, ...props }) {
 
   async function handleSubmit(e){
     e.preventDefault();
+    if (submitting) return;
     setError("");
     const identifier = e.target.identifier.value.trim();
     const password = e.target.password.value;
@@ -58,6 +60,7 @@ export default function LoginForm({ className, ...props }) {
       return;
     }
 
+    setSubmitting(true);
     try {
       const res = await loginApi(identifier, password);
       const data = res.data;
@@ -78,6 +81,8 @@ export default function LoginForm({ className, ...props }) {
       navigate(getDefaultLandingPath(data?.user), { replace: true });
     } catch (err) {
       setError(err?.message || "Invalid email/phone or password.");
+    } finally {
+      setSubmitting(false);
     }
   }
   return (
@@ -101,6 +106,7 @@ export default function LoginForm({ className, ...props }) {
                   name="identifier"
                   type="text"
                   placeholder="m@example.com or 9876543210"
+                  disabled={submitting}
                   required
                 />
               </Field>
@@ -119,12 +125,15 @@ export default function LoginForm({ className, ...props }) {
                 <Input
                   id="password"
                   type={showPassword ? "text" : "password"}
+                  disabled={submitting}
                   required
                 />
               </Field>
 
               <Field>
-                <Button type="submit">Login</Button>
+                <Button type="submit" disabled={submitting}>
+                  {submitting ? "Sending OTP..." : "Login"}
+                </Button>
               </Field>
               {error && (
                 <p className="text-sm text-red-600">{error}</p>
