@@ -471,7 +471,7 @@ async function resolveParent(conn, parent, options = {}) {
     });
   }
 
-  const passwordHash = await bcrypt.hash("2025-26", 10);
+  const passwordHash = await bcrypt.hash("ABCDEF", 10);
 
   const userId = await repo.createUser(conn, {
     phone: normalizedMobile,
