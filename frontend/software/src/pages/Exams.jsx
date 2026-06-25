@@ -65,6 +65,10 @@ function isSplitPattern(subject) {
   return String(subject?.mark_pattern || "single").trim().toLowerCase() === "split";
 }
 
+function hasSubjectComponents(subject) {
+  return Array.isArray(subject?.components) && subject.components.length > 0;
+}
+
 function makeDefaultSubject(subject) {
   return {
     subject_id: Number(subject.subject_id || subject.id),
@@ -76,7 +80,91 @@ function makeDefaultSubject(subject) {
     theory_max: 80,
     theory_pass: 0,
     practical_max: 20,
-    practical_pass: 0
+    practical_pass: 0,
+    components: []
+  };
+}
+
+function makeDefaultBiologyComponents(subject) {
+  const maxMarks = toWholeNumber(subject?.max_marks, 100);
+  const passMarks = toWholeNumber(subject?.pass_marks, 33);
+  const halfMax = Math.max(1, Math.trunc(maxMarks / 2));
+  const secondMax = Math.max(1, maxMarks - halfMax);
+  const halfPass = Math.trunc(passMarks / 2);
+  const secondPass = Math.max(0, passMarks - halfPass);
+
+  return [
+    {
+      name: "Botany",
+      mark_pattern: "split",
+      theory_max: Math.max(0, halfMax - Math.min(10, halfMax)),
+      theory_pass: halfPass,
+      practical_max: Math.min(10, halfMax),
+      practical_pass: 0,
+      max_marks: halfMax,
+      pass_marks: halfPass,
+      sort_order: 0,
+    },
+    {
+      name: "Zoology",
+      mark_pattern: "split",
+      theory_max: Math.max(0, secondMax - Math.min(10, secondMax)),
+      theory_pass: secondPass,
+      practical_max: Math.min(10, secondMax),
+      practical_pass: 0,
+      max_marks: secondMax,
+      pass_marks: secondPass,
+      sort_order: 1,
+    },
+  ];
+}
+
+function rollupSubjectComponents(subject) {
+  const components = Array.isArray(subject.components) ? subject.components : [];
+  if (!components.length) return subject;
+
+  const normalizedComponents = components.map((component, index) => {
+    if (String(component.mark_pattern || "split").trim().toLowerCase() === "single") {
+      return {
+        ...component,
+        mark_pattern: "single",
+        max_marks: toWholeNumber(component.max_marks, 0),
+        pass_marks: toWholeNumber(component.pass_marks, 0),
+        theory_max: 0,
+        theory_pass: 0,
+        practical_max: 0,
+        practical_pass: 0,
+        sort_order: index,
+      };
+    }
+
+    const theoryMax = toWholeNumber(component.theory_max, 0);
+    const practicalMax = toWholeNumber(component.practical_max, 0);
+    const theoryPass = toWholeNumber(component.theory_pass, 0);
+    const practicalPass = toWholeNumber(component.practical_pass, 0);
+    return {
+      ...component,
+      mark_pattern: "split",
+      theory_max: theoryMax,
+      theory_pass: theoryPass,
+      practical_max: practicalMax,
+      practical_pass: practicalPass,
+      max_marks: theoryMax + practicalMax,
+      pass_marks: theoryPass + practicalPass,
+      sort_order: index,
+    };
+  });
+
+  return {
+    ...subject,
+    components: normalizedComponents,
+    mark_pattern: "split",
+    max_marks: normalizedComponents.reduce((sum, component) => sum + toWholeNumber(component.max_marks, 0), 0),
+    pass_marks: normalizedComponents.reduce((sum, component) => sum + toWholeNumber(component.pass_marks, 0), 0),
+    theory_max: normalizedComponents.reduce((sum, component) => sum + toWholeNumber(component.theory_max, 0), 0),
+    theory_pass: normalizedComponents.reduce((sum, component) => sum + toWholeNumber(component.theory_pass, 0), 0),
+    practical_max: normalizedComponents.reduce((sum, component) => sum + toWholeNumber(component.practical_max, 0), 0),
+    practical_pass: normalizedComponents.reduce((sum, component) => sum + toWholeNumber(component.practical_pass, 0), 0),
   };
 }
 
@@ -84,6 +172,11 @@ const subjectGroupLabels = {
   compulsory: "Compulsory",
   elective: "Elective",
   optional: "Optional",
+};
+
+const classScopeLabels = {
+  school: "School",
+  hs: "Higher Secondary",
 };
 
 const FIELD_CLASSNAME =
@@ -115,6 +208,7 @@ function markPatternBadgeClass(pattern) {
 
 export default function Exams() {
   const [exams, setExams] = useState([]);
+  const [scopeFilter, setScopeFilter] = useState("all");
   const [classStructure, setClassStructure] = useState([]);
   const [subjectOfferings, setSubjectOfferings] = useState([]);
   const [open, setOpen] = useState(false);
@@ -189,6 +283,10 @@ export default function Exams() {
       exams.map((exam) => {
         const scopes = Array.isArray(exam.scopes) ? exam.scopes : [];
         const subjects = Array.isArray(exam.subjects) ? exam.subjects : [];
+        const classScopes = String(exam.class_scope || "school")
+          .split(",")
+          .map((scope) => scope.trim().toLowerCase())
+          .filter(Boolean);
         const scopeLabels = scopes.map((scope) => {
           const className = scope.class_name || scope.class || `Class ${scope.class_id}`;
           const sectionName =
@@ -202,10 +300,26 @@ export default function Exams() {
           ...exam,
           scopes,
           subjects,
+          classScopes: classScopes.length ? classScopes : ["school"],
           scopeLabels,
         };
       }),
     [exams]
+  );
+  const visibleExamCards = useMemo(
+    () =>
+      scopeFilter === "all"
+        ? examCards
+        : examCards.filter((exam) => exam.classScopes.includes(scopeFilter)),
+    [examCards, scopeFilter]
+  );
+  const schoolExamCards = useMemo(
+    () => visibleExamCards.filter((exam) => exam.classScopes.includes("school")),
+    [visibleExamCards]
+  );
+  const hsExamCards = useMemo(
+    () => visibleExamCards.filter((exam) => exam.classScopes.includes("hs")),
+    [visibleExamCards]
   );
 
   async function loadInitial() {
@@ -382,6 +496,7 @@ export default function Exams() {
         return {
           ...subject,
           mark_pattern: "single",
+          components: [],
           max_marks: maxMarks,
           pass_marks: passMarks
         };
@@ -398,6 +513,49 @@ export default function Exams() {
           ? { ...subject, [key]: wholeNumber }
           : subject
       )
+    }));
+  }
+
+  function enableSubjectComponents(subjectId) {
+    setForm((prev) => ({
+      ...prev,
+      subjects: prev.subjects.map((subject) =>
+        Number(subject.subject_id) === Number(subjectId)
+          ? rollupSubjectComponents({
+              ...subject,
+              components: makeDefaultBiologyComponents(subject),
+            })
+          : subject
+      ),
+    }));
+  }
+
+  function clearSubjectComponents(subjectId) {
+    setForm((prev) => ({
+      ...prev,
+      subjects: prev.subjects.map((subject) =>
+        Number(subject.subject_id) === Number(subjectId)
+          ? { ...subject, components: [] }
+          : subject
+      ),
+    }));
+  }
+
+  function updateSubjectComponentField(subjectId, componentIndex, key, value) {
+    setForm((prev) => ({
+      ...prev,
+      subjects: prev.subjects.map((subject) => {
+        if (Number(subject.subject_id) !== Number(subjectId)) return subject;
+        const components = (subject.components || []).map((component, index) =>
+          index === componentIndex
+            ? {
+                ...component,
+                [key]: key === "name" ? value : toWholeNumber(value, 0),
+              }
+            : component
+        );
+        return rollupSubjectComponents({ ...subject, components });
+      }),
     }));
   }
 
@@ -421,6 +579,58 @@ export default function Exams() {
     for (const subject of form.subjects) {
       const subjectId = Number(subject.subject_id);
       if (!subjectId) continue;
+
+      if (hasSubjectComponents(subject)) {
+        const cleanComponents = [];
+        for (const [index, component] of subject.components.entries()) {
+          const name = String(component.name || "").trim();
+          if (!name) {
+            setFormError(`Component ${index + 1} name is required for '${subject.subject_name}'.`);
+            return;
+          }
+
+          const theoryMax = toWholeNumber(component.theory_max, 0);
+          const practicalMax = toWholeNumber(component.practical_max, 0);
+          const theoryPass = toWholeNumber(component.theory_pass, 0);
+          const practicalPass = toWholeNumber(component.practical_pass, 0);
+          const maxMarks = theoryMax + practicalMax;
+          const passMarks = theoryPass + practicalPass;
+
+          if (maxMarks <= 0) {
+            setFormError(`${name} max marks for '${subject.subject_name}' must be greater than 0.`);
+            return;
+          }
+          if (theoryPass > theoryMax || practicalPass > practicalMax || passMarks > maxMarks) {
+            setFormError(`Pass marks cannot exceed max marks for '${name}'.`);
+            return;
+          }
+
+          cleanComponents.push({
+            name,
+            mark_pattern: "split",
+            max_marks: maxMarks,
+            pass_marks: passMarks,
+            theory_max: theoryMax,
+            theory_pass: theoryPass,
+            practical_max: practicalMax,
+            practical_pass: practicalPass,
+            sort_order: index,
+          });
+        }
+
+        cleanSubjects.push({
+          subject_id: subjectId,
+          mark_pattern: "split",
+          max_marks: cleanComponents.reduce((sum, component) => sum + component.max_marks, 0),
+          pass_marks: cleanComponents.reduce((sum, component) => sum + component.pass_marks, 0),
+          theory_max: cleanComponents.reduce((sum, component) => sum + component.theory_max, 0),
+          theory_pass: cleanComponents.reduce((sum, component) => sum + component.theory_pass, 0),
+          practical_max: cleanComponents.reduce((sum, component) => sum + component.practical_max, 0),
+          practical_pass: cleanComponents.reduce((sum, component) => sum + component.practical_pass, 0),
+          components: cleanComponents,
+        });
+        continue;
+      }
 
       if (isSplitPattern(subject)) {
         const theoryMax = toWholeNumber(subject.theory_max, 0);
@@ -524,13 +734,26 @@ export default function Exams() {
         subjects: (exam.subjects || []).map((subject) => ({
           subject_id: Number(subject.subject_id),
           subject_name: subject.subject_name,
+          subject_group: subject.subject_group || "compulsory",
           mark_pattern: isSplitPattern(subject) ? "split" : "single",
           max_marks: toWholeNumber(subject.max_marks, 0),
           pass_marks: toWholeNumber(subject.pass_marks, 0),
           theory_max: toWholeNumber(subject.theory_max, 0),
           theory_pass: toWholeNumber(subject.theory_pass, 0),
           practical_max: toWholeNumber(subject.practical_max, 0),
-          practical_pass: toWholeNumber(subject.practical_pass, 0)
+          practical_pass: toWholeNumber(subject.practical_pass, 0),
+          components: (subject.components || []).map((component, index) => ({
+            id: component.id,
+            name: component.name,
+            mark_pattern: component.mark_pattern || "split",
+            max_marks: toWholeNumber(component.max_marks, 0),
+            pass_marks: toWholeNumber(component.pass_marks, 0),
+            theory_max: toWholeNumber(component.theory_max, 0),
+            theory_pass: toWholeNumber(component.theory_pass, 0),
+            practical_max: toWholeNumber(component.practical_max, 0),
+            practical_pass: toWholeNumber(component.practical_pass, 0),
+            sort_order: Number(component.sort_order ?? index),
+          }))
         }))
       });
 
@@ -738,6 +961,7 @@ export default function Exams() {
                             </p>
                             {form.subjects.map((subject) => {
                               const split = isSplitPattern(subject);
+                              const componentMode = hasSubjectComponents(subject);
                               const totalMax =
                                 toWholeNumber(subject.theory_max, 0) + toWholeNumber(subject.practical_max, 0);
                               const totalPass =
@@ -770,13 +994,149 @@ export default function Exams() {
                                       className={`${FIELD_CLASSNAME} h-9 w-auto min-w-40 rounded-xl py-1.5`}
                                       value={subject.mark_pattern || "single"}
                                       onChange={(e) => setSubjectPattern(subject.subject_id, e.target.value)}
+                                      disabled={componentMode}
                                     >
                                       <option value="single">Single Total</option>
                                       <option value="split">Theory + Practical</option>
                                     </select>
                                   </div>
 
-                                  {!split ? (
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    {componentMode ? (
+                                      <Button
+                                        type="button"
+                                        variant="outline"
+                                        size="sm"
+                                        onClick={() => clearSubjectComponents(subject.subject_id)}
+                                      >
+                                        Remove Branches
+                                      </Button>
+                                    ) : (
+                                      <Button
+                                        type="button"
+                                        variant="outline"
+                                        size="sm"
+                                        onClick={() => enableSubjectComponents(subject.subject_id)}
+                                      >
+                                        Use Botany/Zoology
+                                      </Button>
+                                    )}
+                                    {componentMode ? (
+                                      <span className="text-xs text-muted-foreground">
+                                        Parent total is calculated from branch marks.
+                                      </span>
+                                    ) : null}
+                                  </div>
+
+                                  {componentMode ? (
+                                    <div className="space-y-3">
+                                      {(subject.components || []).map((component, componentIndex) => {
+                                        const componentMax =
+                                          toWholeNumber(component.theory_max, 0) + toWholeNumber(component.practical_max, 0);
+                                        const componentPass =
+                                          toWholeNumber(component.theory_pass, 0) + toWholeNumber(component.practical_pass, 0);
+
+                                        return (
+                                          <div
+                                            key={`${subject.subject_id}-${componentIndex}`}
+                                            className="rounded-xl border border-border bg-background p-3"
+                                          >
+                                            <div className="mb-2 grid gap-2 sm:grid-cols-[1fr_auto]">
+                                              <Input
+                                                className="rounded-xl"
+                                                value={component.name}
+                                                onChange={(e) =>
+                                                  updateSubjectComponentField(
+                                                    subject.subject_id,
+                                                    componentIndex,
+                                                    "name",
+                                                    e.target.value
+                                                  )
+                                                }
+                                                placeholder="Branch Name"
+                                              />
+                                              <Badge variant="outline" className="w-fit rounded-full px-2 py-1 text-[11px]">
+                                                Total {componentMax} / Pass {componentPass}
+                                              </Badge>
+                                            </div>
+                                            <div className="grid grid-cols-2 gap-2">
+                                              <Input
+                                                className="rounded-xl"
+                                                type="number"
+                                                min="0"
+                                                step="1"
+                                                value={component.theory_max}
+                                                onWheel={preventNumberWheel}
+                                                onChange={(e) =>
+                                                  updateSubjectComponentField(
+                                                    subject.subject_id,
+                                                    componentIndex,
+                                                    "theory_max",
+                                                    e.target.value
+                                                  )
+                                                }
+                                                placeholder="Theory Max"
+                                              />
+                                              <Input
+                                                className="rounded-xl"
+                                                type="number"
+                                                min="0"
+                                                step="1"
+                                                value={component.theory_pass}
+                                                onWheel={preventNumberWheel}
+                                                onChange={(e) =>
+                                                  updateSubjectComponentField(
+                                                    subject.subject_id,
+                                                    componentIndex,
+                                                    "theory_pass",
+                                                    e.target.value
+                                                  )
+                                                }
+                                                placeholder="Theory Pass"
+                                              />
+                                              <Input
+                                                className="rounded-xl"
+                                                type="number"
+                                                min="0"
+                                                step="1"
+                                                value={component.practical_max}
+                                                onWheel={preventNumberWheel}
+                                                onChange={(e) =>
+                                                  updateSubjectComponentField(
+                                                    subject.subject_id,
+                                                    componentIndex,
+                                                    "practical_max",
+                                                    e.target.value
+                                                  )
+                                                }
+                                                placeholder="Practical Max"
+                                              />
+                                              <Input
+                                                className="rounded-xl"
+                                                type="number"
+                                                min="0"
+                                                step="1"
+                                                value={component.practical_pass}
+                                                onWheel={preventNumberWheel}
+                                                onChange={(e) =>
+                                                  updateSubjectComponentField(
+                                                    subject.subject_id,
+                                                    componentIndex,
+                                                    "practical_pass",
+                                                    e.target.value
+                                                  )
+                                                }
+                                                placeholder="Practical Pass"
+                                              />
+                                            </div>
+                                          </div>
+                                        );
+                                      })}
+                                      <p className="text-xs text-muted-foreground">
+                                        {subject.subject_name} Report Total Max: {subject.max_marks} | Total Pass: {subject.pass_marks}
+                                      </p>
+                                    </div>
+                                  ) : !split ? (
                                     <div className="grid grid-cols-2 gap-2">
                                       <Input
                                         className="rounded-xl"

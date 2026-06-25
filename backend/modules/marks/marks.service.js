@@ -82,6 +82,39 @@ function normalizeMarksForSubject(row, examSubject) {
   return { marks: marksValue, theory_marks: null, practical_marks: null };
 }
 
+function normalizeMarksForComponent(row, component) {
+  const pattern = String(component.mark_pattern || "single").trim().toLowerCase();
+  const maxMarks = Number(component.max_marks || 0);
+
+  if (pattern === "split") {
+    const theoryMax = Number(component.theory_max ?? 0);
+    const practicalMax = Number(component.practical_max ?? 0);
+    const theoryMarks = Number(row?.theory_marks ?? row?.theoryMarks);
+    const practicalMarks = Number(row?.practical_marks ?? row?.practicalMarks ?? 0);
+
+    if (Number.isNaN(theoryMarks) || theoryMarks < 0 || theoryMarks > theoryMax) {
+      throw new AppError(`${component.name} theory marks must be between 0 and ${theoryMax}`, 400);
+    }
+
+    if (Number.isNaN(practicalMarks) || practicalMarks < 0 || practicalMarks > practicalMax) {
+      throw new AppError(`${component.name} practical marks must be between 0 and ${practicalMax}`, 400);
+    }
+
+    return {
+      marks: theoryMarks + practicalMarks,
+      theory_marks: theoryMarks,
+      practical_marks: practicalMarks,
+    };
+  }
+
+  const marksValue = Number(row?.marks);
+  if (Number.isNaN(marksValue) || marksValue < 0 || marksValue > maxMarks) {
+    throw new AppError(`${component.name} marks must be between 0 and ${maxMarks}`, 400);
+  }
+
+  return { marks: marksValue, theory_marks: null, practical_marks: null };
+}
+
 async function ensureTeacherScopeAccess(userId, examId, classId, sectionId, subjectId) {
   const allowed = await repo.isTeacherAssignedToExamScope(
     userId,
@@ -184,9 +217,24 @@ export async function getMarksGrid(filters, userId) {
   );
 
   const marksByStudent = new Map(marks.map((row) => [Number(row.student_id), row]));
+  const components = Array.isArray(examSubject.components) ? examSubject.components : [];
+  const componentMarks = components.length
+    ? await repo.getComponentMarksByStudentIds(
+        examSubject.id,
+        students.map((student) => student.student_id)
+      )
+    : [];
+  const componentMarksByStudent = new Map();
+  componentMarks.forEach((row) => {
+    const studentId = Number(row.student_id);
+    const marksByComponent = componentMarksByStudent.get(studentId) || new Map();
+    marksByComponent.set(Number(row.component_id), row);
+    componentMarksByStudent.set(studentId, marksByComponent);
+  });
 
   let rows = students.map((student) => {
     const entry = marksByStudent.get(Number(student.student_id));
+    const studentComponentMarks = componentMarksByStudent.get(Number(student.student_id)) || new Map();
     return {
       mark_id: entry?.mark_id || null,
       student_id: Number(student.student_id),
@@ -204,6 +252,29 @@ export async function getMarksGrid(filters, userId) {
           : Number(entry.practical_marks),
       approval_status: entry?.approval_status || "draft",
       has_entry: Boolean(entry),
+      components: components.map((component) => {
+        const componentEntry = studentComponentMarks.get(Number(component.id));
+        return {
+          component_id: Number(component.id),
+          name: component.name,
+          mark_pattern: String(component.mark_pattern || "single").trim().toLowerCase(),
+          max_marks: Number(component.max_marks || 0),
+          pass_marks: Number(component.pass_marks || 0),
+          theory_max: component.theory_max === null ? null : Number(component.theory_max),
+          theory_pass: component.theory_pass === null ? null : Number(component.theory_pass),
+          practical_max: component.practical_max === null ? null : Number(component.practical_max),
+          practical_pass: component.practical_pass === null ? null : Number(component.practical_pass),
+          marks: componentEntry ? Number(componentEntry.marks) : null,
+          theory_marks:
+            componentEntry?.theory_marks === null || componentEntry?.theory_marks === undefined
+              ? null
+              : Number(componentEntry.theory_marks),
+          practical_marks:
+            componentEntry?.practical_marks === null || componentEntry?.practical_marks === undefined
+              ? null
+              : Number(componentEntry.practical_marks),
+        };
+      }),
     };
   });
 
@@ -225,6 +296,17 @@ export async function getMarksGrid(filters, userId) {
       theory_pass: examSubject.theory_pass === null ? null : Number(examSubject.theory_pass),
       practical_max: examSubject.practical_max === null ? null : Number(examSubject.practical_max),
       practical_pass: examSubject.practical_pass === null ? null : Number(examSubject.practical_pass),
+      components: components.map((component) => ({
+        id: Number(component.id),
+        name: component.name,
+        mark_pattern: String(component.mark_pattern || "single").trim().toLowerCase(),
+        max_marks: Number(component.max_marks || 0),
+        pass_marks: Number(component.pass_marks || 0),
+        theory_max: component.theory_max === null ? null : Number(component.theory_max),
+        theory_pass: component.theory_pass === null ? null : Number(component.theory_pass),
+        practical_max: component.practical_max === null ? null : Number(component.practical_max),
+        practical_pass: component.practical_pass === null ? null : Number(component.practical_pass),
+      })),
     },
     rows,
   };
@@ -336,7 +418,8 @@ export async function saveMarks(payload, userId) {
   if (!marks.length) throw new AppError("marks[] is required", 400);
 
   const markPattern = String(examSubject.mark_pattern || "single").trim().toLowerCase();
-  if (markPattern === "split") {
+  const components = Array.isArray(examSubject.components) ? examSubject.components : [];
+  if (markPattern === "split" || components.length) {
     const marksSchema = await repo.getMarksEntrySplitSchemaStatus();
     if (!(marksSchema.hasTheoryMarks && marksSchema.hasPracticalMarks)) {
       throw new AppError(
@@ -346,14 +429,80 @@ export async function saveMarks(payload, userId) {
     }
   }
 
+  if (components.length && !(await repo.supportsExamSubjectComponentsTable())) {
+    throw new AppError(
+      "Exam subject branch component schema is missing. Apply migration 20260625_exam_subject_branch_components.sql.",
+      500
+    );
+  }
+
   const students = await repo.getStudentsForScope({ examId, classId, sectionId, medium, subjectId });
   const studentIds = new Set(students.map((student) => Number(student.student_id)));
+
+  const componentById = new Map(components.map((component) => [Number(component.id), component]));
+  const componentRows = [];
 
   const rows = marks.map((item) => {
     const studentId = Number(item.student_id ?? item.studentId);
 
     if (!studentIds.has(studentId)) {
       throw new AppError(`Student ${studentId} is not part of the selected scope`, 400);
+    }
+
+    if (components.length) {
+      const rawComponentMarks = Array.isArray(item.component_marks)
+        ? item.component_marks
+        : Array.isArray(item.componentMarks)
+          ? item.componentMarks
+          : [];
+      if (!rawComponentMarks.length) {
+        throw new AppError(`Component marks are required for student ${studentId}`, 400);
+      }
+
+      let totalMarks = 0;
+      let theoryMarks = 0;
+      let practicalMarks = 0;
+      const seenComponents = new Set();
+
+      rawComponentMarks.forEach((componentMark) => {
+        const componentId = Number(componentMark.component_id ?? componentMark.componentId);
+        const component = componentById.get(componentId);
+        if (!component) {
+          throw new AppError(`Invalid component for student ${studentId}`, 400);
+        }
+
+        const normalizedComponent = normalizeMarksForComponent(componentMark, component);
+        totalMarks += normalizedComponent.marks;
+        theoryMarks += Number(normalizedComponent.theory_marks || 0);
+        practicalMarks += Number(normalizedComponent.practical_marks || 0);
+        seenComponents.add(componentId);
+        componentRows.push({
+          student_id: studentId,
+          component_id: componentId,
+          marks: normalizedComponent.marks,
+          theory_marks: normalizedComponent.theory_marks,
+          practical_marks: normalizedComponent.practical_marks,
+          entered_by: userId,
+        });
+      });
+
+      if (seenComponents.size !== componentById.size) {
+        throw new AppError(`All subject components are required for student ${studentId}`, 400);
+      }
+
+      if (totalMarks > Number(examSubject.max_marks || 0)) {
+        throw new AppError(`Total marks for student ${studentId} exceed subject maximum`, 400);
+      }
+
+      return {
+        student_id: studentId,
+        exam_id: examId,
+        subject_id: subjectId,
+        marks: totalMarks,
+        theory_marks: theoryMarks,
+        practical_marks: practicalMarks,
+        entered_by: userId,
+      };
     }
 
     const normalizedMarks = normalizeMarksForSubject(item, examSubject);
@@ -372,6 +521,7 @@ export async function saveMarks(payload, userId) {
   const conn = await pool.getConnection();
   try {
     await conn.beginTransaction();
+    await repo.upsertComponentMarks(conn, componentRows);
     await repo.upsertMarksDraft(conn, rows);
     await conn.commit();
     return { saved: true, count: rows.length, approval_status: "draft" };

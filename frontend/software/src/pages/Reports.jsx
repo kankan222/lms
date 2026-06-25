@@ -82,6 +82,10 @@ function isSplitPattern(subject) {
   return String(subject?.mark_pattern || "single").trim().toLowerCase() === "split";
 }
 
+function hasSubjectComponents(subject) {
+  return Array.isArray(subject?.components) && subject.components.length > 0;
+}
+
 function toNumberOrZero(value) {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : 0;
@@ -554,8 +558,26 @@ export default function Reports() {
     setGrid(nextGrid);
     setSelectedStudentIds([]);
     const splitPattern = isSplitPattern(nextGrid?.subject);
+    const componentMode = hasSubjectComponents(nextGrid?.subject);
     const draft = {};
     (nextGrid?.rows || []).forEach((row) => {
+      if (componentMode) {
+        draft[row.student_id] = {
+          marks: row.marks ?? "",
+          theory_marks: row.theory_marks ?? "",
+          practical_marks: row.practical_marks ?? "",
+          components: (row.components || []).reduce((items, component) => {
+            items[component.component_id] = {
+              marks: component.marks ?? "",
+              theory_marks: component.theory_marks ?? "",
+              practical_marks: component.practical_marks ?? "",
+            };
+            return items;
+          }, {}),
+        };
+        return;
+      }
+
       if (splitPattern) {
         draft[row.student_id] = {
           marks: row.marks ?? "",
@@ -634,6 +656,32 @@ export default function Reports() {
     }));
   }
 
+  function updateComponentMarksValue(studentId, componentId, key, value) {
+    setEditedMarks((prev) => {
+      const currentStudent = typeof prev?.[studentId] === "object" ? prev[studentId] : {};
+      const currentComponents = currentStudent.components || {};
+      const currentComponent = currentComponents[componentId] || {};
+
+      return {
+        ...prev,
+        [studentId]: {
+          marks: currentStudent.marks ?? "",
+          theory_marks: currentStudent.theory_marks ?? "",
+          practical_marks: currentStudent.practical_marks ?? "",
+          components: {
+            ...currentComponents,
+            [componentId]: {
+              marks: currentComponent.marks ?? "",
+              theory_marks: currentComponent.theory_marks ?? "",
+              practical_marks: currentComponent.practical_marks ?? "",
+              [key]: value,
+            },
+          },
+        },
+      };
+    });
+  }
+
   function buildMutationPayload(extra = {}) {
     return {
       exam_id: filters.exam_id || grid?.exam_id || "",
@@ -652,9 +700,25 @@ export default function Reports() {
     }
 
     const splitPattern = isSplitPattern(grid?.subject);
+    const componentMode = hasSubjectComponents(grid?.subject);
     const marks = grid.rows
       .map((row) => {
         const edited = editedMarks[row.student_id] || {};
+        if (componentMode) {
+          return {
+            student_id: row.student_id,
+            component_marks: (grid.subject.components || []).map((component) => {
+              const editedComponent = edited?.components?.[component.id] || {};
+              return {
+                component_id: component.id,
+                theory_marks: editedComponent.theory_marks ?? "",
+                practical_marks: editedComponent.practical_marks ?? "",
+                marks: editedComponent.marks ?? "",
+              };
+            }),
+          };
+        }
+
         if (splitPattern) {
           return {
             student_id: row.student_id,
@@ -669,7 +733,14 @@ export default function Reports() {
         };
       })
       .filter((row) =>
-        splitPattern
+        componentMode
+          ? (row.component_marks || []).some(
+              (component) =>
+                component.marks !== "" ||
+                component.theory_marks !== "" ||
+                component.practical_marks !== ""
+            )
+          : splitPattern
           ? row.theory_marks !== "" || row.practical_marks !== ""
           : row.marks !== "" && row.marks !== null && row.marks !== undefined
       );
@@ -1116,7 +1187,11 @@ export default function Reports() {
               <TableHead className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Section</TableHead>
               <TableHead className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Subject</TableHead>
               <TableHead className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
-                {isSplitPattern(grid?.subject) ? "Marks (T/P/Total)" : "Marks"}
+                {hasSubjectComponents(grid?.subject)
+                  ? "Branch Marks"
+                  : isSplitPattern(grid?.subject)
+                    ? "Marks (T/P/Total)"
+                    : "Marks"}
               </TableHead>
               <TableHead className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Status</TableHead>
               {isAdmin ? <TableHead className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Download</TableHead> : null}
@@ -1150,7 +1225,75 @@ export default function Reports() {
                 <TableCell>{selectedSubject?.name || grid?.subject?.name || "-"}</TableCell>
                 <TableCell>
                   {canEditMarks && row.approval_status !== "approved" ? (
-                    isSplitPattern(grid?.subject) ? (
+                    hasSubjectComponents(grid?.subject) ? (
+                      <div className="space-y-3">
+                        {(grid.subject.components || []).map((component) => {
+                          const editedComponent =
+                            editedMarks?.[row.student_id]?.components?.[component.id] || {};
+                          return (
+                            <div
+                              key={`${row.student_id}-${component.id}`}
+                              className="rounded-lg border border-border bg-muted/20 p-2"
+                            >
+                              <div className="mb-2 flex items-center justify-between gap-2">
+                                <span className="text-xs font-medium">{component.name}</span>
+                                <span className="text-[11px] text-muted-foreground">
+                                  Max {component.max_marks}
+                                </span>
+                              </div>
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span className="w-5 text-[11px] text-muted-foreground">T</span>
+                                <Input
+                                  type="number"
+                                  min="0"
+                                  max={component.theory_max ?? component.max_marks ?? 100}
+                                  className="w-20"
+                                  value={editedComponent.theory_marks ?? ""}
+                                  onChange={(e) =>
+                                    updateComponentMarksValue(
+                                      row.student_id,
+                                      component.id,
+                                      "theory_marks",
+                                      e.target.value
+                                    )
+                                  }
+                                  onWheel={(e) => e.currentTarget.blur()}
+                                />
+                                <span className="w-5 text-[11px] text-muted-foreground">P</span>
+                                <Input
+                                  type="number"
+                                  min="0"
+                                  max={component.practical_max ?? component.max_marks ?? 100}
+                                  className="w-20"
+                                  value={editedComponent.practical_marks ?? ""}
+                                  onChange={(e) =>
+                                    updateComponentMarksValue(
+                                      row.student_id,
+                                      component.id,
+                                      "practical_marks",
+                                      e.target.value
+                                    )
+                                  }
+                                  onWheel={(e) => e.currentTarget.blur()}
+                                />
+                              </div>
+                            </div>
+                          );
+                        })}
+                        <div className="text-[11px] font-medium text-muted-foreground">
+                          Total:{" "}
+                          {(grid.subject.components || []).reduce((sum, component) => {
+                            const editedComponent =
+                              editedMarks?.[row.student_id]?.components?.[component.id] || {};
+                            return (
+                              sum +
+                              toNumberOrZero(editedComponent.theory_marks) +
+                              toNumberOrZero(editedComponent.practical_marks)
+                            );
+                          }, 0)}
+                        </div>
+                      </div>
+                    ) : isSplitPattern(grid?.subject) ? (
                       <div className="space-y-1">
                         <div className="flex items-center gap-2">
                           <span className="w-5 text-[11px] text-muted-foreground">T</span>
@@ -1193,6 +1336,16 @@ export default function Reports() {
                         onWheel={(e) => e.currentTarget.blur()}
                       />
                     )
+                  ) : hasSubjectComponents(grid?.subject) ? (
+                    <div className="space-y-2 text-xs">
+                      {(row.components || []).map((component) => (
+                        <div key={`${row.student_id}-${component.component_id}`}>
+                          <div className="font-medium">{component.name}</div>
+                          <div>T: {component.theory_marks ?? "-"} | P: {component.practical_marks ?? "-"}</div>
+                        </div>
+                      ))}
+                      <div className="font-medium">Total: {row.marks ?? "-"}</div>
+                    </div>
                   ) : isSplitPattern(grid?.subject) ? (
                     <div className="text-xs">
                       <div>T: {row.theory_marks ?? "-"}</div>

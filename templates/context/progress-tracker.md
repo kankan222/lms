@@ -229,3 +229,20 @@ Update this file after every meaningful implementation change.
   queries prefer exact `exam_subjects.subject_offering_id` matches when the
   column exists, fall back to legacy `subject_id` rows, and continue to run
   against databases that have not applied the new column migration yet.
+- Fixed class update reconciliation so sections are identified by
+  `(name, medium)` instead of name alone, allowing same-named sections such as
+  Commerce in English and Assamese media to coexist during class updates.
+- Refined Assign Teacher to Class so class accordions start collapsed, teacher
+  assignments render side by side without nested teacher cards, and scope is
+  shown once at the class level instead of duplicating class and teacher badges.
+- Removed the Choose Student Subjects workflow from the Subjects page so
+  student subject registration is managed only from Student Details.
+- Made teacher deletion remove linked teacher attendance rows transactionally
+  before deleting the teacher, so attendance foreign keys no longer block
+  deleting a teacher from the Teachers tab.
+- Added optional exam subject branch components for cases like Biology split
+  into Botany and Zoology: setup stores branch max/pass marks, marks entry saves
+  branch marks separately, and parent subject totals continue through the
+  existing approval and report-card flow.
+- Added colorful subject group badges to Student Details subject selection,
+  matching the compulsory/elective/optional visual language used elsewhere.

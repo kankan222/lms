@@ -76,6 +76,20 @@ function approvalStatusColor(status) {
   return "bg-muted text-muted-foreground";
 }
 
+function subjectGroupBadgeClass(group) {
+  const value = String(group || "").trim().toLowerCase();
+  if (value === "compulsory") {
+    return "border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-500/30 dark:bg-blue-500/15 dark:text-blue-200";
+  }
+  if (value === "elective") {
+    return "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-500/30 dark:bg-amber-500/15 dark:text-amber-200";
+  }
+  if (value === "optional") {
+    return "border-purple-200 bg-purple-50 text-purple-700 dark:border-purple-500/30 dark:bg-purple-500/15 dark:text-purple-200";
+  }
+  return "border-slate-200 bg-slate-50 text-slate-700 dark:border-slate-500/30 dark:bg-slate-500/15 dark:text-slate-200";
+}
+
 const EMPTY_PARENT = {
   name: "",
   mobile: "",
@@ -138,7 +152,10 @@ const StudentDetails = () => {
       const payload = res?.data ?? res ?? null;
       setStudent(payload);
       if (payload?.id) {
-        await loadFinance(payload.id);
+        await Promise.all([
+          loadFinance(payload.id),
+          loadExams(payload),
+        ]);
       }
     } catch (err) {
       setError(err?.message || "Failed to load student details.");
@@ -147,13 +164,24 @@ const StudentDetails = () => {
     }
   });
 
-  const loadExams = useEffectEvent(async () => {
+  const loadExams = useEffectEvent(async (studentPayload = null) => {
     try {
-      const res = await (isParent ? getAccessibleExams() : getExams());
+      const res = await (isParent
+        ? getAccessibleExams()
+        : getExams({
+            session_id: studentPayload?.session_id,
+            class_id: studentPayload?.class_id,
+            section_id: studentPayload?.section_id,
+            class_scope: studentPayload?.class_scope,
+          }));
       const examList = res?.data || [];
       setExams(examList);
+      setSelectedExamId((current) =>
+        current && !examList.some((exam) => String(exam.id) === String(current)) ? "" : current
+      );
     } catch {
       setExams([]);
+      setSelectedExamId("");
     }
   });
 
@@ -225,10 +253,6 @@ const StudentDetails = () => {
   useEffect(() => {
     loadStudent();
   }, [id]);
-
-  useEffect(() => {
-    loadExams();
-  }, []);
 
   useEffect(() => {
     if (!student?.id || !selectedExamId) {
@@ -850,11 +874,17 @@ const StudentDetails = () => {
                             {offering.subject_name}
                             {offering.subject_code ? ` (${offering.subject_code})` : ""}
                           </span>
-                          <Badge variant="secondary" className="rounded-full">
+                          <Badge
+                            variant="outline"
+                            className={`rounded-full px-2 py-0 text-[11px] ${subjectGroupBadgeClass(offering.subject_group)}`}
+                          >
                             {groupLabel}
                           </Badge>
                           {offering.auto_required ? (
-                            <Badge variant="outline" className="rounded-full">
+                            <Badge
+                              variant="outline"
+                              className="rounded-full border-emerald-200 bg-emerald-50 px-2 py-0 text-[11px] text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/15 dark:text-emerald-200"
+                            >
                               Required
                             </Badge>
                           ) : null}

@@ -16,6 +16,74 @@ function normalizeMarkPattern(value, hasSplitValues) {
   return hasSplitValues ? "split" : "single";
 }
 
+function normalizeSubjectComponents(components) {
+  if (!Array.isArray(components)) return [];
+
+  return components
+    .map((component, index) => {
+      const name = String(component?.name || "").trim();
+      if (!name) return null;
+
+      const theoryMax = parseOptionalNumber(component.theory_max);
+      const theoryPass = parseOptionalNumber(component.theory_pass);
+      const practicalMax = parseOptionalNumber(component.practical_max);
+      const practicalPass = parseOptionalNumber(component.practical_pass);
+      const hasSplitValues =
+        theoryMax !== null || theoryPass !== null || practicalMax !== null || practicalPass !== null;
+      const markPattern = normalizeMarkPattern(component.mark_pattern, hasSplitValues);
+
+      if (markPattern === "split") {
+        const normalizedTheoryMax = Number(theoryMax ?? 0);
+        const normalizedPracticalMax = Number(practicalMax ?? 0);
+        const normalizedTheoryPass = Number(theoryPass ?? 0);
+        const normalizedPracticalPass = Number(practicalPass ?? 0);
+        const totalMax = normalizedTheoryMax + normalizedPracticalMax;
+        const totalPass = normalizedTheoryPass + normalizedPracticalPass;
+
+        if (normalizedTheoryMax < 0 || normalizedPracticalMax < 0 || totalMax <= 0) return null;
+        if (
+          normalizedTheoryPass < 0 ||
+          normalizedPracticalPass < 0 ||
+          normalizedTheoryPass > normalizedTheoryMax ||
+          normalizedPracticalPass > normalizedPracticalMax ||
+          totalPass > totalMax
+        ) {
+          return null;
+        }
+
+        return {
+          name,
+          mark_pattern: "split",
+          max_marks: totalMax,
+          pass_marks: totalPass,
+          theory_max: normalizedTheoryMax,
+          theory_pass: normalizedTheoryPass,
+          practical_max: normalizedPracticalMax,
+          practical_pass: normalizedPracticalPass,
+          sort_order: Number(component.sort_order ?? index),
+        };
+      }
+
+      const maxMarks = Number(component.max_marks ?? 0);
+      const passMarks = Number(component.pass_marks ?? 0);
+      if (Number.isNaN(maxMarks) || maxMarks <= 0) return null;
+      if (Number.isNaN(passMarks) || passMarks < 0 || passMarks > maxMarks) return null;
+
+      return {
+        name,
+        mark_pattern: "single",
+        max_marks: maxMarks,
+        pass_marks: passMarks,
+        theory_max: null,
+        theory_pass: null,
+        practical_max: null,
+        practical_pass: null,
+        sort_order: Number(component.sort_order ?? index),
+      };
+    })
+    .filter(Boolean);
+}
+
 function normalizeSubjects(subjects) {
   if (!Array.isArray(subjects)) return [];
 
@@ -24,6 +92,7 @@ function normalizeSubjects(subjects) {
       const subjectId = Number(s.subject_id);
       if (!subjectId) return null;
       const subjectOfferingId = Number(s.subject_offering_id ?? s.subjectOfferingId ?? 0) || null;
+      const components = normalizeSubjectComponents(s.components);
 
       const theoryMax = parseOptionalNumber(s.theory_max);
       const theoryPass = parseOptionalNumber(s.theory_pass);
@@ -33,6 +102,24 @@ function normalizeSubjects(subjects) {
         theoryMax !== null || theoryPass !== null || practicalMax !== null || practicalPass !== null;
 
       const markPattern = normalizeMarkPattern(s.mark_pattern, hasSplitValues);
+
+      if (components.length) {
+        const totalMax = components.reduce((sum, component) => sum + Number(component.max_marks || 0), 0);
+        const totalPass = components.reduce((sum, component) => sum + Number(component.pass_marks || 0), 0);
+
+        return {
+          subject_id: subjectId,
+          subject_offering_id: subjectOfferingId,
+          mark_pattern: "split",
+          max_marks: totalMax,
+          pass_marks: totalPass,
+          theory_max: components.reduce((sum, component) => sum + Number(component.theory_max || 0), 0),
+          theory_pass: components.reduce((sum, component) => sum + Number(component.theory_pass || 0), 0),
+          practical_max: components.reduce((sum, component) => sum + Number(component.practical_max || 0), 0),
+          practical_pass: components.reduce((sum, component) => sum + Number(component.practical_pass || 0), 0),
+          components,
+        };
+      }
 
       if (markPattern === "split") {
         const normalizedTheoryMax = Number(theoryMax ?? 0);
@@ -63,6 +150,7 @@ function normalizeSubjects(subjects) {
           theory_pass: normalizedTheoryPass,
           practical_max: normalizedPracticalMax,
           practical_pass: normalizedPracticalPass,
+          components: [],
         };
       }
 
@@ -81,6 +169,7 @@ function normalizeSubjects(subjects) {
         theory_pass: null,
         practical_max: null,
         practical_pass: null,
+        components: [],
       };
     })
     .filter(Boolean);
@@ -120,6 +209,10 @@ function hasSplitPatternSubjects(subjects) {
   return subjects.some((subject) => subject.mark_pattern === "split");
 }
 
+function hasComponentSubjects(subjects) {
+  return subjects.some((subject) => Array.isArray(subject.components) && subject.components.length);
+}
+
 async function ensureExamSplitSubjectSchemaSupport(subjects) {
   if (!hasSplitPatternSubjects(subjects)) return;
 
@@ -134,6 +227,18 @@ async function ensureExamSplitSubjectSchemaSupport(subjects) {
   if (!schemaReady) {
     throw new AppError(
       "Exam split marks schema is missing. Run: backend/database/migrations/20260419_exam_marks_split_components.sql",
+      500
+    );
+  }
+}
+
+async function ensureExamSubjectComponentSchemaSupport(subjects) {
+  if (!hasComponentSubjects(subjects)) return;
+
+  const schemaReady = await repo.supportsExamSubjectComponentsTable();
+  if (!schemaReady) {
+    throw new AppError(
+      "Exam subject branch component schema is missing. Run: backend/database/migrations/20260625_exam_subject_branch_components.sql",
       500
     );
   }
@@ -265,6 +370,7 @@ export async function createExam(data, userId) {
   const subjects = normalizeSubjects(data.subjects);
   if (!subjects.length) throw new AppError("At least one subject with max marks is required", 400);
   await ensureExamSplitSubjectSchemaSupport(subjects);
+  await ensureExamSubjectComponentSchemaSupport(subjects);
 
   const scopes = normalizeScopes(data.scopes, data.class_id, data.section_id);
   if (!scopes.length) throw new AppError("At least one class scope is required", 400);
@@ -341,6 +447,7 @@ export async function updateExam(id, data) {
   const subjects = normalizeSubjects(data.subjects);
   if (!subjects.length) throw new AppError("At least one subject with max marks is required", 400);
   await ensureExamSplitSubjectSchemaSupport(subjects);
+  await ensureExamSubjectComponentSchemaSupport(subjects);
 
   const scopes = normalizeScopes(data.scopes, data.class_id, data.section_id);
   if (!scopes.length) throw new AppError("At least one class scope is required", 400);

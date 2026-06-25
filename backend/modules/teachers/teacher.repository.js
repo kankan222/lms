@@ -229,11 +229,27 @@ export async function getActiveSubjectOfferingForAssignment(data, conn) {
 
 /* ------------------ DELETE ------------------ */
 
-export function deleteTeacher(id) {
-  return query(
-    `DELETE FROM teachers WHERE id=?`,
+export async function deleteTeacher(id, conn) {
+  const executor = conn || {
+    execute: async (sql, params) => [await query(sql, params)],
+  };
+
+  await executor.execute(
+    `DELETE FROM teacher_attendance_logs WHERE teacher_id = ?`,
     [id]
   );
+
+  await executor.execute(
+    `DELETE FROM teacher_daily_attendance WHERE teacher_id = ?`,
+    [id]
+  );
+
+  const [result] = await executor.execute(
+    `DELETE FROM teachers WHERE id = ?`,
+    [id]
+  );
+
+  return result.affectedRows;
 }
 
 /* ------------------ ASSIGNMENTS ------------------ */

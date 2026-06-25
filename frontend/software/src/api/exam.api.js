@@ -16,6 +16,8 @@ export function getExams(params = {}) {
   if (params.session_id) qs.set("session_id", params.session_id);
   if (params.class_id) qs.set("class_id", params.class_id);
   if (params.section_id) qs.set("section_id", params.section_id);
+  if (params.class_scope) qs.set("class_scope", params.class_scope);
+  if (params.scope) qs.set("scope", params.scope);
   const suffix = qs.toString() ? `?${qs.toString()}` : "";
   return apiRequest(`/exams${suffix}`);
 }

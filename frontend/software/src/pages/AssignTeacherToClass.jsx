@@ -75,16 +75,6 @@ function scopeBadgeClass(scope) {
   return "border-border bg-muted text-muted-foreground dark:bg-muted/40";
 }
 
-function teacherScopeBadgeClass(scope) {
-  const value = String(scope || "").trim().toLowerCase();
-
-  if (value === "hs") {
-    return "border-violet-200 bg-violet-50 text-violet-700 dark:border-violet-500/30 dark:bg-violet-500/15 dark:text-violet-200";
-  }
-
-  return "border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-500/30 dark:bg-sky-500/15 dark:text-sky-200";
-}
-
 function subjectGroupBadgeClass(group) {
   const value = String(group || "").trim().toLowerCase();
 
@@ -591,11 +581,7 @@ export default function AssignTeacherToClass() {
             </CardContent>
           </Card>
         ) : (
-          <Accordion
-            type="multiple"
-            defaultValue={assignedClassCards.map((item) => item.id)}
-            className="space-y-3"
-          >
+          <Accordion type="multiple" className="space-y-3">
             {assignedClassCards.map((item) => {
               const scopeKey = resolveScopeCode(item.class_scope, item.scope_name);
               const scopeLabel = item.scope_name || scopeLabels[scopeKey] || "Class";
@@ -624,7 +610,7 @@ export default function AssignTeacherToClass() {
                   </AccordionTrigger>
 
                   <AccordionContent className="px-4 pb-4">
-                    <div className="grid gap-3">
+                    <div className="grid gap-x-6 gap-y-5 md:grid-cols-2 xl:grid-cols-3">
                       {Array.from(
                         item.assignments
                           .reduce((grouped, assignment) => {
@@ -648,75 +634,64 @@ export default function AssignTeacherToClass() {
                       ).map((teacherAssignment) => (
                         <div
                           key={teacherAssignment.teacher_name}
-                          className="rounded-xl border border-border/70 bg-muted/25 p-3 dark:bg-muted/10"
+                          className="min-w-0 space-y-3 border-t border-border/70 pt-4 first:border-t-0 first:pt-0 md:first:border-t md:first:pt-4 xl:first:border-t xl:first:pt-4"
                         >
-                          <div className="flex flex-wrap items-start justify-between gap-2">
-                            <div>
-                              <p className="font-semibold leading-none text-foreground">
-                                {teacherAssignment.teacher_name}
-                              </p>
-                              <p className="mt-1 text-xs text-muted-foreground">
-                                Session: {teacherAssignment.session_name || "-"}
-                              </p>
-                            </div>
-
-                            <Badge
-                              variant="outline"
-                              className={`rounded-full ${teacherScopeBadgeClass(teacherAssignment.teacher_scope)}`}
-                            >
-                              {scopeLabels[teacherAssignment.teacher_scope] || "Teacher"}
-                            </Badge>
+                          <div>
+                            <p className="font-semibold leading-none text-foreground">
+                              {teacherAssignment.teacher_name}
+                            </p>
+                            <p className="mt-1 text-xs text-muted-foreground">
+                              Session: {teacherAssignment.session_name || "-"}
+                            </p>
                           </div>
 
-                          <div className="mt-3 grid gap-3 md:grid-cols-2">
-                            <div className="space-y-2">
-                              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                                Assigned Classes & Sections
-                              </p>
-                              <div className="flex flex-wrap gap-2">
-                                {Array.from(teacherAssignment.sections).map((section) => (
-                                  <Badge
-                                    key={section}
-                                    variant="secondary"
-                                    className="rounded-full font-normal text-muted-foreground"
-                                  >
-                                    {section}
-                                  </Badge>
-                                ))}
-                              </div>
+                          <div className="space-y-2">
+                            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                              Assigned Classes & Sections
+                            </p>
+                            <div className="flex flex-wrap gap-2">
+                              {Array.from(teacherAssignment.sections).map((section) => (
+                                <Badge
+                                  key={section}
+                                  variant="secondary"
+                                  className="rounded-full font-normal text-muted-foreground"
+                                >
+                                  {section}
+                                </Badge>
+                              ))}
                             </div>
+                          </div>
 
-                            <div className="space-y-2">
-                              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                                Assigned Subjects
-                              </p>
-                              <div className="flex flex-wrap gap-2">
-                                {teacherAssignment.assignmentRows.map((assignment) => (
-                                  <span
-                                    key={assignment.id}
-                                    className="inline-flex items-center gap-2 rounded-full border border-border bg-background px-2.5 py-1 text-xs text-foreground shadow-xs dark:bg-input/20"
+                          <div className="space-y-2">
+                            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                              Assigned Subjects
+                            </p>
+                            <div className="flex flex-wrap gap-2">
+                              {teacherAssignment.assignmentRows.map((assignment) => (
+                                <span
+                                  key={assignment.id}
+                                  className="inline-flex items-center gap-2 rounded-full border border-border bg-background px-2.5 py-1 text-xs text-foreground shadow-xs dark:bg-input/20"
+                                >
+                                  <span>{assignment.subject_name}</span>
+                                  <Badge
+                                    variant="outline"
+                                    className={`rounded-full px-2 py-0 text-[11px] ${subjectGroupBadgeClass(assignment.subject_group)}`}
                                   >
-                                    <span>{assignment.subject_name}</span>
-                                    <Badge
-                                      variant="outline"
-                                      className={`rounded-full px-2 py-0 text-[11px] ${subjectGroupBadgeClass(assignment.subject_group)}`}
-                                    >
-                                      {subjectGroupLabels[assignment.subject_group] || assignment.subject_group}
-                                    </Badge>
-                                    <span className="text-muted-foreground">
-                                      {assignment.section_name}
-                                    </span>
-                                    <button
-                                      type="button"
-                                      className="inline-flex size-5 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                                      aria-label={`Remove ${assignment.subject_name} assignment`}
-                                      onClick={() => handleRemoveAssignment(assignment.id)}
-                                    >
-                                      <Trash2 className="size-3.5" />
-                                    </button>
+                                    {subjectGroupLabels[assignment.subject_group] || assignment.subject_group}
+                                  </Badge>
+                                  <span className="text-muted-foreground">
+                                    {assignment.section_name}
                                   </span>
-                                ))}
-                              </div>
+                                  <button
+                                    type="button"
+                                    className="inline-flex size-5 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                    aria-label={`Remove ${assignment.subject_name} assignment`}
+                                    onClick={() => handleRemoveAssignment(assignment.id)}
+                                  >
+                                    <Trash2 className="size-3.5" />
+                                  </button>
+                                </span>
+                              ))}
                             </div>
                           </div>
                         </div>

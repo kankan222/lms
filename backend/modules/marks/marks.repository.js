@@ -5,6 +5,7 @@ let examSubjectSplitSchemaStatusCache;
 let marksEntrySplitSchemaStatusCache;
 let studentExamSubjectsTableCache;
 let subjectRegistrationTablesCache;
+let examSubjectComponentsTableCache;
 
 async function supportsScopesTable() {
   if (typeof supportsScopesTableCache === "boolean") {
@@ -135,6 +136,24 @@ async function supportsSubjectRegistrationTables() {
   return subjectRegistrationTablesCache;
 }
 
+export async function supportsExamSubjectComponentsTable() {
+  if (typeof examSubjectComponentsTableCache === "boolean") {
+    return examSubjectComponentsTableCache;
+  }
+
+  const rows = await query(
+    `
+      SELECT COUNT(*) AS total
+      FROM information_schema.TABLES
+      WHERE TABLE_SCHEMA = DATABASE()
+        AND TABLE_NAME IN ('exam_subject_components', 'exam_subject_component_marks')
+    `
+  );
+
+  examSubjectComponentsTableCache = Number(rows[0]?.total || 0) === 2;
+  return examSubjectComponentsTableCache;
+}
+
 export async function supportsMarksDraftStatus() {
   const rows = await query(
     `SELECT COLUMN_TYPE
@@ -253,8 +272,9 @@ export async function getExamSubjects(examId) {
     ? "LEFT JOIN subject_offerings so ON so.id = es.subject_offering_id"
     : "";
 
-  return query(
+  const subjects = await query(
     `SELECT
+      es.id AS exam_subject_id,
       es.subject_id,
       ${subjectOfferingExpr} AS subject_offering_id,
       ${subjectGroupExpr} AS subject_group,
@@ -273,6 +293,49 @@ export async function getExamSubjects(examId) {
      ORDER BY sub.name ASC`,
     [examId]
   );
+
+  return attachExamSubjectComponents(subjects);
+}
+
+async function attachExamSubjectComponents(subjects) {
+  if (!(await supportsExamSubjectComponentsTable()) || !subjects.length) {
+    return subjects.map((subject) => ({ ...subject, components: [] }));
+  }
+
+  const examSubjectIds = subjects.map((subject) => Number(subject.exam_subject_id || subject.id)).filter(Boolean);
+  if (!examSubjectIds.length) return subjects.map((subject) => ({ ...subject, components: [] }));
+
+  const placeholders = examSubjectIds.map(() => "?").join(",");
+  const components = await query(
+    `SELECT
+      id,
+      exam_subject_id,
+      name,
+      mark_pattern,
+      max_marks,
+      pass_marks,
+      theory_max,
+      theory_pass,
+      practical_max,
+      practical_pass,
+      sort_order
+     FROM exam_subject_components
+     WHERE exam_subject_id IN (${placeholders})
+     ORDER BY sort_order ASC, id ASC`,
+    examSubjectIds
+  );
+  const componentsBySubject = new Map();
+  components.forEach((component) => {
+    const key = Number(component.exam_subject_id);
+    const list = componentsBySubject.get(key) || [];
+    list.push(component);
+    componentsBySubject.set(key, list);
+  });
+
+  return subjects.map((subject) => ({
+    ...subject,
+    components: componentsBySubject.get(Number(subject.exam_subject_id || subject.id)) || [],
+  }));
 }
 
 export async function getExamScopes(examId) {
@@ -386,7 +449,8 @@ export async function getExamSubject(examId, subjectId) {
      LIMIT 1`,
     [examId, subjectId]
   );
-  return rows[0] || null;
+  const [subject] = await attachExamSubjectComponents(rows);
+  return subject || null;
 }
 
 export async function isTeacherAssignedToExamScope(userId, examId, classId, sectionId, subjectId = null) {
@@ -597,6 +661,27 @@ export async function getMarksByExamSubjectStudentIds(examId, subjectId, student
   );
 }
 
+export async function getComponentMarksByStudentIds(examSubjectId, studentIds) {
+  if (!(await supportsExamSubjectComponentsTable()) || !studentIds.length || !examSubjectId) {
+    return [];
+  }
+
+  const placeholders = studentIds.map(() => "?").join(",");
+  return query(
+    `SELECT
+      ecm.student_id,
+      ecm.exam_subject_component_id AS component_id,
+      ecm.marks,
+      ecm.theory_marks,
+      ecm.practical_marks
+     FROM exam_subject_component_marks ecm
+     JOIN exam_subject_components esc ON esc.id = ecm.exam_subject_component_id
+     WHERE esc.exam_subject_id = ?
+       AND ecm.student_id IN (${placeholders})`,
+    [examSubjectId, ...studentIds]
+  );
+}
+
 export async function getPendingApprovalScopes() {
   return query(
     `SELECT
@@ -729,6 +814,31 @@ export async function upsertMarksDraft(conn, rows) {
          WHEN approval_status = 'approved' AND marks = VALUES(marks) THEN approved_at
          ELSE NULL
        END`,
+    [values]
+  );
+}
+
+export async function upsertComponentMarks(conn, rows) {
+  if (!rows.length || !(await supportsExamSubjectComponentsTable())) return;
+
+  const values = rows.map((row) => [
+    row.student_id,
+    row.component_id,
+    row.marks,
+    row.theory_marks ?? null,
+    row.practical_marks ?? null,
+    row.entered_by,
+  ]);
+
+  await conn.query(
+    `INSERT INTO exam_subject_component_marks
+     (student_id, exam_subject_component_id, marks, theory_marks, practical_marks, entered_by)
+     VALUES ?
+     ON DUPLICATE KEY UPDATE
+       marks = VALUES(marks),
+       theory_marks = VALUES(theory_marks),
+       practical_marks = VALUES(practical_marks),
+       entered_by = VALUES(entered_by)`,
     [values]
   );
 }

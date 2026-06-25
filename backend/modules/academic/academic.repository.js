@@ -52,6 +52,11 @@ async function findSectionUsage(conn, sectionId) {
 
   return null;
 }
+
+function sectionIdentityKey(name, medium) {
+  return `${String(name || "").trim().toLowerCase()}::${String(medium || "").trim().toLowerCase()}`;
+}
+
 export async function createSession(data) {
   const sql = `
     INSERT INTO academic_sessions
@@ -292,9 +297,9 @@ export async function updateClass(id, name, scope, sections = [], mediums = []) 
       `SELECT id, name, medium FROM sections WHERE class_id=?`,
       [id]
     );
-    const existingByName = new Map(
+    const existingByIdentity = new Map(
       existingSections.map((s) => [
-        String(s.name || "").trim().toLowerCase(),
+        sectionIdentityKey(s.name, s.medium),
         { id: s.id, medium: s.medium },
       ])
     );
@@ -305,11 +310,11 @@ export async function updateClass(id, name, scope, sections = [], mediums = []) 
         medium: String(s?.medium || "").trim(),
       }))
       .filter((s) => s.name && s.medium);
-    const incomingNameSet = new Set(normalizedIncoming.map((s) => s.name.toLowerCase()));
+    const incomingIdentitySet = new Set(normalizedIncoming.map((s) => sectionIdentityKey(s.name, s.medium)));
 
     for (const existing of existingSections) {
-      const key = String(existing?.name || "").trim().toLowerCase();
-      if (!key || incomingNameSet.has(key)) {
+      const key = sectionIdentityKey(existing?.name, existing?.medium);
+      if (!key || incomingIdentitySet.has(key)) {
         continue;
       }
 
@@ -321,23 +326,18 @@ export async function updateClass(id, name, scope, sections = [], mediums = []) 
       }
 
       await conn.query(`DELETE FROM sections WHERE id=?`, [existing.id]);
-      existingByName.delete(key);
+      existingByIdentity.delete(key);
     }
 
     for (const sec of normalizedIncoming) {
-      const key = sec.name.toLowerCase();
-      const existing = existingByName.get(key);
+      const key = sectionIdentityKey(sec.name, sec.medium);
+      const existing = existingByIdentity.get(key);
       if (!existing) {
         const [insertResult] = await conn.query(
           `INSERT INTO sections (class_id, name, medium) VALUES (?, ?, ?)`,
           [id, sec.name, sec.medium]
         );
-        existingByName.set(key, { id: insertResult.insertId, medium: sec.medium });
-      } else if (String(existing.medium || "") !== sec.medium) {
-        await conn.query(
-          `UPDATE sections SET medium=? WHERE id=?`,
-          [sec.medium, existing.id]
-        );
+        existingByIdentity.set(key, { id: insertResult.insertId, medium: sec.medium });
       }
     }
 

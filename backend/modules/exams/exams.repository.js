@@ -6,6 +6,7 @@ let examSubjectSplitSchemaStatusCache;
 let marksEntrySplitSchemaStatusCache;
 let studentExamSubjectsTableCache;
 let subjectRegistrationTablesCache;
+let examSubjectComponentsTableCache;
 
 async function supportsScopesTable() {
   if (typeof supportsScopesTableCache === "boolean") {
@@ -178,6 +179,24 @@ async function supportsSubjectRegistrationTables() {
   return subjectRegistrationTablesCache;
 }
 
+export async function supportsExamSubjectComponentsTable() {
+  if (typeof examSubjectComponentsTableCache === "boolean") {
+    return examSubjectComponentsTableCache;
+  }
+
+  const rows = await query(
+    `
+      SELECT COUNT(*) AS total
+      FROM information_schema.TABLES
+      WHERE TABLE_SCHEMA = DATABASE()
+        AND TABLE_NAME IN ('exam_subject_components', 'exam_subject_component_marks')
+    `
+  );
+
+  examSubjectComponentsTableCache = Number(rows[0]?.total || 0) === 2;
+  return examSubjectComponentsTableCache;
+}
+
 export async function getTeacherProfileByUser(userId) {
   const rows = await query(`SELECT id FROM teachers WHERE user_id = ? LIMIT 1`, [userId]);
   return rows[0] || null;
@@ -295,11 +314,14 @@ export async function getExamById(id) {
 }
 
 export async function listExams(filters, userId, isTeacher) {
+  const hasScopesTable = await supportsScopesTable();
+  const classScopeExpr = buildClassScopeExpression(hasScopesTable);
   const where = [];
   const params = [];
   let join = `
     LEFT JOIN exam_scopes sc ON sc.exam_id = e.id
     LEFT JOIN classes c ON c.id = sc.class_id
+    ${hasScopesTable ? "LEFT JOIN scopes sc_ref ON sc_ref.id = c.scope_id" : ""}
     LEFT JOIN sections sec ON sec.id = sc.section_id
   `;
 
@@ -327,6 +349,10 @@ export async function listExams(filters, userId, isTeacher) {
     where.push("(sc.section_id = ? OR sc.section_id IS NULL)");
     params.push(Number(filters.section_id));
   }
+  if (filters.class_scope || filters.scope) {
+    where.push(`${classScopeExpr} = ?`);
+    params.push(String(filters.class_scope || filters.scope).trim().toLowerCase());
+  }
 
   const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
 
@@ -335,11 +361,16 @@ export async function listExams(filters, userId, isTeacher) {
       e.id,
       e.name,
       e.session_id,
-      ses.name AS session_name
+      ses.name AS session_name,
+      COALESCE(
+        NULLIF(GROUP_CONCAT(DISTINCT ${classScopeExpr} ORDER BY ${classScopeExpr} SEPARATOR ','), ''),
+        'school'
+      ) AS class_scope
      FROM exams e
      ${join}
      LEFT JOIN academic_sessions ses ON ses.id = e.session_id
      ${whereSql}
+     GROUP BY e.id, e.name, e.session_id, ses.name
      ORDER BY e.id DESC`,
     params
   );
@@ -361,9 +392,9 @@ export async function getExamSubjects(examId) {
   const practicalPassExpr = supportsSplitSchema ? "es.practical_pass" : "NULL";
   const subjectOfferingExpr = schema.hasSubjectOfferingId ? "es.subject_offering_id" : "NULL";
 
-  return query(
+  const subjects = await query(
     `SELECT
-      es.id,
+      es.id AS exam_subject_id,
       es.exam_id,
       es.subject_id,
       ${subjectOfferingExpr} AS subject_offering_id,
@@ -381,6 +412,44 @@ export async function getExamSubjects(examId) {
      ORDER BY sub.name ASC`,
     [examId]
   );
+
+  if (!(await supportsExamSubjectComponentsTable()) || !subjects.length) {
+    return subjects.map((subject) => ({ ...subject, components: [] }));
+  }
+
+  const examSubjectIds = subjects.map((subject) => Number(subject.exam_subject_id)).filter(Boolean);
+  const placeholders = examSubjectIds.map(() => "?").join(",");
+  const components = await query(
+    `SELECT
+      id,
+      exam_subject_id,
+      name,
+      mark_pattern,
+      max_marks,
+      pass_marks,
+      theory_max,
+      theory_pass,
+      practical_max,
+      practical_pass,
+      sort_order
+     FROM exam_subject_components
+     WHERE exam_subject_id IN (${placeholders})
+     ORDER BY sort_order ASC, id ASC`,
+    examSubjectIds
+  );
+  const componentsBySubject = new Map();
+  components.forEach((component) => {
+    const key = Number(component.exam_subject_id);
+    const list = componentsBySubject.get(key) || [];
+    list.push(component);
+    componentsBySubject.set(key, list);
+  });
+
+  return subjects.map((subject) => ({
+    ...subject,
+    id: subject.exam_subject_id,
+    components: componentsBySubject.get(Number(subject.exam_subject_id)) || [],
+  }));
 }
 
 export async function attachUniqueSubjectOfferingIds(conn, scopes, subjects) {
@@ -479,6 +548,7 @@ export async function replaceExamSubjects(conn, examId, subjects) {
        VALUES ?`,
       [values]
     );
+    await replaceExamSubjectComponents(conn, examId, subjects);
     return;
   }
 
@@ -496,6 +566,67 @@ export async function replaceExamSubjects(conn, examId, subjects) {
        ${schema.hasSubjectOfferingId ? "subject_offering_id," : ""}
        max_marks,
        pass_marks
+     )
+     VALUES ?`,
+    [values]
+  );
+  await replaceExamSubjectComponents(conn, examId, subjects);
+}
+
+async function replaceExamSubjectComponents(conn, examId, subjects) {
+  if (!(await supportsExamSubjectComponentsTable())) return;
+
+  const subjectsWithComponents = subjects.filter(
+    (subject) => Array.isArray(subject.components) && subject.components.length
+  );
+  if (!subjectsWithComponents.length) return;
+
+  const [examSubjectRows] = await conn.execute(
+    `SELECT id, subject_id
+     FROM exam_subjects
+     WHERE exam_id = ?`,
+    [examId]
+  );
+  const examSubjectIdBySubject = new Map(
+    examSubjectRows.map((row) => [Number(row.subject_id), Number(row.id)])
+  );
+
+  const values = [];
+  subjectsWithComponents.forEach((subject) => {
+    const examSubjectId = examSubjectIdBySubject.get(Number(subject.subject_id));
+    if (!examSubjectId) return;
+
+    subject.components.forEach((component, index) => {
+      values.push([
+        examSubjectId,
+        component.name,
+        component.mark_pattern || "split",
+        component.max_marks,
+        component.pass_marks,
+        component.theory_max ?? null,
+        component.theory_pass ?? null,
+        component.practical_max ?? null,
+        component.practical_pass ?? null,
+        Number(component.sort_order ?? index),
+      ]);
+    });
+  });
+
+  if (!values.length) return;
+
+  await conn.query(
+    `INSERT INTO exam_subject_components
+     (
+       exam_subject_id,
+       name,
+       mark_pattern,
+       max_marks,
+       pass_marks,
+       theory_max,
+       theory_pass,
+       practical_max,
+       practical_pass,
+       sort_order
      )
      VALUES ?`,
     [values]

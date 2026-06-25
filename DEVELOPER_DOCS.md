@@ -96,3 +96,52 @@ node -e "import('bcrypt').then(async b => console.log(await b.hash('ABCDEF', 10)
   SET s.revoked_at = NOW()
   WHERE r.name = 'parent'
     AND s.revoked_at IS NULL;
+
+
+/CHECK DUPLICATE IDs
+    SELECT
+    MIN(s.name) AS name,
+    MIN(s.mobile) AS mobile,
+    se.class_id,
+    se.section_id,
+    se.stream_id,
+    se.session_id,
+    COUNT(*) AS duplicate_count,
+    GROUP_CONCAT(s.id ORDER BY s.id) AS student_ids
+  FROM students s
+  JOIN student_enrollments se ON se.student_id = s.id
+  JOIN classes c ON c.id = se.class_id
+  WHERE c.name LIKE '%HS 2nd%'
+    AND se.status = 'active'
+  GROUP BY
+    LOWER(TRIM(s.name)),
+    COALESCE(NULLIF(TRIM(s.mobile), ''), ''),
+    se.class_id,
+    se.section_id,
+    se.stream_id,
+    se.session_id
+  HAVING COUNT(*) > 1;
+
+<!-- CREATE TEMPORARY TABLES -->
+  CREATE TEMPORARY TABLE duplicate_student_ids AS
+  SELECT student_id
+  FROM (
+    SELECT
+      s.id AS student_id,
+      ROW_NUMBER() OVER (
+        PARTITION BY
+          LOWER(TRIM(s.name)),
+          COALESCE(NULLIF(TRIM(s.mobile), ''), ''),
+          se.class_id,
+          se.section_id,
+          se.stream_id,
+          se.session_id
+        ORDER BY s.id
+      ) AS rn
+    FROM students s
+    JOIN student_enrollments se ON se.student_id = s.id
+    WHERE se.class_id = 32
+      AND se.session_id = 3
+      AND se.status = 'active'
+  ) x
+  WHERE rn > 1;

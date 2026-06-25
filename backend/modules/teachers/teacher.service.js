@@ -264,12 +264,24 @@ export async function updateTeacher(id, data) {
 }
 
 export async function deleteTeacher(id) {
+  const conn = await pool.getConnection();
 
-  const affected =
-    await repo.deleteTeacher(id);
+  try {
+    await conn.beginTransaction();
 
-  if (!affected)
-    throw new AppError("Teacher not found", 404);
+    const affected = await repo.deleteTeacher(id, conn);
+
+    if (!affected) {
+      throw new AppError("Teacher not found", 404);
+    }
+
+    await conn.commit();
+  } catch (err) {
+    await conn.rollback();
+    throw err;
+  } finally {
+    conn.release();
+  }
 }
 
 export async function bulkCreateTeachers(rows = []) {
