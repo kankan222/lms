@@ -1,5 +1,5 @@
 import { useEffect, useEffectEvent, useMemo, useState } from "react";
-import { useParams } from "react-router-dom";
+import { useLocation, useNavigate, useParams } from "react-router-dom";
 import TopBar from "../../components/TopBar";
 import { getStudent, updateStudent as updateStudentApi } from "../../api/students.api";
 import { getStudentAttendanceSessions } from "../../api/attendance.api";
@@ -28,7 +28,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
-import { BookOpen, CalendarDays, CreditCard, IdCard, Phone, UserRound } from "lucide-react";
+import { ArrowLeft, BookOpen, CalendarDays, CreditCard, IdCard, Phone, UserRound } from "lucide-react";
 import {
   Table,
   TableBody,
@@ -100,6 +100,8 @@ const EMPTY_PARENT = {
 
 const StudentDetails = () => {
   const { id } = useParams();
+  const navigate = useNavigate();
+  const location = useLocation();
   const { hasRole, can } = usePermissions();
   const isParent = hasRole("parent");
   const canEditParents = !isParent && can("student.update");
@@ -539,7 +541,30 @@ const StudentDetails = () => {
 
   return (
     <div>
-      <TopBar title={isParent ? "Child Information" : "Student Information"} />
+      {isParent ? (
+        <TopBar title="Child Information" />
+      ) : (
+        <div className="mb-3 flex items-center gap-3">
+          <Button
+            variant="outline"
+            onClick={() =>
+              navigate("/students", {
+                state: {
+                  focusStudentId: location.state?.focusStudentId || student.id,
+                  tablePage: location.state?.tablePage,
+                  tableRowsPerPage: location.state?.tableRowsPerPage,
+                },
+              })
+            }
+          >
+            <ArrowLeft size={16} />
+            Back to Students
+          </Button>
+          <div>
+            <p className="text-3xl font-bold">Student Information</p>
+          </div>
+        </div>
+      )}
 
       <div className="w-full bg-card rounded-xl border shadow-sm p-6 flex gap-6 items-start">
         <div className="w-24 h-24 rounded-lg overflow-hidden bg-muted shrink-0">
@@ -577,6 +602,7 @@ const StudentDetails = () => {
               <Badge variant="outline">
                 {student.class || "-"} - {student.section || "-"}
               </Badge>
+              <Badge variant="outline">{student.medium || "-"}</Badge>
               <Badge variant="outline">{formatClassScope(student.class_scope || "school")}</Badge>
               {student.class_scope === "hs" && student.stream_name ? (
                 <Badge variant="outline">{student.stream_name}</Badge>
@@ -598,6 +624,10 @@ const StudentDetails = () => {
             <div className="rounded-md border p-3">
               <p className="text-muted-foreground">Scope</p>
               <p className="font-medium">{formatClassScope(student.class_scope || "-")}</p>
+            </div>
+            <div className="rounded-md border p-3">
+              <p className="text-muted-foreground">Medium</p>
+              <p className="font-medium">{student.medium || "-"}</p>
             </div>
             <div className="rounded-md border p-3">
               <p className="text-muted-foreground">Stream</p>
@@ -638,6 +668,10 @@ const StudentDetails = () => {
             <div className="rounded-lg border bg-card p-4">
               <p className="text-sm text-muted-foreground">Section</p>
               <p className="text-base font-medium">{student.section || "-"}</p>
+            </div>
+            <div className="rounded-lg border bg-card p-4">
+              <p className="text-sm text-muted-foreground">Medium</p>
+              <p className="text-base font-medium">{student.medium || "-"}</p>
             </div>
             <div className="rounded-lg border bg-card p-4">
               <p className="text-sm text-muted-foreground">Stream</p>
@@ -820,6 +854,7 @@ const StudentDetails = () => {
               <div className="flex flex-wrap gap-2">
                 <Badge variant="outline">{subjectSelection.enrollment.class_name || student.class || "-"}</Badge>
                 <Badge variant="outline">{subjectSelection.enrollment.section_name || student.section || "-"}</Badge>
+                <Badge variant="outline">{subjectSelection.enrollment.medium || student.medium || "-"}</Badge>
                 {subjectSelection.enrollment.stream_name ? (
                   <Badge variant="outline">{subjectSelection.enrollment.stream_name}</Badge>
                 ) : null}

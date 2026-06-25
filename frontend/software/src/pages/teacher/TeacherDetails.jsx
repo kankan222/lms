@@ -37,6 +37,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -164,12 +165,9 @@ export default function TeacherDetails() {
   const [assignDialogOpen, setAssignDialogOpen] = useState(false);
   const [passwordDialogOpen, setPasswordDialogOpen] = useState(false);
   const [assignmentError, setAssignmentError] = useState("");
+  const [assignmentSubmitting, setAssignmentSubmitting] = useState(false);
   const [passwordError, setPasswordError] = useState("");
-  const [feedbackDialog, setFeedbackDialog] = useState({
-    open: false,
-    title: "",
-    message: "",
-  });
+  const [notice, setNotice] = useState(null);
   const [assignmentToRemove, setAssignmentToRemove] = useState(null);
 
   const [passwordForm, setPasswordForm] = useState({
@@ -181,6 +179,10 @@ export default function TeacherDetails() {
   const [currentPage, setCurrentPage] = useState(1);
 
   const rowsPerPage = 10;
+
+  function showNotice(title, message, variant = "success") {
+    setNotice({ title, message, variant });
+  }
 
   function deriveAssignmentSelections(sourceAssignments, sessionId) {
     const normalizedSessionId = String(sessionId || "");
@@ -321,6 +323,12 @@ export default function TeacherDetails() {
     setCurrentPage(1);
   }, [attendance]);
 
+  useEffect(() => {
+    if (!notice) return undefined;
+    const timeoutId = window.setTimeout(() => setNotice(null), 3500);
+    return () => window.clearTimeout(timeoutId);
+  }, [notice]);
+
   async function handleAssignSubjects() {
     if (!selectedSubjects.length) {
       setAssignmentError("Select at least one subject.");
@@ -361,17 +369,27 @@ export default function TeacherDetails() {
       return;
     }
 
-    await Promise.all(assignmentPayloads);
+    setAssignmentSubmitting(true);
+    try {
+      await Promise.all(assignmentPayloads);
 
-    const updated = await getTeacherAssignments(id);
+      const updated = await getTeacherAssignments(id);
 
-    const updatedRows = updated.data || [];
-    setAssignments(updatedRows);
-    const nextSelections = deriveAssignmentSelections(updatedRows, selectedSession);
-    setSelectedSubjects(nextSelections.subjects);
-    setSelectedSections(nextSelections.sections);
-    setAssignmentError("");
-    setAssignDialogOpen(false);
+      const updatedRows = updated.data || [];
+      setAssignments(updatedRows);
+      const nextSelections = deriveAssignmentSelections(updatedRows, selectedSession);
+      setSelectedSubjects(nextSelections.subjects);
+      setSelectedSections(nextSelections.sections);
+      setAssignmentError("");
+      setAssignDialogOpen(false);
+      showNotice("Teacher Assigned", "Teacher class assignments updated successfully.");
+    } catch (err) {
+      const message = err?.message || "Failed to assign teacher.";
+      setAssignmentError(message);
+      showNotice("Assign Failed", message, "error");
+    } finally {
+      setAssignmentSubmitting(false);
+    }
   }
 
   async function handleRemoveAssignment() {
@@ -403,11 +421,7 @@ export default function TeacherDetails() {
   });
 
   if (res?.success) {
-    setFeedbackDialog({
-      open: true,
-      title: "Password Updated",
-      message: "Password updated successfully.",
-    });
+    showNotice("Password Updated", "Password updated successfully.");
   }
   setPasswordForm({
     currentPassword: "",
@@ -490,6 +504,24 @@ export default function TeacherDetails() {
 
   return (
     <>
+      <div className="pointer-events-none fixed top-6 right-6 z-50 w-full max-w-sm">
+        <div
+          className={`transition-all duration-500 ease-out ${
+            notice ? "translate-x-0 scale-100 opacity-100" : "translate-x-12 scale-95 opacity-0"
+          }`}
+        >
+          {notice && (
+            <Alert
+              variant={notice.variant === "error" ? "destructive" : "success"}
+              className="pointer-events-auto overflow-hidden border shadow-xl"
+            >
+              <AlertTitle>{notice.title}</AlertTitle>
+              <AlertDescription>{notice.message}</AlertDescription>
+            </Alert>
+          )}
+        </div>
+      </div>
+
       <TopBar title="Teacher Information" />
       <div className="w-full bg-card rounded-xl border shadow-sm p-6 flex gap-6 items-start">
         {/* Avatar */}
@@ -747,8 +779,8 @@ export default function TeacherDetails() {
                     </div>
                   </div>
 
-                  <Button onClick={handleAssignSubjects}>
-                    Assign
+                  <Button onClick={handleAssignSubjects} disabled={assignmentSubmitting}>
+                    {assignmentSubmitting ? "Assigning..." : "Assign"}
                   </Button>
                 </DialogContent>
               </Dialog>
@@ -1003,20 +1035,6 @@ export default function TeacherDetails() {
         </AlertDialogContent>
       </AlertDialog>
 
-      <Dialog
-        open={feedbackDialog.open}
-        onOpenChange={(open) => setFeedbackDialog((prev) => ({ ...prev, open }))}
-      >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{feedbackDialog.title}</DialogTitle>
-          </DialogHeader>
-          <p className="text-sm text-muted-foreground">{feedbackDialog.message}</p>
-          <Button onClick={() => setFeedbackDialog((prev) => ({ ...prev, open: false }))}>
-            Close
-          </Button>
-        </DialogContent>
-      </Dialog>
     </>
   );
 }

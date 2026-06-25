@@ -419,7 +419,22 @@ export async function createExam(data, userId) {
 
 export async function listExams(filters, userId) {
   const { isTeacher } = await getUserFlags(userId);
-  return repo.listExams(filters || {}, userId, isTeacher);
+  const exams = await repo.listExams(filters || {}, userId, isTeacher);
+
+  return Promise.all(
+    exams.map(async (exam) => {
+      const [subjects, scopes] = await Promise.all([
+        repo.getExamSubjects(exam.id),
+        isTeacher ? repo.getAllowedTeacherScopes(userId, exam.id) : repo.getExamScopes(exam.id),
+      ]);
+
+      return {
+        ...exam,
+        subjects,
+        scopes,
+      };
+    })
+  );
 }
 
 export async function getExamById(id, userId) {

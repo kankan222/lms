@@ -36,6 +36,7 @@ import {
 import { usePermissions } from "../hooks/usePermissions";
 
 const EMPTY_FILTERS = {
+  class_scope: "",
   exam_id: "",
   class_id: "",
   section_id: "",
@@ -76,6 +77,47 @@ function uniqueById(items = []) {
     seen.add(key);
     return true;
   });
+}
+
+const classScopeLabels = {
+  school: "School",
+  hs: "Higher Secondary",
+};
+
+function normalizeClassScope(value) {
+  const scope = String(value || "").trim().toLowerCase();
+  if (scope === "higher_secondary" || scope === "higher-secondary") return "hs";
+  if (scope === "hs" || scope === "school") return scope;
+  return "";
+}
+
+function getClassScope(item) {
+  return normalizeClassScope(item?.class_scope || item?.scope_code || item?.scope) || "school";
+}
+
+function getExamClassScopes(exam) {
+  const scopes = String(exam?.class_scope || "")
+    .split(",")
+    .map(normalizeClassScope)
+    .filter(Boolean);
+
+  return scopes.length ? [...new Set(scopes)] : ["school"];
+}
+
+function matchesClassScope(item, classScope) {
+  const scope = normalizeClassScope(classScope);
+  if (!scope) return true;
+  return getClassScope(item) === scope;
+}
+
+function examMatchesClassScope(exam, classScope) {
+  const scope = normalizeClassScope(classScope);
+  if (!scope) return true;
+  return getExamClassScopes(exam).includes(scope);
+}
+
+function formatClassScopes(scopes) {
+  return scopes.map((scope) => classScopeLabels[scope] || scope).join(", ");
 }
 
 function isSplitPattern(subject) {
@@ -167,6 +209,14 @@ export default function Reports() {
   const [examMetaLoading, setExamMetaLoading] = useState(false);
   const [banner, setBanner] = useState(null);
 
+  const scopeFilteredExams = useMemo(
+    () => exams.filter((exam) => examMatchesClassScope(exam, filters.class_scope)),
+    [exams, filters.class_scope]
+  );
+  const scopeFilteredClasses = useMemo(
+    () => classes.filter((item) => matchesClassScope(item, filters.class_scope)),
+    [classes, filters.class_scope]
+  );
   const scopedClassIds = useMemo(
     () => [...new Set((examScopes || []).map((item) => String(item.class_id)))],
     [examScopes]
@@ -174,9 +224,9 @@ export default function Reports() {
   const availableClasses = useMemo(
     () =>
       !filters.exam_id
-        ? classes
-        : classes.filter((item) => scopedClassIds.includes(String(item.id))),
-    [classes, filters.exam_id, scopedClassIds]
+        ? scopeFilteredClasses
+        : scopeFilteredClasses.filter((item) => scopedClassIds.includes(String(item.id))),
+    [scopeFilteredClasses, filters.exam_id, scopedClassIds]
   );
   const selectedClass = useMemo(
     () => availableClasses.find((item) => String(item.id) === String(filters.class_id)) || null,
@@ -237,7 +287,7 @@ export default function Reports() {
       {
         id: pendingReviewMeta.class_id,
         name: pendingReviewMeta.class_name,
-        class_scope: null,
+        class_scope: pendingReviewMeta.class_scope || null,
         sections: [],
       },
     ]);
@@ -289,6 +339,20 @@ export default function Reports() {
 
     setReviewQueueSnapshot(null);
   }, [editMode, pendingQueue]);
+
+  useEffect(() => {
+    if (!filters.exam_id) return;
+    if (scopeFilteredExams.some((item) => String(item.id) === String(filters.exam_id))) return;
+
+    setFilters((prev) => ({
+      ...prev,
+      exam_id: "",
+      class_id: "",
+      section_id: "",
+      medium: "",
+      subject_id: "",
+    }));
+  }, [filters.class_scope, filters.exam_id, scopeFilteredExams]);
 
   useEffect(() => {
     if (!filters.exam_id) {
@@ -455,6 +519,7 @@ export default function Reports() {
     if (needsScopeUpdate) {
       setFilters((prev) => ({
         ...prev,
+        class_scope: normalizeClassScope(nextScope.class_scope) || prev.class_scope || "",
         exam_id: String(nextScope.exam_id),
         class_id: String(nextScope.class_id),
         section_id: String(nextScope.section_id),
@@ -893,6 +958,29 @@ export default function Reports() {
           <FilterSection title="Choose Scope">
             <div className="grid gap-3 md:grid-cols-3">
               <div className="grid gap-2">
+                <Label>Scope</Label>
+                <select
+                  className="w-full rounded-md border px-3 py-2"
+                  value={filters.class_scope}
+                  onChange={(e) =>
+                    setFilters((prev) => ({
+                      ...prev,
+                      class_scope: e.target.value,
+                      exam_id: "",
+                      class_id: "",
+                      section_id: "",
+                      medium: "",
+                      subject_id: "",
+                    }))
+                  }
+                >
+                  <option value="">All scopes</option>
+                  <option value="school">School</option>
+                  <option value="hs">Higher Secondary</option>
+                </select>
+              </div>
+
+              <div className="grid gap-2">
                 <Label>Exam</Label>
                 <select
                   className="w-full rounded-md border px-3 py-2"
@@ -902,9 +990,9 @@ export default function Reports() {
                   }
                 >
                   <option value="">Select exam</option>
-                  {exams.map((exam) => (
+                  {scopeFilteredExams.map((exam) => (
                     <option key={exam.id} value={exam.id}>
-                      {exam.name}
+                      {exam.name} ({formatClassScopes(getExamClassScopes(exam))})
                     </option>
                   ))}
                 </select>
@@ -921,6 +1009,7 @@ export default function Reports() {
                       class_id: e.target.value,
                       section_id: "",
                       medium: "",
+                      subject_id: "",
                     }))
                   }
                 >

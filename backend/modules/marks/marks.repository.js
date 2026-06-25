@@ -683,6 +683,9 @@ export async function getComponentMarksByStudentIds(examSubjectId, studentIds) {
 }
 
 export async function getPendingApprovalScopes() {
+  const hasScopesTable = await supportsScopesTable();
+  const classScopeExpr = buildClassScopeExpression(hasScopesTable);
+
   return query(
     `SELECT
       me.exam_id,
@@ -691,6 +694,7 @@ export async function getPendingApprovalScopes() {
       sess.name AS session_name,
       se.class_id,
       c.name AS class_name,
+      ${classScopeExpr} AS class_scope,
       se.section_id,
       sec.name AS section_name,
       sec.medium,
@@ -706,6 +710,7 @@ export async function getPendingApprovalScopes() {
       AND se.session_id = e.session_id
       AND se.status = 'active'
      JOIN classes c ON c.id = se.class_id
+     ${hasScopesTable ? "LEFT JOIN scopes sc_ref ON sc_ref.id = c.scope_id" : ""}
      JOIN sections sec ON sec.id = se.section_id
      JOIN subjects sub ON sub.id = me.subject_id
      WHERE me.approval_status = 'pending'
@@ -716,6 +721,7 @@ export async function getPendingApprovalScopes() {
       sess.name,
       se.class_id,
       c.name,
+      ${classScopeExpr},
       se.section_id,
       sec.name,
       sec.medium,

@@ -775,6 +775,78 @@ export default function Exams() {
     }
   }
 
+  function renderExamCard(exam) {
+    return (
+      <Card
+        key={exam.id}
+        className="gap-0 rounded-2xl border border-border/60 bg-card shadow-sm transition-shadow hover:shadow-md"
+      >
+        <CardHeader className="p-4 pb-2">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <CardTitle className="truncate text-base tracking-tight">{exam.name}</CardTitle>
+              <CardDescription>Session: {exam.session_name || "-"}</CardDescription>
+            </div>
+            <div className="flex flex-wrap justify-end gap-2">
+              {exam.classScopes.map((scope) => (
+                <Badge key={scope} variant="outline" className="rounded-full border-border bg-muted/40">
+                  {classScopeLabels[scope] || scope}
+                </Badge>
+              ))}
+              <Badge variant="secondary" className="rounded-full">
+                #{exam.id}
+              </Badge>
+            </div>
+          </div>
+        </CardHeader>
+
+        <CardContent className="space-y-3 p-4 pt-1">
+          <div className="flex flex-wrap items-center gap-2 text-xs">
+            <Badge variant="outline" className="rounded-full border-border bg-muted/40 text-muted-foreground">
+              {exam.subjects.length} subject{exam.subjects.length === 1 ? "" : "s"}
+            </Badge>
+            <Badge variant="outline" className="rounded-full border-border bg-muted/40 text-muted-foreground">
+              {exam.scopes.length} scope{exam.scopes.length === 1 ? "" : "s"}
+            </Badge>
+          </div>
+
+          <div className="space-y-2">
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Scopes</p>
+            <div className="flex flex-wrap gap-2">
+              {exam.scopeLabels.length ? (
+                exam.scopeLabels.slice(0, 3).map((scopeLabel) => (
+                  <Badge
+                    key={scopeLabel}
+                    variant="outline"
+                    className="rounded-full border-border bg-background font-normal text-muted-foreground dark:bg-input/20"
+                  >
+                    {scopeLabel}
+                  </Badge>
+                ))
+              ) : (
+                <span className="text-xs text-muted-foreground">No scope data</span>
+              )}
+              {exam.scopeLabels.length > 3 ? (
+                <Badge variant="outline" className="rounded-full border-border bg-muted/40 text-muted-foreground">
+                  +{exam.scopeLabels.length - 3} more
+                </Badge>
+              ) : null}
+            </div>
+          </div>
+
+          <div className="flex gap-2 pt-1">
+            <Button variant="outline" size="sm" className="h-8 rounded-xl px-3" onClick={() => onEdit(exam.id)}>
+              Edit
+            </Button>
+            <Button size="sm" variant="destructive" className="h-8 rounded-xl px-3" onClick={() => setDeletingExam(exam)}>
+              Delete
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
   return (
     <>
       <div className="pointer-events-none fixed top-6 right-6 z-50 w-full max-w-sm">
@@ -1235,6 +1307,25 @@ export default function Exams() {
         }
       />
 
+      <div className="mb-4 flex flex-wrap items-center gap-2">
+        {[
+          ["all", "All Exams"],
+          ["school", "School"],
+          ["hs", "Higher Secondary"],
+        ].map(([value, label]) => (
+          <Button
+            key={value}
+            type="button"
+            variant={scopeFilter === value ? "default" : "outline"}
+            size="sm"
+            className="rounded-full"
+            onClick={() => setScopeFilter(value)}
+          >
+            {label}
+          </Button>
+        ))}
+      </div>
+
       {examCards.length === 0 ? (
         <Card className="rounded-2xl border border-dashed border-border/70 bg-card shadow-sm">
           <CardContent className="flex flex-col items-center justify-center gap-4 px-6 py-12 text-center">
@@ -1252,70 +1343,40 @@ export default function Exams() {
             </Button>
           </CardContent>
         </Card>
+      ) : visibleExamCards.length === 0 ? (
+        <Card className="rounded-2xl border border-dashed border-border/70 bg-card shadow-sm">
+          <CardContent className="px-6 py-10 text-center">
+            <CardTitle>No exams in this scope</CardTitle>
+            <CardDescription className="mt-1">
+              Switch scope filters or create an exam for this class scope.
+            </CardDescription>
+          </CardContent>
+        </Card>
       ) : (
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-          {examCards.map((exam) => (
-            <Card
-              key={exam.id}
-              className="gap-0 rounded-2xl border border-border/60 bg-card shadow-sm transition-shadow hover:shadow-md"
-            >
-              <CardHeader className="p-4 pb-2">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <CardTitle className="truncate text-base tracking-tight">{exam.name}</CardTitle>
-                    <CardDescription>Session: {exam.session_name || "-"}</CardDescription>
-                  </div>
-                  <Badge variant="secondary" className="rounded-full">
-                    #{exam.id}
-                  </Badge>
-                </div>
-              </CardHeader>
+        <div className="space-y-6">
+          {schoolExamCards.length ? (
+            <section className="space-y-3">
+              <div>
+                <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">School Exams</h2>
+              </div>
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+                {schoolExamCards.map(renderExamCard)}
+              </div>
+            </section>
+          ) : null}
 
-              <CardContent className="space-y-3 p-4 pt-1">
-                <div className="flex flex-wrap items-center gap-2 text-xs">
-                  <Badge variant="outline" className="rounded-full border-border bg-muted/40 text-muted-foreground">
-                    {exam.subjects.length} subject{exam.subjects.length === 1 ? "" : "s"}
-                  </Badge>
-                  <Badge variant="outline" className="rounded-full border-border bg-muted/40 text-muted-foreground">
-                    {exam.scopes.length} scope{exam.scopes.length === 1 ? "" : "s"}
-                  </Badge>
-                </div>
-
-                <div className="space-y-2">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Scopes</p>
-                  <div className="flex flex-wrap gap-2">
-                    {exam.scopeLabels.length ? (
-                      exam.scopeLabels.slice(0, 3).map((scopeLabel) => (
-                        <Badge
-                          key={scopeLabel}
-                          variant="outline"
-                          className="rounded-full border-border bg-background font-normal text-muted-foreground dark:bg-input/20"
-                        >
-                          {scopeLabel}
-                        </Badge>
-                      ))
-                    ) : (
-                      <span className="text-xs text-muted-foreground">No scope data</span>
-                    )}
-                    {exam.scopeLabels.length > 3 ? (
-                      <Badge variant="outline" className="rounded-full border-border bg-muted/40 text-muted-foreground">
-                        +{exam.scopeLabels.length - 3} more
-                      </Badge>
-                    ) : null}
-                  </div>
-                </div>
-
-                <div className="flex gap-2 pt-1">
-                  <Button variant="outline" size="sm" className="h-8 rounded-xl px-3" onClick={() => onEdit(exam.id)}>
-                    Edit
-                  </Button>
-                  <Button size="sm" variant="destructive" className="h-8 rounded-xl px-3" onClick={() => setDeletingExam(exam)}>
-                    Delete
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
+          {hsExamCards.length ? (
+            <section className="space-y-3">
+              <div>
+                <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+                  Higher Secondary Exams
+                </h2>
+              </div>
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+                {hsExamCards.map(renderExamCard)}
+              </div>
+            </section>
+          ) : null}
         </div>
       )}
 

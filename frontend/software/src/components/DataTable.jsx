@@ -174,6 +174,7 @@ export default function DataTable({
             {paginatedData.map((row) => (
               <tr
                 key={row.id}
+                data-row-id={row.id}
                 className="border-b transition-colors hover:bg-muted/35"
                 onClick={() => onRowClick?.(row)}
               >

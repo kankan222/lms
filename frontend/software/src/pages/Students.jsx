@@ -1,5 +1,5 @@
 import { useEffect, useEffectEvent, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import DataTable from "../components/DataTable";
 import TopBar from "../components/TopBar";
 
@@ -52,11 +52,14 @@ const columns = [
   {
     header: "Student",
     accessor: "student_summary",
-    className: "w-[28%] max-w-0",
+    className: "min-w-[230px]",
     cell: (row) => (
       <div className="min-w-0 space-y-1">
         <p className="truncate font-medium text-foreground">{row.name || "-"}</p>
         <p className="truncate text-xs text-muted-foreground">{row.display_id}</p>
+        <p className="truncate text-xs text-muted-foreground">
+          Phone: {row.contact_summary || "-"}
+        </p>
         {row.admission_no ? (
           <p className="truncate text-xs text-muted-foreground">Adm: {row.admission_no}</p>
         ) : null}
@@ -64,34 +67,56 @@ const columns = [
     ),
   },
   {
-    header: "Academic",
-    accessor: "academic_summary",
-    className: "w-[30%] max-w-0",
+    header: "Class",
+    accessor: "class",
+    className: "min-w-[130px]",
     cell: (row) => (
-      <div className="min-w-0 space-y-1">
-        <p className="truncate font-medium text-foreground">{row.academic_summary || "-"}</p>
-        <p className="truncate text-xs text-muted-foreground">{row.session_name || "-"}</p>
-        <p className="truncate text-xs text-muted-foreground">
-          {row.class_scope || "-"}
+      <div className="space-y-1">
+        <p className="font-medium text-foreground">{row.class || "-"}</p>
+        <p className="text-xs text-muted-foreground">{row.class_scope || "-"}</p>
+        <p className="text-xs text-muted-foreground">{row.session_name || "-"}</p>
+      </div>
+    ),
+  },
+  {
+    header: "Section",
+    accessor: "section",
+    className: "min-w-[120px]",
+    cell: (row) => (
+      <div className="space-y-1">
+        <p className="font-medium text-foreground">{row.section || "-"}</p>
+        <p className="text-xs text-muted-foreground">
+          {row.roll_number ? `Roll ${row.roll_number}` : "Roll -"}
         </p>
       </div>
     ),
   },
   {
-    header: "Contact",
-    accessor: "contact_summary",
-    className: "w-[18%] max-w-0",
+    header: "Stream",
+    accessor: "stream_name",
+    className: "min-w-[150px]",
     cell: (row) => (
-      <div className="min-w-0 space-y-1">
-        <p className="truncate font-medium text-foreground">{row.contact_summary || "-"}</p>
-        <p className="truncate text-xs text-muted-foreground">Phone</p>
+      <div className="space-y-1">
+        <span className={`inline-flex rounded-full border px-3 py-1 text-xs font-medium ${streamBadgeClass(row.stream_name)}`}>
+          {row.stream_name && row.stream_name !== "-" ? row.stream_name : "Not Applicable"}
+        </span>
       </div>
+    ),
+  },
+  {
+    header: "Medium",
+    accessor: "medium",
+    className: "min-w-[130px]",
+    cell: (row) => (
+      <span className={`inline-flex rounded-full border px-3 py-1 text-xs font-medium ${mediumBadgeClass(row.medium)}`}>
+        {row.medium || "-"}
+      </span>
     ),
   },
   {
     header: "Gender",
     accessor: "gender",
-    className: "w-24 max-w-24",
+    className: "min-w-[100px]",
     cell: (row) => {
       const value = String(row.gender || "").trim().toLowerCase();
       const classes =
@@ -111,7 +136,7 @@ const columns = [
   {
     header: "Dates",
     accessor: "date_summary",
-    className: "w-[24%] max-w-0",
+    className: "min-w-[190px]",
     cell: (row) => (
       <div className="min-w-0 space-y-1">
         <p className="truncate text-sm text-foreground">DOB: {row.dob_display || "-"}</p>
@@ -122,6 +147,50 @@ const columns = [
     ),
   }
 ];
+
+function streamBadgeClass(stream) {
+  const value = String(stream || "").trim().toLowerCase();
+
+  if (!value || value === "-") {
+    return "border-slate-200 bg-slate-50 text-slate-600 dark:border-slate-500/30 dark:bg-slate-500/15 dark:text-slate-200";
+  }
+
+  if (value.includes("science")) {
+    return "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/15 dark:text-emerald-200";
+  }
+
+  if (value.includes("commerce")) {
+    return "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-500/30 dark:bg-amber-500/15 dark:text-amber-200";
+  }
+
+  if (value.includes("arts") || value.includes("humanities")) {
+    return "border-purple-200 bg-purple-50 text-purple-700 dark:border-purple-500/30 dark:bg-purple-500/15 dark:text-purple-200";
+  }
+
+  return "border-indigo-200 bg-indigo-50 text-indigo-700 dark:border-indigo-500/30 dark:bg-indigo-500/15 dark:text-indigo-200";
+}
+
+function mediumBadgeClass(medium) {
+  const value = String(medium || "").trim().toLowerCase();
+
+  if (value.includes("english")) {
+    return "border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-500/30 dark:bg-sky-500/15 dark:text-sky-200";
+  }
+
+  if (value.includes("assamese")) {
+    return "border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-500/30 dark:bg-rose-500/15 dark:text-rose-200";
+  }
+
+  if (value.includes("hindi")) {
+    return "border-orange-200 bg-orange-50 text-orange-700 dark:border-orange-500/30 dark:bg-orange-500/15 dark:text-orange-200";
+  }
+
+  if (value.includes("bengali")) {
+    return "border-teal-200 bg-teal-50 text-teal-700 dark:border-teal-500/30 dark:bg-teal-500/15 dark:text-teal-200";
+  }
+
+  return "border-cyan-200 bg-cyan-50 text-cyan-700 dark:border-cyan-500/30 dark:bg-cyan-500/15 dark:text-cyan-200";
+}
 
 function formatClassScope(value) {
   const scope = String(value || "").trim().toLowerCase();
@@ -245,16 +314,21 @@ export default function Student() {
   const canDeleteStudents = can("student.delete");
   const canManageStudents = canCreateStudents || canEditStudents || canDeleteStudents;
   const navigate = useNavigate();
+  const location = useLocation();
   const [students, setStudents] = useState([]);
   const [classes, setClasses] = useState([]);
   const [sessions, setSessions] = useState([]);
   const [classId, setClassId] = useState(() => readStoredString(STUDENTS_FILTER_CLASS_KEY));
   const [sectionId, setSectionId] = useState(() => readStoredString(STUDENTS_FILTER_SECTION_KEY));
   const [tablePage, setTablePage] = useState(() =>
-    readStoredNumber(STUDENTS_TABLE_PAGE_KEY, 1)
+    readStoredNumber(STUDENTS_TABLE_PAGE_KEY, Number(location.state?.tablePage) || 1)
   );
   const [tableRowsPerPage, setTableRowsPerPage] = useState(() =>
-    readStoredNumber(STUDENTS_TABLE_ROWS_KEY, TABLE_ROWS_PER_PAGE_OPTIONS[0], TABLE_ROWS_PER_PAGE_OPTIONS)
+    readStoredNumber(
+      STUDENTS_TABLE_ROWS_KEY,
+      Number(location.state?.tableRowsPerPage) || TABLE_ROWS_PER_PAGE_OPTIONS[0],
+      TABLE_ROWS_PER_PAGE_OPTIONS
+    )
   );
   const [open, setOpen] = useState(false);
   const [editingStudent, setEditingStudent] = useState(null);
@@ -269,6 +343,9 @@ export default function Student() {
   const [refreshing, setRefreshing] = useState(false);
   const [lastUpdatedAt, setLastUpdatedAt] = useState(null);
   const [hasLoadedStudents, setHasLoadedStudents] = useState(false);
+  const [pendingFocusStudentId, setPendingFocusStudentId] = useState(
+    location.state?.focusStudentId ? String(location.state.focusStudentId) : ""
+  );
 
   const STREAM_OPTIONS = [
     { value: "Arts", label: "Arts" },
@@ -376,6 +453,41 @@ export default function Student() {
     const totalPages = Math.max(1, Math.ceil(students.length / Math.max(tableRowsPerPage, 1)));
     setTablePage((prev) => Math.min(prev, totalPages));
   }, [students.length, tableRowsPerPage, hasLoadedStudents]);
+
+  useEffect(() => {
+    if (!hasLoadedStudents) return;
+    const focusStudentId = location.state?.focusStudentId;
+    if (!focusStudentId) return;
+
+    setPendingFocusStudentId(String(focusStudentId));
+    const rowIndex = students.findIndex((row) => String(row.id) === String(focusStudentId));
+    if (rowIndex < 0) return;
+
+    const nextPage = Math.floor(rowIndex / Math.max(tableRowsPerPage, 1)) + 1;
+    setTablePage(nextPage);
+  }, [hasLoadedStudents, location.state?.focusStudentId, students, tableRowsPerPage]);
+
+  useEffect(() => {
+    if (!pendingFocusStudentId || !hasLoadedStudents) return undefined;
+
+    const timeoutId = window.setTimeout(() => {
+      const focusedRow = Array.from(document.querySelectorAll("[data-row-id]")).find(
+        (element) => String(element.getAttribute("data-row-id")) === String(pendingFocusStudentId)
+      );
+
+      if (!focusedRow) return;
+
+      focusedRow.scrollIntoView({ behavior: "smooth", block: "center", inline: "nearest" });
+      focusedRow.classList.add("bg-primary/10", "ring-2", "ring-primary/30");
+      window.setTimeout(() => {
+        focusedRow.classList.remove("bg-primary/10", "ring-2", "ring-primary/30");
+      }, 1800);
+      setPendingFocusStudentId("");
+      window.history.replaceState({ ...window.history.state, usr: null }, "");
+    }, 80);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [hasLoadedStudents, pendingFocusStudentId, tablePage, students]);
 
   function validateCreatePayload(payload) {
     const next = {};
@@ -835,7 +947,19 @@ export default function Student() {
   }
 
   function handleRowClick(row) {
-    navigate(`/students/${row.id}`);
+    if (typeof window !== "undefined") {
+      window.sessionStorage.setItem(STUDENTS_TABLE_PAGE_KEY, String(tablePage));
+      window.sessionStorage.setItem(STUDENTS_TABLE_ROWS_KEY, String(tableRowsPerPage));
+    }
+
+    navigate(`/students/${row.id}`, {
+      state: {
+        fromStudents: true,
+        focusStudentId: row.id,
+        tablePage,
+        tableRowsPerPage,
+      },
+    });
   }
 
   const selectedClass = classes.find((c) => String(c.id) === String(classId));
@@ -909,7 +1033,7 @@ export default function Student() {
                       <option value="">All Classes</option>
                       {classes.map((c) => (
                         <option key={c.id} value={c.id}>
-                          {c.name}{c.medium ? ` (${c.medium})` : ""}
+                          {c.name}
                         </option>
                       ))}
                     </select>
@@ -929,7 +1053,7 @@ export default function Student() {
                       <option value="">All Sections</option>
                       {sections.map((s) => (
                         <option key={s.id} value={s.id}>
-                          {s.name}
+                          {s.name}{s.medium ? ` (${s.medium})` : ""}
                         </option>
                       ))}
                     </select>
@@ -1059,8 +1183,8 @@ export default function Student() {
           setTableRowsPerPage(safeRows);
           setTablePage(1);
         }}
-        tableClassName="table-fixed"
-        tableWrapperClassName="overflow-hidden"
+        tableClassName="min-w-[980px]"
+        tableWrapperClassName="sidebar-primary-scrollbar overflow-x-auto"
         onRowClick={handleRowClick}
         onEdit={!isParent && canEditStudents ? handleEdit : undefined}
         onDelete={!isParent && canDeleteStudents ? setDeletingStudent : undefined}

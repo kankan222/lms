@@ -130,6 +130,7 @@
 
   .sidebar-primary-scrollbar::-webkit-scrollbar {
     width: 6px;
+    height: 6px;
   }
 
   .sidebar-primary-scrollbar::-webkit-scrollbar-track {

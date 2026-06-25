@@ -246,3 +246,31 @@ Update this file after every meaningful implementation change.
   existing approval and report-card flow.
 - Added colorful subject group badges to Student Details subject selection,
   matching the compulsory/elective/optional visual language used elsewhere.
+- Scoped exam visibility by class scope: exam lists now expose scope metadata,
+  Student Details loads only exams matching the student's active enrollment,
+  and the Exams tab groups cards into School and Higher Secondary sections.
+- Updated Reports to include a School/Higher Secondary scope filter for marks
+  entry, pending review, and approved-report workflows, with pending approval
+  queue metadata carrying class scope into the auto-selected review context.
+- Added Teacher Details assignment feedback using the same top-right alert
+  notice pattern as other teacher tabs, including backend error messages when
+  assignment submission fails.
+- Reorganized the Students table so class, section, stream, and medium render as
+  distinct readable columns while phone stacks under the student name and
+  session stacks under the class scope to reduce table overflow.
+- Added value-based badge colors for Students table stream and medium fields so
+  Science/Commerce/Arts and language media are visually distinct.
+- Updated the Students filter popover so class options show only class names,
+  while section options carry the medium label for clearer section selection.
+- Applied the sidebar scrollbar utility to the Students table overflow area and
+  added horizontal scrollbar height support so the table scrollbar visually
+  matches the navigation scrollbar.
+- Added medium display to Student Details header, overview cards, and subject
+  selection context chips, plus an in-app Back to Students button for staff
+  users to return from details without using the browser back control.
+- Moved the Student Details back button to the left of the title and preserved
+  Students table context by passing the clicked student/page state into details
+  and restoring the table page that contains that student on return.
+- Updated DataTable/Students restore behavior so returning from Student Details
+  scrolls directly to the clicked student row and briefly highlights it, instead
+  of only restoring the page number.
