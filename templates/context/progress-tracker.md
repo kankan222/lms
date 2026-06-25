@@ -225,3 +225,7 @@ Update this file after every meaningful implementation change.
   migration with safe unique-match backfill, API read/write compatibility,
   and create/update inference that only stores an offering when the selected
   exam scopes resolve to one active offering.
+- Aligned marks, exams, and legacy reports repositories so report and roster
+  queries prefer exact `exam_subjects.subject_offering_id` matches when the
+  column exists, fall back to legacy `subject_id` rows, and continue to run
+  against databases that have not applied the new column migration yet.

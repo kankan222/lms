@@ -89,6 +89,10 @@ const subjectGroupLabels = {
 const FIELD_CLASSNAME =
   "w-full rounded-xl border border-input bg-background px-3 py-2 text-sm text-foreground shadow-xs outline-none transition-colors focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] dark:bg-input/30";
 
+function preventNumberWheel(e) {
+  e.currentTarget.blur();
+}
+
 function subjectGroupBadgeClass(group) {
   const value = String(group || "").trim().toLowerCase();
 
@@ -780,6 +784,7 @@ export default function Exams() {
                                         min="1"
                                         step="1"
                                         value={subject.max_marks}
+                                        onWheel={preventNumberWheel}
                                         onChange={(e) => updateSubjectField(subject.subject_id, "max_marks", e.target.value)}
                                         placeholder="Max Marks"
                                       />
@@ -789,6 +794,7 @@ export default function Exams() {
                                         min="0"
                                         step="1"
                                         value={subject.pass_marks}
+                                        onWheel={preventNumberWheel}
                                         onChange={(e) => updateSubjectField(subject.subject_id, "pass_marks", e.target.value)}
                                         placeholder="Pass Marks"
                                       />
@@ -802,6 +808,7 @@ export default function Exams() {
                                           min="0"
                                           step="1"
                                           value={subject.theory_max}
+                                          onWheel={preventNumberWheel}
                                           onChange={(e) => updateSubjectField(subject.subject_id, "theory_max", e.target.value)}
                                           placeholder="Theory Max"
                                         />
@@ -811,6 +818,7 @@ export default function Exams() {
                                           min="0"
                                           step="1"
                                           value={subject.theory_pass}
+                                          onWheel={preventNumberWheel}
                                           onChange={(e) => updateSubjectField(subject.subject_id, "theory_pass", e.target.value)}
                                           placeholder="Theory Pass"
                                         />
@@ -820,6 +828,7 @@ export default function Exams() {
                                           min="0"
                                           step="1"
                                           value={subject.practical_max}
+                                          onWheel={preventNumberWheel}
                                           onChange={(e) => updateSubjectField(subject.subject_id, "practical_max", e.target.value)}
                                           placeholder="Practical Max"
                                         />
@@ -829,6 +838,7 @@ export default function Exams() {
                                           min="0"
                                           step="1"
                                           value={subject.practical_pass}
+                                          onWheel={preventNumberWheel}
                                           onChange={(e) => updateSubjectField(subject.subject_id, "practical_pass", e.target.value)}
                                           placeholder="Practical Pass"
                                         />

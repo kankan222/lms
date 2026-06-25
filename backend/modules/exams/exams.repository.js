@@ -591,6 +591,8 @@ export async function getAllowedTeacherScopes(userId, examId) {
 export async function getStudentsForScope(examId, classId, sectionId, name = "", subjectId = null) {
   const hasStudentExamSubjects = await supportsStudentExamSubjectsTable();
   const hasSubjectRegistrations = await supportsSubjectRegistrationTables();
+  const examSubjectSchema = await getExamSubjectSplitSchemaStatus();
+  const hasSubjectOfferingId = examSubjectSchema.hasSubjectOfferingId;
 
   const params = [classId, sectionId, sectionId, examId];
   const nameSql = name ? `AND st.name LIKE ?` : "";
@@ -599,34 +601,53 @@ export async function getStudentsForScope(examId, classId, sectionId, name = "",
       ? `AND (
            NOT EXISTS (
              SELECT 1
-             FROM subject_offerings so_any
-             WHERE so_any.is_active = TRUE
-               AND so_any.class_id = se.class_id
-               AND (so_any.section_id IS NULL OR so_any.section_id = se.section_id)
-               AND (so_any.stream_id IS NULL OR so_any.stream_id <=> se.stream_id)
-               AND so_any.subject_id = ?
+             FROM exam_subjects es_scope
+             JOIN subject_offerings so_any
+               ON so_any.is_active = TRUE
+              AND so_any.class_id = se.class_id
+              AND (so_any.section_id IS NULL OR so_any.section_id = se.section_id)
+              AND (so_any.stream_id IS NULL OR so_any.stream_id <=> se.stream_id)
+              AND (
+                ${hasSubjectOfferingId ? "es_scope.subject_offering_id IS NOT NULL AND so_any.id = es_scope.subject_offering_id" : "FALSE"}
+                OR (${hasSubjectOfferingId ? "es_scope.subject_offering_id IS NULL AND " : ""}so_any.subject_id = es_scope.subject_id)
+              )
+             WHERE es_scope.exam_id = e.id
+               AND es_scope.subject_id = ?
            )
            OR EXISTS (
              SELECT 1
-             FROM subject_offerings so_required
-             WHERE so_required.is_active = TRUE
-               AND so_required.subject_group = 'compulsory'
-               AND so_required.class_id = se.class_id
-               AND (so_required.section_id IS NULL OR so_required.section_id = se.section_id)
-               AND (so_required.stream_id IS NULL OR so_required.stream_id <=> se.stream_id)
-               AND so_required.subject_id = ?
+             FROM exam_subjects es_scope
+             JOIN subject_offerings so_required
+               ON so_required.is_active = TRUE
+              AND so_required.subject_group = 'compulsory'
+              AND so_required.class_id = se.class_id
+              AND (so_required.section_id IS NULL OR so_required.section_id = se.section_id)
+              AND (so_required.stream_id IS NULL OR so_required.stream_id <=> se.stream_id)
+              AND (
+                ${hasSubjectOfferingId ? "es_scope.subject_offering_id IS NOT NULL AND so_required.id = es_scope.subject_offering_id" : "FALSE"}
+                OR (${hasSubjectOfferingId ? "es_scope.subject_offering_id IS NULL AND " : ""}so_required.subject_id = es_scope.subject_id)
+              )
+             WHERE es_scope.exam_id = e.id
+               AND es_scope.subject_id = ?
            )
            OR EXISTS (
              SELECT 1
-             FROM student_subject_registrations ssr
-             JOIN subject_offerings so_match ON so_match.id = ssr.subject_offering_id
-             WHERE ssr.student_id = st.id
-               AND ssr.status = 'active'
-               AND so_match.is_active = TRUE
-               AND so_match.class_id = se.class_id
-               AND (so_match.section_id IS NULL OR so_match.section_id = se.section_id)
-               AND (so_match.stream_id IS NULL OR so_match.stream_id <=> se.stream_id)
-               AND so_match.subject_id = ?
+             FROM exam_subjects es_scope
+             JOIN student_subject_registrations ssr
+               ON ssr.student_id = st.id
+              AND ssr.status = 'active'
+             JOIN subject_offerings so_match
+               ON so_match.id = ssr.subject_offering_id
+              AND so_match.is_active = TRUE
+              AND so_match.class_id = se.class_id
+              AND (so_match.section_id IS NULL OR so_match.section_id = se.section_id)
+              AND (so_match.stream_id IS NULL OR so_match.stream_id <=> se.stream_id)
+              AND (
+                ${hasSubjectOfferingId ? "es_scope.subject_offering_id IS NOT NULL AND so_match.id = es_scope.subject_offering_id" : "FALSE"}
+                OR (${hasSubjectOfferingId ? "es_scope.subject_offering_id IS NULL AND " : ""}so_match.subject_id = es_scope.subject_id)
+              )
+             WHERE es_scope.exam_id = e.id
+               AND es_scope.subject_id = ?
            )
          )`
       : "";
@@ -914,6 +935,7 @@ export async function getStudentReportRows(examId, studentId, onlyApproved = tru
   const supportsSplitMarksSchema = marksSchema.hasTheoryMarks && marksSchema.hasPracticalMarks;
   const hasStudentExamSubjects = await supportsStudentExamSubjectsTable();
   const hasSubjectRegistrations = await supportsSubjectRegistrationTables();
+  const hasSubjectOfferingId = subjectSchema.hasSubjectOfferingId;
 
   const markPatternExpr = supportsSplitSubjectSchema ? "es.mark_pattern" : "'single'";
   const theoryMaxExpr = supportsSplitSubjectSchema ? "es.theory_max" : "NULL";
@@ -922,6 +944,11 @@ export async function getStudentReportRows(examId, studentId, onlyApproved = tru
   const practicalPassExpr = supportsSplitSubjectSchema ? "es.practical_pass" : "NULL";
   const theoryMarksExpr = supportsSplitMarksSchema ? "me.theory_marks" : "NULL";
   const practicalMarksExpr = supportsSplitMarksSchema ? "me.practical_marks" : "NULL";
+  const offeredSubjectMatchSql = (offeringAlias) =>
+    hasSubjectOfferingId
+      ? `(es.subject_offering_id IS NOT NULL AND ${offeringAlias}.id = es.subject_offering_id)
+         OR (es.subject_offering_id IS NULL AND ${offeringAlias}.subject_id = es.subject_id)`
+      : `${offeringAlias}.subject_id = es.subject_id`;
   const studentSubjectFilterSql = hasStudentExamSubjects
     ? `AND (
          NOT EXISTS (
@@ -948,7 +975,7 @@ export async function getStudentReportRows(examId, studentId, onlyApproved = tru
              AND so_any.class_id = se.class_id
              AND (so_any.section_id IS NULL OR so_any.section_id = se.section_id)
              AND (so_any.stream_id IS NULL OR so_any.stream_id <=> se.stream_id)
-             AND so_any.subject_id = es.subject_id
+             AND (${offeredSubjectMatchSql("so_any")})
          )
          OR EXISTS (
            SELECT 1
@@ -958,7 +985,7 @@ export async function getStudentReportRows(examId, studentId, onlyApproved = tru
              AND so_required.class_id = se.class_id
              AND (so_required.section_id IS NULL OR so_required.section_id = se.section_id)
              AND (so_required.stream_id IS NULL OR so_required.stream_id <=> se.stream_id)
-             AND so_required.subject_id = es.subject_id
+             AND (${offeredSubjectMatchSql("so_required")})
          )
          OR EXISTS (
            SELECT 1
@@ -970,7 +997,7 @@ export async function getStudentReportRows(examId, studentId, onlyApproved = tru
              AND so_match.class_id = se.class_id
              AND (so_match.section_id IS NULL OR so_match.section_id = se.section_id)
              AND (so_match.stream_id IS NULL OR so_match.stream_id <=> se.stream_id)
-             AND so_match.subject_id = es.subject_id
+             AND (${offeredSubjectMatchSql("so_match")})
          )
        )`
     : "";
