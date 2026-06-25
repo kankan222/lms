@@ -24,6 +24,8 @@ router.get("/exams/:examId", requirePermission("marks.view"), controller.getAcce
 router.get("/grid", requirePermission("marks.view"), controller.getMarksGrid);
 router.get("/pending-queue", requirePermission("marks.approve"), controller.getPendingApprovalQueue);
 router.get("/summary", requirePermission("marks.approve"), controller.getApprovalStatusSummary);
+router.get("/report-publication", requirePermission("marks.approve"), controller.getReportPublication);
+router.post("/report-publication", requirePermission("marks.approve"), controller.saveReportPublication);
 router.post("/save", requireAnyPermission(["marks.enter", "marks.approve"]), controller.saveMarks);
 router.post("/submit", requireAnyPermission(["marks.enter", "marks.approve"]), controller.submitMarksForApproval);
 
@@ -47,6 +49,11 @@ router.get(
   "/my-results/pdf",
   requirePermission("marks.view"),
   controller.downloadMyApprovedMarksheet
+);
+router.get(
+  "/final-report/pdf",
+  requirePermission("marks.view"),
+  controller.downloadFinalMarksheet
 );
 
 export default router;

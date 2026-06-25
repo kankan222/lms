@@ -146,6 +146,7 @@ export async function getClassOverview() {
     `SELECT
       c.id AS class_id,
       c.name AS class_name,
+      COALESCE(c.class_scope, 'school') AS class_scope,
       sec.id AS section_id,
       sec.name AS section_name,
       ac.students,
@@ -176,6 +177,33 @@ export async function getClassOverview() {
        ON pc.class_id = ac.class_id
       AND pc.section_id = ac.section_id
      ORDER BY c.name ASC, sec.name ASC`
+  );
+}
+
+export async function getStudentClassStats() {
+  return query(
+    `SELECT
+      COALESCE(c.class_scope, 'school') AS class_scope,
+      c.id AS class_id,
+      c.name AS class_name,
+      COUNT(DISTINCT se.student_id) AS total
+     FROM student_enrollments se
+     JOIN classes c ON c.id = se.class_id
+     WHERE se.status = 'active'
+     GROUP BY COALESCE(c.class_scope, 'school'), c.id, c.name
+     ORDER BY COALESCE(c.class_scope, 'school') ASC, c.name ASC`
+  );
+}
+
+export async function getStudentScopeStats() {
+  return query(
+    `SELECT
+      COALESCE(c.class_scope, 'school') AS class_scope,
+      COUNT(DISTINCT se.student_id) AS total
+     FROM student_enrollments se
+     JOIN classes c ON c.id = se.class_id
+     WHERE se.status = 'active'
+     GROUP BY COALESCE(c.class_scope, 'school')`
   );
 }
 
@@ -239,6 +267,24 @@ export async function getFeeCollectionTrend(months = 6) {
   );
 }
 
+export async function getPaymentCollectionTrendByScope(months = 6) {
+  const safeMonths = Math.max(1, Math.min(12, Number(months) || 6));
+  return query(
+    `SELECT
+      DATE_FORMAT(p.created_at, '%Y-%m') AS bucket,
+      COALESCE(c.class_scope, 'school') AS class_scope,
+      SUM(p.amount_paid) AS total
+     FROM payments p
+     JOIN student_fees sf ON sf.id = p.student_fee_id
+     JOIN student_enrollments se ON se.id = sf.enrollment_id
+     JOIN classes c ON c.id = se.class_id
+     WHERE p.status = 'approved'
+       AND p.created_at >= DATE_SUB(DATE_FORMAT(CURDATE(), '%Y-%m-01'), INTERVAL ${safeMonths - 1} MONTH)
+     GROUP BY DATE_FORMAT(p.created_at, '%Y-%m'), COALESCE(c.class_scope, 'school')
+     ORDER BY bucket ASC`
+  );
+}
+
 export async function getFeeStatusBreakdown() {
   return query(
     `SELECT
@@ -261,5 +307,73 @@ export async function getFeeStatusBreakdown() {
      ) sf
      GROUP BY sf.status
      ORDER BY FIELD(sf.status, 'paid', 'partial', 'pending')`
+  );
+}
+
+export async function getFeeStatusBreakdownByScope() {
+  return query(
+    `SELECT
+      scoped_fees.class_scope,
+      scoped_fees.status,
+      COUNT(*) AS total_items,
+      COALESCE(SUM(scoped_fees.amount), 0) AS total_amount,
+      COALESCE(SUM(scoped_fees.paid_amount), 0) AS paid_amount,
+      COALESCE(SUM(GREATEST(scoped_fees.amount - scoped_fees.paid_amount, 0)), 0) AS outstanding_amount
+     FROM (
+       SELECT
+         COALESCE(c.class_scope, 'school') AS class_scope,
+         student_fees.id,
+         student_fees.status,
+         student_fees.amount,
+         COALESCE(SUM(payments.amount_paid), 0) AS paid_amount
+       FROM student_fees
+       JOIN student_enrollments se ON se.id = student_fees.enrollment_id
+       JOIN classes c ON c.id = se.class_id
+       LEFT JOIN payments
+         ON payments.student_fee_id = student_fees.id
+        AND payments.status = 'approved'
+       GROUP BY
+         COALESCE(c.class_scope, 'school'),
+         student_fees.id,
+         student_fees.status,
+         student_fees.amount
+     ) scoped_fees
+     GROUP BY scoped_fees.class_scope, scoped_fees.status
+     ORDER BY scoped_fees.class_scope ASC, FIELD(scoped_fees.status, 'paid', 'partial', 'pending')`
+  );
+}
+
+export async function getStudentAttendanceTodayByScope() {
+  return query(
+    `SELECT
+      COALESCE(c.class_scope, 'school') AS class_scope,
+      sa.status,
+      COUNT(*) AS total
+     FROM student_attendance sa
+     JOIN attendance_sessions sess
+       ON sess.id = sa.attendance_session_id
+     JOIN classes c ON c.id = sess.class_id
+     WHERE sess.date = CURDATE()
+     GROUP BY COALESCE(c.class_scope, 'school'), sa.status`
+  );
+}
+
+export async function getStudentAttendanceTrendByScope(days = 7) {
+  const safeDays = Math.max(1, Math.min(31, Number(days) || 7));
+  return query(
+    `SELECT
+      sess.date AS attendance_date,
+      COALESCE(c.class_scope, 'school') AS class_scope,
+      sa.status,
+      COUNT(*) AS total
+     FROM attendance_sessions sess
+     JOIN student_attendance sa
+       ON sa.attendance_session_id = sess.id
+     JOIN classes c ON c.id = sess.class_id
+     WHERE sess.attendance_type = 'student'
+       AND sess.approval_status = 'approved'
+       AND sess.date >= DATE_SUB(CURDATE(), INTERVAL ${safeDays - 1} DAY)
+     GROUP BY sess.date, COALESCE(c.class_scope, 'school'), sa.status
+     ORDER BY sess.date ASC`
   );
 }

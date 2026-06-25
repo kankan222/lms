@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Final Report Card</title>
+<style>
+  @page {
+    size: A4 landscape;
+    margin: 10mm;
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+
+  body {
+    margin: 0;
+    color: #172554;
+    font-family: "Times New Roman", Georgia, serif;
+    font-size: 12px;
+  }
+
+  .page {
+    height: 188mm;
+    page-break-after: always;
+    border: 2px solid #172554;
+    padding: 5mm;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .page:last-child {
+    page-break-after: auto;
+  }
+
+  .front-grid {
+    display: grid;
+    grid-template-columns: 1fr 1.1fr;
+    gap: 8mm;
+    height: 100%;
+  }
+
+  .panel {
+    border: 2px solid #172554;
+    padding: 0;
+    min-height: 0;
+  }
+
+  .cover {
+    text-align: center;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+
+  .corner-frame {
+    width: 100%;
+    min-height: 100%;
+    padding: 5mm;
+  }
+
+  .school-name {
+    font-size: 25px;
+    font-weight: 800;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+  }
+
+  .section-title {
+    margin-top: 2mm;
+    font-size: 15px;
+    font-weight: 700;
+  }
+
+  .address {
+    margin-top: 1mm;
+    font-size: 13px;
+    font-weight: 600;
+  }
+
+  .logo {
+    width: 26mm;
+    height: 26mm;
+    object-fit: contain;
+    margin: 5mm auto 4mm;
+  }
+
+  .record-title {
+    font-size: 20px;
+    font-weight: 800;
+    letter-spacing: 0.8px;
+    margin: 3mm 0;
+    text-transform: uppercase;
+  }
+
+  .class-badge {
+    display: inline-block;
+    border-bottom: 2px solid #172554;
+    padding: 1.5mm 9mm;
+    font-size: 17px;
+    font-weight: 800;
+  }
+
+  .photo-box {
+    width: 30mm;
+    height: 22mm;
+    border: 1px solid #93a4c7;
+    margin: 5mm auto;
+  }
+
+  .student-box {
+    width: 86%;
+    border-top: 2px solid #172554;
+    border-bottom: 2px solid #172554;
+    padding: 3mm 0;
+    text-align: left;
+    font-size: 14px;
+    line-height: 1.55;
+    margin-top: auto;
+  }
+
+  .student-line {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    column-gap: 6mm;
+  }
+
+  .student-line.single {
+    grid-template-columns: 1fr;
+  }
+
+  .dotted {
+    border-bottom: 1px dotted #172554;
+    display: inline-block;
+    min-width: 28mm;
+    padding-left: 2mm;
+    font-weight: 700;
+  }
+
+  .student-line.single .dotted {
+    min-width: 55mm;
+  }
+
+  .year {
+    margin: 4mm 0;
+    font-size: 16px;
+    font-weight: 800;
+  }
+
+  .side-title {
+    text-align: center;
+    font-size: 18px;
+    font-weight: 800;
+    margin-bottom: 3mm;
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+
+  th,
+  td {
+    border: 1px solid #172554;
+    padding: 1.7mm 1.5mm;
+    vertical-align: middle;
+  }
+
+  th {
+    font-weight: 800;
+    text-align: center;
+  }
+
+  .front-table th,
+  .front-table td {
+    height: 6.5mm;
+  }
+
+  .front-table {
+    margin: 0;
+  }
+
+  .attendance-table th,
+  .attendance-table td {
+    text-align: left;
+    height: 9mm;
+  }
+
+  .grade-scale td:first-child {
+    font-weight: 800;
+  }
+
+  .matrix-title {
+    text-align: center;
+    font-size: 17px;
+    font-weight: 800;
+    text-transform: uppercase;
+  }
+
+  .marks-table {
+    font-size: 10.5px;
+  }
+
+  .marks-table th,
+  .marks-table td {
+    border: 1px solid #172554;
+    padding: 1.9mm 1.2mm;
+    text-align: center;
+  }
+
+  .marks-table td.subject {
+    text-align: left;
+    font-weight: 700;
+    min-width: 33mm;
+  }
+
+  .summary-row td {
+    font-weight: 800;
+  }
+
+  .signature-grid {
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    margin-top: 4mm;
+    border-left: 1px solid #172554;
+    border-top: 1.4px solid #172554;
+  }
+
+  .signature-cell {
+    min-height: 22mm;
+    border-right: 1px solid #172554;
+    border-bottom: 1px solid #172554;
+    padding: 2mm;
+    text-align: center;
+    font-weight: 700;
+    font-size: 10.5px;
+  }
+
+  .result-box {
+    border-left: 1px solid #172554;
+    border-right: 1px solid #172554;
+    border-bottom: 1px solid #172554;
+    border-top: 1.4px solid #172554;
+    padding: 4mm;
+    text-align: center;
+    font-size: 14px;
+    font-weight: 800;
+  }
+
+  .note {
+    margin-top: 2mm;
+    font-size: 10.5px;
+    font-weight: 700;
+  }
+</style>
+</head>
+<body>
+  <section class="page">
+    <div class="front-grid">
+      <div class="panel">
+        <div class="side-title">CO-SCHOLASTIC AREA</div>
+        <table class="front-table">
+          <tr>
+            <th>Qualitative Value</th>
+            <th>Letter Grade</th>
+            <th>Marks</th>
+          </tr>
+          <tr><td>Excellent</td><td>A</td><td>10</td></tr>
+          <tr><td>Very Good</td><td>B</td><td>08</td></tr>
+          <tr><td>Good</td><td>C</td><td>06</td></tr>
+          <tr><td>Average</td><td>D</td><td>04</td></tr>
+          <tr><td>Below Average</td><td>E</td><td>02</td></tr>
+        </table>
+
+        <div class="side-title" style="margin-top: 0;">ATTENDANCE</div>
+        <table class="front-table attendance-table">
+          <tr>
+            <th>Total No. of Working Days :</th>
+            <th>No. of Days Present :</th>
+          </tr>
+        </table>
+
+        <div class="side-title" style="margin-top: 0;">GRADE SECURED IN</div>
+        <table class="front-table">
+          <tr><td>Yoga</td><td></td></tr>
+          <tr><td>Handwriting</td><td></td></tr>
+          <tr><td>Discipline &amp; Punctuality</td><td></td></tr>
+          <tr><td>Games &amp; Sports</td><td></td></tr>
+          <tr><td>Self Defence</td><td></td></tr>
+          <tr><td>Quiz</td><td></td></tr>
+        </table>
+
+        <div class="side-title" style="margin-top: 0;">GRADE AND QUALITATIVE VALUE</div>
+        <table class="front-table grade-scale">
+          <tr><td>A++ = 85 to 100 With Distinction</td><td>Excellent</td></tr>
+          <tr><td>A+ = 75 to 84</td><td>Very Good</td></tr>
+          <tr><td>A = 60 to 74</td><td>Good</td></tr>
+          <tr><td>B = 45 to 59</td><td>Average</td></tr>
+          <tr><td>C = Below 44</td><td>Below Average</td></tr>
+        </table>
+      </div>
+
+      <div class="panel cover">
+        <div class="corner-frame">
+          <div class="school-name">Kalong Kapili Vidyapith</div>
+          <div class="section-title">({{sectionTitle}})</div>
+          <div class="address">{{sectionAddress}}</div>
+          <img class="logo" src="{{schoolLogo}}" alt="Kalong Kapili Vidyapith logo" />
+          <div class="record-title">{{recordTitle}}</div>
+          <div class="class-badge">CLASS : {{className}}</div>
+          <div class="photo-box"></div>
+          <div class="year">ACADEMIC YEAR : {{sessionName}}</div>
+          <div class="student-box">
+            <div class="student-line single">
+              <span>Name: <span class="dotted">{{studentName}}</span></span>
+            </div>
+            <div class="student-line single">
+              <span>Name of the Guardian: <span class="dotted">{{guardianName}}</span></span>
+            </div>
+            <div class="student-line">
+              <span>Class: <span class="dotted">{{className}}</span></span>
+              <span>Medium: <span class="dotted">{{medium}}</span></span>
+            </div>
+            <div class="student-line">
+              <span>Section: <span class="dotted">{{sectionName}}</span></span>
+              <span>Roll No.: <span class="dotted">{{rollNumber}}</span></span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="page">
+    <table class="marks-table">
+      <thead>
+        <tr>
+          <th rowspan="2" class="matrix-title">SCHOLASTIC<br />AREA</th>
+          <th colspan="{{examColumnCount}}" class="matrix-title">MARKS SECURED IN</th>
+          <th colspan="4" class="matrix-title">CRITERIA FOR PROMOTION</th>
+          <th rowspan="2">Total<br />(A+B+C+D)</th>
+        </tr>
+        <tr>
+          {{examHeaders}}
+          <th>Unit Test<br />15% (A)</th>
+          <th>Half Yearly<br />20% (B)</th>
+          <th>Mock Test<br />15% (C)</th>
+          <th>Annual Exam<br />50% (D)</th>
+        </tr>
+      </thead>
+      <tbody>
+        {{subjectRows}}
+        <tr class="summary-row">
+          <td>TOTAL</td>
+          {{examTotalCells}}
+          <td colspan="4">Grand Total</td>
+          <td>{{grandTotal}}</td>
+        </tr>
+        <tr class="summary-row">
+          <td>Percentage</td>
+          {{examPercentageCells}}
+          <td colspan="4">Percentage</td>
+          <td>{{percentage}}%</td>
+        </tr>
+        <tr class="summary-row">
+          <td>Grade</td>
+          {{examGradeCells}}
+          <td colspan="4">Grade</td>
+          <td>{{grade}}</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="signature-grid">
+      {{signatureCells}}
+    </div>
+    <div class="result-box">
+      RESULT: PROMOTED TO CLASS ................ WITH {{grade}} GRADE/DISTINCTION
+    </div>
+    <div class="note">
+      *N.B.: Final report is generated from approved and published exams. Subject rows are based on the student's registered/marked subjects.
+    </div>
+  </section>
+</body>
+</html>

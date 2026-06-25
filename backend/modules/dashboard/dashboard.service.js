@@ -33,6 +33,33 @@ function buildMonthBuckets(months, rows) {
   return buckets;
 }
 
+function buildScopedMonthBuckets(months, rows) {
+  const safeMonths = Math.max(1, Number(months) || 1);
+  const grouped = new Map();
+  for (const row of rows || []) {
+    const bucket = String(row.bucket || "");
+    const current = grouped.get(bucket) || {};
+    current[String(row.class_scope || "school")] = Number(row.total || 0);
+    grouped.set(bucket, current);
+  }
+
+  const now = new Date();
+  const buckets = [];
+  for (let offset = safeMonths - 1; offset >= 0; offset -= 1) {
+    const date = new Date(now.getFullYear(), now.getMonth() - offset, 1);
+    const bucket = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+    const values = grouped.get(bucket) || {};
+    buckets.push({
+      bucket,
+      label: formatMonthLabel(date),
+      school: Number(values.school || 0),
+      hs: Number(values.hs || 0),
+    });
+  }
+
+  return buckets;
+}
+
 function buildDayBuckets(days, rows, mode = "student") {
   const safeDays = Math.max(1, Number(days) || 1);
   const grouped = new Map();
@@ -70,6 +97,60 @@ function buildDayBuckets(days, rows, mode = "student") {
   return buckets;
 }
 
+function buildScopedDayBuckets(days, rows) {
+  const safeDays = Math.max(1, Number(days) || 1);
+  const grouped = new Map();
+
+  for (const row of rows || []) {
+    const bucket = String(row.attendance_date || row.date || "");
+    const classScope = String(row.class_scope || "school");
+    const key = `${bucket}:${classScope}`;
+    const current = grouped.get(key) || {};
+    current[String(row.status || "").toLowerCase()] = Number(row.total || 0);
+    grouped.set(key, current);
+  }
+
+  const now = new Date();
+  const buckets = [];
+  for (let offset = safeDays - 1; offset >= 0; offset -= 1) {
+    const date = new Date(now.getFullYear(), now.getMonth(), now.getDate() - offset);
+    const bucket = date.toISOString().slice(0, 10);
+    const row = { date: bucket, label: date.toLocaleString("en-US", { weekday: "short" }) };
+
+    for (const classScope of ["school", "hs"]) {
+      const values = grouped.get(`${bucket}:${classScope}`) || {};
+      row[`${classScope}_present`] = Number(values.present || 0);
+      row[`${classScope}_late`] = Number(values.late || 0);
+      row[`${classScope}_absent`] = Number(values.absent || 0);
+    }
+
+    buckets.push(row);
+  }
+
+  return buckets;
+}
+
+function normalizeNumberRows(rows, keys) {
+  return (rows || []).map((row) => {
+    const item = { ...row };
+    for (const key of keys) {
+      item[key] = Number(item[key] || 0);
+    }
+    return item;
+  });
+}
+
+function normalizeFeeRows(rows) {
+  return (rows || []).map((row) => ({
+    class_scope: String(row.class_scope || "school"),
+    status: String(row.status || "pending"),
+    total_items: Number(row.total_items || 0),
+    total_amount: Number(row.total_amount || 0),
+    paid_amount: Number(row.paid_amount || 0),
+    outstanding_amount: Number(row.outstanding_amount || 0),
+  }));
+}
+
 export async function getDashboardSummary() {
   const [
     totalStudents,
@@ -86,7 +167,13 @@ export async function getDashboardSummary() {
     teacherAttendanceTrendRows,
     admissionsTrendRows,
     feeCollectionTrendRows,
-    feeStatusBreakdown
+    feeStatusBreakdown,
+    studentClassStats,
+    studentScopeStats,
+    paymentCollectionTrendByScopeRows,
+    feeStatusBreakdownByScope,
+    studentAttendanceTodayByScope,
+    studentAttendanceTrendByScopeRows
   ] = await Promise.all([
     safeRun(() => repo.getTotalStudents(), 0),
     safeRun(() => repo.getTotalTeachers(), 0),
@@ -102,7 +189,13 @@ export async function getDashboardSummary() {
     safeRun(() => repo.getTeacherAttendanceTrend(7), []),
     safeRun(() => repo.getAdmissionsTrend(6), []),
     safeRun(() => repo.getFeeCollectionTrend(6), []),
-    safeRun(() => repo.getFeeStatusBreakdown(), [])
+    safeRun(() => repo.getFeeStatusBreakdown(), []),
+    safeRun(() => repo.getStudentClassStats(), []),
+    safeRun(() => repo.getStudentScopeStats(), []),
+    safeRun(() => repo.getPaymentCollectionTrendByScope(6), []),
+    safeRun(() => repo.getFeeStatusBreakdownByScope(), []),
+    safeRun(() => repo.getStudentAttendanceTodayByScope(), []),
+    safeRun(() => repo.getStudentAttendanceTrendByScope(7), [])
   ]);
 
   const admissionsTrend = buildMonthBuckets(6, admissionsTrendRows);
@@ -142,6 +235,12 @@ export async function getDashboardSummary() {
         paid_amount: Number(row.paid_amount || 0),
         outstanding_amount: Number(row.outstanding_amount || 0),
       })),
+      studentClassStats: normalizeNumberRows(studentClassStats, ["total"]),
+      studentScopeStats: normalizeNumberRows(studentScopeStats, ["total"]),
+      paymentCollectionTrendByScope: buildScopedMonthBuckets(6, paymentCollectionTrendByScopeRows),
+      feeStatusBreakdownByScope: normalizeFeeRows(feeStatusBreakdownByScope),
+      studentAttendanceTodayByScope: normalizeNumberRows(studentAttendanceTodayByScope, ["total"]),
+      studentAttendanceTrendByScope: buildScopedDayBuckets(7, studentAttendanceTrendByScopeRows),
     },
     upcomingExams,
     recentActivities,

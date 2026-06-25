@@ -41,12 +41,52 @@ async function readSignatureBase64(fileName) {
   return `data:image/jpeg;base64,${file.toString("base64")}`;
 }
 
+async function readLogoBase64() {
+  const candidates = [
+    path.join(process.cwd(), "..", "frontend", "software", "public", "assets", "logobg.png"),
+    path.join(process.cwd(), "..", "frontend", "website", "public", "assets", "site", "logobg.png"),
+    path.join(process.cwd(), "uploads", "students", "1773661485789-logo (512).png"),
+    path.join(__dirname, "..", "..", "..", "frontend", "software", "public", "assets", "logobg.png"),
+    path.join(__dirname, "..", "..", "..", "frontend", "website", "public", "assets", "site", "logobg.png"),
+    path.join(__dirname, "..", "..", "uploads", "students", "1773661485789-logo (512).png"),
+  ];
+
+  for (const filePath of candidates) {
+    try {
+      const file = await fs.readFile(filePath);
+      return `data:image/png;base64,${file.toString("base64")}`;
+    } catch {
+      // Try the next known project layout.
+    }
+  }
+
+  return "";
+}
+
+function formatIssuedDate(dateValue = new Date()) {
+  const date = dateValue instanceof Date
+    ? dateValue
+    : dateValue
+      ? new Date(`${dateValue}T00:00:00`)
+      : new Date();
+  const safeDate = Number.isNaN(date.getTime()) ? new Date() : date;
+
+  return safeDate.toLocaleDateString("en-GB", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  });
+}
+
 export async function generateMarksheetPdf(report) {
   const templatePath = path.join(__dirname, "..", "reports", "templates", "reportCard.html");
   let html = await fs.readFile(templatePath, "utf8");
 
   const scopeMeta = getScopeMeta(report?.exam?.class_scope);
-  const signatureImage = await readSignatureBase64(scopeMeta.signatureFile);
+  const [signatureImage, schoolLogo] = await Promise.all([
+    readSignatureBase64(scopeMeta.signatureFile),
+    readLogoBase64(),
+  ]);
 
   const rows = (report.subjects || [])
     .map(
@@ -69,6 +109,8 @@ export async function generateMarksheetPdf(report) {
     .replace("{{scope}}", escapeHtml(scopeMeta.scopeLabel))
     .replace("{{sectionTitle}}", escapeHtml(scopeMeta.sectionTitle))
     .replace("{{sectionAddress}}", escapeHtml(scopeMeta.sectionAddress))
+    .replace("{{schoolLogo}}", schoolLogo)
+    .replace("{{issuedDate}}", escapeHtml(formatIssuedDate(report?.publication?.published_on)))
     .replace("{{rows}}", rows)
     .replace("{{total}}", escapeHtml(report?.summary?.total ?? report?.total ?? 0))
     .replace("{{maxTotal}}", escapeHtml(report?.summary?.max_total ?? 0))

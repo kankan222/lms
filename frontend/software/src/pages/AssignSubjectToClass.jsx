@@ -49,6 +49,30 @@ const subjectGroupSelectStyles = {
     "border-border bg-accent text-accent-foreground dark:bg-accent/40",
 };
 
+const ASSIGN_SUBJECT_CACHE_TTL_MS = 5 * 60 * 1000;
+let assignSubjectCache = null;
+
+function getAssignSubjectCache() {
+  if (!assignSubjectCache) return null;
+  if (Date.now() - assignSubjectCache.timestamp >= ASSIGN_SUBJECT_CACHE_TTL_MS) return null;
+  return assignSubjectCache;
+}
+
+function setAssignSubjectCache(nextCache) {
+  assignSubjectCache = {
+    ...nextCache,
+    timestamp: Date.now(),
+  };
+}
+
+function patchAssignSubjectCache(patch) {
+  if (!assignSubjectCache) return;
+  setAssignSubjectCache({
+    ...assignSubjectCache,
+    ...patch,
+  });
+}
+
 function subjectGroupBadgeClass(group) {
   const value = String(group || "").trim().toLowerCase();
 
@@ -98,13 +122,16 @@ const AssignSubjectToClass = () => {
 
   async function loadSubjects() {
     const res = await getSubjects();
-    setSubjects(Array.isArray(res?.data) ? res.data : []);
+    const rows = Array.isArray(res?.data) ? res.data : [];
+    setSubjects(rows);
+    return rows;
   }
 
   async function loadClasses() {
     const res = await getClasses();
-    setClasses(Array.isArray(res?.data) ? res.data : []);
-    return Array.isArray(res?.data) ? res.data : [];
+    const rows = Array.isArray(res?.data) ? res.data : [];
+    setClasses(rows);
+    return rows;
   }
 
   async function loadLegacyClassSubjectOfferings(classRows = classes) {
@@ -140,11 +167,15 @@ const AssignSubjectToClass = () => {
   async function loadOfferings() {
     try {
       const res = await getSubjectOfferings();
-      setOfferings(Array.isArray(res?.data) ? res.data : []);
+      const rows = Array.isArray(res?.data) ? res.data : [];
+      setOfferings(rows);
+      patchAssignSubjectCache({ offerings: rows });
+      return rows;
     } catch (err) {
       const fallbackClasses = classes.length ? classes : await loadClasses();
       const fallbackRows = await loadLegacyClassSubjectOfferings(fallbackClasses);
       setOfferings(fallbackRows);
+      patchAssignSubjectCache({ classes: fallbackClasses, offerings: fallbackRows });
 
       if (err?.message) {
         showNotice(
@@ -153,13 +184,46 @@ const AssignSubjectToClass = () => {
           "error",
         );
       }
+
+      return fallbackRows;
     }
   }
 
   const loadInitialData = useEffectEvent(() => {
-    loadSubjects();
-    loadClasses();
-    loadOfferings();
+    const cached = getAssignSubjectCache();
+    if (cached) {
+      setSubjects(cached.subjects);
+      setClasses(cached.classes);
+      setOfferings(cached.offerings);
+      return;
+    }
+
+    async function load() {
+      const [subjectRows, classRows] = await Promise.all([loadSubjects(), loadClasses()]);
+      let offeringRows = [];
+      try {
+        const res = await getSubjectOfferings();
+        offeringRows = Array.isArray(res?.data) ? res.data : [];
+      } catch (err) {
+        offeringRows = await loadLegacyClassSubjectOfferings(classRows);
+        if (err?.message) {
+          showNotice(
+            "Using Existing Assignments",
+            "Subject offering API is not available from the running backend. Restart backend or apply the latest server changes.",
+            "error",
+          );
+        }
+      }
+
+      setAssignSubjectCache({
+        subjects: subjectRows,
+        classes: classRows,
+        offerings: offeringRows,
+      });
+      setOfferings(offeringRows);
+    }
+
+    load();
   });
 
   useEffect(() => {

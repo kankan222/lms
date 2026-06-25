@@ -1,5 +1,6 @@
 import { pool } from "../../database/pool.js";
 import AppError from "../../core/errors/AppError.js";
+import { generateFinalMarksheetPdf } from "../exams/finalMarksheetPdf.service.js";
 import { generateMarksheetPdf } from "../exams/marksheetPdf.service.js";
 import * as repo from "./marks.repository.js";
 
@@ -34,6 +35,35 @@ function normalizeNumber(value, fieldName) {
 function normalizeSelectionIds(value) {
   if (!Array.isArray(value)) return [];
   return [...new Set(value.map((item) => Number(item)).filter(Boolean))];
+}
+
+function normalizeDateString(value, fieldName) {
+  const text = String(value || "").trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) {
+    throw new AppError(`${fieldName} must be a valid date`, 400);
+  }
+
+  const date = new Date(`${text}T00:00:00.000Z`);
+  if (Number.isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== text) {
+    throw new AppError(`${fieldName} must be a valid date`, 400);
+  }
+
+  return text;
+}
+
+function isPublishedForStudent(publication) {
+  if (!publication?.published_on) return false;
+  const today = new Date().toISOString().slice(0, 10);
+  return String(publication.published_on) <= today;
+}
+
+function gradeForPercentage(percentage) {
+  const value = Number(percentage || 0);
+  if (value >= 85) return "A++";
+  if (value >= 75) return "A+";
+  if (value >= 60) return "A";
+  if (value >= 45) return "B";
+  return "C";
 }
 
 function normalizeMarksForSubject(row, examSubject) {
@@ -129,7 +159,7 @@ async function ensureTeacherScopeAccess(userId, examId, classId, sectionId, subj
   }
 }
 
-function formatReport(rows) {
+function formatReport(rows, publication = null) {
   const total = rows.reduce((sum, row) => sum + Number(row.marks || 0), 0);
   const maxTotal = rows.reduce((sum, row) => sum + Number(row.max_marks || 0), 0);
   const percentage = maxTotal ? (total / maxTotal) * 100 : 0;
@@ -166,6 +196,114 @@ function formatReport(rows) {
       total,
       max_total: maxTotal,
       percentage: Number(percentage.toFixed(2)),
+    },
+    publication: publication
+      ? {
+          published_on: publication.published_on,
+        }
+      : null,
+  };
+}
+
+function formatFinalReport(scope, rows) {
+  const examMap = new Map();
+  const subjectMap = new Map();
+  const groupOrder = {
+    compulsory: 1,
+    elective: 2,
+    optional: 3,
+  };
+
+  rows.forEach((row) => {
+    const examId = String(row.exam_id);
+    const subjectKey = row.subject_offering_id
+      ? `offering:${row.subject_offering_id}`
+      : `subject:${row.subject_id}`;
+    const marks = Number(row.marks || 0);
+    const maxMarks = Number(row.max_marks || 0);
+
+    if (!examMap.has(examId)) {
+      examMap.set(examId, {
+        id: examId,
+        name: row.exam_name,
+        published_on: row.published_on,
+        max_marks: 0,
+      });
+    }
+    const exam = examMap.get(examId);
+    exam.max_marks += maxMarks;
+
+    if (!subjectMap.has(subjectKey)) {
+      const subjectGroup = String(row.subject_group || "zz").trim().toLowerCase();
+      subjectMap.set(subjectKey, {
+        key: subjectKey,
+        name: row.subject_name,
+        group: subjectGroup,
+        order: groupOrder[subjectGroup] || 9,
+        exams: {},
+        total: 0,
+        max_total: 0,
+      });
+    }
+
+    const subject = subjectMap.get(subjectKey);
+    subject.exams[examId] = { marks, max_marks: maxMarks };
+    subject.total += marks;
+    subject.max_total += maxMarks;
+  });
+
+  const exams = [...examMap.values()].sort((a, b) => {
+    const dateCompare = String(a.published_on || "").localeCompare(String(b.published_on || ""));
+    if (dateCompare) return dateCompare;
+    return Number(a.id) - Number(b.id);
+  });
+
+  const subjects = [...subjectMap.values()].sort((a, b) => {
+    if (a.order !== b.order) return a.order - b.order;
+    return String(a.name || "").localeCompare(String(b.name || ""));
+  });
+
+  const examTotals = {};
+  exams.forEach((exam) => {
+    const marks = subjects.reduce((sum, subject) => sum + Number(subject.exams[exam.id]?.marks || 0), 0);
+    const maxMarks = subjects.reduce((sum, subject) => sum + Number(subject.exams[exam.id]?.max_marks || 0), 0);
+    const percentage = maxMarks ? Number(((marks / maxMarks) * 100).toFixed(2)) : 0;
+    examTotals[exam.id] = {
+      marks,
+      max_marks: maxMarks,
+      percentage,
+    };
+    exam.max_marks = maxMarks;
+  });
+
+  const total = subjects.reduce((sum, subject) => sum + Number(subject.total || 0), 0);
+  const maxTotal = subjects.reduce((sum, subject) => sum + Number(subject.max_total || 0), 0);
+  const percentage = maxTotal ? Number(((total / maxTotal) * 100).toFixed(2)) : 0;
+
+  return {
+    student: {
+      id: Number(scope.student_id),
+      name: scope.student_name,
+      roll_number: scope.roll_number,
+      session_id: Number(scope.session_id),
+      session_name: scope.session_name,
+      class_id: Number(scope.class_id),
+      class_name: scope.class_name,
+      class_scope: rows[0]?.class_scope || "school",
+      section_id: Number(scope.section_id),
+      section_name: scope.section_name,
+      medium: scope.medium,
+      stream_name: scope.stream_name,
+      guardian_name: "",
+    },
+    exams,
+    subjects,
+    exam_totals: examTotals,
+    summary: {
+      total,
+      max_total: maxTotal,
+      percentage,
+      grade: gradeForPercentage(percentage),
     },
   };
 }
@@ -604,6 +742,12 @@ export async function getStudentReport(examIdValue, studentIdValue, userId) {
 
   const scope = await repo.getStudentScopeForExam(studentId, examId);
   if (!scope) throw new AppError("Student is not part of the selected exam scope", 404);
+  const publication = await repo.getReportPublication(
+    examId,
+    Number(scope.class_id),
+    Number(scope.section_id),
+    scope.medium
+  );
 
   if (userCtx.isTeacher) {
     const allowed = await repo.isTeacherAssignedToExamScope(
@@ -625,12 +769,71 @@ export async function getStudentReport(examIdValue, studentIdValue, userId) {
     throw new AppError("Students can only view their own marksheet", 403);
   }
 
+  if ((userCtx.isStudent || userCtx.isParent) && !isPublishedForStudent(publication)) {
+    throw new AppError("This marksheet has not been published for students yet", 404);
+  }
+
   const rows = await repo.getStudentReportRows(examId, studentId, true);
   if (!rows.length) {
     throw new AppError("No approved marks found for this student in this exam", 404);
   }
 
-  return formatReport(rows);
+  return formatReport(rows, publication);
+}
+
+export async function getReportPublication(query, userId) {
+  const userCtx = await getUserContext(userId);
+  if (userCtx.isParent || userCtx.isStudent) {
+    throw new AppError("Not authorized to manage report publication", 403);
+  }
+
+  const examId = normalizeNumber(query.exam_id ?? query.examId, "exam_id");
+  const classId = normalizeNumber(query.class_id ?? query.classId, "class_id");
+  const sectionId = normalizeNumber(query.section_id ?? query.sectionId, "section_id");
+  const medium = String(query.medium || "").trim().toLowerCase() || null;
+
+  return repo.getReportPublication(examId, classId, sectionId, medium);
+}
+
+export async function saveReportPublication(payload, userId) {
+  const userCtx = await getUserContext(userId);
+  if (userCtx.isParent || userCtx.isStudent) {
+    throw new AppError("Not authorized to publish report cards", 403);
+  }
+
+  if (!(await repo.supportsReportPublicationsTable())) {
+    throw new AppError("Report publication table is missing. Run the latest database migration.", 500);
+  }
+
+  const examId = normalizeNumber(payload.exam_id ?? payload.examId, "exam_id");
+  const classId = normalizeNumber(payload.class_id ?? payload.classId, "class_id");
+  const sectionId = normalizeNumber(payload.section_id ?? payload.sectionId, "section_id");
+  const medium = String(payload.medium || "").trim().toLowerCase() || null;
+  const publishedOn = normalizeDateString(
+    payload.published_on ?? payload.publishedOn,
+    "published_on"
+  );
+
+  const approvedCount = await repo.countApprovedMarksForReportScope(
+    examId,
+    classId,
+    sectionId,
+    medium
+  );
+  if (!approvedCount) {
+    throw new AppError("Approve marks for this exam scope before publishing the marksheet", 400);
+  }
+
+  await repo.upsertReportPublication({
+    examId,
+    classId,
+    sectionId,
+    medium,
+    publishedOn,
+    userId,
+  });
+
+  return repo.getReportPublication(examId, classId, sectionId, medium);
 }
 
 function resolveOwnedStudentId(query, userCtx) {
@@ -673,6 +876,54 @@ export async function downloadMyApprovedMarksheet(query, userId) {
   const examId = normalizeNumber(query.exam_id, "exam_id");
   const studentId = resolveOwnedStudentId(query, userCtx);
   return downloadStudentReport(examId, studentId, userId);
+}
+
+export async function downloadFinalMarksheet(query, userId) {
+  const userCtx = await getUserContext(userId);
+  const requestedStudentId = query.student_id ? Number(query.student_id) : null;
+  let studentId = requestedStudentId;
+
+  if (userCtx.isStudent || userCtx.isParent) {
+    studentId = resolveOwnedStudentId(query, userCtx);
+  }
+
+  if (!studentId) {
+    throw new AppError("student_id is required", 400);
+  }
+
+  const sessionId = query.session_id ? normalizeNumber(query.session_id, "session_id") : null;
+  const classId = query.class_id ? normalizeNumber(query.class_id, "class_id") : null;
+  const sectionId = query.section_id ? normalizeNumber(query.section_id, "section_id") : null;
+
+  const scope = await repo.getStudentFinalReportScope({
+    studentId,
+    sessionId,
+    classId,
+    sectionId,
+  });
+  if (!scope) {
+    throw new AppError("Student is not part of the selected final report scope", 404);
+  }
+
+  const rows = await repo.getFinalReportRows({
+    studentId,
+    sessionId: Number(scope.session_id),
+    classId: Number(scope.class_id),
+    sectionId: Number(scope.section_id),
+    medium: scope.medium,
+    visibleOnly: userCtx.isStudent || userCtx.isParent,
+  });
+
+  if (!rows.length) {
+    throw new AppError("No published approved marks found for this final marksheet", 404);
+  }
+
+  const report = formatFinalReport(scope, rows);
+  const buffer = await generateFinalMarksheetPdf(report);
+  return {
+    buffer,
+    fileName: `final-marksheet-student-${studentId}-session-${scope.session_id}.pdf`,
+  };
 }
 
 export async function getMyStudents(userId) {

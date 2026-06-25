@@ -274,3 +274,62 @@ Update this file after every meaningful implementation change.
 - Updated DataTable/Students restore behavior so returning from Student Details
   scrolls directly to the clicked student row and briefly highlights it, instead
   of only restoring the page number.
+- Matched Student Details header and subject-selection context badge colors to
+  the Students table stream, medium, and scope badge palette.
+- Updated the existing single-exam marksheet PDF template minimally: embedded
+  the school logo on the left, added issued date on the right, changed summary
+  order to Total Marks then Marks Obtained, and replaced the signature line with
+  the role/school/location text block.
+- Moved the Marksheet Templates preview section into a dedicated Reports
+  Templates tab,
+  showing the active single-exam marksheet layout and a planned final combined
+  marksheet overview based on the shared reference images.
+- Added report publication dates for approved marksheets: admins set an issue
+  date from the Reports Published tab, student/parent result views remain hidden
+  until that date is saved and reached, and downloaded PDFs print the saved
+  issue date.
+- Corrected the report publication migration so `class_id` and `section_id`
+  match the existing `INT` primary keys on `classes` and `sections`.
+- Broadened marksheet PDF logo lookup across software, website, and backend
+  upload asset locations so deployed downloads can embed the school logo.
+- Enlarged the single-exam marksheet header logo area and changed the printed
+  issue label to `Date` with `DD/MM/YYYY` formatting.
+- Increased marksheet header address/date font sizes and rendered the date as
+  one line: `Date: DD/MM/YYYY`.
+- Added loading states to marksheet download buttons in Reports and Student
+  Details so users see `Downloading...` while PDFs are being generated.
+- Added the first final combined marksheet implementation as a separate PDF
+  flow: a two-page front/back landscape template, student-specific subject rows,
+  dynamic published-exam columns, aggregate totals/percentage/grade, and download
+  actions from Reports Published rows plus Student Details.
+- Relaxed staff/admin final marksheet generation so approved marks can be used
+  even if publication rows are missing, while student/parent downloads remain
+  publication-date gated; improved PDF download error parsing for clearer
+  backend messages.
+- Simplified the final marksheet PDF styling by removing heavy decorative
+  borders, keeping it as a two-page landscape document, and aligning student
+  identity rows as class/medium then section/roll number.
+- Updated the Reports Templates tab so the final marksheet preview shows the
+  two-page front/back layout with cover/co-scholastic content and the marks
+  matrix/result side.
+- Reworked final marksheet PDF page sizing so the front page does not spill
+  into the second page, restored a single clean outer page border, and reduced
+  internal line weight to match the referenced layout more closely.
+- Adjusted final marksheet borders to follow the reference: one outer page
+  border, bordered left/right front panels, single-line attendance row, and
+  bordered marks/signature/result sections on the back page.
+- Added short-lived in-memory caches to Assign Teacher to Class and Assign
+  Subject to Class so switching away and back within the same browser session
+  reuses loaded data instead of refetching every time; assignment changes still
+  refresh the affected data.
+- Added skeleton loading cards and an empty state to the Subjects tab so the
+  subject master list has clear feedback while data is loading.
+- Expanded the Dashboard with scope-aware analytics: backend summary now returns
+  School/Higher Secondary student, fee, payment, and attendance breakdowns, and
+  the frontend adds a scope selector with richer class-wise and financial charts.
+- Changed the navbar search from global redirect behavior to current-page search:
+  the larger search input now broadcasts the query to visible tables, which
+  filter current rows and highlight matches with amber badges.
+- Added more dashboard chart variety by converting payment collections to an
+  area chart and adding an operational balance radar chart for student base,
+  attendance, collection, and fee health across School and Higher Secondary.

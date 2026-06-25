@@ -22,15 +22,18 @@ import {
   getAccessibleExamById,
   getAccessibleExams,
   approveMarks,
+  downloadFinalMarksheet,
   downloadMyMarksheet,
   downloadStudentMarksheet,
   getMarksApprovalSummary,
   getMarksGrid,
   getPendingApprovalQueue,
+  getReportPublication,
   getMyResults,
   getMyStudents,
   rejectMarks,
   saveMarks,
+  saveReportPublication,
   submitMarksForApproval,
 } from "../api/marks.api";
 import { usePermissions } from "../hooks/usePermissions";
@@ -173,6 +176,230 @@ function SurfaceCard({ className = "", accent = false, children }) {
   );
 }
 
+function MarksheetTemplatePreview({ type }) {
+  const isFinal = type === "final";
+  if (isFinal) {
+    return (
+      <div className="overflow-hidden rounded-xl border bg-background">
+        <div className="flex items-start justify-between gap-3 border-b bg-muted/30 p-3">
+          <div>
+            <p className="font-semibold">Final Combined Marksheet</p>
+            <p className="text-xs text-muted-foreground">
+              Two-page front/back annual record card generated from published approved exams.
+            </p>
+          </div>
+          <Badge variant="outline" className="border-emerald-200 bg-emerald-50 text-emerald-700">
+            Active
+          </Badge>
+        </div>
+
+        <div className="grid gap-3 p-3 lg:grid-cols-2">
+          <div className="rounded-lg border bg-card p-3 text-[10px] text-blue-950">
+            <div className="mb-2 text-center text-xs font-bold uppercase">Front Page</div>
+            <div className="grid grid-cols-2 gap-2">
+              <div className="space-y-2">
+                <div className="text-center font-bold">CO-SCHOLASTIC AREA</div>
+                <div className="grid grid-cols-3 border-b border-blue-200 py-1 font-semibold">
+                  <span>Value</span>
+                  <span>Grade</span>
+                  <span>Marks</span>
+                </div>
+                {["Excellent / A / 10", "Very Good / B / 08", "Good / C / 06"].map((row) => (
+                  <div key={row} className="border-b border-blue-100 py-1">
+                    {row}
+                  </div>
+                ))}
+                <div className="pt-2 text-center font-bold">ATTENDANCE</div>
+                <div className="border-b border-blue-100 py-1">Working Days</div>
+                <div className="border-b border-blue-100 py-1">Days Present</div>
+              </div>
+              <div className="text-center">
+                <div className="text-sm font-extrabold uppercase leading-tight">Kalong Kapili Vidyapith</div>
+                <div className="mt-1 font-semibold">(School Section)</div>
+                <div className="mx-auto my-3 flex size-12 items-center justify-center rounded-full border text-[9px] font-bold">
+                  LOGO
+                </div>
+                <div className="font-bold uppercase">Report Card</div>
+                <div className="mx-auto mt-2 w-fit border-b-2 border-blue-950 px-4 py-1 font-bold">CLASS : X</div>
+                <div className="mx-auto my-3 h-10 w-14 border border-blue-200" />
+                <div className="font-bold">ACADEMIC YEAR : 2026-2027</div>
+                <div className="mt-3 space-y-1 border-y-2 border-blue-950 py-2 text-left">
+                  <div>Name: Sample Student</div>
+                  <div>Guardian: Sample Guardian</div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <span>Class: X</span>
+                    <span>Medium: English</span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <span>Section: A</span>
+                    <span>Roll No.: 12</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="rounded-lg border bg-card p-3 text-[10px] text-blue-950">
+            <div className="mb-2 text-center text-xs font-bold uppercase">Back Page</div>
+            <div className="overflow-hidden">
+              <table className="w-full border-collapse">
+                <thead>
+                  <tr className="border-b border-blue-950">
+                    <th className="py-1 text-left">Scholastic Area</th>
+                    <th className="py-1">Unit Test</th>
+                    <th className="py-1">Half Yearly</th>
+                    <th className="py-1">Final Exam</th>
+                    <th className="py-1">Total</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {[
+                    ["English", "42", "78", "86", "206"],
+                    ["Mathematics", "45", "81", "90", "216"],
+                    ["Science", "44", "79", "88", "211"],
+                    ["Elective", "40", "76", "84", "200"],
+                  ].map((row) => (
+                    <tr key={row[0]} className="border-b border-blue-100">
+                      <td className="py-1 font-semibold">{row[0]}</td>
+                      {row.slice(1).map((cell, index) => (
+                        <td key={`${row[0]}-${index}`} className="py-1 text-center">
+                          {cell}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                  <tr className="border-b border-blue-950 font-bold">
+                    <td className="py-1">TOTAL</td>
+                    <td className="py-1 text-center">171</td>
+                    <td className="py-1 text-center">314</td>
+                    <td className="py-1 text-center">348</td>
+                    <td className="py-1 text-center">833</td>
+                  </tr>
+                  <tr className="font-bold">
+                    <td className="py-1">Grade</td>
+                    <td className="py-1 text-center" colSpan={4}>A+</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <div className="mt-3 grid grid-cols-3 gap-2 border-t border-blue-950 pt-3 text-center font-semibold">
+              <div>Class Teacher</div>
+              <div>Guardian</div>
+              <div>Principal</div>
+            </div>
+            <div className="mt-3 border-t border-blue-950 pt-2 text-center font-bold">
+              RESULT: PROMOTED TO CLASS ........ WITH A+ GRADE
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const examColumns = isFinal
+    ? ["Unit Test", "Half Yearly", "Mock Test", "Final Exam", "Final Total"]
+    : ["Total Marks", "Marks Obtained"];
+  const sampleRows = isFinal
+    ? [
+        ["English", "42", "78", "82", "86", "288"],
+        ["Mathematics", "45", "81", "84", "90", "300"],
+        ["Science", "44", "79", "80", "88", "291"],
+      ]
+    : [
+        ["English", "100", "88"],
+        ["Mathematics", "100", "85"],
+        ["Science", "100", "79"],
+      ];
+
+  return (
+    <div className="overflow-hidden rounded-xl border bg-background">
+      <div className="flex items-start justify-between gap-3 border-b bg-muted/30 p-3">
+        <div>
+          <p className="font-semibold">
+            {isFinal ? "Final Combined Marksheet" : "Single Exam Marksheet"}
+          </p>
+          <p className="text-xs text-muted-foreground">
+            {isFinal
+              ? "Combines all selected exams into one annual record card."
+              : "Used by the current Download Marksheet action."}
+          </p>
+        </div>
+        <Badge variant={isFinal ? "secondary" : "outline"}>
+          {isFinal ? "Planned" : "Active"}
+        </Badge>
+      </div>
+
+      <div className="p-3">
+        <div className="rounded-lg border border-emerald-700/40 p-3 text-[11px]">
+          <div className="mb-3 grid grid-cols-[48px_1fr_72px] items-start gap-2">
+            <div className="flex size-11 items-center justify-center rounded-full border border-emerald-700/50 text-[9px] font-semibold text-emerald-700">
+              LOGO
+            </div>
+            <div className="text-center">
+              <p className="text-sm font-bold uppercase text-emerald-800">Kalong Kapili Vidyapith</p>
+              <p className="font-semibold text-emerald-700">
+                {isFinal ? "College Evaluation Record Card" : "Report Card"}
+              </p>
+              <p className="text-[10px] text-muted-foreground">Nagaon, Assam</p>
+            </div>
+            <div className="text-right text-[10px] text-muted-foreground">
+              Issued Date
+              <br />
+              25 Jun 2026
+            </div>
+          </div>
+
+          <div className="mb-3 grid grid-cols-2 gap-1 rounded-md border p-2 text-[10px]">
+            <span>Name: Sample Student</span>
+            <span>Roll: 12</span>
+            <span>Class: XI</span>
+            <span>Section: A</span>
+            {isFinal ? <span>Stream: Science</span> : <span>Exam: Annual</span>}
+            <span>Medium: English</span>
+          </div>
+
+          <div className="overflow-hidden rounded-md border">
+            <table className="w-full border-collapse text-[10px]">
+              <thead className="bg-emerald-50 text-emerald-900">
+                <tr>
+                  <th className="border px-1 py-1 text-left">Subject</th>
+                  {examColumns.map((column) => (
+                    <th key={column} className="border px-1 py-1 text-center">
+                      {column}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {sampleRows.map((row) => (
+                  <tr key={row[0]}>
+                    {row.map((cell, index) => (
+                      <td key={`${row[0]}-${index}`} className={`border px-1 py-1 ${index ? "text-center" : ""}`}>
+                        {cell}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="mt-3 flex justify-between gap-3">
+            <div className="text-[10px] text-muted-foreground">
+              {isFinal ? "Result and promotion details appear here." : "Principal block appears here."}
+            </div>
+            <div className="rounded-md border px-3 py-2 text-[10px]">
+              <div>Total Marks: {isFinal ? "1000" : "300"}</div>
+              <div>Marks Obtained: {isFinal ? "879" : "252"}</div>
+              <div>Percentage: {isFinal ? "87.90%" : "84.00%"}</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function Reports() {
   const { can } = usePermissions();
   const isAdmin = can("marks.approve");
@@ -202,10 +429,17 @@ export default function Reports() {
   const [pendingQueue, setPendingQueue] = useState({ total_pending: 0, groups: [] });
   const [approvalSummary, setApprovalSummary] = useState({ pending: 0, draft: 0, approved: 0 });
   const [reviewQueueSnapshot, setReviewQueueSnapshot] = useState(null);
+  const [reportPublication, setReportPublication] = useState(null);
+  const [publicationDate, setPublicationDate] = useState("");
 
   const [loading, setLoading] = useState(true);
   const [gridLoading, setGridLoading] = useState(false);
+  const [publicationLoading, setPublicationLoading] = useState(false);
   const [selfLoading, setSelfLoading] = useState(false);
+  const [selfDownloadLoading, setSelfDownloadLoading] = useState(false);
+  const [selfFinalDownloadLoading, setSelfFinalDownloadLoading] = useState(false);
+  const [downloadingStudentId, setDownloadingStudentId] = useState(null);
+  const [downloadingFinalStudentId, setDownloadingFinalStudentId] = useState(null);
   const [examMetaLoading, setExamMetaLoading] = useState(false);
   const [banner, setBanner] = useState(null);
 
@@ -266,6 +500,15 @@ export default function Reports() {
     () => availableSections.find((item) => String(item.id) === String(filters.section_id)) || null,
     [availableSections, filters.section_id]
   );
+  const publicationScope = useMemo(() => {
+    if (!filters.exam_id || !filters.class_id || !filters.section_id) return null;
+    return {
+      exam_id: filters.exam_id,
+      class_id: filters.class_id,
+      section_id: filters.section_id,
+      medium: filters.medium || selectedSection?.medium || "",
+    };
+  }, [filters.exam_id, filters.class_id, filters.section_id, filters.medium, selectedSection]);
   const selectedSubject = useMemo(
     () => filteredSubjects.find((item) => String(item.id) === String(filters.subject_id)) || null,
     [filteredSubjects, filters.subject_id]
@@ -569,6 +812,31 @@ export default function Reports() {
     return () => window.clearInterval(intervalId);
   }, [activeTab, isAdmin, loading]);
 
+  const loadReportPublicationEvent = useEffectEvent(async () => {
+    if (!isAdmin || activeTab !== "approved" || !publicationScope) {
+      setReportPublication(null);
+      setPublicationDate("");
+      return;
+    }
+
+    setPublicationLoading(true);
+    try {
+      const res = await getReportPublication(publicationScope);
+      const nextPublication = res?.data || null;
+      setReportPublication(nextPublication);
+      setPublicationDate(nextPublication?.published_on || "");
+    } catch {
+      setReportPublication(null);
+      setPublicationDate("");
+    } finally {
+      setPublicationLoading(false);
+    }
+  });
+
+  useEffect(() => {
+    loadReportPublicationEvent();
+  }, [activeTab, isAdmin, publicationScope]);
+
   async function loadBootstrap() {
     setLoading(true);
     try {
@@ -678,6 +946,34 @@ export default function Reports() {
       setError(err?.message || "Failed to load marks grid.");
     } finally {
       setGridLoading(false);
+    }
+  }
+
+  async function handleSavePublicationDate() {
+    if (!publicationScope) {
+      setError("Select an exam, class, and section before publishing.");
+      return;
+    }
+
+    if (!publicationDate) {
+      setError("Enter the marksheet issue date before publishing.");
+      return;
+    }
+
+    setPublicationLoading(true);
+    try {
+      const res = await saveReportPublication({
+        ...publicationScope,
+        published_on: publicationDate,
+      });
+      const nextPublication = res?.data || null;
+      setReportPublication(nextPublication);
+      setPublicationDate(nextPublication?.published_on || publicationDate);
+      setSuccess("Marksheet publication date saved.");
+    } catch (err) {
+      setError(err?.message || "Failed to save marksheet publication date.");
+    } finally {
+      setPublicationLoading(false);
     }
   }
 
@@ -888,11 +1184,31 @@ export default function Reports() {
   }
 
   async function handleDownloadStudent(studentId) {
+    setDownloadingStudentId(Number(studentId));
     try {
       const blob = await downloadStudentMarksheet(filters.exam_id, studentId);
       downloadBlob(blob, `marksheet-exam-${filters.exam_id}-student-${studentId}.pdf`);
     } catch (err) {
       setError(err?.message || "Failed to download marksheet.");
+    } finally {
+      setDownloadingStudentId(null);
+    }
+  }
+
+  async function handleDownloadFinalStudent(studentId) {
+    setDownloadingFinalStudentId(Number(studentId));
+    try {
+      const blob = await downloadFinalMarksheet({
+        student_id: studentId,
+        session_id: selectedExam?.session_id || "",
+        class_id: filters.class_id,
+        section_id: filters.section_id,
+      });
+      downloadBlob(blob, `final-marksheet-student-${studentId}.pdf`);
+    } catch (err) {
+      setError(err?.message || "Failed to download final marksheet.");
+    } finally {
+      setDownloadingFinalStudentId(null);
     }
   }
 
@@ -916,11 +1232,28 @@ export default function Reports() {
   }
 
   async function handleDownloadMyResult() {
+    setSelfDownloadLoading(true);
     try {
       const blob = await downloadMyMarksheet(selfFilters);
       downloadBlob(blob, `marksheet-exam-${selfFilters.exam_id}.pdf`);
     } catch (err) {
       setError(err?.message || "Failed to download marksheet.");
+    } finally {
+      setSelfDownloadLoading(false);
+    }
+  }
+
+  async function handleDownloadMyFinalResult() {
+    setSelfFinalDownloadLoading(true);
+    try {
+      const blob = await downloadFinalMarksheet({
+        student_id: selfFilters.student_id,
+      });
+      downloadBlob(blob, `final-marksheet-student-${selfFilters.student_id || "self"}.pdf`);
+    } catch (err) {
+      setError(err?.message || "Failed to download final marksheet.");
+    } finally {
+      setSelfFinalDownloadLoading(false);
     }
   }
 
@@ -1149,6 +1482,56 @@ export default function Reports() {
     );
   }
 
+  function renderPublicationPanel() {
+    if (!isAdmin || activeTab !== "approved") return null;
+
+    const today = new Date().toISOString().slice(0, 10);
+    const isVisible = Boolean(reportPublication?.published_on) && reportPublication.published_on <= today;
+    const scopeReady = Boolean(publicationScope);
+
+    return (
+      <SurfaceCard accent>
+        <div className="flex flex-col gap-4 p-4 lg:flex-row lg:items-end lg:justify-between">
+          <div className="space-y-1">
+            <p className="text-base font-semibold">Marksheet Publication</p>
+            <p className="text-sm text-muted-foreground">
+              Students and parents can view or download this marksheet only after this issue date is saved and reached.
+            </p>
+            <p className="text-xs text-muted-foreground">
+              Current status:{" "}
+              <span className={isVisible ? "font-medium text-emerald-600" : "font-medium text-amber-600"}>
+                {isVisible
+                  ? `Visible since ${reportPublication.published_on}`
+                  : reportPublication?.published_on
+                    ? `Scheduled for ${reportPublication.published_on}`
+                    : "Not visible to students"}
+              </span>
+            </p>
+          </div>
+          <div className="flex flex-wrap items-end gap-3">
+            <div className="space-y-2">
+              <Label htmlFor="marksheet-published-on">Issue Date</Label>
+              <Input
+                id="marksheet-published-on"
+                type="date"
+                className="w-44"
+                value={publicationDate}
+                disabled={!scopeReady || publicationLoading}
+                onChange={(event) => setPublicationDate(event.target.value)}
+              />
+            </div>
+            <Button
+              onClick={handleSavePublicationDate}
+              disabled={!scopeReady || publicationLoading || !publicationDate}
+            >
+              {publicationLoading ? "Saving..." : "Publish Date"}
+            </Button>
+          </div>
+        </div>
+      </SurfaceCard>
+    );
+  }
+
   function renderGridPanel({ mode = "entry" } = {}) {
     const isPendingMode = mode === "pending";
     const isApprovedMode = mode === "approved";
@@ -1283,7 +1666,7 @@ export default function Reports() {
                     : "Marks"}
               </TableHead>
               <TableHead className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Status</TableHead>
-              {isAdmin ? <TableHead className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Download</TableHead> : null}
+              {isAdmin ? <TableHead className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Downloads</TableHead> : null}
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -1455,14 +1838,24 @@ export default function Reports() {
                 </TableCell>
                 {isAdmin ? (
                   <TableCell>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      disabled={row.approval_status !== "approved"}
-                      onClick={() => handleDownloadStudent(row.student_id)}
-                    >
-                      Download
-                    </Button>
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={row.approval_status !== "approved" || downloadingStudentId === Number(row.student_id)}
+                        onClick={() => handleDownloadStudent(row.student_id)}
+                      >
+                        {downloadingStudentId === Number(row.student_id) ? "Downloading..." : "Single"}
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={row.approval_status !== "approved" || downloadingFinalStudentId === Number(row.student_id)}
+                        onClick={() => handleDownloadFinalStudent(row.student_id)}
+                      >
+                        {downloadingFinalStudentId === Number(row.student_id) ? "Downloading..." : "Final"}
+                      </Button>
+                    </div>
                   </TableCell>
                 ) : null}
               </TableRow>
@@ -1576,9 +1969,16 @@ export default function Reports() {
                 <Button
                   variant="outline"
                   onClick={handleDownloadMyResult}
-                  disabled={!selfReport}
+                  disabled={!selfReport || selfDownloadLoading}
                 >
-                  Download Marksheet
+                  {selfDownloadLoading ? "Downloading..." : "Download Marksheet"}
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={handleDownloadMyFinalResult}
+                  disabled={!selfFilters.student_id || selfFinalDownloadLoading}
+                >
+                  {selfFinalDownloadLoading ? "Downloading..." : "Download Final"}
                 </Button>
               </div>
             </div>
@@ -1646,6 +2046,7 @@ export default function Reports() {
               ) : null}
               <TabsTrigger value="entry">Entry</TabsTrigger>
               <TabsTrigger value="approved">Published</TabsTrigger>
+              <TabsTrigger value="templates">Templates</TabsTrigger>
             </TabsList>
 
             {isAdmin ? (
@@ -1662,7 +2063,25 @@ export default function Reports() {
 
             <TabsContent value="approved" className="grid gap-4">
               {renderFilterPanel()}
+              {renderPublicationPanel()}
               {renderGridPanel({ mode: "approved" })}
+            </TabsContent>
+
+            <TabsContent value="templates" className="grid gap-4">
+              <SurfaceCard accent>
+                <div className="space-y-4 p-4">
+                  <div>
+                    <p className="text-base font-semibold">Marksheet Templates</p>
+                    <p className="text-sm text-muted-foreground">
+                      Preview how downloaded marksheets are presented. The single-exam template is active; the final template is the combined-exam layout planned from the shared references.
+                    </p>
+                  </div>
+                  <div className="grid gap-4 xl:grid-cols-2">
+                    <MarksheetTemplatePreview type="single" />
+                    <MarksheetTemplatePreview type="final" />
+                  </div>
+                </div>
+              </SurfaceCard>
             </TabsContent>
           </Tabs>
         </div>

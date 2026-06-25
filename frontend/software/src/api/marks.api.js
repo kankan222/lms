@@ -31,7 +31,10 @@ async function fetchAuthorizedBlob(path) {
   }
 
   if (!response.ok) {
-    const payload = await response.json().catch(() => ({}));
+    const contentType = response.headers.get("content-type") || "";
+    const payload = contentType.includes("application/json")
+      ? await response.json().catch(() => ({}))
+      : {};
     throw new Error(payload?.message || "Failed to download marksheet");
   }
 
@@ -48,6 +51,17 @@ export function getPendingApprovalQueue() {
 
 export function getMarksApprovalSummary() {
   return apiRequest("/marks/summary");
+}
+
+export function getReportPublication(params = {}) {
+  return apiRequest(`/marks/report-publication${buildQuery(params)}`);
+}
+
+export function saveReportPublication(data) {
+  return apiRequest("/marks/report-publication", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
 }
 
 export function getAccessibleExams() {
@@ -104,4 +118,8 @@ export function downloadStudentMarksheet(examId, studentId) {
 
 export function downloadMyMarksheet(params = {}) {
   return fetchAuthorizedBlob(`/marks/my-results/pdf${buildQuery(params)}`);
+}
+
+export function downloadFinalMarksheet(params = {}) {
+  return fetchAuthorizedBlob(`/marks/final-report/pdf${buildQuery(params)}`);
 }

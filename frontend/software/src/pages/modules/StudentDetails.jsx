@@ -18,6 +18,7 @@ import {
 } from "../../api/subjects.api";
 import {
   downloadMyMarksheet,
+  downloadFinalMarksheet,
   getAccessibleExams,
   getMyResults,
   downloadStudentMarksheet,
@@ -59,6 +60,64 @@ function formatClassScope(value) {
   if (scope === "hs") return "Higher Secondary";
   if (scope === "school") return "School";
   return value || "-";
+}
+
+function scopeBadgeClass(scope) {
+  const value = String(scope || "").trim().toLowerCase();
+
+  if (value === "hs") {
+    return "border-indigo-200 bg-indigo-50 text-indigo-700 dark:border-indigo-500/30 dark:bg-indigo-500/15 dark:text-indigo-200";
+  }
+
+  if (value === "school") {
+    return "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/15 dark:text-emerald-200";
+  }
+
+  return "border-slate-200 bg-slate-50 text-slate-700 dark:border-slate-500/30 dark:bg-slate-500/15 dark:text-slate-200";
+}
+
+function streamBadgeClass(stream) {
+  const value = String(stream || "").trim().toLowerCase();
+
+  if (!value || value === "-") {
+    return "border-slate-200 bg-slate-50 text-slate-600 dark:border-slate-500/30 dark:bg-slate-500/15 dark:text-slate-200";
+  }
+
+  if (value.includes("science")) {
+    return "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/15 dark:text-emerald-200";
+  }
+
+  if (value.includes("commerce")) {
+    return "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-500/30 dark:bg-amber-500/15 dark:text-amber-200";
+  }
+
+  if (value.includes("arts") || value.includes("humanities")) {
+    return "border-purple-200 bg-purple-50 text-purple-700 dark:border-purple-500/30 dark:bg-purple-500/15 dark:text-purple-200";
+  }
+
+  return "border-indigo-200 bg-indigo-50 text-indigo-700 dark:border-indigo-500/30 dark:bg-indigo-500/15 dark:text-indigo-200";
+}
+
+function mediumBadgeClass(medium) {
+  const value = String(medium || "").trim().toLowerCase();
+
+  if (value.includes("english")) {
+    return "border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-500/30 dark:bg-sky-500/15 dark:text-sky-200";
+  }
+
+  if (value.includes("assamese")) {
+    return "border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-500/30 dark:bg-rose-500/15 dark:text-rose-200";
+  }
+
+  if (value.includes("hindi")) {
+    return "border-orange-200 bg-orange-50 text-orange-700 dark:border-orange-500/30 dark:bg-orange-500/15 dark:text-orange-200";
+  }
+
+  if (value.includes("bengali")) {
+    return "border-teal-200 bg-teal-50 text-teal-700 dark:border-teal-500/30 dark:bg-teal-500/15 dark:text-teal-200";
+  }
+
+  return "border-cyan-200 bg-cyan-50 text-cyan-700 dark:border-cyan-500/30 dark:bg-cyan-500/15 dark:text-cyan-200";
 }
 
 function attendanceStatusColor(status) {
@@ -118,6 +177,8 @@ const StudentDetails = () => {
   const [report, setReport] = useState(null);
   const [reportError, setReportError] = useState("");
   const [reportLoading, setReportLoading] = useState(false);
+  const [marksheetDownloading, setMarksheetDownloading] = useState(false);
+  const [finalMarksheetDownloading, setFinalMarksheetDownloading] = useState(false);
   const [attendanceRows, setAttendanceRows] = useState([]);
   const [attendanceLoading, setAttendanceLoading] = useState(false);
   const [attendanceError, setAttendanceError] = useState("");
@@ -306,22 +367,56 @@ const StudentDetails = () => {
 
   async function handleDownloadMarksheet() {
     if (!selectedExamId || !student?.id) return;
-    const blob = await (isParent
-      ? downloadMyMarksheet({ exam_id: selectedExamId, student_id: student.id })
-      : downloadStudentMarksheet(selectedExamId, student.id));
-    if (!blob || blob.size === 0) {
-      throw new Error("Downloaded file is empty");
+    setMarksheetDownloading(true);
+    setReportError("");
+    try {
+      const blob = await (isParent
+        ? downloadMyMarksheet({ exam_id: selectedExamId, student_id: student.id })
+        : downloadStudentMarksheet(selectedExamId, student.id));
+      if (!blob || blob.size === 0) {
+        throw new Error("Downloaded file is empty");
+      }
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `marksheet-exam-${selectedExamId}-student-${student.id}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.setTimeout(() => {
+        window.URL.revokeObjectURL(url);
+      }, 5000);
+    } catch (err) {
+      setReportError(err?.message || "Failed to download marksheet.");
+    } finally {
+      setMarksheetDownloading(false);
     }
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `marksheet-exam-${selectedExamId}-student-${student.id}.pdf`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    window.setTimeout(() => {
-      window.URL.revokeObjectURL(url);
-    }, 5000);
+  }
+
+  async function handleDownloadFinalMarksheet() {
+    if (!student?.id) return;
+    setFinalMarksheetDownloading(true);
+    setReportError("");
+    try {
+      const blob = await downloadFinalMarksheet({ student_id: student.id });
+      if (!blob || blob.size === 0) {
+        throw new Error("Downloaded file is empty");
+      }
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `final-marksheet-student-${student.id}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.setTimeout(() => {
+        window.URL.revokeObjectURL(url);
+      }, 5000);
+    } catch (err) {
+      setReportError(err?.message || "Failed to download final marksheet.");
+    } finally {
+      setFinalMarksheetDownloading(false);
+    }
   }
 
   function formatCurrency(value) {
@@ -599,13 +694,22 @@ const StudentDetails = () => {
             </div>
             <div className="flex flex-wrap gap-2">
               <Badge variant="secondary">{student.gender || "-"}</Badge>
-              <Badge variant="outline">
+              <Badge
+                variant="outline"
+                className="border-slate-200 bg-slate-50 text-slate-700 dark:border-slate-500/30 dark:bg-slate-500/15 dark:text-slate-200"
+              >
                 {student.class || "-"} - {student.section || "-"}
               </Badge>
-              <Badge variant="outline">{student.medium || "-"}</Badge>
-              <Badge variant="outline">{formatClassScope(student.class_scope || "school")}</Badge>
+              <Badge variant="outline" className={mediumBadgeClass(student.medium)}>
+                {student.medium || "-"}
+              </Badge>
+              <Badge variant="outline" className={scopeBadgeClass(student.class_scope || "school")}>
+                {formatClassScope(student.class_scope || "school")}
+              </Badge>
               {student.class_scope === "hs" && student.stream_name ? (
-                <Badge variant="outline">{student.stream_name}</Badge>
+                <Badge variant="outline" className={streamBadgeClass(student.stream_name)}>
+                  {student.stream_name}
+                </Badge>
               ) : null}
             </div>
           </div>
@@ -852,11 +956,31 @@ const StudentDetails = () => {
 
             {subjectSelection.enrollment ? (
               <div className="flex flex-wrap gap-2">
-                <Badge variant="outline">{subjectSelection.enrollment.class_name || student.class || "-"}</Badge>
-                <Badge variant="outline">{subjectSelection.enrollment.section_name || student.section || "-"}</Badge>
-                <Badge variant="outline">{subjectSelection.enrollment.medium || student.medium || "-"}</Badge>
+                <Badge
+                  variant="outline"
+                  className="border-slate-200 bg-slate-50 text-slate-700 dark:border-slate-500/30 dark:bg-slate-500/15 dark:text-slate-200"
+                >
+                  {subjectSelection.enrollment.class_name || student.class || "-"}
+                </Badge>
+                <Badge
+                  variant="outline"
+                  className="border-slate-200 bg-slate-50 text-slate-700 dark:border-slate-500/30 dark:bg-slate-500/15 dark:text-slate-200"
+                >
+                  {subjectSelection.enrollment.section_name || student.section || "-"}
+                </Badge>
+                <Badge
+                  variant="outline"
+                  className={mediumBadgeClass(subjectSelection.enrollment.medium || student.medium)}
+                >
+                  {subjectSelection.enrollment.medium || student.medium || "-"}
+                </Badge>
                 {subjectSelection.enrollment.stream_name ? (
-                  <Badge variant="outline">{subjectSelection.enrollment.stream_name}</Badge>
+                  <Badge
+                    variant="outline"
+                    className={streamBadgeClass(subjectSelection.enrollment.stream_name)}
+                  >
+                    {subjectSelection.enrollment.stream_name}
+                  </Badge>
                 ) : null}
               </div>
             ) : null}
@@ -1166,8 +1290,18 @@ const StudentDetails = () => {
                   </option>
                 ))}
               </select>
-              <Button onClick={handleDownloadMarksheet} disabled={!report || !selectedExamId}>
-                Download Marksheet
+              <Button
+                onClick={handleDownloadMarksheet}
+                disabled={!report || !selectedExamId || marksheetDownloading}
+              >
+                {marksheetDownloading ? "Downloading..." : "Download Marksheet"}
+              </Button>
+              <Button
+                variant="outline"
+                onClick={handleDownloadFinalMarksheet}
+                disabled={!student?.id || finalMarksheetDownloading}
+              >
+                {finalMarksheetDownloading ? "Downloading..." : "Download Final"}
               </Button>
             </div>
 

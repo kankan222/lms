@@ -1,4 +1,4 @@
-import { query } from "../../core/db/query.js";
+import { execute, query } from "../../core/db/query.js";
 
 let supportsScopesTableCache;
 let examSubjectSplitSchemaStatusCache;
@@ -6,6 +6,7 @@ let marksEntrySplitSchemaStatusCache;
 let studentExamSubjectsTableCache;
 let subjectRegistrationTablesCache;
 let examSubjectComponentsTableCache;
+let reportPublicationsTableCache;
 
 async function supportsScopesTable() {
   if (typeof supportsScopesTableCache === "boolean") {
@@ -152,6 +153,24 @@ export async function supportsExamSubjectComponentsTable() {
 
   examSubjectComponentsTableCache = Number(rows[0]?.total || 0) === 2;
   return examSubjectComponentsTableCache;
+}
+
+export async function supportsReportPublicationsTable() {
+  if (typeof reportPublicationsTableCache === "boolean") {
+    return reportPublicationsTableCache;
+  }
+
+  const rows = await query(
+    `
+      SELECT COUNT(*) AS total
+      FROM information_schema.TABLES
+      WHERE TABLE_SCHEMA = DATABASE()
+        AND TABLE_NAME = 'exam_report_publications'
+    `
+  );
+
+  reportPublicationsTableCache = Number(rows[0]?.total || 0) > 0;
+  return reportPublicationsTableCache;
 }
 
 export async function supportsMarksDraftStatus() {
@@ -906,14 +925,99 @@ export async function updateApprovalStatusBySelection(conn, payload) {
   return result.affectedRows;
 }
 
+function normalizePublicationMedium(medium) {
+  const value = String(medium || "").trim().toLowerCase();
+  return value || "";
+}
+
+export async function getReportPublication(examId, classId, sectionId, medium) {
+  if (!(await supportsReportPublicationsTable())) return null;
+
+  const rows = await query(
+    `SELECT
+       id,
+       exam_id,
+       class_id,
+       section_id,
+       medium,
+       DATE_FORMAT(published_on, '%Y-%m-%d') AS published_on,
+       DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s') AS created_at,
+       DATE_FORMAT(updated_at, '%Y-%m-%d %H:%i:%s') AS updated_at
+     FROM exam_report_publications
+     WHERE exam_id = ?
+       AND class_id = ?
+       AND section_id = ?
+       AND medium <=> ?
+     LIMIT 1`,
+    [examId, classId, sectionId, normalizePublicationMedium(medium)]
+  );
+
+  return rows[0] || null;
+}
+
+export async function upsertReportPublication(payload) {
+  const result = await execute(
+    `INSERT INTO exam_report_publications
+       (exam_id, class_id, section_id, medium, published_on, created_by, updated_by)
+     VALUES (?, ?, ?, ?, ?, ?, ?)
+     ON DUPLICATE KEY UPDATE
+       published_on = VALUES(published_on),
+       updated_by = VALUES(updated_by)`,
+    [
+      payload.examId,
+      payload.classId,
+      payload.sectionId,
+      normalizePublicationMedium(payload.medium),
+      payload.publishedOn,
+      payload.userId,
+      payload.userId,
+    ]
+  );
+
+  return result.affectedRows;
+}
+
+export async function countApprovedMarksForReportScope(examId, classId, sectionId, medium) {
+  const params = [examId, classId, sectionId];
+  const where = [
+    `me.exam_id = ?`,
+    `se.class_id = ?`,
+    `se.section_id = ?`,
+    `se.status = 'active'`,
+    `me.approval_status = 'approved'`,
+  ];
+
+  const normalizedMedium = normalizePublicationMedium(medium);
+  if (normalizedMedium) {
+    where.push(`LOWER(sec.medium) = ?`);
+    params.push(normalizedMedium);
+  }
+
+  const rows = await query(
+    `SELECT COUNT(*) AS total
+     FROM marks_entries me
+     JOIN exams e
+       ON e.id = me.exam_id
+     JOIN student_enrollments se
+       ON se.student_id = me.student_id
+      AND se.session_id = e.session_id
+     JOIN sections sec ON sec.id = se.section_id
+     WHERE ${where.join(" AND ")}`,
+    params
+  );
+
+  return Number(rows[0]?.total || 0);
+}
+
 export async function getStudentScopeForExam(studentId, examId) {
   const rows = await query(
-    `SELECT se.class_id, se.section_id
+    `SELECT se.class_id, se.section_id, sec.medium
      FROM exams e
      JOIN student_enrollments se
        ON se.student_id = ?
       AND se.session_id = e.session_id
       AND se.status = 'active'
+     JOIN sections sec ON sec.id = se.section_id
      JOIN exam_scopes sc
        ON sc.exam_id = e.id
       AND sc.class_id = se.class_id
@@ -923,6 +1027,144 @@ export async function getStudentScopeForExam(studentId, examId) {
     [studentId, examId]
   );
   return rows[0] || null;
+}
+
+export async function getStudentFinalReportScope({ studentId, sessionId = null, classId = null, sectionId = null }) {
+  const where = [
+    `se.student_id = ?`,
+    `se.status = 'active'`,
+  ];
+  const params = [studentId];
+
+  if (sessionId) {
+    where.push(`se.session_id = ?`);
+    params.push(sessionId);
+  }
+
+  if (classId) {
+    where.push(`se.class_id = ?`);
+    params.push(classId);
+  }
+
+  if (sectionId) {
+    where.push(`se.section_id = ?`);
+    params.push(sectionId);
+  }
+
+  const rows = await query(
+    `SELECT
+       se.student_id,
+       st.name AS student_name,
+       se.roll_number,
+       se.session_id,
+       sess.name AS session_name,
+       se.class_id,
+       c.name AS class_name,
+       se.section_id,
+       sec.name AS section_name,
+       sec.medium,
+       se.stream_id,
+       streams.name AS stream_name
+     FROM student_enrollments se
+     JOIN students st ON st.id = se.student_id
+     JOIN academic_sessions sess ON sess.id = se.session_id
+     JOIN classes c ON c.id = se.class_id
+     JOIN sections sec ON sec.id = se.section_id
+     LEFT JOIN streams ON streams.id = se.stream_id
+     WHERE ${where.join(" AND ")}
+     ORDER BY se.session_id DESC, se.id DESC
+     LIMIT 1`,
+    params
+  );
+
+  return rows[0] || null;
+}
+
+export async function getFinalReportRows({ studentId, sessionId, classId, sectionId, medium, visibleOnly = false }) {
+  const hasPublicationsTable = await supportsReportPublicationsTable();
+  const hasScopesTable = await supportsScopesTable();
+  const classScopeExpr = buildClassScopeExpression(hasScopesTable);
+  const subjectSchema = await getExamSubjectSplitSchemaStatus();
+  const subjectOfferingExpr = subjectSchema.hasSubjectOfferingId ? "es.subject_offering_id" : "NULL";
+  const subjectGroupExpr = subjectSchema.hasSubjectOfferingId ? "so.subject_group" : "NULL";
+  const subjectGroupOrderExpr = subjectSchema.hasSubjectOfferingId ? "COALESCE(so.subject_group, 'zz')" : "'zz'";
+  const subjectOfferingJoin = subjectSchema.hasSubjectOfferingId
+    ? "LEFT JOIN subject_offerings so ON so.id = es.subject_offering_id"
+    : "";
+  const publicationJoin = hasPublicationsTable
+    ? `${visibleOnly ? "JOIN" : "LEFT JOIN"} exam_report_publications erp
+       ON erp.exam_id = e.id
+      AND erp.class_id = se.class_id
+      AND erp.section_id = se.section_id
+      AND erp.medium = LOWER(COALESCE(sec.medium, ''))`
+    : "";
+  const publishedOnExpr = hasPublicationsTable ? "DATE_FORMAT(erp.published_on, '%Y-%m-%d')" : "NULL";
+  const visibilityClause = visibleOnly && hasPublicationsTable ? "AND erp.published_on <= CURDATE()" : "";
+
+  if (visibleOnly && !hasPublicationsTable) return [];
+
+  return query(
+    `SELECT
+       st.id AS student_id,
+       st.name AS student_name,
+       se.roll_number,
+       se.session_id,
+       sess.name AS session_name,
+       se.class_id,
+       c.name AS class_name,
+       ${classScopeExpr} AS class_scope,
+       se.section_id,
+       sec.name AS section_name,
+       sec.medium,
+       streams.name AS stream_name,
+       e.id AS exam_id,
+       e.name AS exam_name,
+       ${publishedOnExpr} AS published_on,
+       es.subject_id,
+       ${subjectOfferingExpr} AS subject_offering_id,
+       ${subjectGroupExpr} AS subject_group,
+       sub.name AS subject_name,
+       es.max_marks,
+       me.marks,
+       me.approval_status
+     FROM marks_entries me
+     JOIN exams e ON e.id = me.exam_id
+     JOIN student_enrollments se
+       ON se.student_id = me.student_id
+      AND se.session_id = e.session_id
+      AND se.status = 'active'
+     JOIN students st ON st.id = se.student_id
+     JOIN academic_sessions sess ON sess.id = se.session_id
+     JOIN classes c ON c.id = se.class_id
+     ${hasScopesTable ? "LEFT JOIN scopes sc_ref ON sc_ref.id = c.scope_id" : ""}
+     JOIN sections sec ON sec.id = se.section_id
+     LEFT JOIN streams ON streams.id = se.stream_id
+     JOIN exam_scopes esc
+       ON esc.exam_id = e.id
+      AND esc.class_id = se.class_id
+      AND (esc.section_id IS NULL OR esc.section_id = se.section_id)
+     ${publicationJoin}
+     JOIN exam_subjects es
+       ON es.exam_id = e.id
+      AND es.subject_id = me.subject_id
+     JOIN subjects sub ON sub.id = es.subject_id
+     ${subjectOfferingJoin}
+     WHERE me.student_id = ?
+       AND se.session_id = ?
+       AND se.class_id = ?
+       AND se.section_id = ?
+       AND LOWER(sec.medium) = ?
+       AND me.approval_status = 'approved'
+       ${visibilityClause}
+     ORDER BY erp.published_on ASC, e.id ASC, ${subjectGroupOrderExpr}, sub.name ASC`,
+    [
+      studentId,
+      sessionId,
+      classId,
+      sectionId,
+      String(medium || "").trim().toLowerCase(),
+    ]
+  );
 }
 
 export async function getStudentReportRows(examId, studentId, onlyApproved = true) {

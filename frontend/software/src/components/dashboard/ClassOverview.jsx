@@ -19,8 +19,9 @@ const chartConfig = {
   },
 };
 
-function normalizeRows(rows) {
+function normalizeRows(rows, selectedScope = "all") {
   return rows
+    .filter((row) => selectedScope === "all" || String(row.class_scope || "school") === selectedScope)
     .map((row) => ({
       ...row,
       students: Number(row.students || 0),
@@ -34,8 +35,8 @@ function normalizeRows(rows) {
     .sort((a, b) => b.students - a.students);
 }
 
-export default function ClassOverview({ rows = [] }) {
-  const normalizedRows = normalizeRows(rows);
+export default function ClassOverview({ rows = [], selectedScope = "all" }) {
+  const normalizedRows = normalizeRows(rows, selectedScope);
   const chartRows = normalizedRows.slice(0, 8);
   const topRiskRows = [...normalizedRows]
     .filter((row) => row.students > 0)

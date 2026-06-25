@@ -48,6 +48,30 @@ const subjectGroupLabels = {
   optional: "Optional",
 };
 
+const ASSIGN_TEACHER_CACHE_TTL_MS = 5 * 60 * 1000;
+let assignTeacherCache = null;
+
+function getAssignTeacherCache() {
+  if (!assignTeacherCache) return null;
+  if (Date.now() - assignTeacherCache.timestamp >= ASSIGN_TEACHER_CACHE_TTL_MS) return null;
+  return assignTeacherCache;
+}
+
+function setAssignTeacherCache(nextCache) {
+  assignTeacherCache = {
+    ...nextCache,
+    timestamp: Date.now(),
+  };
+}
+
+function patchAssignTeacherCache(patch) {
+  if (!assignTeacherCache) return;
+  setAssignTeacherCache({
+    ...assignTeacherCache,
+    ...patch,
+  });
+}
+
 function resolveScopeCode(scopeCode, scopeName = "") {
   const code = String(scopeCode || "").trim().toLowerCase();
   if (code === "hs" || code === "school") return code;
@@ -212,7 +236,7 @@ export default function AssignTeacherToClass() {
     }));
   }, [assignments, classes, subjectOfferingsByClass, teacherById]);
 
-  async function loadAssignmentsForTeachers(teacherRows) {
+  async function fetchAssignmentsForTeachers(teacherRows) {
     const assignmentLists = await Promise.all(
       teacherRows.map(async (teacher) => {
         try {
@@ -229,10 +253,27 @@ export default function AssignTeacherToClass() {
       }),
     );
 
-    setAssignments(assignmentLists.flat());
+    return assignmentLists.flat();
   }
 
-  async function loadInitialData() {
+  async function loadAssignmentsForTeachers(teacherRows) {
+    const nextAssignments = await fetchAssignmentsForTeachers(teacherRows);
+    setAssignments(nextAssignments);
+    patchAssignTeacherCache({ assignments: nextAssignments });
+    return nextAssignments;
+  }
+
+  async function loadInitialData({ force = false } = {}) {
+    const cached = force ? null : getAssignTeacherCache();
+    if (cached) {
+      setTeachers(cached.teachers);
+      setClasses(cached.classes);
+      setSessions(cached.sessions);
+      setSubjectOfferings(cached.subjectOfferings);
+      setAssignments(cached.assignments);
+      return;
+    }
+
     const [teachersRes, classesRes, sessionsRes, offeringsRes] = await Promise.all([
       getTeachers(),
       getClassStructure(),
@@ -241,11 +282,24 @@ export default function AssignTeacherToClass() {
     ]);
 
     const teacherRows = Array.isArray(teachersRes?.data) ? teachersRes.data : [];
+    const classRows = Array.isArray(classesRes?.data) ? classesRes.data : [];
+    const sessionRows = Array.isArray(sessionsRes?.data) ? sessionsRes.data : [];
+    const offeringRows = Array.isArray(offeringsRes?.data) ? offeringsRes.data : [];
+    const assignmentRows = await fetchAssignmentsForTeachers(teacherRows);
+
+    setAssignTeacherCache({
+      teachers: teacherRows,
+      classes: classRows,
+      sessions: sessionRows,
+      subjectOfferings: offeringRows,
+      assignments: assignmentRows,
+    });
+
     setTeachers(teacherRows);
-    setClasses(Array.isArray(classesRes?.data) ? classesRes.data : []);
-    setSessions(Array.isArray(sessionsRes?.data) ? sessionsRes.data : []);
-    setSubjectOfferings(Array.isArray(offeringsRes?.data) ? offeringsRes.data : []);
-    await loadAssignmentsForTeachers(teacherRows);
+    setClasses(classRows);
+    setSessions(sessionRows);
+    setSubjectOfferings(offeringRows);
+    setAssignments(assignmentRows);
   }
 
   const loadInitialDataEvent = useEffectEvent(() => {

@@ -27,6 +27,24 @@ export async function getApprovalStatusSummary(req, res, next) {
   }
 }
 
+export async function getReportPublication(req, res, next) {
+  try {
+    const result = await service.getReportPublication(req.query || {}, req.user.userId);
+    res.json({ success: true, data: result });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function saveReportPublication(req, res, next) {
+  try {
+    const result = await service.saveReportPublication(req.body || {}, req.user.userId);
+    res.json({ success: true, data: result });
+  } catch (err) {
+    next(err);
+  }
+}
+
 export async function getAccessibleExams(req, res, next) {
   try {
     const result = await service.getAccessibleExams(req.user.userId);
@@ -130,6 +148,20 @@ export async function getMyStudents(req, res, next) {
 export async function downloadMyApprovedMarksheet(req, res, next) {
   try {
     const { buffer, fileName } = await service.downloadMyApprovedMarksheet(
+      req.query || {},
+      req.user.userId
+    );
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `attachment; filename=${fileName}`);
+    res.send(buffer);
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function downloadFinalMarksheet(req, res, next) {
+  try {
+    const { buffer, fileName } = await service.downloadFinalMarksheet(
       req.query || {},
       req.user.userId
     );

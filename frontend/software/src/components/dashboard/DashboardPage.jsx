@@ -6,6 +6,7 @@ import RecentMessages from "./RecentMessages";
 import RecentActivity from "./RecentActivity";
 import QuickActions from "./QuickActions";
 import { getDashboardSummary } from "../../api/dashboard.api";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 const AnalyticsOverview = lazy(() => import("./AnalyticsOverview"));
 const AttendanceChart = lazy(() => import("./AttendanceChart"));
@@ -30,6 +31,12 @@ const EMPTY_STATE = {
     studentAttendanceTrend: [],
     teacherAttendanceTrend: [],
     feeStatusBreakdown: [],
+    studentClassStats: [],
+    studentScopeStats: [],
+    paymentCollectionTrendByScope: [],
+    feeStatusBreakdownByScope: [],
+    studentAttendanceTodayByScope: [],
+    studentAttendanceTrendByScope: [],
   },
   upcomingExams: [],
   recentActivities: [],
@@ -41,6 +48,7 @@ export default function DashboardPage() {
   const [summary, setSummary] = useState(EMPTY_STATE);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [scope, setScope] = useState("all");
 
   async function loadSummary() {
     setLoading(true);
@@ -93,16 +101,32 @@ export default function DashboardPage() {
             analytics={summary.analytics}
           />
 
+          <div className="flex flex-col gap-3 rounded-xl border border-border/70 bg-card p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="text-sm font-semibold">Dashboard Scope</p>
+              <p className="text-sm text-muted-foreground">
+                Filter student base, fees, payments, and attendance visuals by academic scope.
+              </p>
+            </div>
+            <Tabs value={scope} onValueChange={setScope}>
+              <TabsList>
+                <TabsTrigger value="all">All</TabsTrigger>
+                <TabsTrigger value="school">School</TabsTrigger>
+                <TabsTrigger value="hs">Higher Secondary</TabsTrigger>
+              </TabsList>
+            </Tabs>
+          </div>
+
           <Suspense fallback={<SectionFallback label="analytics" />}>
-            <AnalyticsOverview analytics={summary.analytics} />
+            <AnalyticsOverview analytics={summary.analytics} selectedScope={scope} />
           </Suspense>
 
           <Suspense fallback={<SectionFallback label="attendance trends" />}>
-            <AttendanceChart analytics={summary.analytics} />
+            <AttendanceChart analytics={summary.analytics} selectedScope={scope} />
           </Suspense>
 
           <Suspense fallback={<SectionFallback label="class insights" />}>
-            <ClassOverview rows={summary.classOverview} />
+            <ClassOverview rows={summary.classOverview} selectedScope={scope} />
           </Suspense>
 
           <section className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1.15fr)_minmax(320px,0.85fr)]">

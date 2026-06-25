@@ -1,6 +1,41 @@
-import { useState, useMemo } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { Button } from "./ui/button";
 import { TrashIcon } from "lucide-react";
+
+function rowIncludesSearch(row, searchTerm) {
+  return Object.values(row)
+    .map((value) => {
+      if (value === null || value === undefined) return "";
+      if (typeof value === "object") return "";
+      return String(value);
+    })
+    .join(" ")
+    .toLowerCase()
+    .includes(searchTerm.toLowerCase());
+}
+
+function HighlightedText({ value, searchTerm }) {
+  const text = String(value ?? "");
+  const safeSearch = String(searchTerm || "").trim();
+  if (!safeSearch) return text;
+
+  const index = text.toLowerCase().indexOf(safeSearch.toLowerCase());
+  if (index < 0) return text;
+
+  const before = text.slice(0, index);
+  const match = text.slice(index, index + safeSearch.length);
+  const after = text.slice(index + safeSearch.length);
+
+  return (
+    <>
+      {before}
+      <span className="mx-0.5 inline-flex rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-800 ring-1 ring-amber-200 dark:bg-amber-500/20 dark:text-amber-100 dark:ring-amber-400/30">
+        {match}
+      </span>
+      {after}
+    </>
+  );
+}
 
 export default function DataTable({
   columns,
@@ -20,7 +55,7 @@ export default function DataTable({
   onRowClick,
   renderActions
 }) {
-  const [search] = useState("");
+  const [pageSearch, setPageSearch] = useState("");
   const normalizedInitialPage = Number(page);
   const normalizedInitialRowsPerPage = Number(rowsPerPageProp);
 
@@ -56,13 +91,25 @@ export default function DataTable({
       ? normalizedRowsPerPage
       : rowsPerPage;
 
+  useEffect(() => {
+    function handlePageSearch(event) {
+      const nextSearch = String(event.detail?.query || "").trim();
+      setPageSearch(nextSearch);
+      if (nextSearch && !isServerPagination && !isClientPageControlled) {
+        setCurrentPage(1);
+      }
+    }
+
+    window.addEventListener("lms:page-search", handlePageSearch);
+    return () => window.removeEventListener("lms:page-search", handlePageSearch);
+  }, [isClientPageControlled, isServerPagination]);
+
   // Filtering
   const filteredData = useMemo(() => {
-    if (isServerPagination) return data;
-    return data.filter((row) =>
-      Object.values(row).join(" ").toLowerCase().includes(search.toLowerCase()),
-    );
-  }, [search, data, isServerPagination]);
+    const searchTerm = pageSearch.trim();
+    if (!searchTerm) return data;
+    return data.filter((row) => rowIncludesSearch(row, searchTerm));
+  }, [data, pageSearch]);
 
   // Pagination
   const totalPages = isServerPagination
@@ -171,11 +218,16 @@ export default function DataTable({
           </thead>
 
           <tbody>
-            {paginatedData.map((row) => (
+            {paginatedData.map((row) => {
+              const rowMatchesSearch = pageSearch && rowIncludesSearch(row, pageSearch);
+
+              return (
               <tr
                 key={row.id}
                 data-row-id={row.id}
-                className="border-b transition-colors hover:bg-muted/35"
+                className={`border-b transition-colors hover:bg-muted/35 ${
+                  rowMatchesSearch ? "bg-amber-50/70 dark:bg-amber-500/10" : ""
+                }`}
                 onClick={() => onRowClick?.(row)}
               >
                 <td className="w-10 px-2 py-3 text-center">
@@ -187,7 +239,7 @@ export default function DataTable({
                   />
                 </td>
 
-                {columns.map((col) => {
+                {columns.map((col, colIndex) => {
                   const cellValue = row[col.accessor];
                   const renderedValue = typeof col.cell === "function"
                     ? col.cell(row)
@@ -212,10 +264,17 @@ export default function DataTable({
                           {row[col.accessor]}
                         </span>
                       ) : isReactNode(renderedValue) ? (
-                        renderedValue
+                        <div className="space-y-1">
+                          {colIndex === 0 && rowMatchesSearch ? (
+                            <span className="inline-flex rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-800 ring-1 ring-amber-200 dark:bg-amber-500/20 dark:text-amber-100 dark:ring-amber-400/30">
+                              Match: {pageSearch}
+                            </span>
+                          ) : null}
+                          {renderedValue}
+                        </div>
                       ) : (
                         <span className="block max-w-full overflow-hidden text-ellipsis whitespace-nowrap">
-                          {renderedValue}
+                          <HighlightedText value={renderedValue} searchTerm={pageSearch} />
                         </span>
                       )}
                     </td>
@@ -240,7 +299,8 @@ export default function DataTable({
                   </td>
                 )}
               </tr>
-            ))}
+              );
+            })}
 
             {paginatedData.length === 0 && (
               <tr>
@@ -248,7 +308,7 @@ export default function DataTable({
                   colSpan={columns.length + 2}
                   className="p-5 text-center text-muted-foreground"
                 >
-                  No data found
+                  {pageSearch ? `No current-page matches for "${pageSearch}"` : "No data found"}
                 </td>
               </tr>
             )}

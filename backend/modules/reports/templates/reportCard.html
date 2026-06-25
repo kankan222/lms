@@ -13,10 +13,36 @@
   }
 
   .header {
-    text-align: center;
     border-bottom: 2px solid #0f172a;
     padding-bottom: 14px;
     margin-bottom: 18px;
+  }
+
+  .header-row {
+    display: grid;
+    grid-template-columns: 132px 1fr 120px;
+    align-items: end;
+    gap: 18px;
+  }
+
+  .logo {
+    width: 124px;
+    height: 104px;
+    object-fit: contain;
+  }
+
+  .header-main {
+    text-align: center;
+  }
+
+  .issued-date {
+    text-align: right;
+    font-size: 14px;
+    font-weight: 700;
+    color: #334155;
+    line-height: 1.2;
+    padding-bottom: 2px;
+    white-space: nowrap;
   }
 
   .school-name {
@@ -33,7 +59,7 @@
   }
 
   .address {
-    font-size: 13px;
+    font-size: 15px;
     color: #334155;
   }
 
@@ -133,18 +159,27 @@
   }
 
   .signature-line {
-    border-top: 1px solid #0f172a;
-    padding-top: 6px;
     font-weight: 700;
+    line-height: 1.35;
   }
 </style>
 </head>
 <body>
   <div class="header">
-    <div class="school-name">Kalong Kapili Vidyapith</div>
-    <div class="section-name">{{sectionTitle}}</div>
-    <div class="address">Address: {{sectionAddress}}</div>
-    <div class="title">Report Card</div>
+    <div class="header-row">
+      <div>
+        <img class="logo" src="{{schoolLogo}}" alt="Kalong Kapili Vidyapith logo" />
+      </div>
+      <div class="header-main">
+        <div class="school-name">Kalong Kapili Vidyapith</div>
+        <div class="section-name">{{sectionTitle}}</div>
+        <div class="address">Address: {{sectionAddress}}</div>
+        <div class="title">Report Card</div>
+      </div>
+      <div class="issued-date">
+        Date: {{issuedDate}}
+      </div>
+    </div>
   </div>
 
   <table class="details">
@@ -180,12 +215,12 @@
   <div class="summary">
     <div class="summary-box">
       <div class="summary-row">
-        <span class="summary-label">Total Obtained</span>
-        <span>{{total}}</span>
-      </div>
-      <div class="summary-row">
         <span class="summary-label">Total Marks</span>
         <span>{{maxTotal}}</span>
+      </div>
+      <div class="summary-row">
+        <span class="summary-label">Marks Obtained</span>
+        <span>{{total}}</span>
       </div>
       <div class="summary-row">
         <span class="summary-label">Percentage</span>
@@ -197,7 +232,11 @@
   <div class="signature-area">
     <div class="signature-block">
       <img class="signature-image" src="{{signatureImage}}" alt="{{signatureLabel}}" />
-      <div class="signature-line">{{signatureLabel}}</div>
+      <div class="signature-line">
+        {{signatureLabel}}<br />
+        Kalong Kapili Vidyapith<br />
+        Nagaon (Assam)
+      </div>
     </div>
   </div>
 </body>

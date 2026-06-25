@@ -38,10 +38,13 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Skeleton } from "@/components/ui/skeleton";
 
 const Subjects = () => {
 
   const [subjects, setSubjects] = useState([]);
+  const [subjectsLoading, setSubjectsLoading] = useState(true);
+  const [subjectsError, setSubjectsError] = useState("");
   
   const [createOpen, setCreateOpen] = useState(false);
   const [editingSubject, setEditingSubject] = useState(null);
@@ -59,13 +62,24 @@ const Subjects = () => {
     setNotice({ title, message, variant });
   }
 
-  async function loadSubjects() {
-    const res = await getSubjects();
-    setSubjects(res.data);
+  async function loadSubjects({ showSkeleton = false } = {}) {
+    if (showSkeleton) {
+      setSubjectsLoading(true);
+    }
+    setSubjectsError("");
+
+    try {
+      const res = await getSubjects();
+      setSubjects(res.data);
+    } catch (err) {
+      setSubjectsError(err?.message || "Failed to load subjects.");
+    } finally {
+      setSubjectsLoading(false);
+    }
   }
 
   const loadInitialSubjects = useEffectEvent(() => {
-    loadSubjects();
+    loadSubjects({ showSkeleton: true });
   });
 
   useEffect(() => {
@@ -227,49 +241,82 @@ const Subjects = () => {
 
       {/* SUBJECT LIST */}
 
-      <div className="grid grid-cols-3 gap-2">
+      {subjectsError && (
+        <Alert variant="destructive" className="mb-4">
+          <AlertTitle>Unable to load subjects</AlertTitle>
+          <AlertDescription>{subjectsError}</AlertDescription>
+        </Alert>
+      )}
 
-        {subjects.map((data) => (
+      <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
 
-          <div
-            key={data.id}
-            className="flex bg-secondary border border-border rounded-sm px-5 py-5 gap-2.5 items-start w-full"
-          >
-
-            <div>
-              <Button size="icon">
-                <Book />
-              </Button>
-            </div>
-
-            <div className="flex-1">
-              <p className="text-xl font-bold">{data.name}</p>
-              <p className="text-sm">CODE : {data.code}</p>
-            </div>
-
-            <div className="flex gap-2 items-center">
-
-              <Button
-                variant="outline"
-                onClick={() => setEditingSubject(data)}
+        {subjectsLoading
+          ? Array.from({ length: 6 }).map((_, index) => (
+              <div
+                key={`subject-skeleton-${index}`}
+                className="flex bg-secondary border border-border rounded-sm px-5 py-5 gap-2.5 items-start w-full"
               >
-                Edit
-              </Button>
+                <Skeleton className="h-10 w-10 rounded-md" />
+                <div className="flex-1 space-y-3 pt-1">
+                  <Skeleton className="h-5 w-2/3" />
+                  <Skeleton className="h-4 w-1/3" />
+                </div>
+                <div className="flex gap-2 items-center">
+                  <Skeleton className="h-9 w-16" />
+                  <Skeleton className="h-9 w-9" />
+                </div>
+              </div>
+            ))
+          : subjects.map((data) => (
 
-              <Button
-                variant="destructive"
-                onClick={() => setDeletingSubject(data)}
+              <div
+                key={data.id}
+                className="flex bg-secondary border border-border rounded-sm px-5 py-5 gap-2.5 items-start w-full"
               >
-                <TrashIcon />
-              </Button>
 
-            </div>
+                <div>
+                  <Button size="icon">
+                    <Book />
+                  </Button>
+                </div>
 
-          </div>
+                <div className="flex-1">
+                  <p className="text-xl font-bold">{data.name}</p>
+                  <p className="text-sm">CODE : {data.code}</p>
+                </div>
 
-        ))}
+                <div className="flex gap-2 items-center">
+
+                  <Button
+                    variant="outline"
+                    onClick={() => setEditingSubject(data)}
+                  >
+                    Edit
+                  </Button>
+
+                  <Button
+                    variant="destructive"
+                    onClick={() => setDeletingSubject(data)}
+                  >
+                    <TrashIcon />
+                  </Button>
+
+                </div>
+
+              </div>
+
+            ))}
 
       </div>
+
+      {!subjectsLoading && !subjectsError && subjects.length === 0 && (
+        <div className="mt-4 rounded-sm border border-dashed border-border bg-secondary/50 px-6 py-10 text-center">
+          <p className="text-sm font-medium text-foreground">No subjects found.</p>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Add a subject to start building the subject master list.
+          </p>
+        </div>
+      )}
 
       {/* EDIT DIALOG */}
 
