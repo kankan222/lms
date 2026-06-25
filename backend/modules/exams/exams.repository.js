@@ -5,6 +5,7 @@ let examScopesClassOnlySchemaStatusCache;
 let examSubjectSplitSchemaStatusCache;
 let marksEntrySplitSchemaStatusCache;
 let studentExamSubjectsTableCache;
+let subjectRegistrationTablesCache;
 
 async function supportsScopesTable() {
   if (typeof supportsScopesTableCache === "boolean") {
@@ -86,7 +87,8 @@ export async function getExamSubjectSplitSchemaStatus() {
         SUM(COLUMN_NAME = 'theory_max') AS has_theory_max,
         SUM(COLUMN_NAME = 'theory_pass') AS has_theory_pass,
         SUM(COLUMN_NAME = 'practical_max') AS has_practical_max,
-        SUM(COLUMN_NAME = 'practical_pass') AS has_practical_pass
+        SUM(COLUMN_NAME = 'practical_pass') AS has_practical_pass,
+        SUM(COLUMN_NAME = 'subject_offering_id') AS has_subject_offering_id
       FROM information_schema.COLUMNS
       WHERE TABLE_SCHEMA = DATABASE()
         AND TABLE_NAME = 'exam_subjects'
@@ -95,7 +97,8 @@ export async function getExamSubjectSplitSchemaStatus() {
           'theory_max',
           'theory_pass',
           'practical_max',
-          'practical_pass'
+          'practical_pass',
+          'subject_offering_id'
         )
     `
   );
@@ -106,6 +109,7 @@ export async function getExamSubjectSplitSchemaStatus() {
     hasTheoryPass: Number(rows[0]?.has_theory_pass || 0) > 0,
     hasPracticalMax: Number(rows[0]?.has_practical_max || 0) > 0,
     hasPracticalPass: Number(rows[0]?.has_practical_pass || 0) > 0,
+    hasSubjectOfferingId: Number(rows[0]?.has_subject_offering_id || 0) > 0,
   };
 
   examSubjectSplitSchemaStatusCache = status;
@@ -154,6 +158,24 @@ export async function supportsStudentExamSubjectsTable() {
 
   studentExamSubjectsTableCache = Number(rows[0]?.total || 0) > 0;
   return studentExamSubjectsTableCache;
+}
+
+async function supportsSubjectRegistrationTables() {
+  if (typeof subjectRegistrationTablesCache === "boolean") {
+    return subjectRegistrationTablesCache;
+  }
+
+  const rows = await query(
+    `
+      SELECT COUNT(*) AS total
+      FROM information_schema.TABLES
+      WHERE TABLE_SCHEMA = DATABASE()
+        AND TABLE_NAME IN ('subject_offerings', 'student_subject_registrations')
+    `
+  );
+
+  subjectRegistrationTablesCache = Number(rows[0]?.total || 0) === 2;
+  return subjectRegistrationTablesCache;
 }
 
 export async function getTeacherProfileByUser(userId) {
@@ -337,12 +359,14 @@ export async function getExamSubjects(examId) {
   const theoryPassExpr = supportsSplitSchema ? "es.theory_pass" : "NULL";
   const practicalMaxExpr = supportsSplitSchema ? "es.practical_max" : "NULL";
   const practicalPassExpr = supportsSplitSchema ? "es.practical_pass" : "NULL";
+  const subjectOfferingExpr = schema.hasSubjectOfferingId ? "es.subject_offering_id" : "NULL";
 
   return query(
     `SELECT
       es.id,
       es.exam_id,
       es.subject_id,
+      ${subjectOfferingExpr} AS subject_offering_id,
       ${markPatternExpr} AS mark_pattern,
       es.max_marks,
       es.pass_marks,
@@ -357,6 +381,59 @@ export async function getExamSubjects(examId) {
      ORDER BY sub.name ASC`,
     [examId]
   );
+}
+
+export async function attachUniqueSubjectOfferingIds(conn, scopes, subjects) {
+  const schema = await getExamSubjectSplitSchemaStatus();
+  if (!schema.hasSubjectOfferingId || !Array.isArray(scopes) || !scopes.length) {
+    return subjects;
+  }
+
+  const scopeClauses = [];
+  const params = [];
+
+  scopes.forEach((scope) => {
+    const classId = Number(scope.class_id);
+    if (!classId) return;
+
+    const sectionId =
+      scope.section_id === null || scope.section_id === undefined || String(scope.section_id).trim() === ""
+        ? null
+        : Number(scope.section_id);
+
+    scopeClauses.push(
+      "(so.class_id = ? AND (so.section_id IS NULL OR ? IS NULL OR so.section_id = ?))"
+    );
+    params.push(classId, sectionId, sectionId);
+  });
+
+  if (!scopeClauses.length) return subjects;
+
+  const resolvedSubjects = [];
+  for (const subject of subjects) {
+    if (subject.subject_offering_id) {
+      resolvedSubjects.push(subject);
+      continue;
+    }
+
+    const [rows] = await conn.execute(
+      `SELECT so.id
+       FROM subject_offerings so
+       WHERE so.is_active = TRUE
+         AND so.subject_id = ?
+         AND (${scopeClauses.join(" OR ")})
+       GROUP BY so.id
+       LIMIT 2`,
+      [subject.subject_id, ...params]
+    );
+
+    resolvedSubjects.push({
+      ...subject,
+      subject_offering_id: rows.length === 1 ? Number(rows[0].id) : null,
+    });
+  }
+
+  return resolvedSubjects;
 }
 
 export async function replaceExamSubjects(conn, examId, subjects) {
@@ -375,6 +452,7 @@ export async function replaceExamSubjects(conn, examId, subjects) {
     const values = subjects.map((s) => [
       examId,
       s.subject_id,
+      ...(schema.hasSubjectOfferingId ? [s.subject_offering_id ?? null] : []),
       s.mark_pattern || "single",
       s.max_marks,
       s.pass_marks,
@@ -389,6 +467,7 @@ export async function replaceExamSubjects(conn, examId, subjects) {
        (
          exam_id,
          subject_id,
+         ${schema.hasSubjectOfferingId ? "subject_offering_id," : ""}
          mark_pattern,
          max_marks,
          pass_marks,
@@ -403,9 +482,21 @@ export async function replaceExamSubjects(conn, examId, subjects) {
     return;
   }
 
-  const values = subjects.map((s) => [examId, s.subject_id, s.max_marks, s.pass_marks]);
+  const values = subjects.map((s) => [
+    examId,
+    s.subject_id,
+    ...(schema.hasSubjectOfferingId ? [s.subject_offering_id ?? null] : []),
+    s.max_marks,
+    s.pass_marks,
+  ]);
   await conn.query(
-    `INSERT INTO exam_subjects (exam_id, subject_id, max_marks, pass_marks)
+    `INSERT INTO exam_subjects (
+       exam_id,
+       subject_id,
+       ${schema.hasSubjectOfferingId ? "subject_offering_id," : ""}
+       max_marks,
+       pass_marks
+     )
      VALUES ?`,
     [values]
   );
@@ -499,9 +590,46 @@ export async function getAllowedTeacherScopes(userId, examId) {
 
 export async function getStudentsForScope(examId, classId, sectionId, name = "", subjectId = null) {
   const hasStudentExamSubjects = await supportsStudentExamSubjectsTable();
+  const hasSubjectRegistrations = await supportsSubjectRegistrationTables();
 
   const params = [classId, sectionId, sectionId, examId];
   const nameSql = name ? `AND st.name LIKE ?` : "";
+  const registeredSubjectSql =
+    hasSubjectRegistrations && subjectId
+      ? `AND (
+           NOT EXISTS (
+             SELECT 1
+             FROM subject_offerings so_any
+             WHERE so_any.is_active = TRUE
+               AND so_any.class_id = se.class_id
+               AND (so_any.section_id IS NULL OR so_any.section_id = se.section_id)
+               AND (so_any.stream_id IS NULL OR so_any.stream_id <=> se.stream_id)
+               AND so_any.subject_id = ?
+           )
+           OR EXISTS (
+             SELECT 1
+             FROM subject_offerings so_required
+             WHERE so_required.is_active = TRUE
+               AND so_required.subject_group = 'compulsory'
+               AND so_required.class_id = se.class_id
+               AND (so_required.section_id IS NULL OR so_required.section_id = se.section_id)
+               AND (so_required.stream_id IS NULL OR so_required.stream_id <=> se.stream_id)
+               AND so_required.subject_id = ?
+           )
+           OR EXISTS (
+             SELECT 1
+             FROM student_subject_registrations ssr
+             JOIN subject_offerings so_match ON so_match.id = ssr.subject_offering_id
+             WHERE ssr.student_id = st.id
+               AND ssr.status = 'active'
+               AND so_match.is_active = TRUE
+               AND so_match.class_id = se.class_id
+               AND (so_match.section_id IS NULL OR so_match.section_id = se.section_id)
+               AND (so_match.stream_id IS NULL OR so_match.stream_id <=> se.stream_id)
+               AND so_match.subject_id = ?
+           )
+         )`
+      : "";
   const studentSubjectSql =
     hasStudentExamSubjects && subjectId
       ? `AND (
@@ -522,6 +650,7 @@ export async function getStudentsForScope(examId, classId, sectionId, name = "",
       : "";
 
   if (name) params.push(`%${name}%`);
+  if (hasSubjectRegistrations && subjectId) params.push(subjectId, subjectId, subjectId);
   if (hasStudentExamSubjects && subjectId) params.push(subjectId);
 
   return query(
@@ -542,6 +671,7 @@ export async function getStudentsForScope(examId, classId, sectionId, name = "",
      JOIN students st ON st.id = se.student_id
      WHERE e.id = ?
        ${nameSql}
+       ${registeredSubjectSql}
        ${studentSubjectSql}
      ORDER BY se.roll_number ASC, st.name ASC`,
     params
@@ -595,12 +725,14 @@ export async function getExamSubject(examId, subjectId) {
   const theoryPassExpr = supportsSplitSchema ? "theory_pass" : "NULL";
   const practicalMaxExpr = supportsSplitSchema ? "practical_max" : "NULL";
   const practicalPassExpr = supportsSplitSchema ? "practical_pass" : "NULL";
+  const subjectOfferingExpr = schema.hasSubjectOfferingId ? "subject_offering_id" : "NULL";
 
   const rows = await query(
     `SELECT
       id,
       exam_id,
       subject_id,
+      ${subjectOfferingExpr} AS subject_offering_id,
       ${markPatternExpr} AS mark_pattern,
       max_marks,
       pass_marks,
@@ -781,6 +913,7 @@ export async function getStudentReportRows(examId, studentId, onlyApproved = tru
   const marksSchema = await getMarksEntrySplitSchemaStatus();
   const supportsSplitMarksSchema = marksSchema.hasTheoryMarks && marksSchema.hasPracticalMarks;
   const hasStudentExamSubjects = await supportsStudentExamSubjectsTable();
+  const hasSubjectRegistrations = await supportsSubjectRegistrationTables();
 
   const markPatternExpr = supportsSplitSubjectSchema ? "es.mark_pattern" : "'single'";
   const theoryMaxExpr = supportsSplitSubjectSchema ? "es.theory_max" : "NULL";
@@ -803,6 +936,41 @@ export async function getStudentReportRows(examId, studentId, onlyApproved = tru
            WHERE ses_match.exam_id = e.id
              AND ses_match.student_id = st.id
              AND ses_match.subject_id = es.subject_id
+         )
+       )`
+    : "";
+  const registeredSubjectFilterSql = hasSubjectRegistrations
+    ? `AND (
+         NOT EXISTS (
+           SELECT 1
+           FROM subject_offerings so_any
+           WHERE so_any.is_active = TRUE
+             AND so_any.class_id = se.class_id
+             AND (so_any.section_id IS NULL OR so_any.section_id = se.section_id)
+             AND (so_any.stream_id IS NULL OR so_any.stream_id <=> se.stream_id)
+             AND so_any.subject_id = es.subject_id
+         )
+         OR EXISTS (
+           SELECT 1
+           FROM subject_offerings so_required
+           WHERE so_required.is_active = TRUE
+             AND so_required.subject_group = 'compulsory'
+             AND so_required.class_id = se.class_id
+             AND (so_required.section_id IS NULL OR so_required.section_id = se.section_id)
+             AND (so_required.stream_id IS NULL OR so_required.stream_id <=> se.stream_id)
+             AND so_required.subject_id = es.subject_id
+         )
+         OR EXISTS (
+           SELECT 1
+           FROM student_subject_registrations ssr
+           JOIN subject_offerings so_match ON so_match.id = ssr.subject_offering_id
+           WHERE ssr.student_id = st.id
+             AND ssr.status = 'active'
+             AND so_match.is_active = TRUE
+             AND so_match.class_id = se.class_id
+             AND (so_match.section_id IS NULL OR so_match.section_id = se.section_id)
+             AND (so_match.stream_id IS NULL OR so_match.stream_id <=> se.stream_id)
+             AND so_match.subject_id = es.subject_id
          )
        )`
     : "";
@@ -853,6 +1021,7 @@ export async function getStudentReportRows(examId, studentId, onlyApproved = tru
            AND (sc.section_id IS NULL OR sc.section_id = se.section_id)
        )
        ${approvalClause}
+       ${registeredSubjectFilterSql}
        ${studentSubjectFilterSql}
      ORDER BY sub.name ASC`,
     [studentId, examId]

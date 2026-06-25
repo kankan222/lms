@@ -30,7 +30,7 @@ function resolveSemanticVariant({ variant, type, children }) {
 
   const label = extractButtonText(children).trim().toLowerCase();
 
-  if (/^(save|update|submit|approve|assign|send)\b/.test(label)) {
+  if (/^(save|update|submit|approve|send)\b/.test(label)) {
     return "success";
   }
 

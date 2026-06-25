@@ -25,7 +25,6 @@ const config: ExpoConfig = {
     versionCode: 2,
     blockedPermissions: [
       "android.permission.CAMERA",
-      "android.permission.RECORD_AUDIO",
     ],
     adaptiveIcon: {
       foregroundImage: "./assets/logo.png",
@@ -37,7 +36,16 @@ const config: ExpoConfig = {
   web: {
     favicon: "./assets/logo.png",
   },
-  plugins: ["expo-secure-store", "expo-font"],
+  plugins: [
+    "expo-secure-store",
+    "expo-font",
+    [
+      "expo-audio",
+      {
+        microphonePermission: "Allow Kalong Kapili Vidyapith to record voice messages.",
+      },
+    ],
+  ],
   extra: {
     apiBaseUrl: process.env.EXPO_PUBLIC_API_BASE_URL,
     eas: {

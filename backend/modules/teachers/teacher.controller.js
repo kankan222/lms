@@ -185,12 +185,11 @@ export async function deleteTeacher(req, res, next) {
 
 export async function assignTeacher(req, res, next) {
   try {
-    console.log("Controller", req.body, res)
-    await service.assignTeacher({
+    const data = await service.assignTeacher({
       teacherId: req.params.id,
       ...req.body
     });
-    res.json({ success: true });
+    res.json({ success: true, data });
   } catch (err) {
     next(err);
   }

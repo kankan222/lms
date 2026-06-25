@@ -1,6 +1,7 @@
 import express from "express";
 import * as controller from "./messaging.controller.js";
 import { requirePermission } from "../../core/rbac/rbac.middleware.js";
+import { uploadMessageFiles } from "./messaging.upload.js";
 
 const router = express.Router();
 
@@ -22,6 +23,102 @@ router.get(
 router.get(
   "/stream",
   controller.streamMessages
+);
+router.post(
+  "/attachments",
+  requirePermission("messages.send"),
+  uploadMessageFiles,
+  controller.uploadAttachments
+);
+router.get(
+  "/attachments/:attachmentId/access",
+  requirePermission("messages.view"),
+  controller.getAttachmentAccess
+);
+router.get(
+  "/attachments/:attachmentId/content",
+  requirePermission("messages.view"),
+  controller.streamAttachment
+);
+router.get(
+  "/moderation/reports",
+  requirePermission("messages.moderate"),
+  controller.listReports
+);
+router.patch(
+  "/moderation/reports/:reportId",
+  requirePermission("messages.moderate"),
+  controller.resolveReport
+);
+router.get(
+  "/moderation/audit",
+  requirePermission("messages.moderate"),
+  controller.getAudit
+);
+router.post(
+  "/moderation/users/:userId/suspend",
+  requirePermission("messages.moderate"),
+  controller.suspendUser
+);
+router.delete(
+  "/moderation/users/:userId/suspend",
+  requirePermission("messages.moderate"),
+  controller.unsuspendUser
+);
+router.get(
+  "/conversations/:conversationId/export",
+  requirePermission("messages.export"),
+  controller.exportConversation
+);
+router.get(
+  "/moderation/conversations/:conversationId/members",
+  requirePermission("messages.moderate"),
+  controller.listConversationMembers
+);
+router.post(
+  "/moderation/conversations/:conversationId/members",
+  requirePermission("messages.moderate"),
+  controller.addConversationMember
+);
+router.delete(
+  "/moderation/conversations/:conversationId/members/:userId",
+  requirePermission("messages.moderate"),
+  controller.removeConversationMember
+);
+router.delete(
+  "/moderation/attachments/:attachmentId",
+  requirePermission("messages.moderate"),
+  controller.removeAttachment
+);
+router.get(
+  "/conversations/:conversationId/search",
+  requirePermission("messages.view"),
+  controller.searchMessages
+);
+router.post(
+  "/conversations/:conversationId/typing",
+  requirePermission("messages.send"),
+  controller.typing
+);
+router.get(
+  "/conversations/:conversationId/typing",
+  requirePermission("messages.view"),
+  controller.getTyping
+);
+router.patch(
+  "/messages/:messageId",
+  requirePermission("messages.send"),
+  controller.editMessage
+);
+router.delete(
+  "/messages/:messageId",
+  requirePermission("messages.view"),
+  controller.deleteMessage
+);
+router.post(
+  "/messages/:messageId/report",
+  requirePermission("messages.view"),
+  controller.reportMessage
 );
 router.post(
   "/",

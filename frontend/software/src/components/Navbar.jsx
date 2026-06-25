@@ -1,6 +1,6 @@
 ﻿import { Link, useNavigate } from "react-router-dom";
 import { useEffect, useMemo, useState } from "react";
-import { Moon, User, Settings, LogOut, Sun, Mail, Bell, Search } from "lucide-react";
+import { Moon, User, Settings, LogOut, Sun, Mail, Bell, Search, Globe } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
@@ -22,7 +22,7 @@ import {
 import { Separator } from "@/components/ui/separator";
 import { useAuth } from "../hooks/useAuth";
 import { useNotifications } from "../notifications/useNotifications";
-import { appRoutes } from "../routes/RouteConfig";
+import { navSections } from "../routes/RouteConfig";
 import { getStudents } from "../api/students.api";
 import { getTeachers } from "../api/teachers.api";
 import { listStaff } from "../api/staff.api";
@@ -57,7 +57,8 @@ const Navbar = () => {
   const roles = useMemo(() => (Array.isArray(user?.roles) ? user.roles : []), [user?.roles]);
 
   const searchableRoutes = useMemo(() => {
-    const routes = appRoutes
+    const routes = navSections
+      .flatMap((section) => section.items.map((route) => ({ ...route, section: section.title })))
       .filter((route) => {
         if (route.hideForRoles?.some((role) => roles.includes(role))) {
           return false;
@@ -70,10 +71,10 @@ const Navbar = () => {
       .map((route) =>
         buildSearchEntry({
           label: route.title,
-          path: route.path,
+          path: route.to || route.path,
           type: "Module",
-          keywords: [route.title, route.path.replace("/", " ")],
-          meta: route.path,
+          keywords: [route.title, route.path.replace("/", " "), route.section],
+          meta: route.section,
         }),
       );
 
@@ -345,6 +346,17 @@ const Navbar = () => {
         </div>
       </header>
       <div className="flex items-center gap-2 mr-1.5">
+        <Button variant="outline" size="icon" asChild>
+          <a
+            href="https://kalongkapilividyapith.com"
+            target="_blank"
+            rel="noreferrer"
+            aria-label="Open main website"
+            title="Open main website"
+          >
+            <Globe />
+          </a>
+        </Button>
         <Link to="/messaging">
           <Button variant="outline" size="icon">
             <Mail />

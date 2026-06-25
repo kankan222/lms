@@ -55,7 +55,9 @@ function buildEndpoint(baseUrl, endpointPath) {
     throw new Error("ATTENDANCE_SYNC_VPS_BASE_URL is required");
   }
 
-  const normalizedPath = String(endpointPath || "/sync/teacher-attendance/logs").trim();
+  const normalizedPath = String(
+    endpointPath || "/api/v1/sync/teacher-attendance/logs"
+  ).trim();
   return new URL(normalizedPath, normalizedBaseUrl).toString();
 }
 

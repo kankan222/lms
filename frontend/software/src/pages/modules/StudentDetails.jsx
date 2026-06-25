@@ -13,6 +13,10 @@ import {
   getExams,
 } from "../../api/exam.api";
 import {
+  getStudentSubjectRegistrations,
+  replaceStudentSubjectRegistrations,
+} from "../../api/subjects.api";
+import {
   downloadMyMarksheet,
   getAccessibleExams,
   getMyResults,
@@ -115,6 +119,16 @@ const StudentDetails = () => {
   const [parentSaveError, setParentSaveError] = useState("");
   const [parentSaveMessage, setParentSaveMessage] = useState("");
   const [savingParents, setSavingParents] = useState(false);
+  const [subjectSelection, setSubjectSelection] = useState({
+    enrollment: null,
+    offerings: [],
+  });
+  const [selectedOfferingIds, setSelectedOfferingIds] = useState([]);
+  const [subjectSelectionLoading, setSubjectSelectionLoading] = useState(false);
+  const [subjectSelectionSaving, setSubjectSelectionSaving] = useState(false);
+  const [subjectSelectionError, setSubjectSelectionError] = useState("");
+  const [subjectSelectionMessage, setSubjectSelectionMessage] = useState("");
+  const canEditSubjectSelection = !isParent && can("student.update");
 
   const loadStudent = useEffectEvent(async () => {
     setLoading(true);
@@ -179,6 +193,35 @@ const StudentDetails = () => {
     }
   });
 
+  async function loadSubjectSelection(studentId) {
+    setSubjectSelectionLoading(true);
+    setSubjectSelectionError("");
+    setSubjectSelectionMessage("");
+
+    try {
+      const res = await getStudentSubjectRegistrations(studentId);
+      const data = res?.data || { enrollment: null, offerings: [] };
+      const offerings = Array.isArray(data.offerings) ? data.offerings : [];
+
+      setSubjectSelection({
+        enrollment: data.enrollment || null,
+        offerings,
+      });
+      setSelectedOfferingIds(
+        offerings
+          .filter((offering) => offering.auto_required || offering.registration_id)
+          .map((offering) => Number(offering.id))
+          .filter((offeringId) => Number.isFinite(offeringId)),
+      );
+    } catch (err) {
+      setSubjectSelection({ enrollment: null, offerings: [] });
+      setSelectedOfferingIds([]);
+      setSubjectSelectionError(err?.message || "Failed to load subject choices.");
+    } finally {
+      setSubjectSelectionLoading(false);
+    }
+  }
+
   useEffect(() => {
     loadStudent();
   }, [id]);
@@ -199,6 +242,11 @@ const StudentDetails = () => {
     if (!student?.id) return;
     loadAttendance(student.id);
   }, [student?.id, attendanceFilters.status, attendanceFilters.approval_status, attendanceFilters.date_from, attendanceFilters.date_to]);
+
+  useEffect(() => {
+    if (!student?.id) return;
+    loadSubjectSelection(student.id);
+  }, [student?.id]);
 
   async function loadFinance(studentId) {
     setFinanceError("");
@@ -396,6 +444,41 @@ const StudentDetails = () => {
     }
   }
 
+  function toggleSubjectOffering(offering) {
+    if (offering.auto_required || !canEditSubjectSelection) return;
+
+    const offeringId = Number(offering.id);
+    if (!Number.isFinite(offeringId)) return;
+
+    setSubjectSelectionMessage("");
+    setSubjectSelectionError("");
+    setSelectedOfferingIds((prev) =>
+      prev.includes(offeringId)
+        ? prev.filter((id) => id !== offeringId)
+        : [...prev, offeringId],
+    );
+  }
+
+  async function handleSaveSubjectSelection() {
+    if (!student?.id || subjectSelectionSaving || !canEditSubjectSelection) return;
+
+    setSubjectSelectionSaving(true);
+    setSubjectSelectionError("");
+    setSubjectSelectionMessage("");
+
+    try {
+      await replaceStudentSubjectRegistrations(student.id, {
+        offering_ids: selectedOfferingIds,
+      });
+      await loadSubjectSelection(student.id);
+      setSubjectSelectionMessage("Subject selection updated.");
+    } catch (err) {
+      setSubjectSelectionError(err?.message || "Failed to save subject selection.");
+    } finally {
+      setSubjectSelectionSaving(false);
+    }
+  }
+
   function handleCancelParentEdit() {
     setIsEditingParents(false);
     setParentSaveError("");
@@ -509,9 +592,10 @@ const StudentDetails = () => {
       </div>
 
       <Tabs defaultValue="overview" className="mt-5">
-        <TabsList className="grid w-full grid-cols-2 md:grid-cols-5">
+        <TabsList className="grid w-full grid-cols-2 md:grid-cols-6">
           <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="parents">Parents</TabsTrigger>
+          <TabsTrigger value="subjects">Subject Selection</TabsTrigger>
           <TabsTrigger value="attendance">Attendance</TabsTrigger>
           <TabsTrigger value="fees">Fees & Payments</TabsTrigger>
           <TabsTrigger value="reports">Reports</TabsTrigger>
@@ -684,6 +768,108 @@ const StudentDetails = () => {
                 </>
               )}
             </div>
+          </div>
+        </TabsContent>
+
+        <TabsContent value="subjects" className="mt-4">
+          <div className="rounded-xl border bg-card p-4 space-y-4">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <h3 className="font-semibold">Subject Selection</h3>
+                <p className="text-sm text-muted-foreground">
+                  Choose this student&apos;s elective or optional subjects. Compulsory subjects are always included.
+                </p>
+              </div>
+
+              {canEditSubjectSelection ? (
+                <Button
+                  className="rounded-xl shadow-sm"
+                  onClick={handleSaveSubjectSelection}
+                  disabled={subjectSelectionSaving || subjectSelectionLoading}
+                >
+                  {subjectSelectionSaving ? "Saving..." : "Save Subjects"}
+                </Button>
+              ) : null}
+            </div>
+
+            {subjectSelection.enrollment ? (
+              <div className="flex flex-wrap gap-2">
+                <Badge variant="outline">{subjectSelection.enrollment.class_name || student.class || "-"}</Badge>
+                <Badge variant="outline">{subjectSelection.enrollment.section_name || student.section || "-"}</Badge>
+                {subjectSelection.enrollment.stream_name ? (
+                  <Badge variant="outline">{subjectSelection.enrollment.stream_name}</Badge>
+                ) : null}
+              </div>
+            ) : null}
+
+            {subjectSelectionError ? (
+              <p className="text-sm text-red-700 dark:text-red-200">{subjectSelectionError}</p>
+            ) : null}
+            {subjectSelectionMessage ? (
+              <p className="text-sm text-emerald-700 dark:text-emerald-200">{subjectSelectionMessage}</p>
+            ) : null}
+            {subjectSelectionLoading ? (
+              <p className="text-sm text-muted-foreground">Loading subject choices...</p>
+            ) : null}
+
+            {!subjectSelectionLoading && subjectSelection.offerings.length === 0 ? (
+              <div className="rounded-xl border border-dashed bg-muted/20 p-6 text-center">
+                <p className="font-medium">No subjects available for this student</p>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Assign subjects to the student&apos;s class first, then return here to choose elective or optional subjects.
+                </p>
+              </div>
+            ) : (
+              <div className="grid gap-2">
+                {subjectSelection.offerings.map((offering) => {
+                  const offeringId = Number(offering.id);
+                  const checked = offering.auto_required || selectedOfferingIds.includes(offeringId);
+                  const disabled = offering.auto_required || !canEditSubjectSelection;
+                  const groupLabel = String(offering.subject_group || "subject").replace(/^\w/, (char) => char.toUpperCase());
+
+                  return (
+                    <label
+                      key={offering.id}
+                      className={`flex items-start gap-3 rounded-xl border px-3 py-3 transition-colors ${
+                        checked
+                          ? "border-foreground/20 bg-muted/70 text-foreground shadow-sm dark:border-border dark:bg-muted/30"
+                          : "border-border bg-background text-foreground hover:bg-muted/40 dark:bg-background dark:hover:bg-muted/20"
+                      } ${disabled ? "cursor-default" : "cursor-pointer"}`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        disabled={disabled}
+                        className="mt-1 size-4 rounded border-border accent-stone-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:opacity-60 dark:accent-stone-300 dark:focus-visible:ring-offset-background"
+                        onChange={() => toggleSubjectOffering(offering)}
+                      />
+
+                      <span className="min-w-0 flex-1">
+                        <span className="flex flex-wrap items-center gap-2">
+                          <span className="font-medium">
+                            {offering.subject_name}
+                            {offering.subject_code ? ` (${offering.subject_code})` : ""}
+                          </span>
+                          <Badge variant="secondary" className="rounded-full">
+                            {groupLabel}
+                          </Badge>
+                          {offering.auto_required ? (
+                            <Badge variant="outline" className="rounded-full">
+                              Required
+                            </Badge>
+                          ) : null}
+                        </span>
+                        <span className="mt-1 block text-xs text-muted-foreground">
+                          {offering.auto_required
+                            ? "Compulsory subject is automatically selected."
+                            : "Select this subject if the student takes it."}
+                        </span>
+                      </span>
+                    </label>
+                  );
+                })}
+              </div>
+            )}
           </div>
         </TabsContent>
 

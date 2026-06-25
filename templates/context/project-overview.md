@@ -64,6 +64,15 @@ one Express/MySQL backend.
 
 - Internal messaging with conversations, targets, read state,
   presence updates, and SSE.
+- Messaging supports text, photos, documents, and recorded voice
+  notes on internal web and mobile.
+- Direct conversations support typing indicators. Class and section
+  conversations are shared group discussions. Broadcast conversations
+  are announcement-only.
+- Messages support replies, forwarding, editing, sender deletion,
+  deletion for everyone, delivery/read state, search, and moderation.
+- Students are contacted through their linked parents or guardians;
+  students are not direct messaging accounts.
 - Notifications with read/read-all handling and realtime updates.
 
 ### Public Website and Mobile

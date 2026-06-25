@@ -9,11 +9,13 @@ architectural decision:
    model, auth model, and invariants
 3. `context/ui-context.md` - theme, colors, typography, component
    conventions, and layout patterns
-4. `context/code-standards.md` - implementation rules and project
+4. `design.md` - practical UI design rules for buttons, dialogs,
+   tables, navigation, colors, dark mode, and accessibility
+5. `context/code-standards.md` - implementation rules and project
    conventions
-5. `context/ai-workflow-rules.md` - development workflow, scoping
+6. `context/ai-workflow-rules.md` - development workflow, scoping
    rules, and delivery approach
-6. `context/progress-tracker.md` - current phase, completed work,
+7. `context/progress-tracker.md` - current phase, completed work,
    open questions, and next steps
 
 Update `context/progress-tracker.md` after each meaningful

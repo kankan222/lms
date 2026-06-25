@@ -1,5 +1,15 @@
 import * as repo from "./messaging.repository.js";
-import { getUserPresence, publishConversationEvent } from "./messaging.realtime.js";
+import {
+  getUserPresence,
+  getConversationTyping,
+  publishConversationEvent,
+  publishMessagingEvent,
+  setConversationTyping,
+} from "./messaging.realtime.js";
+import * as notificationService from "../notifications/notification.service.js";
+import AppError from "../../core/errors/AppError.js";
+
+const MESSAGE_CHANGE_WINDOW_MS = 60 * 60 * 1000;
 
 function normalizeActor(actor) {
   if (typeof actor === "number") {
@@ -87,11 +97,22 @@ export async function sendMessage(data, actorInput) {
   const senderUserId = actor.userId;
 
   if (!senderUserId) {
-    throw new Error("Sender is required");
+    throw new AppError("Sender is required", 400);
   }
 
-  if (!data?.message || !String(data.message).trim()) {
-    throw new Error("Message is required");
+  await repo.assertMessagingUserActive(senderUserId);
+
+  const messageText = String(data?.message || "").trim();
+  const attachmentIds = [...new Set((data?.attachment_ids || []).map(Number).filter(Boolean))];
+  const forwardedFromMessageId = Number(data?.forwarded_from_message_id) || null;
+  const replyToMessageId = Number(data?.reply_to_message_id) || null;
+
+  if (!messageText && !attachmentIds.length && !forwardedFromMessageId) {
+    throw new AppError("Message, attachment, or forwarded message is required", 400);
+  }
+
+  if (attachmentIds.length > 5) {
+    throw new AppError("A message can contain at most five attachments", 400);
   }
 
   let conversationId = data.conversation_id ? Number(data.conversation_id) : null;
@@ -99,22 +120,22 @@ export async function sendMessage(data, actorInput) {
   if (!conversationId) {
     const allowInitiation = await canInitiateConversation(actor);
     if (!allowInitiation) {
-      throw new Error("Only super admin can start new conversations");
+      throw new AppError("Only super admin can start new conversations", 403);
     }
 
     const targetType = data.target_type;
 
     if (!targetType) {
-      throw new Error("target_type is required for new conversation");
+      throw new AppError("target_type is required for new conversation", 400);
     }
 
     if (["direct", "parent", "teacher"].includes(targetType)) {
       const recipientUserId = Number(data.recipient_user_id);
-      if (!recipientUserId) throw new Error("recipient_user_id is required");
+      if (!recipientUserId) throw new AppError("recipient_user_id is required", 400);
       conversationId = await getOrCreateDirectConversation(senderUserId, recipientUserId);
     } else if (targetType === "class") {
       const classId = Number(data.class_id);
-      if (!classId) throw new Error("class_id is required");
+      if (!classId) throw new AppError("class_id is required", 400);
 
       conversationId = await getOrCreateScopedConversation(
         senderUserId,
@@ -131,7 +152,7 @@ export async function sendMessage(data, actorInput) {
       );
     } else if (targetType === "section") {
       const sectionId = Number(data.section_id);
-      if (!sectionId) throw new Error("section_id is required");
+      if (!sectionId) throw new AppError("section_id is required", 400);
 
       conversationId = await getOrCreateScopedConversation(
         senderUserId,
@@ -192,35 +213,85 @@ export async function sendMessage(data, actorInput) {
       const recipients = await repo.getAllTeacherRecipientUsers(data.teacher_type);
       await repo.addConversationMembers(conversationId, uniqueUserIds(recipients));
     } else {
-      throw new Error("Unsupported target_type");
+      throw new AppError("Unsupported target_type", 400);
     }
   }
 
   const isMember = await repo.findMember(conversationId, senderUserId);
   if (!isMember) {
-    throw new Error("You are not allowed to reply in this conversation");
+    throw new AppError("You are not allowed to reply in this conversation", 403);
+  }
+
+  const conversation = await repo.getConversationById(conversationId);
+  if (!conversation?.id) {
+    throw new AppError("Conversation not found", 404);
   }
 
   const allowInitiation = await canInitiateConversation(actor);
   if (!allowInitiation) {
-    const conversation = await repo.getConversationById(conversationId);
-    if (!conversation?.id) {
-      throw new Error("Conversation not found");
-    }
-
     const adminOwned = await repo.isSuperAdminUser(conversation.created_by);
     if (!adminOwned) {
-      throw new Error("You can only reply to conversations started by super admin");
+      throw new AppError("You can only reply to conversations started by super admin", 403);
+    }
+    if (conversation.type === "broadcast") {
+      throw new AppError("Broadcast conversations are announcement-only", 403);
     }
   }
+
+  let attachments = [];
+  if (attachmentIds.length) {
+    attachments = await repo.getAttachmentsByIds(attachmentIds, senderUserId, {
+      includePending: true,
+    });
+    if (attachments.length !== attachmentIds.length) {
+      throw new AppError("One or more attachments are invalid", 400);
+    }
+    const categories = new Set(attachments.map((item) => item.category));
+    if (categories.size !== 1) {
+      throw new AppError("Photos and documents cannot be mixed in one message", 400);
+    }
+    if (categories.has("voice") && attachments.length !== 1) {
+      throw new AppError("A voice message must contain one recording", 400);
+    }
+  }
+
+  if (replyToMessageId) {
+    const replyMessage = await repo.getMessageById(replyToMessageId);
+    if (!replyMessage || Number(replyMessage.conversation_id) !== Number(conversationId)) {
+      throw new AppError("Reply target must belong to the same conversation", 400);
+    }
+  }
+
+  let forwardedMessage = null;
+  if (forwardedFromMessageId) {
+    forwardedMessage = await repo.getMessageById(forwardedFromMessageId);
+    if (!forwardedMessage) throw new AppError("Forwarded message not found", 404);
+    const canAccessForwarded = await repo.findMember(
+      forwardedMessage.conversation_id,
+      senderUserId
+    );
+    if (!canAccessForwarded) {
+      throw new AppError("You cannot forward this message", 403);
+    }
+  }
+
+  const messageType =
+    attachments[0]?.category ||
+    forwardedMessage?.message_type ||
+    "text";
 
   const messageId = await repo.insertMessage({
     conversation_id: conversationId,
     sender_id: senderUserId,
-    message: data.message,
-    attachment_url: data.attachment_url || null
+    message: messageText || forwardedMessage?.message || null,
+    message_type: messageType,
+    reply_to_message_id: replyToMessageId,
+    forwarded_from_message_id: forwardedFromMessageId,
+    attachment_url: null,
   });
 
+  await repo.attachPendingAttachments(messageId, attachmentIds, senderUserId);
+  await repo.createMessageStatuses(messageId, conversationId, senderUserId);
   await repo.updateConversationLastMessage(conversationId);
 
   const memberUserIds = await repo.getConversationMemberUserIds(conversationId);
@@ -230,18 +301,102 @@ export async function sendMessage(data, actorInput) {
     sender_id: senderUserId,
   });
 
+  const recipients = memberUserIds.filter((userId) => Number(userId) !== senderUserId);
+  const preview =
+    messageType === "image"
+      ? "Sent a photo"
+      : messageType === "document"
+        ? "Sent a file"
+        : messageType === "voice"
+          ? "Sent a voice message"
+          : messageText.slice(0, 120);
+
+  if (recipients.length) {
+    notificationService
+      .notify({
+        userIds: recipients,
+        type: "message",
+        entityType: "conversation",
+        entityId: conversationId,
+        title: conversation.name || "New message",
+        body: preview,
+      })
+      .catch(() => {});
+  }
+
+  await repo.createMessagingAudit({
+    actorUserId: senderUserId,
+    action: forwardedFromMessageId ? "message.forwarded" : "message.sent",
+    conversationId,
+    messageId,
+    metadata: { messageType, attachmentCount: attachments.length },
+  });
+
   return {
     conversation_id: conversationId,
     message_id: messageId
   };
 }
 
-export async function fetchMessages(conversationId, page = 1, limit = 30) {
+export async function fetchMessages(conversationId, actorInput, page = 1, limit = 30) {
+  const actor = normalizeActor(actorInput);
+  if (!(await repo.findMember(conversationId, actor.userId))) {
+    throw new AppError("Conversation not found", 404);
+  }
   const offset = (page - 1) * limit;
-  return repo.getConversationMessages(conversationId, limit, offset);
+  await repo.markMessagesDelivered(conversationId, actor.userId);
+  const rows = await repo.getConversationMessages(
+    conversationId,
+    limit,
+    offset,
+    actor.userId
+  );
+  const messageIds = rows.map((row) => Number(row.id));
+  const forwardedIds = rows.map((row) => Number(row.forwarded_from_message_id)).filter(Boolean);
+  const [attachments, forwardedAttachments, statuses] = await Promise.all([
+    repo.getAttachmentsForMessageIds(messageIds),
+    repo.getAttachmentsForMessageIds(forwardedIds),
+    repo.getMessageStatuses(messageIds),
+  ]);
+
+  const attachmentMap = new Map();
+  for (const attachment of attachments) {
+    const key = Number(attachment.message_id);
+    if (!attachmentMap.has(key)) attachmentMap.set(key, []);
+    attachmentMap.get(key).push(attachment);
+  }
+  for (const attachment of forwardedAttachments) {
+    const forwardedRows = rows.filter(
+      (row) => Number(row.forwarded_from_message_id) === Number(attachment.message_id)
+    );
+    for (const row of forwardedRows) {
+      if (!attachmentMap.has(Number(row.id))) attachmentMap.set(Number(row.id), []);
+      attachmentMap.get(Number(row.id)).push({
+        ...attachment,
+        forwarded: true,
+      });
+    }
+  }
+
+  const statusMap = new Map();
+  for (const status of statuses) {
+    const key = Number(status.message_id);
+    if (!statusMap.has(key)) statusMap.set(key, []);
+    statusMap.get(key).push(status);
+  }
+
+  return rows.map((row) => ({
+    ...row,
+    message: row.deleted_for_everyone_at ? null : row.message,
+    attachments: row.deleted_for_everyone_at
+      ? []
+      : attachmentMap.get(Number(row.id)) || [],
+    statuses: statusMap.get(Number(row.id)) || [],
+  }));
 }
 
 export async function fetchUserConversations(userId, filters = {}) {
+  await repo.assertMessagingUserActive(userId);
   await syncTeacherMemberships(userId);
   const payload = await repo.getUserConversations(userId, filters);
   const rows = Array.isArray(payload) ? payload : payload?.data || [];
@@ -271,7 +426,16 @@ export async function fetchUserConversations(userId, filters = {}) {
 }
 
 export async function markRead(conversationId, userId) {
+  if (!(await repo.findMember(conversationId, userId))) {
+    throw new AppError("Conversation not found", 404);
+  }
   await repo.markConversationRead(conversationId, userId);
+  await repo.markMessagesRead(conversationId, userId);
+  const memberUserIds = await repo.getConversationMemberUserIds(conversationId);
+  publishMessagingEvent(memberUserIds, "message:read", {
+    conversation_id: Number(conversationId),
+    user_id: Number(userId),
+  });
 }
 
 export async function unreadCounts(userId) {
@@ -299,4 +463,296 @@ export async function getTargets() {
       { key: "all_teachers", label: "All Teachers" }
     ]
   };
+}
+
+export async function editMessage(messageId, message, actorInput) {
+  const actor = normalizeActor(actorInput);
+  await repo.assertMessagingUserActive(actor.userId);
+  const existing = await repo.getMessageById(messageId);
+  if (!existing) throw new AppError("Message not found", 404);
+  if (Number(existing.sender_id) !== actor.userId) {
+    throw new AppError("Only the sender can edit this message", 403);
+  }
+  if (existing.deleted_for_everyone_at) {
+    throw new AppError("Deleted messages cannot be edited", 400);
+  }
+  if (Date.now() - new Date(existing.created_at).getTime() > MESSAGE_CHANGE_WINDOW_MS) {
+    throw new AppError("Messages can only be edited within one hour", 400);
+  }
+  const normalized = String(message || "").trim();
+  if (!normalized) throw new AppError("Message text is required", 400);
+
+  await repo.updateMessageText(messageId, normalized);
+  await repo.createMessagingAudit({
+    actorUserId: actor.userId,
+    action: "message.edited",
+    conversationId: existing.conversation_id,
+    messageId,
+  });
+  const memberUserIds = await repo.getConversationMemberUserIds(existing.conversation_id);
+  publishMessagingEvent(memberUserIds, "message:updated", {
+    conversation_id: existing.conversation_id,
+    message_id: Number(messageId),
+  });
+  return { updated: true };
+}
+
+export async function deleteMessage(messageId, mode, actorInput) {
+  const actor = normalizeActor(actorInput);
+  const existing = await repo.getMessageById(messageId);
+  if (!existing) throw new AppError("Message not found", 404);
+  if (!(await repo.findMember(existing.conversation_id, actor.userId))) {
+    throw new AppError("Message not found", 404);
+  }
+
+  if (mode === "self") {
+    await repo.hideMessageForUser(messageId, actor.userId);
+    await repo.createMessagingAudit({
+      actorUserId: actor.userId,
+      action: "message.deleted_for_self",
+      conversationId: existing.conversation_id,
+      messageId,
+    });
+    return { deleted: true, mode: "self" };
+  }
+
+  if (mode !== "everyone") {
+    throw new AppError("Delete mode must be self or everyone", 400);
+  }
+
+  const isModerator = await canInitiateConversation(actor);
+  const isSender = Number(existing.sender_id) === actor.userId;
+  if (!isSender && !isModerator) {
+    throw new AppError("You cannot delete this message for everyone", 403);
+  }
+  if (
+    isSender &&
+    !isModerator &&
+    Date.now() - new Date(existing.created_at).getTime() > MESSAGE_CHANGE_WINDOW_MS
+  ) {
+    throw new AppError("Messages can only be deleted for everyone within one hour", 400);
+  }
+
+  await repo.deleteMessageForEveryone(messageId, actor.userId);
+  await repo.createMessagingAudit({
+    actorUserId: actor.userId,
+    action: isModerator && !isSender ? "message.moderator_removed" : "message.deleted_for_everyone",
+    conversationId: existing.conversation_id,
+    messageId,
+  });
+  const memberUserIds = await repo.getConversationMemberUserIds(existing.conversation_id);
+  publishMessagingEvent(memberUserIds, "message:deleted", {
+    conversation_id: existing.conversation_id,
+    message_id: Number(messageId),
+  });
+  return { deleted: true, mode: "everyone" };
+}
+
+export async function searchMessages(conversationId, search, actorInput, limit) {
+  const actor = normalizeActor(actorInput);
+  const normalized = String(search || "").trim();
+  if (!normalized) return [];
+  if (!(await repo.findMember(conversationId, actor.userId))) {
+    throw new AppError("Conversation not found", 404);
+  }
+  return repo.searchConversationMessages(
+    conversationId,
+    actor.userId,
+    normalized,
+    limit
+  );
+}
+
+export async function publishTyping(conversationId, isTyping, actorInput) {
+  const actor = normalizeActor(actorInput);
+  const conversation = await repo.getConversationById(conversationId);
+  if (!conversation || conversation.type !== "direct") {
+    throw new AppError("Typing indicators are only available in direct conversations", 400);
+  }
+  if (!(await repo.findMember(conversationId, actor.userId))) {
+    throw new AppError("Conversation not found", 404);
+  }
+  const members = await repo.getConversationMemberUserIds(conversationId);
+  setConversationTyping(conversationId, actor.userId, Boolean(isTyping));
+  publishMessagingEvent(
+    members.filter((id) => Number(id) !== actor.userId),
+    "typing:update",
+    {
+      conversation_id: Number(conversationId),
+      user_id: actor.userId,
+      is_typing: Boolean(isTyping),
+    }
+  );
+  return { published: true };
+}
+
+export async function getTyping(conversationId, actorInput) {
+  const actor = normalizeActor(actorInput);
+  const conversation = await repo.getConversationById(conversationId);
+  if (!conversation || conversation.type !== "direct") return { user_ids: [] };
+  if (!(await repo.findMember(conversationId, actor.userId))) {
+    throw new AppError("Conversation not found", 404);
+  }
+  return {
+    user_ids: getConversationTyping(conversationId, actor.userId),
+  };
+}
+
+export async function reportMessage(messageId, data, actorInput) {
+  const actor = normalizeActor(actorInput);
+  const message = await repo.getMessageById(messageId);
+  if (!message || !(await repo.findMember(message.conversation_id, actor.userId))) {
+    throw new AppError("Message not found", 404);
+  }
+  const reason = String(data.reason || "").trim();
+  if (!reason) throw new AppError("Report reason is required", 400);
+  const reportId = await repo.createMessageReport({
+    messageId,
+    reportedBy: actor.userId,
+    reason,
+    details: String(data.details || "").trim() || null,
+  });
+  await repo.createMessagingAudit({
+    actorUserId: actor.userId,
+    action: "message.reported",
+    conversationId: message.conversation_id,
+    messageId,
+    metadata: { reportId, reason },
+  });
+  return { report_id: reportId };
+}
+
+export async function listReports(filters) {
+  return repo.listMessageReports(filters);
+}
+
+export async function resolveReport(reportId, data, actorInput) {
+  const actor = normalizeActor(actorInput);
+  const status = String(data.status || "").trim();
+  if (!["reviewing", "resolved", "dismissed"].includes(status)) {
+    throw new AppError("Invalid report status", 400);
+  }
+  await repo.resolveMessageReport(
+    reportId,
+    actor.userId,
+    status,
+    String(data.note || "").trim() || null
+  );
+  await repo.createMessagingAudit({
+    actorUserId: actor.userId,
+    action: "report.updated",
+    metadata: { reportId: Number(reportId), status },
+  });
+  return { updated: true };
+}
+
+export async function suspendUser(userId, data, actorInput) {
+  const actor = normalizeActor(actorInput);
+  const targetUserId = Number(userId);
+  if (!targetUserId) throw new AppError("User is required", 400);
+  const reason = String(data.reason || "").trim();
+  if (!reason) throw new AppError("Suspension reason is required", 400);
+  await repo.setMessagingSuspension({
+    userId: targetUserId,
+    suspendedBy: actor.userId,
+    reason,
+    expiresAt: data.expires_at || null,
+  });
+  await repo.createMessagingAudit({
+    actorUserId: actor.userId,
+    action: "user.suspended",
+    targetUserId,
+    metadata: { reason, expiresAt: data.expires_at || null },
+  });
+  return { suspended: true };
+}
+
+export async function unsuspendUser(userId, actorInput) {
+  const actor = normalizeActor(actorInput);
+  const targetUserId = Number(userId);
+  await repo.liftMessagingSuspension(targetUserId, actor.userId);
+  await repo.createMessagingAudit({
+    actorUserId: actor.userId,
+    action: "user.unsuspended",
+    targetUserId,
+  });
+  return { suspended: false };
+}
+
+export async function getAudit(filters) {
+  return repo.listMessagingAudit(filters);
+}
+
+export async function exportConversation(conversationId) {
+  const data = await repo.getConversationExport(conversationId);
+  if (!data.conversation) throw new AppError("Conversation not found", 404);
+  const attachments = await repo.getAttachmentsForMessageIds(
+    data.messages.map((message) => message.id)
+  );
+  return { ...data, attachments };
+}
+
+export async function listConversationMembers(conversationId) {
+  const conversation = await repo.getConversationById(conversationId);
+  if (!conversation) throw new AppError("Conversation not found", 404);
+  return repo.getConversationMembers(conversationId);
+}
+
+export async function addConversationMember(conversationId, userId, actorInput) {
+  const actor = normalizeActor(actorInput);
+  const conversation = await repo.getConversationById(conversationId);
+  if (!conversation) throw new AppError("Conversation not found", 404);
+  if (conversation.type === "direct") {
+    throw new AppError("Direct conversation membership cannot be changed", 400);
+  }
+  const targetUserId = Number(userId);
+  if (!targetUserId) throw new AppError("User is required", 400);
+  await repo.addConversationMember(conversationId, targetUserId);
+  await repo.createMessagingAudit({
+    actorUserId: actor.userId,
+    action: "conversation.member_added",
+    conversationId,
+    targetUserId,
+  });
+  return repo.getConversationMembers(conversationId);
+}
+
+export async function removeConversationMember(conversationId, userId, actorInput) {
+  const actor = normalizeActor(actorInput);
+  const conversation = await repo.getConversationById(conversationId);
+  if (!conversation) throw new AppError("Conversation not found", 404);
+  const targetUserId = Number(userId);
+  if (Number(conversation.created_by) === targetUserId) {
+    throw new AppError("The conversation owner cannot be removed", 400);
+  }
+  await repo.removeConversationMember(conversationId, targetUserId);
+  await repo.createMessagingAudit({
+    actorUserId: actor.userId,
+    action: "conversation.member_removed",
+    conversationId,
+    targetUserId,
+  });
+  return repo.getConversationMembers(conversationId);
+}
+
+export async function removeAttachment(attachmentId, actorInput) {
+  const actor = normalizeActor(actorInput);
+  const attachment = await repo.getAttachmentById(attachmentId);
+  if (!attachment) throw new AppError("Attachment not found", 404);
+  await repo.markAttachmentRemoved(attachmentId);
+  await repo.createMessagingAudit({
+    actorUserId: actor.userId,
+    action: "attachment.removed",
+    conversationId: attachment.conversation_id,
+    messageId: attachment.message_id,
+    attachmentId: Number(attachmentId),
+  });
+  if (attachment.conversation_id) {
+    const members = await repo.getConversationMemberUserIds(attachment.conversation_id);
+    publishMessagingEvent(members, "message:updated", {
+      conversation_id: attachment.conversation_id,
+      message_id: attachment.message_id,
+    });
+  }
+  return { removed: true };
 }

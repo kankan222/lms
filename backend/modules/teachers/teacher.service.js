@@ -322,7 +322,6 @@ export async function assignTeacher(data) {
   const conn = await pool.getConnection();
 
   try {
-    console.log("Service", data)
     await conn.beginTransaction();
 
     // ensure teacher exists
@@ -356,9 +355,15 @@ export async function assignTeacher(data) {
       throw new AppError("School teacher cannot be assigned to HS classes", 400);
     }
 
-    await repo.assignTeacher(data, conn);
+    const subjectOffering = await repo.getActiveSubjectOfferingForAssignment(data, conn);
+    if (!subjectOffering) {
+      throw new AppError("Subject is not offered for the selected class", 400);
+    }
+
+    const result = await repo.assignTeacher(data, conn);
 
     await conn.commit();
+    return result;
 
   } catch (err) {
 

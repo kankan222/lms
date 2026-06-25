@@ -7,6 +7,7 @@ import {
   Image,
   Keyboard,
   KeyboardAvoidingView,
+  Linking,
   Modal,
   Platform,
   Pressable,
@@ -17,6 +18,17 @@ import {
   View,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import * as DocumentPicker from "expo-document-picker";
+import * as ImagePicker from "expo-image-picker";
+import {
+  RecordingPresets,
+  requestRecordingPermissionsAsync,
+  setAudioModeAsync,
+  useAudioPlayer,
+  useAudioPlayerStatus,
+  useAudioRecorder,
+  useAudioRecorderState,
+} from "expo-audio";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import TopNotice from "../../components/feedback/TopNotice";
 import SelectField from "../../components/form/SelectField";
@@ -24,14 +36,24 @@ import { useAuthStore } from "../../store/authStore";
 import { useAppTheme } from "../../theme/AppThemeProvider";
 import { ENV } from "../../constants/env";
 import {
+  deleteMessage,
+  editMessage,
+  getAttachmentAccess,
   getConversations,
   getMessages,
   getTargets,
+  getTyping,
   markAsRead,
+  reportMessage,
+  searchMessages,
   sendMessage,
+  sendTyping,
+  uploadMessageAttachments,
   type ConversationItem,
+  type MessageAttachment,
   type MessageItem,
   type MessagingTargets,
+  type UploadAsset,
 } from "../../services/messagingService";
 import { formatDateLabel, formatTimeLabel } from "../../utils/format";
 
@@ -145,6 +167,98 @@ function Avatar({ label, online, imageUrl }: { label?: string | null; online?: b
   );
 }
 
+function MessageAttachmentView({ attachment }: { attachment: MessageAttachment }) {
+  const { theme } = useAppTheme();
+  const [url, setUrl] = useState<string | null>(null);
+  const player = useAudioPlayer(attachment.category === "voice" ? url : null, {
+    updateInterval: 250,
+  });
+  const playerStatus = useAudioPlayerStatus(player);
+  const [speed, setSpeed] = useState(1);
+
+  useEffect(() => {
+    let active = true;
+    getAttachmentAccess(attachment.id)
+      .then((data) => {
+        if (active) setUrl(resolveMediaUrl(data?.access_url));
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [attachment.id]);
+
+  if (!url) {
+    return <ActivityIndicator size="small" color={theme.icon} />;
+  }
+
+  if (attachment.category === "image") {
+    return (
+      <Pressable onPress={() => void Linking.openURL(url)}>
+        <Image source={{ uri: url }} style={styles.messageImage} resizeMode="contain" />
+      </Pressable>
+    );
+  }
+
+  if (attachment.category === "voice") {
+    const duration = Math.max(playerStatus.duration || 0, 0);
+    const current = Math.max(playerStatus.currentTime || 0, 0);
+    return (
+      <View style={[styles.voiceCard, { borderColor: theme.border, backgroundColor: theme.inputBg }]}>
+        <Pressable onPress={() => (playerStatus.playing ? player.pause() : player.play())}>
+          <Ionicons name={playerStatus.playing ? "pause" : "play"} size={20} color={theme.icon} />
+        </Pressable>
+        <Pressable onPress={() => void player.seekTo(Math.max(0, current - 10))}>
+          <Text style={[styles.voiceAction, { color: theme.text }]}>-10</Text>
+        </Pressable>
+        <Text style={[styles.voiceTime, { color: theme.subText }]}>
+          {Math.floor(current / 60)}:{String(Math.floor(current % 60)).padStart(2, "0")} / {Math.floor(duration / 60)}:{String(Math.floor(duration % 60)).padStart(2, "0")}
+        </Text>
+        <Pressable onPress={() => void player.seekTo(Math.min(duration, current + 10))}>
+          <Text style={[styles.voiceAction, { color: theme.text }]}>+10</Text>
+        </Pressable>
+        <Pressable
+          onPress={() => {
+            const next = speed === 1 ? 1.5 : speed === 1.5 ? 2 : 1;
+            setSpeed(next);
+            player.setPlaybackRate(next);
+          }}
+        >
+          <Text style={[styles.voiceAction, { color: theme.text }]}>{speed}x</Text>
+        </Pressable>
+      </View>
+    );
+  }
+
+  return (
+    <Pressable
+      style={[styles.fileCard, { borderColor: theme.border, backgroundColor: theme.inputBg }]}
+      onPress={() => void Linking.openURL(url)}
+    >
+      <Ionicons name="document-attach-outline" size={20} color={theme.icon} />
+      <View style={{ flex: 1 }}>
+        <Text style={[styles.fileName, { color: theme.text }]} numberOfLines={1}>{attachment.original_name}</Text>
+        <Text style={[styles.fileMeta, { color: theme.subText }]}>{Math.ceil(Number(attachment.file_size || 0) / 1024)} KB</Text>
+      </View>
+    </Pressable>
+  );
+}
+
+function VoicePreview({ uri }: { uri: string }) {
+  const { theme } = useAppTheme();
+  const player = useAudioPlayer(uri);
+  const status = useAudioPlayerStatus(player);
+  return (
+    <Pressable
+      style={[styles.voicePreview, { borderColor: theme.border, backgroundColor: theme.inputBg }]}
+      onPress={() => (status.playing ? player.pause() : player.play())}
+    >
+      <Ionicons name={status.playing ? "pause" : "play"} size={18} color={theme.icon} />
+      <Text style={[styles.fileName, { color: theme.text }]}>Preview voice note</Text>
+    </Pressable>
+  );
+}
+
 export default function MessagingTab({
   onConversationViewChange,
   parentConversationIntent,
@@ -164,6 +278,14 @@ export default function MessagingTab({
   const [activeConversationId, setActiveConversationId] = useState<number | null>(null);
   const [search, setSearch] = useState("");
   const [reply, setReply] = useState("");
+  const [selectedAssets, setSelectedAssets] = useState<UploadAsset[]>([]);
+  const [selectedCategory, setSelectedCategory] = useState<"image" | "document" | "voice" | null>(null);
+  const [replyTo, setReplyTo] = useState<MessageItem | null>(null);
+  const [editingMessageId, setEditingMessageId] = useState<number | null>(null);
+  const [forwardingMessage, setForwardingMessage] = useState<MessageItem | null>(null);
+  const [chatSearchOpen, setChatSearchOpen] = useState(false);
+  const [chatSearch, setChatSearch] = useState("");
+  const [typingUserIds, setTypingUserIds] = useState<number[]>([]);
   const [compose, setCompose] = useState<Compose>(EMPTY_COMPOSE);
   const [composeSearch, setComposeSearch] = useState("");
   const [composeRoleFilter, setComposeRoleFilter] = useState("all");
@@ -189,6 +311,9 @@ export default function MessagingTab({
   const [notice, setNotice] = useState<Notice>(null);
   const lastHandledIntentTokenRef = useRef<number | null>(null);
   const messagesListRef = useRef<FlatList<MessageItem> | null>(null);
+  const typingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
+  const recorderState = useAudioRecorderState(recorder, 250);
 
   const activeConversation = useMemo(
     () => conversations.find((item) => Number(item.id) === Number(activeConversationId)) ?? null,
@@ -433,11 +558,32 @@ export default function MessagingTab({
       void loadConversations(true);
       if (screen === "chat" && activeConversationId) {
         void loadMessagesForConversation(activeConversationId, true, { mode: "poll" });
+        if (activeConversation?.type === "direct") {
+          void getTyping(activeConversationId).then(setTypingUserIds).catch(() => {});
+        }
       }
     }, MESSAGE_SYNC_INTERVAL_MS);
 
     return () => clearInterval(timer);
-  }, [activeConversationId, screen, isVisible]);
+  }, [activeConversation?.type, activeConversationId, screen, isVisible]);
+
+  useEffect(() => {
+    if (
+      !isVisible ||
+      screen !== "chat" ||
+      !activeConversationId ||
+      activeConversation?.type !== "direct"
+    ) {
+      setTypingUserIds([]);
+      return undefined;
+    }
+    const loadTyping = () => {
+      void getTyping(activeConversationId).then(setTypingUserIds).catch(() => {});
+    };
+    loadTyping();
+    const timer = setInterval(loadTyping, 1500);
+    return () => clearInterval(timer);
+  }, [activeConversation?.type, activeConversationId, isVisible, screen]);
 
   useEffect(() => {
     const intent = parentConversationIntent;
@@ -802,9 +948,150 @@ export default function MessagingTab({
     }
   }
 
+  async function pickImages() {
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) {
+      Alert.alert("Permission required", "Allow photo access to send images.");
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsMultipleSelection: true,
+      selectionLimit: 5,
+      quality: 1,
+    });
+    if (result.canceled) return;
+    setSelectedAssets(
+      result.assets.slice(0, 5).map((asset, index) => ({
+        uri: asset.uri,
+        name: asset.fileName || `photo-${Date.now()}-${index}.jpg`,
+        mimeType: asset.mimeType || "image/jpeg",
+      })),
+    );
+    setSelectedCategory("image");
+  }
+
+  async function pickDocuments() {
+    const result = await DocumentPicker.getDocumentAsync({
+      type: [
+        "application/pdf",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "text/csv",
+        "text/plain",
+      ],
+      multiple: true,
+      copyToCacheDirectory: true,
+    });
+    if (result.canceled) return;
+    setSelectedAssets(
+      result.assets.slice(0, 5).map((asset) => ({
+        uri: asset.uri,
+        name: asset.name,
+        mimeType: asset.mimeType || "application/octet-stream",
+      })),
+    );
+    setSelectedCategory("document");
+  }
+
+  async function startVoiceRecording() {
+    const permission = await requestRecordingPermissionsAsync();
+    if (!permission.granted) {
+      Alert.alert("Permission required", "Allow microphone access to record voice messages.");
+      return;
+    }
+    await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
+    await recorder.prepareToRecordAsync();
+    recorder.record({ forDuration: 600 });
+    setSelectedAssets([]);
+    setSelectedCategory("voice");
+  }
+
+  async function stopVoiceRecording() {
+    await recorder.stop();
+    if (!recorder.uri) {
+      Alert.alert("Recording failed", "The voice note could not be saved.");
+      return;
+    }
+    const extension = Platform.OS === "ios" ? "m4a" : "m4a";
+    setSelectedAssets([
+      {
+        uri: recorder.uri,
+        name: `voice-${Date.now()}.${extension}`,
+        mimeType: "audio/mp4",
+      },
+    ]);
+    setSelectedCategory("voice");
+    await setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true });
+  }
+
+  function clearSelectedMedia() {
+    setSelectedAssets([]);
+    setSelectedCategory(null);
+  }
+
+  async function runChatSearch() {
+    if (!activeConversationId) return;
+    if (!chatSearch.trim()) {
+      await loadMessagesForConversation(activeConversationId, true, { mode: "reset" });
+      return;
+    }
+    const rows = await searchMessages(activeConversationId, chatSearch.trim());
+    setMessages(rows);
+  }
+
+  function openMessageActions(message: MessageItem) {
+    const mine = Number(message.sender_id) === Number(user?.id);
+    const buttons = [
+      { text: "Reply", onPress: () => setReplyTo(message) },
+      {
+        text: "Forward",
+        onPress: () => {
+          setForwardingMessage(message);
+          setScreen("list");
+        },
+      },
+      ...(mine && message.message
+        ? [{ text: "Edit", onPress: () => {
+          setEditingMessageId(message.id);
+          setReply(message.message || "");
+        } }]
+        : []),
+      {
+        text: "Delete for me",
+        style: "destructive" as const,
+        onPress: async () => {
+          await deleteMessage(message.id, "self");
+          if (activeConversationId) await loadMessagesForConversation(activeConversationId, true, { mode: "poll" });
+        },
+      },
+      ...(mine || isSuperAdmin
+        ? [{
+          text: "Delete for everyone",
+          style: "destructive" as const,
+          onPress: async () => {
+            await deleteMessage(message.id, "everyone");
+            if (activeConversationId) await loadMessagesForConversation(activeConversationId, true, { mode: "poll" });
+          },
+        }]
+        : []),
+      ...(!mine
+        ? [{
+          text: "Report",
+          onPress: async () => {
+            await reportMessage(message.id, "Inappropriate content");
+            Alert.alert("Reported", "The message was sent to moderation.");
+          },
+        }]
+        : []),
+      { text: "Cancel", style: "cancel" as const },
+    ];
+    Alert.alert("Message actions", "Choose an action", buttons);
+  }
+
   async function sendReply() {
     const trimmed = reply.trim();
-    if (!trimmed) return;
+    if (!trimmed && !selectedAssets.length && !editingMessageId) return;
     if (!activeConversationId && !pendingConversationTarget) {
       Alert.alert("Validation", "Open a conversation first.");
       return;
@@ -812,12 +1099,37 @@ export default function MessagingTab({
 
     setSending(true);
     try {
+      if (editingMessageId) {
+        await editMessage(editingMessageId, trimmed);
+        setEditingMessageId(null);
+        setReply("");
+        if (activeConversationId) {
+          await loadMessagesForConversation(activeConversationId, true, { mode: "poll" });
+        }
+        return;
+      }
+
       let conversationId = activeConversationId ? Number(activeConversationId) : null;
+      let attachmentIds: number[] = [];
+      if (selectedAssets.length && selectedCategory) {
+        const uploaded = await uploadMessageAttachments(selectedAssets, selectedCategory);
+        attachmentIds = uploaded.map((item) => item.id);
+      }
 
       if (conversationId) {
-        await sendMessage({ conversation_id: conversationId, message: trimmed });
+        await sendMessage({
+          conversation_id: conversationId,
+          message: trimmed,
+          attachment_ids: attachmentIds,
+          reply_to_message_id: replyTo?.id,
+        });
       } else if (pendingConversationTarget) {
-        const result = await sendMessage({ ...pendingConversationTarget, message: trimmed });
+        const result = await sendMessage({
+          ...pendingConversationTarget,
+          message: trimmed,
+          attachment_ids: attachmentIds,
+          reply_to_message_id: replyTo?.id,
+        });
         conversationId = result.conversation_id ? Number(result.conversation_id) : null;
 
         if (!conversationId) {
@@ -836,6 +1148,8 @@ export default function MessagingTab({
       }
 
       setReply("");
+      setReplyTo(null);
+      clearSelectedMedia();
       if (conversationId) {
         await loadMessagesForConversation(conversationId, true, { scrollToLatest: true, mode: "poll" });
       }
@@ -946,7 +1260,21 @@ export default function MessagingTab({
             renderItem={({ item: conversation }) => (
               <Pressable
                 style={[styles.rowCard, { borderColor: theme.border, backgroundColor: theme.card }]}
-                onPress={() => {
+                onPress={async () => {
+                  if (forwardingMessage) {
+                    try {
+                      await sendMessage({
+                        conversation_id: Number(conversation.id),
+                        forwarded_from_message_id: forwardingMessage.id,
+                        message: "",
+                      });
+                      setForwardingMessage(null);
+                      Alert.alert("Forwarded", "The message was forwarded.");
+                    } catch (err) {
+                      Alert.alert("Forward failed", getErrorMessage(err, "Could not forward message."));
+                    }
+                    return;
+                  }
                   setMessages([]);
                   setMessagesPage(1);
                   setMessagesHasMore(false);
@@ -999,10 +1327,35 @@ export default function MessagingTab({
                     {activeConversation?.name || pendingConversationLabel || "Chat"}
                   </Text>
                   <Text style={[styles.rowMeta, { color: theme.subText }]}>
-                    {activeConversation ? presenceText(activeConversation) : "New conversation"}
+                    {typingUserIds.length
+                      ? "Typing..."
+                      : activeConversation
+                        ? presenceText(activeConversation)
+                        : "New conversation"}
                   </Text>
                 </View>
+                <Pressable
+                  style={[styles.iconBtn, { backgroundColor: isDark ? theme.cardMuted : theme.bg }]}
+                  onPress={() => setChatSearchOpen((value) => !value)}
+                >
+                  <Ionicons name="search-outline" size={20} color={theme.icon} />
+                </Pressable>
               </View>
+              {chatSearchOpen ? (
+                <View style={[styles.searchWrap, { borderColor: theme.border, backgroundColor: theme.card }]}>
+                  <TextInput
+                    value={chatSearch}
+                    onChangeText={setChatSearch}
+                    placeholder="Search this conversation"
+                    placeholderTextColor={theme.mutedText}
+                    style={[styles.searchInput, { color: theme.text }]}
+                    onSubmitEditing={() => void runChatSearch()}
+                  />
+                  <Pressable onPress={() => void runChatSearch()}>
+                    <Ionicons name="search" size={18} color={theme.icon} />
+                  </Pressable>
+                </View>
+              ) : null}
             </View>
 
             <View style={[styles.chatMessagesPanel, { borderColor: theme.border, backgroundColor: theme.cardMuted }]}>
@@ -1043,8 +1396,15 @@ export default function MessagingTab({
                 }
                 renderItem={({ item: message }) => {
                   const mine = Number(message.sender_id) === Number(user?.id);
+                  const deleted = Boolean(message.deleted_for_everyone_at);
+                  const statuses = message.statuses || [];
+                  const readCount = statuses.filter((item) => item.status === "read").length;
+                  const deliveredCount = statuses.filter((item) => ["delivered", "read"].includes(item.status)).length;
                   return (
-                    <View style={[styles.messageRow, mine ? styles.mine : styles.other]}>
+                    <Pressable
+                      style={[styles.messageRow, mine ? styles.mine : styles.other]}
+                      onLongPress={() => openMessageActions(message)}
+                    >
                       {!mine ? <Avatar label={message.sender_name || message.username} imageUrl={message.sender_image_url} /> : null}
                       <View style={[
                         styles.bubble,
@@ -1053,10 +1413,41 @@ export default function MessagingTab({
                           : { backgroundColor: theme.card, borderColor: theme.border, borderWidth: 1 },
                       ]}>
                         {!mine ? <Text style={[styles.senderName, { color: theme.subText }]}>{message.sender_name || message.username}</Text> : null}
-                        <Text style={[styles.messageText, { color: theme.text }]}>{message.message}</Text>
-                        <Text style={[styles.bubbleTime, { color: theme.subText }]}>{formatTimeLabel(message.created_at)}</Text>
+                        {message.reply_to_message_id ? (
+                          <View style={[styles.replyQuote, { borderColor: theme.primary }]}>
+                            <Text style={[styles.fileMeta, { color: theme.subText }]} numberOfLines={2}>
+                              {message.reply_sender_name || "Reply"}: {message.reply_message || message.reply_message_type}
+                            </Text>
+                          </View>
+                        ) : null}
+                        {message.forwarded_from_message_id ? (
+                          <Text style={[styles.forwardedLabel, { color: theme.subText }]}>Forwarded</Text>
+                        ) : null}
+                        {deleted ? (
+                          <Text style={[styles.deletedMessage, { color: theme.subText }]}>This message was deleted</Text>
+                        ) : (
+                          <>
+                            {message.message ? <Text style={[styles.messageText, { color: theme.text }]}>{message.message}</Text> : null}
+                            {(message.attachments || []).map((attachment) => (
+                              <MessageAttachmentView key={`${message.id}-${attachment.id}`} attachment={attachment} />
+                            ))}
+                          </>
+                        )}
+                        <View style={styles.messageMetaRow}>
+                          {message.edited_at ? <Text style={[styles.bubbleTime, { color: theme.subText }]}>Edited</Text> : null}
+                          <Text style={[styles.bubbleTime, { color: theme.subText }]}>{formatTimeLabel(message.created_at)}</Text>
+                          {mine && statuses.length ? (
+                            <Text style={[styles.bubbleTime, { color: theme.subText }]}>
+                              {readCount === statuses.length
+                                ? `Read ${readCount}/${statuses.length}`
+                                : deliveredCount
+                                  ? `Delivered ${deliveredCount}/${statuses.length}`
+                                  : "Sent"}
+                            </Text>
+                          ) : null}
+                        </View>
                       </View>
-                    </View>
+                    </Pressable>
                   );
                 }}
               />
@@ -1074,11 +1465,62 @@ export default function MessagingTab({
               },
             ]}
           >
+            {replyTo || editingMessageId ? (
+              <View style={[styles.composerContext, { borderColor: theme.border, backgroundColor: theme.card }]}>
+                <Text style={[styles.fileMeta, { color: theme.subText }]} numberOfLines={2}>
+                  {editingMessageId
+                    ? "Editing message"
+                    : `Replying to ${replyTo?.sender_name || replyTo?.username}: ${replyTo?.message || replyTo?.message_type}`}
+                </Text>
+                <Pressable onPress={() => {
+                  setReplyTo(null);
+                  setEditingMessageId(null);
+                  if (editingMessageId) setReply("");
+                }}>
+                  <Ionicons name="close" size={18} color={theme.icon} />
+                </Pressable>
+              </View>
+            ) : null}
+            {selectedAssets.length ? (
+              <View style={[styles.composerContext, { borderColor: theme.border, backgroundColor: theme.card }]}>
+                {selectedCategory === "voice" ? (
+                  <VoicePreview uri={selectedAssets[0].uri} />
+                ) : (
+                  <Text style={[styles.fileMeta, { color: theme.subText }]} numberOfLines={2}>
+                    {selectedAssets.map((asset) => asset.name).join(", ")}
+                  </Text>
+                )}
+                <Pressable onPress={clearSelectedMedia}>
+                  <Ionicons name="close" size={18} color={theme.icon} />
+                </Pressable>
+              </View>
+            ) : null}
             <View style={[styles.replyBar, { borderColor: theme.border, backgroundColor: theme.card }]}>
+              <Pressable onPress={() => void pickImages()}>
+                <Ionicons name="image-outline" size={21} color={theme.icon} />
+              </Pressable>
+              <Pressable onPress={() => void pickDocuments()}>
+                <Ionicons name="attach-outline" size={21} color={theme.icon} />
+              </Pressable>
+              <Pressable
+                onPress={() => void (recorderState.isRecording ? stopVoiceRecording() : startVoiceRecording())}
+                style={recorderState.isRecording ? styles.recordingButton : undefined}
+              >
+                <Ionicons name={recorderState.isRecording ? "stop" : "mic-outline"} size={21} color={recorderState.isRecording ? "#fff" : theme.icon} />
+              </Pressable>
               <TextInput
                 value={reply}
-                onChangeText={setReply}
-                placeholder="Type a message"
+                onChangeText={(value) => {
+                  setReply(value);
+                  if (activeConversation?.type === "direct" && activeConversationId) {
+                    void sendTyping(activeConversationId, true);
+                    if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
+                    typingTimerRef.current = setTimeout(() => {
+                      void sendTyping(activeConversationId, false);
+                    }, 1200);
+                  }
+                }}
+                placeholder={recorderState.isRecording ? `Recording ${Math.floor(recorderState.durationMillis / 1000)}s` : "Type a message or caption"}
                 placeholderTextColor={theme.mutedText}
                 style={[styles.replyInput, { borderColor: theme.border, backgroundColor: theme.inputBg, color: theme.text }]}
               />
@@ -1362,11 +1804,25 @@ return StyleSheet.create({
   bubbleMine: { borderTopRightRadius: 6 },
   senderName: { fontSize: 11, fontWeight: "700", marginBottom: 4 },
   messageText: {},
-  bubbleTime: { marginTop: 6, fontSize: 11 },
+  bubbleTime: { fontSize: 11 },
+  messageMetaRow: { marginTop: 6, flexDirection: "row", flexWrap: "wrap", justifyContent: "flex-end", gap: 6 },
+  replyQuote: { borderLeftWidth: 3, paddingLeft: 8, paddingVertical: 4, marginBottom: 6 },
+  forwardedLabel: { fontSize: 11, fontStyle: "italic", marginBottom: 4 },
+  deletedMessage: { fontStyle: "italic" },
+  messageImage: { width: 230, height: 220, borderRadius: 12, marginTop: 8 },
+  voiceCard: { marginTop: 8, borderWidth: 1, borderRadius: 14, padding: 10, flexDirection: "row", alignItems: "center", gap: 10 },
+  voiceAction: { fontSize: 11, fontWeight: "800" },
+  voiceTime: { flex: 1, fontSize: 11, textAlign: "center" },
+  fileCard: { marginTop: 8, borderWidth: 1, borderRadius: 14, padding: 10, flexDirection: "row", alignItems: "center", gap: 10 },
+  fileName: { flex: 1, fontSize: 12, fontWeight: "700" },
+  fileMeta: { fontSize: 11 },
   replyBarWrap: { paddingTop: 0, paddingHorizontal: 14, marginTop: "auto" },
+  composerContext: { marginBottom: 6, borderWidth: 1, borderRadius: 14, padding: 9, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 },
+  voicePreview: { flex: 1, borderWidth: 1, borderRadius: 12, padding: 8, flexDirection: "row", alignItems: "center", gap: 8 },
   replyBar: { flexDirection: "row", gap: 10, alignItems: "center", borderWidth: 1, borderRadius: 22, paddingHorizontal: 10, paddingVertical: 7 },
   replyInput: { flex: 1, borderWidth: 1, borderRadius: 16, paddingHorizontal: 14, paddingVertical: 9 },
   sendBtn: { width: 44, height: 44, borderRadius: 22, backgroundColor: theme.success, alignItems: "center", justifyContent: "center" },
+  recordingButton: { width: 32, height: 32, borderRadius: 16, backgroundColor: "#dc2626", alignItems: "center", justifyContent: "center" },
   modalOverlay: { flex: 1, justifyContent: "flex-end" },
   modalBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: theme.overlay },
   modalCard: { maxHeight: "88%", borderTopLeftRadius: 24, borderTopRightRadius: 24, borderWidth: 1, borderBottomWidth: 0, padding: 16, gap: 12 },

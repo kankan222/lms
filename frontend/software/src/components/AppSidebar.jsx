@@ -25,7 +25,7 @@ import {
 
 import { CircleUserRound, ChevronUp } from "lucide-react";
 
-import { appRoutes, isRouteAllowedForUser } from "../routes/RouteConfig";
+import { isRouteAllowedForUser, navSections } from "../routes/RouteConfig";
 import { usePermissions } from "../hooks/usePermissions";
 import { useAuth } from "../hooks/useAuth";
 const AppSidebar = () => {
@@ -35,21 +35,52 @@ const AppSidebar = () => {
   const location = useLocation();
   const navigate = useNavigate()
 
-  const visibleRoutes = appRoutes.filter(route => {
+  function canShowRoute(route) {
     if (!isRouteAllowedForUser(route, user)) return false;
 
     if (!route.permission) return true;
 
     return can(route.permission);
+  }
 
-  });
+  const visibleSections = navSections
+    .map((section) => ({
+      ...section,
+      items: section.items.filter(canShowRoute),
+    }))
+    .filter((section) => section.items.length > 0);
 
-  function isRouteActive(path) {
-    if (path === "/") return location.pathname === path;
-    return (
-      location.pathname === path ||
-      location.pathname.startsWith(`${path}/`)
+  function isRouteActive(item) {
+    const target = item.to || item.path;
+    const [targetPath, targetSearch = ""] = target.split("?");
+
+    if (targetSearch) {
+      return location.pathname === targetPath && location.search === `?${targetSearch}`;
+    }
+
+    if (item.path === "/attendance" && location.pathname === "/attendance" && location.search) {
+      return false;
+    }
+
+    if (item.path === "/") return location.pathname === item.path;
+    if (location.pathname === item.path) return true;
+
+    const hasExactSidebarMatch = visibleSections.some((section) =>
+      section.items.some((sectionItem) => {
+        const sectionTarget = sectionItem.to || sectionItem.path;
+        const [sectionTargetPath, sectionTargetSearch = ""] = sectionTarget.split("?");
+
+        if (sectionTargetSearch) {
+          return location.pathname === sectionTargetPath && location.search === `?${sectionTargetSearch}`;
+        }
+
+        return location.pathname === sectionTargetPath;
+      })
     );
+
+    if (hasExactSidebarMatch) return false;
+
+    return location.pathname.startsWith(`${item.path}/`);
   }
 
   const displayName =
@@ -83,40 +114,46 @@ const handleLogout = async () => {
 
       <SidebarSeparator />
 
-      <SidebarContent>
+      <SidebarContent className="sidebar-primary-scrollbar">
         <SidebarGroup>
 
-          <SidebarGroupLabel>Application</SidebarGroupLabel>
+          {visibleSections.map((section) => (
+            <div key={section.title} className="mb-1 last:mb-0">
+              <SidebarGroupLabel className="h-6 text-[11px] font-semibold uppercase tracking-wide text-sidebar-foreground/55">
+                {section.title}
+              </SidebarGroupLabel>
 
-          <SidebarGroupContent>
-            <SidebarMenu>
-
-              {visibleRoutes.map((item, index) => (
-                <SidebarMenuItem key={index}>
-                  {(() => {
-                    const active = isRouteActive(item.path);
+              <SidebarGroupContent>
+                <SidebarMenu className="gap-0.5">
+                  {section.items.map((item) => {
+                    const active = isRouteActive(item);
 
                     return (
-                      <SidebarMenuButton
-                        asChild
-                        isActive={active}
-                        className={active ? "border border-border bg-accent font-medium text-accent-foreground shadow-sm" : ""}
+                      <SidebarMenuItem
+                        key={`${section.title}-${item.title}-${item.to || item.path}`}
+                        className="ml-3"
                       >
-
-                        <NavLink to={item.path}>
-                          <item.icon />
-                          <span>{item.title}</span>
-                        </NavLink>
-
-                      </SidebarMenuButton>
+                        <SidebarMenuButton
+                          asChild
+                          isActive={active}
+                          className={
+                            active
+                              ? "border border-sidebar-border bg-sidebar-accent font-semibold text-sidebar-accent-foreground shadow-sm [&>svg]:text-sidebar-accent-foreground"
+                              : "font-semibold text-sidebar-foreground/55 hover:text-sidebar-foreground [&>svg]:text-sidebar-foreground/55 hover:[&>svg]:text-sidebar-foreground"
+                          }
+                        >
+                          <NavLink to={item.to || item.path}>
+                            <item.icon />
+                            <span>{item.title}</span>
+                          </NavLink>
+                        </SidebarMenuButton>
+                      </SidebarMenuItem>
                     );
-                  })()}
-
-                </SidebarMenuItem>
-              ))}
-
-            </SidebarMenu>
-          </SidebarGroupContent>
+                  })}
+                </SidebarMenu>
+              </SidebarGroupContent>
+            </div>
+          ))}
 
         </SidebarGroup>
       </SidebarContent>

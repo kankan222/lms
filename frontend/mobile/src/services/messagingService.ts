@@ -38,9 +38,41 @@ export type MessageItem = {
   username: string;
   sender_name?: string | null;
   sender_image_url?: string | null;
-  message: string;
+  message: string | null;
+  message_type?: "text" | "image" | "document" | "voice";
+  reply_to_message_id?: number | null;
+  forwarded_from_message_id?: number | null;
+  reply_message?: string | null;
+  reply_message_type?: string | null;
+  reply_sender_name?: string | null;
   attachment_url: string | null;
   created_at: string;
+  edited_at?: string | null;
+  deleted_for_everyone_at?: string | null;
+  attachments?: MessageAttachment[];
+  statuses?: MessageStatus[];
+};
+
+export type MessageAttachment = {
+  id: number;
+  message_id: number;
+  category: "image" | "document" | "voice";
+  original_name: string;
+  mime_type: string;
+  file_extension: string;
+  file_size: number;
+  duration_ms?: number | null;
+  width?: number | null;
+  height?: number | null;
+  forwarded?: boolean;
+};
+
+export type MessageStatus = {
+  message_id: number;
+  user_id: number;
+  status: "sent" | "delivered" | "read";
+  delivered_at?: string | null;
+  read_at?: string | null;
 };
 
 export type ParentTarget = {
@@ -129,8 +161,16 @@ export type SendMessagePayload = {
   section_id?: number;
   teacher_type?: "all" | "school" | "college";
   name?: string;
-  message: string;
-  attachment_url?: string;
+  message?: string;
+  attachment_ids?: number[];
+  reply_to_message_id?: number;
+  forwarded_from_message_id?: number;
+};
+
+export type UploadAsset = {
+  uri: string;
+  name: string;
+  mimeType: string;
 };
 
 export async function getConversations(params: { page?: number; limit?: number } = {}) {
@@ -170,6 +210,69 @@ export async function sendMessage(payload: SendMessagePayload) {
     conversation_id: response.data.conversation_id ?? null,
     message_id: response.data.message_id ?? null,
   };
+}
+
+export async function uploadMessageAttachments(
+  assets: UploadAsset[],
+  category: "image" | "document" | "voice",
+) {
+  const body = new FormData();
+  body.append("category", category);
+  for (const asset of assets) {
+    body.append(
+      "files",
+      {
+        uri: asset.uri,
+        name: asset.name,
+        type: asset.mimeType,
+      } as unknown as Blob,
+    );
+  }
+  const response = await api.post<ApiEnvelope<MessageAttachment[]>>("/messages/attachments", body, {
+    headers: { "Content-Type": "multipart/form-data" },
+  });
+  return response.data.data ?? [];
+}
+
+export async function getAttachmentAccess(attachmentId: number, variant = "original") {
+  const response = await api.get<ApiEnvelope<MessageAttachment & { access_url: string; expires_in: number }>>(
+    `/messages/attachments/${attachmentId}/access`,
+    { params: { variant } },
+  );
+  return response.data.data;
+}
+
+export async function editMessage(messageId: number, message: string) {
+  await api.patch(`/messages/messages/${messageId}`, { message });
+}
+
+export async function deleteMessage(messageId: number, mode: "self" | "everyone") {
+  await api.delete(`/messages/messages/${messageId}`, { data: { mode } });
+}
+
+export async function reportMessage(messageId: number, reason: string, details = "") {
+  await api.post(`/messages/messages/${messageId}/report`, { reason, details });
+}
+
+export async function searchMessages(conversationId: number, query: string) {
+  const response = await api.get<ApiEnvelope<MessageItem[]>>(
+    `/messages/conversations/${conversationId}/search`,
+    { params: { q: query } },
+  );
+  return response.data.data ?? [];
+}
+
+export async function sendTyping(conversationId: number, isTyping: boolean) {
+  await api.post(`/messages/conversations/${conversationId}/typing`, {
+    is_typing: isTyping,
+  });
+}
+
+export async function getTyping(conversationId: number) {
+  const response = await api.get<ApiEnvelope<{ user_ids: number[] }>>(
+    `/messages/conversations/${conversationId}/typing`,
+  );
+  return response.data.data?.user_ids ?? [];
 }
 
 export async function markAsRead(conversationId: number) {

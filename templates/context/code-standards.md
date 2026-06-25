@@ -73,6 +73,15 @@
   records belong in MySQL.
 - Uploaded media/files belong in upload folders and should be served
   by `/uploads`.
+- Messaging media must use the messaging storage abstraction: local
+  storage for development and private S3-compatible object storage for
+  production. Do not persist public messaging attachment URLs.
+- Authorize every messaging media download against conversation
+  membership before issuing a local response or short-lived signed URL.
+- Validate messaging uploads by size, extension, MIME type, and file
+  signature. SVG is not accepted. Malware scanning is not required.
+- Keep attachment metadata, deletion state, delivery/read state, and
+  moderation audit records in MySQL.
 - Prefer migrations over reseeding for schema and durable data changes.
 - Do not introduce ad hoc SQL in controllers or frontend code.
 - Keep cache invalidation in mind when changing mobile GET responses

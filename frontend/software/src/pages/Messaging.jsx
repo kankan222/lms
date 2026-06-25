@@ -15,13 +15,30 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import {
+  addConversationMember,
+  deleteMessage,
+  editMessage,
+  exportConversation,
+  getConversationMembers,
   getConversations,
+  getMessagingAudit,
   getMessages,
+  getModerationReports,
   getTargets,
   markAsRead,
-  sendMessage
+  removeConversationMember,
+  removeMessageAttachment,
+  reportMessage,
+  searchMessages,
+  sendMessage,
+  sendTyping,
+  suspendMessagingUser,
+  unsuspendMessagingUser,
+  updateModerationReport,
+  uploadMessageAttachments,
 } from "../api/messaging.api";
 import { usePermissions } from "../hooks/usePermissions";
+import { formatReadableDateTime } from "../lib/dateTime";
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000/api/v1";
 const FIELD_CLASSNAME =
@@ -72,6 +89,13 @@ export default function Messaging() {
     teacher_type: "all"
   });
   const [composeError, setComposeError] = useState("");
+  const [composeFiles, setComposeFiles] = useState([]);
+  const [composeFileCategory, setComposeFileCategory] = useState(null);
+  const [typingUser, setTypingUser] = useState(null);
+  const [moderationOpen, setModerationOpen] = useState(false);
+  const [moderationReports, setModerationReports] = useState([]);
+  const [moderationAudit, setModerationAudit] = useState([]);
+  const [conversationMembers, setConversationMembers] = useState([]);
   const isRecipientTarget = ["direct", "parent", "teacher"].includes(compose.target_type);
   const broadcastTargetOptions = useMemo(() => {
     if ((targets.broadcast_targets || []).length > 0) {
@@ -309,23 +333,156 @@ export default function Messaging() {
     }
   });
 
-  async function handleSendMessage(text) {
-    if (!activeChatId || !text.trim()) return;
+  const handleTypingUpdate = useEffectEvent((payload) => {
+    if (Number(payload?.conversation_id) !== Number(activeChatId)) return;
+    setTypingUser(payload?.is_typing ? payload.user_id : null);
+  });
+
+  const handleMessageStateEvent = useEffectEvent((payload) => {
+    if (Number(payload?.conversation_id) === Number(activeChatId)) {
+      fetchMessages(activeChatId);
+    }
+    fetchConversations();
+  });
+
+  async function handleSendMessage(payload) {
+    if (!activeChatId) return;
+    let attachmentIds = [];
+    if (payload.files?.length) {
+      const uploaded = await uploadMessageAttachments(payload.files, payload.category);
+      attachmentIds = (uploaded?.data || []).map((item) => item.id);
+    }
 
     await sendMessage({
       conversation_id: activeChatId,
-      message: text.trim()
+      message: payload.message,
+      attachment_ids: attachmentIds,
+      reply_to_message_id: payload.reply_to_message_id || undefined,
     });
 
     await fetchMessages(activeChatId);
     await fetchConversations();
   }
 
+  async function handleEditMessage(message) {
+    const next = window.prompt("Edit message", message.message || "");
+    if (next === null || !next.trim()) return;
+    await editMessage(message.id, next.trim());
+    await fetchMessages(activeChatId);
+  }
+
+  async function handleDeleteMessage(message) {
+    const mode = window.prompt("Type 'self' or 'everyone'", "self");
+    if (!["self", "everyone"].includes(mode)) return;
+    await deleteMessage(message.id, mode);
+    await fetchMessages(activeChatId);
+    await fetchConversations();
+  }
+
+  async function handleReportMessage(message) {
+    const reason = window.prompt("Reason for reporting this message");
+    if (!reason?.trim()) return;
+    await reportMessage(message.id, reason.trim());
+    window.alert("Message reported.");
+  }
+
+  async function handleForwardMessage(message) {
+    const options = conversations
+      .filter((item) => Number(item.id) !== Number(message.conversation_id))
+      .map((item) => `${item.id}: ${item.name}`)
+      .join("\n");
+    const targetId = Number(window.prompt(`Forward to conversation ID:\n${options}`));
+    if (!targetId) return;
+    await sendMessage({
+      conversation_id: targetId,
+      message: "",
+      forwarded_from_message_id: message.id,
+    });
+    await fetchConversations();
+  }
+
+  async function handleSearch(query) {
+    if (!activeChatId) return;
+    if (!query.trim()) {
+      await fetchMessages(activeChatId);
+      return;
+    }
+    const response = await searchMessages(activeChatId, query.trim());
+    setMessages(response?.data || []);
+  }
+
+  function handleTyping(isTyping) {
+    if (!activeChatId || activeChat?.type !== "direct") return;
+    sendTyping(activeChatId, isTyping).catch(() => {});
+  }
+
+  async function loadModeration() {
+    const [reportsResponse, auditResponse, membersResponse] = await Promise.all([
+      getModerationReports(),
+      getMessagingAudit(activeChatId || ""),
+      activeChatId
+        ? getConversationMembers(activeChatId)
+        : Promise.resolve({ data: [] }),
+    ]);
+    setModerationReports(reportsResponse?.data || []);
+    setModerationAudit(auditResponse?.data || []);
+    setConversationMembers(membersResponse?.data || []);
+  }
+
+  async function handleResolveReport(reportId, status) {
+    const note = window.prompt("Moderation note", "") || "";
+    await updateModerationReport(reportId, status, note);
+    await loadModeration();
+  }
+
+  async function handleSuspendActiveUser() {
+    const userId = activeChat?.other_user_id;
+    if (!userId) return;
+    const reason = window.prompt("Suspension reason");
+    if (!reason?.trim()) return;
+    await suspendMessagingUser(userId, reason.trim());
+    await loadModeration();
+  }
+
+  async function handleAddMember() {
+    if (!activeChatId) return;
+    const userId = Number(window.prompt("User ID to add"));
+    if (!userId) return;
+    const response = await addConversationMember(activeChatId, userId);
+    setConversationMembers(response?.data || []);
+  }
+
+  async function handleRemoveMember(userId) {
+    if (!activeChatId) return;
+    const response = await removeConversationMember(activeChatId, userId);
+    setConversationMembers(response?.data || []);
+  }
+
+  async function handleExportConversation() {
+    if (!activeChatId) return;
+    const response = await exportConversation(activeChatId);
+    const blob = new Blob([JSON.stringify(response?.data || {}, null, 2)], {
+      type: "application/json",
+    });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `conversation-${activeChatId}.json`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  }
+
+  async function handleRemoveAttachment(attachment) {
+    if (!window.confirm(`Remove ${attachment.original_name}?`)) return;
+    await removeMessageAttachment(attachment.id);
+    await fetchMessages(activeChatId);
+  }
+
   async function handleComposeSend(e) {
     e.preventDefault();
     setComposeError("");
-    if (!compose.message.trim()) {
-      setComposeError("Message is required.");
+    if (!compose.message.trim() && !composeFiles.length) {
+      setComposeError("Message or attachment is required.");
       return;
     }
 
@@ -389,6 +546,13 @@ export default function Messaging() {
 
     let res;
     try {
+      if (composeFiles.length) {
+        const uploaded = await uploadMessageAttachments(
+          composeFiles,
+          composeFileCategory
+        );
+        payload.attachment_ids = (uploaded?.data || []).map((item) => item.id);
+      }
       res = await sendMessage(payload);
     } catch (err) {
       setComposeError(err?.message || "Failed to send message.");
@@ -413,6 +577,8 @@ export default function Messaging() {
       teacher_type: "all"
     });
     setOpenCompose(false);
+    setComposeFiles([]);
+    setComposeFileCategory(null);
 
     await fetchConversations();
     if (conversationId) {
@@ -446,6 +612,18 @@ export default function Messaging() {
       applyPresenceUpdate(payload);
     });
 
+    stream.addEventListener("typing:update", (event) => {
+      const payload = JSON.parse(event.data || "{}");
+      handleTypingUpdate(payload);
+    });
+
+    for (const eventName of ["message:updated", "message:deleted", "message:read"]) {
+      stream.addEventListener(eventName, (event) => {
+        const payload = JSON.parse(event.data || "{}");
+        handleMessageStateEvent(payload);
+      });
+    }
+
     stream.onerror = () => {
       refreshMessaging();
     };
@@ -461,6 +639,7 @@ export default function Messaging() {
         title="Messaging"
         subTitle="One-to-one and group messaging"
         action={isSuperAdmin ? (
+          <div className="flex gap-2">
           <Dialog open={openCompose} onOpenChange={setOpenCompose}>
             <DialogTrigger asChild>
               <Button>New Message</Button>
@@ -866,7 +1045,7 @@ export default function Messaging() {
                     </p>
                   </div>
                   <div className="grid gap-2">
-                    <Label>Message *</Label>
+                    <Label>Message or caption</Label>
                     <textarea
                       className="min-h-36 w-full rounded-xl border border-border bg-background px-3 py-3 text-sm text-foreground shadow-xs outline-hidden transition focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/40"
                       value={compose.message}
@@ -876,6 +1055,39 @@ export default function Messaging() {
                       placeholder="Write your message here..."
                     />
                   </div>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <label className="grid cursor-pointer gap-2 rounded-lg border border-dashed p-3 text-sm">
+                      <span className="font-medium">Add photos</span>
+                      <span className="text-xs text-muted-foreground">Up to 5 image files, 10 MB each</span>
+                      <input
+                        type="file"
+                        multiple
+                        accept=".jpg,.jpeg,.png,.webp,.gif,.heic,.heif,.bmp,.tif,.tiff,image/*"
+                        onChange={(event) => {
+                          setComposeFiles(Array.from(event.target.files || []).slice(0, 5));
+                          setComposeFileCategory("image");
+                        }}
+                      />
+                    </label>
+                    <label className="grid cursor-pointer gap-2 rounded-lg border border-dashed p-3 text-sm">
+                      <span className="font-medium">Add documents</span>
+                      <span className="text-xs text-muted-foreground">Up to 5 PDF, DOCX, XLSX, CSV, or TXT files</span>
+                      <input
+                        type="file"
+                        multiple
+                        accept=".pdf,.docx,.xlsx,.csv,.txt"
+                        onChange={(event) => {
+                          setComposeFiles(Array.from(event.target.files || []).slice(0, 5));
+                          setComposeFileCategory("document");
+                        }}
+                      />
+                    </label>
+                  </div>
+                  {composeFiles.length ? (
+                    <p className="text-xs text-muted-foreground">
+                      Selected: {composeFiles.map((file) => file.name).join(", ")}
+                    </p>
+                  ) : null}
                 </div>
                 {composeError && (
                   <div className="rounded-lg border border-red-200/70 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-500/40 dark:bg-red-500/10 dark:text-red-200">
@@ -905,6 +1117,111 @@ export default function Messaging() {
               </form>
             </DialogContent>
           </Dialog>
+          <Dialog
+            open={moderationOpen}
+            onOpenChange={(open) => {
+              setModerationOpen(open);
+              if (open) loadModeration().catch((err) => window.alert(err.message));
+            }}
+          >
+            <DialogTrigger asChild>
+              <Button variant="outline">Moderation</Button>
+            </DialogTrigger>
+            <DialogContent className="max-h-[88vh] overflow-y-auto sm:max-w-5xl">
+              <DialogHeader>
+                <DialogTitle>Messaging Moderation</DialogTitle>
+                <DialogDescription>
+                  Review reports, audit activity, manage the active conversation, and export records.
+                </DialogDescription>
+              </DialogHeader>
+
+              <div className="grid gap-5 lg:grid-cols-2">
+                <section className="space-y-3 rounded-xl border p-4">
+                  <div className="flex items-center justify-between">
+                    <h3 className="font-semibold">Open Reports</h3>
+                    <Button size="sm" variant="outline" onClick={() => loadModeration()}>
+                      Refresh
+                    </Button>
+                  </div>
+                  <div className="max-h-72 space-y-2 overflow-y-auto">
+                    {moderationReports.length ? moderationReports.map((report) => (
+                      <div key={report.id} className="rounded-lg border p-3 text-sm">
+                        <p className="font-medium">{report.reason}</p>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          Message #{report.message_id} by {report.reporter_name}
+                        </p>
+                        <p className="mt-2 line-clamp-2">{report.message || report.message_type}</p>
+                        <div className="mt-3 flex gap-2">
+                          <Button size="sm" onClick={() => handleResolveReport(report.id, "resolved")}>
+                            Resolve
+                          </Button>
+                          <Button size="sm" variant="outline" onClick={() => handleResolveReport(report.id, "dismissed")}>
+                            Dismiss
+                          </Button>
+                        </div>
+                      </div>
+                    )) : <p className="text-sm text-muted-foreground">No reports.</p>}
+                  </div>
+                </section>
+
+                <section className="space-y-3 rounded-xl border p-4">
+                  <h3 className="font-semibold">Active Conversation</h3>
+                  {activeChat ? (
+                    <>
+                      <p className="text-sm">{activeChat.name}</p>
+                      <div className="flex flex-wrap gap-2">
+                        <Button size="sm" variant="outline" onClick={handleExportConversation}>
+                          Export JSON
+                        </Button>
+                        {activeChat.type === "direct" && activeChat.other_user_id ? (
+                          <>
+                            <Button size="sm" variant="destructive" onClick={handleSuspendActiveUser}>
+                              Suspend User
+                            </Button>
+                            <Button size="sm" variant="outline" onClick={() => unsuspendMessagingUser(activeChat.other_user_id)}>
+                              Lift Suspension
+                            </Button>
+                          </>
+                        ) : null}
+                        {activeChat.type !== "direct" ? (
+                          <Button size="sm" variant="outline" onClick={handleAddMember}>
+                            Add Member
+                          </Button>
+                        ) : null}
+                      </div>
+                      <div className="max-h-48 space-y-2 overflow-y-auto">
+                        {conversationMembers.map((member) => (
+                          <div key={member.user_id} className="flex items-center justify-between rounded-lg border p-2 text-sm">
+                            <span>{member.name || `User #${member.user_id}`}</span>
+                            {activeChat.type !== "direct" && Number(member.user_id) !== Number(currentUser?.id) ? (
+                              <Button size="sm" variant="ghost" onClick={() => handleRemoveMember(member.user_id)}>
+                                Remove
+                              </Button>
+                            ) : null}
+                          </div>
+                        ))}
+                      </div>
+                    </>
+                  ) : <p className="text-sm text-muted-foreground">Select a conversation first.</p>}
+                </section>
+              </div>
+
+              <section className="space-y-3 rounded-xl border p-4">
+                <h3 className="font-semibold">Audit History</h3>
+                <div className="max-h-64 overflow-y-auto">
+                  {moderationAudit.length ? moderationAudit.map((entry) => (
+                    <div key={entry.id} className="border-b py-2 text-xs">
+                      <span className="font-medium">{entry.action}</span>
+                      <span className="ml-2 text-muted-foreground">
+                        {formatReadableDateTime(entry.created_at)}
+                      </span>
+                    </div>
+                  )) : <p className="text-sm text-muted-foreground">No audit entries.</p>}
+                </div>
+              </section>
+            </DialogContent>
+          </Dialog>
+          </div>
         ) : null}
       />
 
@@ -920,7 +1237,17 @@ export default function Messaging() {
           chat={activeChat}
           messages={messages}
           currentUserId={currentUser?.id}
+          conversations={conversations}
+          typingUser={typingUser}
           onSendMessage={handleSendMessage}
+          onEditMessage={handleEditMessage}
+          onDeleteMessage={handleDeleteMessage}
+          onReportMessage={handleReportMessage}
+          onForwardMessage={handleForwardMessage}
+          onSearch={handleSearch}
+          onTyping={handleTyping}
+          canModerate={isSuperAdmin}
+          onRemoveAttachment={handleRemoveAttachment}
         />
       </div>
     </>

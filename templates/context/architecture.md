@@ -13,7 +13,8 @@
 | Mobile app | Expo, React Native, TypeScript | Role-aware mobile access |
 | Styling | Tailwind CSS 4, shadcn-style UI | Web UI tokens and reusable components |
 | Mobile state | Zustand, SecureStore, Axios | Auth persistence and API access |
-| Realtime | Server-Sent Events | Messaging and notifications updates |
+| Realtime | Server-Sent Events | Messaging, typing, presence, delivery, and notifications updates |
+| Message media | Private S3-compatible storage | Production photos, documents, thumbnails, and voice notes |
 | Jobs and agents | `node-cron`, Node scripts | Fee reminders, iclock pulls, attendance sync |
 
 ## System Boundaries
@@ -43,12 +44,22 @@
 ## Storage Model
 
 - **MySQL**: users, roles, permissions, sessions, OTP challenges,
-  trusted devices, failed-login tracking, academic structure, students,
-  parents, teachers, attendance, exams, marks, approvals, fees,
-  payments, messages, notifications, staff records, contact
-  submissions, and sync events.
+  trusted devices, failed-login tracking, academic structure, subject
+  offerings, student subject registrations, students, parents,
+  teachers, attendance, exams, marks, approvals, fees, payments,
+  messages, notifications, staff records, contact submissions, and
+  sync events.
 - **Local file storage**: uploaded student, teacher, and staff media
-  served by Express through `/uploads`.
+  served by Express through `/uploads`; messaging media may use the
+  local storage driver in development.
+- **Private object storage**: production messaging photos, documents,
+  thumbnails, and voice notes use an S3-compatible provider. MySQL
+  stores object keys and metadata, never file bodies. Media access
+  requires conversation authorization and short-lived signed URLs.
+- Messaging storage settings are documented in
+  `backend/.env.messaging.example`. The implementation is compatible
+  with AWS S3, Cloudflare R2, DigitalOcean Spaces, Backblaze B2, and
+  MinIO-style endpoints.
 - **Browser storage**: internal web app stores `accessToken`,
   `refreshToken`, and serialized `user` in `localStorage`.
 - **Mobile secure storage/cache**: mobile auth state uses Zustand and
@@ -58,7 +69,10 @@
 ## Auth and Access Model
 
 - Public routes mount before auth middleware: `/api/v1/auth`,
-  `/api/v1/public/staff`, `/api/v1/public/contact`, and `/sync`.
+  `/api/v1/public/staff`, `/api/v1/public/contact`, `/sync`, and
+  `/api/v1/sync`. The `/api/v1/sync` alias is the production-facing
+  attendance sync path because the public reverse proxy forwards
+  `/api/v1/*` requests to Express.
 - Protected routes mount after `authenticate` and `attachPermissions`.
 - Login accepts email, phone, or identifier plus password.
 - New devices and suspicious logins require a 6 digit SMS OTP through
@@ -115,3 +129,41 @@
 8. Realtime messaging/notification streams must be optional from a UX
    perspective; core data should still be retrievable by normal APIs.
 9. Do not commit real local environment secrets.
+10. Messaging media must remain private and may be accessed only after
+    backend conversation-membership authorization.
+11. Existing text messages and conversations must remain readable
+    after messaging schema upgrades.
+12. Broadcast conversations are announcement-only; class and section
+    conversations allow member replies.
+13. Only super admin may initiate conversations. Student-directed
+    communication targets linked parents or guardians.
+
+## Messaging Model
+
+- Message content types are text, image, document, and voice.
+- A message may include text only, one voice note, or attachments from
+  one category. Mixed photo/document batches are not allowed.
+- A message may contain at most five attachments.
+- Images are limited to 10 MB each. Documents are limited to 25 MB
+  each. Voice notes are limited to 20 MB and 10 minutes.
+- Supported images include JPEG/JPG, PNG, WebP, GIF, HEIC/HEIF, BMP,
+  and TIFF. SVG is excluded. Images receive compressed previews and
+  thumbnails.
+- Supported documents include PDF, DOCX, XLSX, CSV, and TXT.
+- Supported audio includes M4A/AAC, MP3, and WebM.
+- Upload validation checks declared MIME type, extension, detected file
+  signature, size, and authorization. Malware scanning is not required.
+- Users may preview, cancel, and re-record voice notes before sending.
+  Playback supports seek, duration, pause, and 1x/1.5x/2x speed.
+- Senders may edit messages for one hour. Senders may delete for
+  themselves or everyone; delete-for-everyone is limited to one hour.
+  Administrators may remove any message or attachment.
+- Replies and forwarding apply to text and media messages. Reactions
+  are not supported.
+- Delivery and read status are tracked per conversation member.
+- Deleted media is purged after 30 days. Orphaned or failed uploads are
+  purged after 24 hours. Audit metadata is retained after removal.
+- The backend starts a messaging cleanup job after server startup and
+  runs it daily at 03:30 unless `MESSAGING_CLEANUP_ENABLED=false`.
+- Moderation includes search, reports, audit history, attachment
+  removal, conversation export, and user suspension.

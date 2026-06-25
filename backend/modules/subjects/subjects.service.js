@@ -36,13 +36,13 @@ export async function deleteSubject(id) {
 
 
 
-export async function assignSubjects(classId, subjectIds) {
+export async function assignSubjects(classId, subjectIds, subjectGroups = {}) {
 
   if (!Array.isArray(subjectIds)) {
     throw new Error("subjectIds must be an array");
   }
 
-  return repo.assignSubjects(classId, subjectIds);
+  return repo.assignSubjects(classId, subjectIds, subjectGroups);
 }
 export async function getClassSubjects(classId) {
 
@@ -53,6 +53,62 @@ export async function getClassSubjects(classId) {
   } finally {
     conn.release();
   }
+}
+
+function normalizePositiveInteger(value, fieldName) {
+  const numberValue = Number(value);
+  if (!Number.isInteger(numberValue) || numberValue <= 0) {
+    throw new AppError(`${fieldName} must be a positive integer`, 400);
+  }
+
+  return numberValue;
+}
+
+function normalizeOptionalPositiveInteger(value, fieldName) {
+  if (value === undefined || value === null || value === "") {
+    return null;
+  }
+
+  return normalizePositiveInteger(value, fieldName);
+}
+
+export async function getSubjectOfferings(filters) {
+  return repo.getSubjectOfferings(filters);
+}
+
+export async function replaceSubjectOfferings(data) {
+  const classId = normalizePositiveInteger(data.class_id ?? data.classId, "class_id");
+  const sectionId = normalizeOptionalPositiveInteger(data.section_id ?? data.sectionId, "section_id");
+  const streamId = normalizeOptionalPositiveInteger(data.stream_id ?? data.streamId, "stream_id");
+  const rawOfferings = Array.isArray(data.offerings) ? data.offerings : [];
+
+  const offerings = rawOfferings.map((offering) => ({
+    subject_id: normalizePositiveInteger(offering.subject_id ?? offering.subjectId, "subject_id"),
+    subject_group: ["compulsory", "elective", "optional"].includes(offering.subject_group)
+      ? offering.subject_group
+      : "compulsory",
+  }));
+
+  return repo.replaceSubjectOfferings(
+    { class_id: classId, section_id: sectionId, stream_id: streamId },
+    offerings,
+  );
+}
+
+export async function getStudentSubjectRegistrations(studentId) {
+  const normalizedStudentId = normalizePositiveInteger(studentId, "student_id");
+  return repo.getStudentSubjectRegistrations(normalizedStudentId);
+}
+
+export async function replaceStudentSubjectRegistrations(studentId, data) {
+  const normalizedStudentId = normalizePositiveInteger(studentId, "student_id");
+  const offeringIds = Array.isArray(data.offering_ids)
+    ? data.offering_ids
+    : Array.isArray(data.offeringIds)
+      ? data.offeringIds
+      : [];
+
+  return repo.replaceStudentSubjectRegistrations(normalizedStudentId, offeringIds);
 }
 
 

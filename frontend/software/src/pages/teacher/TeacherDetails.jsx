@@ -12,6 +12,7 @@ import {
 } from "../../api/teachers.api";
 
 import { getClassStructure, getSessions } from "../../api/academic.api";
+import { getSubjectOfferings } from "../../api/subjects.api";
 import { adminResetPassword } from "../../api/users.api";
 
 import {
@@ -34,6 +35,7 @@ import {
 } from "@/components/ui/table";
 
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   AlertDialog,
@@ -112,6 +114,26 @@ function buildDateRangeKeys(from, to) {
   return keys;
 }
 
+const subjectGroupLabels = {
+  compulsory: "Compulsory",
+  elective: "Elective",
+  optional: "Optional",
+};
+
+function subjectGroupBadgeClass(group) {
+  const value = String(group || "").trim().toLowerCase();
+
+  if (value === "elective") {
+    return "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-500/30 dark:bg-amber-500/15 dark:text-amber-200";
+  }
+
+  if (value === "optional") {
+    return "border-purple-200 bg-purple-50 text-purple-700 dark:border-purple-500/30 dark:bg-purple-500/15 dark:text-purple-200";
+  }
+
+  return "border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-500/30 dark:bg-blue-500/15 dark:text-blue-200";
+}
+
 export default function TeacherDetails() {
   const { id } = useParams();
   const { can } = usePermissions();
@@ -119,6 +141,7 @@ export default function TeacherDetails() {
 
   const [teacher, setTeacher] = useState(null);
   const [classes, setClasses] = useState([]);
+  const [subjectOfferings, setSubjectOfferings] = useState([]);
   const [assignments, setAssignments] = useState([]);
   const [attendance, setAttendance] = useState([]);
   const [attendanceLoading, setAttendanceLoading] = useState(false);
@@ -200,6 +223,30 @@ export default function TeacherDetails() {
     resolveScopeCode(cls.class_scope, cls.scope_name) === resolveScopeCode(teacher?.class_scope)
   );
 
+  const subjectOfferingsByClass = useMemo(() => {
+    const grouped = new Map();
+
+    subjectOfferings.forEach((offering) => {
+      if (!offering?.class_id || !offering?.subject_id) return;
+
+      const classId = Number(offering.class_id);
+      const subjectId = Number(offering.subject_id);
+      const existing = grouped.get(classId) || new Map();
+
+      if (!existing.has(subjectId)) {
+        existing.set(subjectId, {
+          subject_id: subjectId,
+          subject_name: offering.subject_name || offering.name || "Subject",
+          subject_group: offering.subject_group || "compulsory",
+        });
+      }
+
+      grouped.set(classId, existing);
+    });
+
+    return grouped;
+  }, [subjectOfferings]);
+
   const assignedClassSections = Array.from(
     new Map(
       assignments.map((assignment) => [
@@ -249,6 +296,7 @@ export default function TeacherDetails() {
 
     const sessionRes = await getSessions();
     const classesRes = await getClassStructure();
+    const offeringsRes = await getSubjectOfferings();
 
     setTeacher({
       ...teacherRes.data,
@@ -256,6 +304,7 @@ export default function TeacherDetails() {
     });
     setAssignments(assignmentRes.data);
     setClasses(classesRes.data || []);
+    setSubjectOfferings(offeringsRes.data || []);
     setSessions(sessionRes.data || []);
     await loadTeacherAttendance(attendanceAppliedRange);
   }
@@ -626,34 +675,50 @@ export default function TeacherDetails() {
                           </div>
                         </div>
 
-                        {cls.subjects.map((sub) => {
-                          const value = `${cls.id}-${sub.id}`;
+                        <div className="w-full space-y-2">
+                          <p className="text-sm font-medium text-foreground">Subjects</p>
+                          <div className="flex flex-wrap gap-3">
+                            {Array.from(subjectOfferingsByClass.get(Number(cls.id))?.values() || []).length ? (
+                              Array.from(subjectOfferingsByClass.get(Number(cls.id))?.values() || []).map((subject) => {
+                                const value = `${cls.id}-${subject.subject_id}`;
 
-                          return (
-                            <div
-                              key={`${cls.id}-${sub.id}`}
-                              className="flex items-center gap-2 mt-1"
-                            >
-                              <Checkbox
-                                checked={selectedSubjects.includes(value)}
-                                onCheckedChange={(checked) => {
-                                  if (checked) {
-                                    setSelectedSubjects((prev) => [
-                                      ...prev,
-                                      value,
-                                    ]);
-                                  } else {
-                                    setSelectedSubjects((prev) =>
-                                      prev.filter((v) => v !== value),
-                                    );
-                                  }
-                                }}
-                              />
+                                return (
+                                  <label
+                                    key={value}
+                                    className="flex items-center gap-2 text-sm text-muted-foreground"
+                                  >
+                                    <Checkbox
+                                      checked={selectedSubjects.includes(value)}
+                                      onCheckedChange={(checked) => {
+                                        if (checked) {
+                                          setSelectedSubjects((prev) =>
+                                            Array.from(new Set([...prev, value])),
+                                          );
+                                        } else {
+                                          setSelectedSubjects((prev) =>
+                                            prev.filter((v) => v !== value),
+                                          );
+                                        }
+                                      }}
+                                    />
 
-                              <span>{sub.name}</span>
-                            </div>
-                          );
-                        })}
+                                    <span>{subject.subject_name}</span>
+                                    <Badge
+                                      variant="outline"
+                                      className={`rounded-full px-2 py-0 text-[11px] ${subjectGroupBadgeClass(subject.subject_group)}`}
+                                    >
+                                      {subjectGroupLabels[subject.subject_group] || subject.subject_group}
+                                    </Badge>
+                                  </label>
+                                );
+                              })
+                            ) : (
+                              <span className="text-sm text-muted-foreground">
+                                No subject offerings assigned
+                              </span>
+                            )}
+                          </div>
+                        </div>
                       </div>
                     ))}
 

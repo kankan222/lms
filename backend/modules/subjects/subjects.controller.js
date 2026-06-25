@@ -44,7 +44,7 @@ export async function deleteSubject(req, res) {
 export async function assignSubject(req, res, next) {
   try {
 
-    const { classId, subjectIds } = req.body;
+    const { classId, subjectIds, subjectGroups = {} } = req.body;
 
     if (!classId) {
       throw new Error("classId is required");
@@ -53,7 +53,7 @@ export async function assignSubject(req, res, next) {
     if (!Array.isArray(subjectIds)) {
       throw new Error("subjectIds must be an array");
     }
-    await service.assignSubjects(classId, subjectIds);
+    await service.assignSubjects(classId, subjectIds, subjectGroups);
 
     res.json({ success: true });
 
@@ -64,6 +64,42 @@ export async function assignSubject(req, res, next) {
 export async function getClassSubjects(req, res, next) {
   try {
     const data = await service.getClassSubjects(req.params.classId);
+    res.json({ success: true, data });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function getSubjectOfferings(req, res, next) {
+  try {
+    const data = await service.getSubjectOfferings(req.query);
+    res.json({ success: true, data });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function replaceSubjectOfferings(req, res, next) {
+  try {
+    const data = await service.replaceSubjectOfferings(req.body);
+    res.json({ success: true, data });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function getStudentSubjectRegistrations(req, res, next) {
+  try {
+    const data = await service.getStudentSubjectRegistrations(req.params.studentId);
+    res.json({ success: true, data });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function replaceStudentSubjectRegistrations(req, res, next) {
+  try {
+    const data = await service.replaceStudentSubjectRegistrations(req.params.studentId, req.body);
     res.json({ success: true, data });
   } catch (err) {
     next(err);

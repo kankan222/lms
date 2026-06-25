@@ -1,4 +1,5 @@
 import { useEffect, useEffectEvent, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import TopBar from "../components/TopBar";
 import DataTable from "../components/DataTable";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -206,14 +207,15 @@ function SectionShell({ title, description, action, children }) {
 }
 
 export default function Attendance() {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const tabParam = searchParams.get("tab");
   const { can, hasRole } = usePermissions();
   const isTeacher = hasRole("teacher");
-  const canManageTeachers = can("teacher.update");
   const canViewTeacherLogs = can("teacher.view");
   const canManageDeviceMappings = can("teacher.assign");
   const canReviewStudentAttendance = can("student_attendance.review") || can("marks.approve");
   const canNotifyParents = can("student_attendance.notify");
-  const [activeTab, setActiveTab] = useState("student-attendance");
+  const [activeTab, setActiveTab] = useState(() => searchParams.get("tab") || "student-attendance");
 
   const [teacherAttendance, setTeacherAttendance] = useState([]);
   const [teacherProfiles, setTeacherProfiles] = useState([]);
@@ -1380,13 +1382,60 @@ export default function Attendance() {
           ? "border-rose-200 bg-rose-50 text-rose-800"
           : "border-slate-200 bg-slate-50 text-slate-700";
 
-  const tabCount =
-    1 +
-    (canReviewStudentAttendance ? 1 : 0) +
-    (canNotifyParents ? 1 : 0) +
-    (canViewTeacherLogs ? 1 : 0) +
-    (canManageDeviceMappings ? 1 : 0) +
-    (isTeacher ? 2 : 0);
+  const studentAttendanceTabs = useMemo(() => {
+    const tabs = ["student-attendance"];
+
+    if (isTeacher) {
+      tabs.push("teacher-approved", "daily-data");
+    }
+    if (canReviewStudentAttendance) {
+      tabs.push("pending-approval");
+    }
+    if (canNotifyParents) {
+      tabs.push("parent-messages");
+    }
+
+    return tabs;
+  }, [canNotifyParents, canReviewStudentAttendance, isTeacher]);
+
+  const teacherAttendanceTabs = useMemo(() => {
+    const tabs = [];
+
+    if (canViewTeacherLogs) {
+      tabs.push("teacher-logs");
+    }
+    if (canManageDeviceMappings) {
+      tabs.push("device-mapping");
+    }
+
+    return tabs;
+  }, [canManageDeviceMappings, canViewTeacherLogs]);
+
+  const isTeacherAttendanceView =
+    ["teacher-logs", "device-mapping"].includes(tabParam || "") &&
+    teacherAttendanceTabs.length > 0;
+  const visibleTabs = isTeacherAttendanceView ? teacherAttendanceTabs : studentAttendanceTabs;
+  const tabCount = visibleTabs.length;
+
+  useEffect(() => {
+    const tabFromUrl = tabParam || "student-attendance";
+    const nextTab = visibleTabs.includes(tabFromUrl)
+      ? tabFromUrl
+      : visibleTabs[0] || "student-attendance";
+
+    if (activeTab !== nextTab) {
+      setActiveTab(nextTab);
+    }
+
+    if (tabFromUrl !== nextTab) {
+      setSearchParams({ tab: nextTab }, { replace: true });
+    }
+  }, [activeTab, setSearchParams, tabParam, visibleTabs]);
+
+  function handleTabChange(nextTab) {
+    setActiveTab(nextTab);
+    setSearchParams({ tab: nextTab });
+  }
 
   return (
     <>
@@ -1400,38 +1449,38 @@ export default function Attendance() {
       </div>
 
       <TopBar
-        title={canManageTeachers ? "Attendance" : "Student Attendance"}
+        title={isTeacherAttendanceView ? "Teacher Attendance" : "Student Attendance"}
         subTitle={
-          canManageTeachers
-            ? "Record student attendance and review teacher machine logs"
-            : canViewTeacherLogs
-              ? "Record daily student attendance and review your machine attendance logs"
-              : "Record daily student attendance for your assigned class and section"
+          isTeacherAttendanceView
+            ? "Review teacher machine logs and attendance device mappings"
+            : "Record, review, and notify student attendance"
         }
       />
 
-      <Tabs value={activeTab} onValueChange={setActiveTab} className="mt-4">
+      <Tabs value={activeTab} onValueChange={handleTabChange} className="mt-4">
         <TabsList
           variant="line"
           className={`grid w-full ${tabCount >= 6 ? "md:grid-cols-6" : tabCount === 5 ? "md:grid-cols-5" : tabCount === 4 ? "md:grid-cols-4" : tabCount === 3 ? "md:grid-cols-3" : tabCount === 2 ? "md:grid-cols-2" : "grid-cols-1"}`}
         >
-          <TabsTrigger value="student-attendance">Take</TabsTrigger>
-          {isTeacher ? (
+          {visibleTabs.includes("student-attendance") ? (
+            <TabsTrigger value="student-attendance">Take</TabsTrigger>
+          ) : null}
+          {visibleTabs.includes("teacher-approved") ? (
             <TabsTrigger value="teacher-approved">Approved</TabsTrigger>
           ) : null}
-          {isTeacher ? (
+          {visibleTabs.includes("daily-data") ? (
             <TabsTrigger value="daily-data">History</TabsTrigger>
           ) : null}
-          {canReviewStudentAttendance ? (
+          {visibleTabs.includes("pending-approval") ? (
             <TabsTrigger value="pending-approval">Review</TabsTrigger>
           ) : null}
-          {canNotifyParents ? (
+          {visibleTabs.includes("parent-messages") ? (
             <TabsTrigger value="parent-messages">Notify</TabsTrigger>
           ) : null}
-          {canViewTeacherLogs ? (
+          {visibleTabs.includes("teacher-logs") ? (
             <TabsTrigger value="teacher-logs">Teacher Logs</TabsTrigger>
           ) : null}
-          {canManageDeviceMappings ? (
+          {visibleTabs.includes("device-mapping") ? (
             <TabsTrigger value="device-mapping">Device Mapping</TabsTrigger>
           ) : null}
         </TabsList>

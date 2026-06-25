@@ -210,6 +210,23 @@ export function getClassById(classId) {
   ).then((rows) => rows[0]);
 }
 
+export async function getActiveSubjectOfferingForAssignment(data, conn) {
+  const [rows] = await conn.execute(
+    `
+      SELECT id
+      FROM subject_offerings
+      WHERE class_id = ?
+        AND subject_id = ?
+        AND is_active = TRUE
+        AND (section_id IS NULL OR section_id = ?)
+      LIMIT 1
+    `,
+    [data.class_id, data.subject_id, data.section_id]
+  );
+
+  return rows[0] || null;
+}
+
 /* ------------------ DELETE ------------------ */
 
 export function deleteTeacher(id) {
@@ -244,8 +261,28 @@ export async function assignUserRole(userId, roleName, conn) {
   `, [userId, role[0].id]);
 }
 export async function assignTeacher(data, conn) {
+  const [existingRows] = await conn.execute(`
+    SELECT id
+    FROM teacher_class_assignments
+    WHERE teacher_id = ?
+      AND class_id = ?
+      AND section_id = ?
+      AND subject_id = ?
+      AND session_id = ?
+    LIMIT 1
+  `, [
+    data.teacherId,
+    data.class_id,
+    data.section_id,
+    data.subject_id,
+    data.session_id
+  ]);
 
-  await conn.execute(`
+  if (existingRows.length) {
+    return { assignmentId: existingRows[0].id, created: false };
+  }
+
+  const [result] = await conn.execute(`
     INSERT INTO teacher_class_assignments
     (teacher_id, class_id, section_id, subject_id, session_id)
     VALUES (?, ?, ?, ?, ?)
@@ -255,14 +292,18 @@ export async function assignTeacher(data, conn) {
     data.section_id,
     data.subject_id,
     data.session_id
-  ])
+  ]);
+
+  return { assignmentId: result.insertId, created: true };
 }
 
-export function removeAssignment(id) {
-  return query(
+export async function removeAssignment(id) {
+  const result = await query(
     `DELETE FROM teacher_class_assignments WHERE id=?`,
     [id]
   );
+
+  return result.affectedRows > 0;
 }
 
 export function getTeacherAssignments(teacherId) {

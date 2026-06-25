@@ -22,6 +22,48 @@ router.post(
   requirePermission("subjects.create"),
   controller.createSubject
 );
+router.post(
+  "/assign",
+  authenticate,
+  attachPermissions,
+  requirePermission("subjects.assign"),
+  controller.assignSubject,
+);
+router.get(
+  "/offerings",
+  authenticate,
+  attachPermissions,
+  requirePermission("subjects.view"),
+  controller.getSubjectOfferings,
+);
+router.put(
+  "/offerings",
+  authenticate,
+  attachPermissions,
+  requirePermission("subjects.assign"),
+  controller.replaceSubjectOfferings,
+);
+router.get(
+  "/student-registrations/:studentId",
+  authenticate,
+  attachPermissions,
+  requirePermission("subjects.view"),
+  controller.getStudentSubjectRegistrations,
+);
+router.put(
+  "/student-registrations/:studentId",
+  authenticate,
+  attachPermissions,
+  requirePermission("subjects.assign"),
+  controller.replaceStudentSubjectRegistrations,
+);
+router.get(
+  "/class/:classId",
+  authenticate,
+  attachPermissions,
+  requirePermission("subjects.view"),
+  controller.getClassSubjects,
+);
 router.put(
   "/:id",
   authenticate,
@@ -35,22 +77,6 @@ router.delete(
   attachPermissions,
   requirePermission("subjects.delete"),
   controller.deleteSubject,
-);
-
-
-router.post(
-  "/assign",
-  authenticate,
-  attachPermissions,
-  requirePermission("subjects.assign"),
-  controller.assignSubject,
-);
-router.get(
-  "/class/:classId",
-  authenticate,
-  attachPermissions,
-  requirePermission("subjects.view"),
-  controller.getClassSubjects,
 );
 
 export default router;

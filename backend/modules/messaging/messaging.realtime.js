@@ -1,5 +1,6 @@
 const userClients = new Map();
 const userPresence = new Map();
+const conversationTyping = new Map();
 
 function toIsoString(value) {
   if (!value) return null;
@@ -102,6 +103,10 @@ export function registerMessagingClient(userId, res) {
 }
 
 export function publishConversationEvent(userIds, payload) {
+  publishMessagingEvent(userIds, "message:new", payload);
+}
+
+export function publishMessagingEvent(userIds, event, payload) {
   const uniqueUserIds = [...new Set((userIds || []).map((value) => Number(value)).filter(Boolean))];
 
   for (const userId of uniqueUserIds) {
@@ -109,7 +114,39 @@ export function publishConversationEvent(userIds, payload) {
     if (!clients?.size) continue;
 
     for (const client of clients) {
-      writeEvent(client, "message:new", payload);
+      writeEvent(client, event, payload);
     }
   }
+}
+
+export function setConversationTyping(conversationId, userId, isTyping) {
+  const conversationKey = Number(conversationId);
+  const userKey = Number(userId);
+  if (!conversationTyping.has(conversationKey)) {
+    conversationTyping.set(conversationKey, new Map());
+  }
+  const users = conversationTyping.get(conversationKey);
+  if (isTyping) {
+    users.set(userKey, Date.now() + 5000);
+  } else {
+    users.delete(userKey);
+  }
+  if (!users.size) conversationTyping.delete(conversationKey);
+}
+
+export function getConversationTyping(conversationId, excludeUserId) {
+  const conversationKey = Number(conversationId);
+  const users = conversationTyping.get(conversationKey);
+  if (!users) return [];
+  const now = Date.now();
+  const result = [];
+  for (const [userId, expiresAt] of users.entries()) {
+    if (expiresAt <= now) {
+      users.delete(userId);
+    } else if (Number(userId) !== Number(excludeUserId)) {
+      result.push(Number(userId));
+    }
+  }
+  if (!users.size) conversationTyping.delete(conversationKey);
+  return result;
 }

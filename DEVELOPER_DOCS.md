@@ -9,7 +9,7 @@
 
   UPDATE users
   SET phone = '6002649802'
-  WHERE id = 55;
+  WHERE id = 1;
 
   UPDATE auth_trusted_devices
   SET revoked_at = NOW(),

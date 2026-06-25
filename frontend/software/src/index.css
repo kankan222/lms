@@ -122,6 +122,20 @@
     @apply bg-background text-foreground;
   }
 }
+
+@layer utilities {
+  .sidebar-primary-scrollbar {
+    scrollbar-width: thin;
+  }
+
+  .sidebar-primary-scrollbar::-webkit-scrollbar {
+    width: 6px;
+  }
+
+  .sidebar-primary-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+  }
+}
 @theme {
   --color-primary: rgb(218, 39, 31);
   --color-punch-50: #fef3f2;

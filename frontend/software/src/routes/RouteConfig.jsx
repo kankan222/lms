@@ -6,24 +6,24 @@ import {
   BriefcaseBusiness,
   IndianRupee,
   Hand,
-  Calendar,
-  MessageCircleMore,
   Mail,
   Bell,
-  FileQuestionMark,
   FileSpreadsheet,
-  FileStack,
   NotebookTabs,
   Settings,
   BriefcaseBusinessIcon,
   Users,
   Globe,
+  UserRoundCog,
+  ClipboardList,
 } from "lucide-react";
 import { lazy } from "react";
 
 const DashBoard = lazy(() => import("../pages/Dashboard"));
 const Classes = lazy(() => import("../pages/Classes"));
 const Subjects = lazy(() => import("../pages/Subjects"));
+const AssignSubjectToClass = lazy(() => import("../pages/AssignSubjectToClass"));
+const AssignTeacherToClass = lazy(() => import("../pages/AssignTeacherToClass"));
 const Students = lazy(() => import("../pages/Students"));
 const Teachers = lazy(() => import("../pages/teacher/Teachers"));
 const TeacherDetails = lazy(() => import("../pages/teacher/TeacherDetails"));
@@ -80,6 +80,15 @@ export const appRoutes = [
       hideForRoles: ["teacher"],
     },
     {
+      title: "Assign Subject to Class",
+      icon: ClipboardList,
+      path: "/subjects/assign-class",
+      element: <AssignSubjectToClass />,
+      protected: true,
+      permission: "subjects.assign",
+      hideForRoles: ["teacher"],
+    },
+    {
       title: "Students",
       icon: User,
       path: "/students",
@@ -95,6 +104,15 @@ export const appRoutes = [
       element: <Teachers />,
       protected : true,
       permission: "teacher.view",
+    },
+    {
+      title: "Assign Teacher to Class",
+      icon: UserRoundCog,
+      path: "/teachers/assign-class",
+      element: <AssignTeacherToClass />,
+      protected: true,
+      permission: "teacher.assign",
+      hideForRoles: ["teacher"],
     },
     {
       title: "Attendance",
@@ -205,6 +223,127 @@ export const appRoutes = [
       hideForRoles: ["teacher"],
     },
   ];
+
+const routeByPath = new Map(appRoutes.map((route) => [route.path, route]));
+
+function navEntry(path, overrides = {}) {
+  const route = routeByPath.get(path);
+  return {
+    ...route,
+    ...overrides,
+    path,
+    to: overrides.to || path,
+  };
+}
+
+export const navSections = [
+  {
+    title: "Dashboard",
+    items: [
+      navEntry("/dashboard"),
+    ],
+  },
+  {
+    title: "Academics",
+    items: [
+      navEntry("/classes", {
+        title: "Class",
+        icon: NotebookPen,
+      }),
+      navEntry("/subjects", {
+        title: "Subject",
+        icon: Book,
+      }),
+      navEntry("/teachers/assign-class", {
+        title: "Assign Teacher to Class",
+        icon: UserRoundCog,
+      }),
+      navEntry("/subjects/assign-class", {
+        title: "Assign Subject to Class",
+        icon: ClipboardList,
+      }),
+    ],
+  },
+  {
+    title: "Student",
+    items: [
+      navEntry("/students", {
+        title: "Student Info",
+        icon: User,
+      }),
+      navEntry("/attendance", {
+        title: "Student Attendance",
+        icon: Hand,
+        to: "/attendance?tab=student-attendance",
+      }),
+      navEntry("/fees", {
+        title: "Fee",
+        icon: BriefcaseBusinessIcon,
+      }),
+      navEntry("/payments", {
+        title: "Payment",
+        icon: IndianRupee,
+      }),
+    ],
+  },
+  {
+    title: "Staff",
+    items: [
+      navEntry("/teachers", {
+        title: "Teacher",
+        icon: BriefcaseBusiness,
+      }),
+      navEntry("/attendance", {
+        title: "Teacher Attendance",
+        icon: UserRoundCog,
+        permission: "teacher.view",
+        to: "/attendance?tab=teacher-logs",
+      }),
+      navEntry("/staff"),
+    ],
+  },
+  {
+    title: "Exam",
+    items: [
+      navEntry("/exams", {
+        title: "Exam Setup",
+        icon: FileSpreadsheet,
+      }),
+    ],
+  },
+  {
+    title: "Utilities",
+    items: [
+      navEntry("/messaging", {
+        title: "Chat",
+        icon: Mail,
+      }),
+      navEntry("/website"),
+    ],
+  },
+  {
+    title: "Reports",
+    items: [
+      navEntry("/reports", {
+        title: "Exam Report",
+        icon: NotebookTabs,
+      }),
+    ],
+  },
+  {
+    title: "Settings Section",
+    items: [
+      navEntry("/settings", {
+        title: "General Settings",
+        icon: Settings,
+      }),
+      navEntry("/users", {
+        title: "Users",
+        icon: Users,
+      }),
+    ],
+  },
+];
 
 
   export const hiddenRoutes = [

@@ -38,3 +38,33 @@ export function assignSubjects(data) {
 export function getClassSubjects(classId) {
   return apiRequest(`/subjects/class/${classId}`);
 }
+
+export function getSubjectOfferings(filters = {}) {
+  const params = new URLSearchParams();
+  Object.entries(filters).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && value !== "") {
+      params.set(key, value);
+    }
+  });
+
+  const query = params.toString();
+  return apiRequest(`/subjects/offerings${query ? `?${query}` : ""}`);
+}
+
+export function replaceSubjectOfferings(data) {
+  return apiRequest("/subjects/offerings", {
+    method: "PUT",
+    body: JSON.stringify(data),
+  });
+}
+
+export function getStudentSubjectRegistrations(studentId) {
+  return apiRequest(`/subjects/student-registrations/${studentId}`);
+}
+
+export function replaceStudentSubjectRegistrations(studentId, data) {
+  return apiRequest(`/subjects/student-registrations/${studentId}`, {
+    method: "PUT",
+    body: JSON.stringify(data),
+  });
+}

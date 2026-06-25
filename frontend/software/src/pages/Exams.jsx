@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useEffectEvent, useMemo, useState } from "react";
+import { useEffect, useEffectEvent, useMemo, useState } from "react";
 import TopBar from "../components/TopBar";
 import { Button } from "../components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Trash2 } from "lucide-react";
+import { ClipboardList, Trash2 } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -24,10 +24,17 @@ import {
   AlertDialogTitle
 } from "@/components/ui/alert-dialog";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { getClassStructure } from "../api/academic.api";
-import { getSubjects } from "../api/subjects.api";
+import { getSubjectOfferings } from "../api/subjects.api";
 import { createExam, deleteExam, getExamById, getExams, updateExam } from "../api/exam.api";
-import { getStudents } from "../api/students.api";
 
 function toWholeNumber(value, fallback = 0) {
   if (value === null || value === undefined) return fallback;
@@ -60,8 +67,9 @@ function isSplitPattern(subject) {
 
 function makeDefaultSubject(subject) {
   return {
-    subject_id: Number(subject.id),
-    subject_name: subject.name,
+    subject_id: Number(subject.subject_id || subject.id),
+    subject_name: subject.subject_name || subject.name,
+    subject_group: subject.subject_group || "compulsory",
     mark_pattern: "single",
     max_marks: 100,
     pass_marks: 33,
@@ -72,19 +80,44 @@ function makeDefaultSubject(subject) {
   };
 }
 
+const subjectGroupLabels = {
+  compulsory: "Compulsory",
+  elective: "Elective",
+  optional: "Optional",
+};
+
+const FIELD_CLASSNAME =
+  "w-full rounded-xl border border-input bg-background px-3 py-2 text-sm text-foreground shadow-xs outline-none transition-colors focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] dark:bg-input/30";
+
+function subjectGroupBadgeClass(group) {
+  const value = String(group || "").trim().toLowerCase();
+
+  if (value === "elective") {
+    return "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-500/30 dark:bg-amber-500/15 dark:text-amber-200";
+  }
+
+  if (value === "optional") {
+    return "border-purple-200 bg-purple-50 text-purple-700 dark:border-purple-500/30 dark:bg-purple-500/15 dark:text-purple-200";
+  }
+
+  return "border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-500/30 dark:bg-blue-500/15 dark:text-blue-200";
+}
+
+function markPatternBadgeClass(pattern) {
+  return String(pattern || "single").trim().toLowerCase() === "split"
+    ? "border-violet-200 bg-violet-50 text-violet-700 dark:border-violet-500/30 dark:bg-violet-500/15 dark:text-violet-200"
+    : "border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-500/30 dark:bg-sky-500/15 dark:text-sky-200";
+}
+
 export default function Exams() {
   const [exams, setExams] = useState([]);
   const [classStructure, setClassStructure] = useState([]);
-  const [allSubjects, setAllSubjects] = useState([]);
+  const [subjectOfferings, setSubjectOfferings] = useState([]);
   const [open, setOpen] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [deletingExam, setDeletingExam] = useState(null);
   const [formError, setFormError] = useState("");
   const [notice, setNotice] = useState(null);
-  const [scopeStudents, setScopeStudents] = useState([]);
-  const [scopeStudentsLoading, setScopeStudentsLoading] = useState(false);
-  const [useStudentSubjectMap, setUseStudentSubjectMap] = useState(false);
-  const [studentSubjectMap, setStudentSubjectMap] = useState({});
   const [form, setForm] = useState({
     name: "",
     scopes: [{ class_id: "", section_id: "" }],
@@ -96,94 +129,95 @@ export default function Exams() {
     [classStructure]
   );
 
-  const normalizedScopes = useMemo(() => normalizeScopeRows(form.scopes), [form.scopes]);
-  const selectedSubjectIds = useMemo(
+  const availableExamSubjects = useMemo(() => {
+    const scopes = normalizeScopeRows(form.scopes);
+    if (!scopes.length) return [];
+
+    const subjectMap = new Map();
+    subjectOfferings.forEach((offering) => {
+      if (!offering?.class_id || !offering?.subject_id) return;
+
+      const offeringClassId = Number(offering.class_id);
+      const offeringSectionId =
+        offering.section_id === null || offering.section_id === undefined
+          ? null
+          : Number(offering.section_id);
+      const matchesScope = scopes.some((scope) => {
+        if (Number(scope.class_id) !== offeringClassId) return false;
+        if (scope.section_id === null) return true;
+        return offeringSectionId === null || Number(scope.section_id) === offeringSectionId;
+      });
+
+      if (!matchesScope) return;
+
+      const subjectId = Number(offering.subject_id);
+      if (!subjectMap.has(subjectId)) {
+        subjectMap.set(subjectId, {
+          id: subjectId,
+          subject_id: subjectId,
+          name: offering.subject_name || offering.name || "Subject",
+          subject_name: offering.subject_name || offering.name || "Subject",
+          subject_group: offering.subject_group || "compulsory",
+        });
+      }
+    });
+
+    if (editingId) {
+      form.subjects.forEach((subject) => {
+        const subjectId = Number(subject.subject_id);
+        if (!subjectId || subjectMap.has(subjectId)) return;
+        subjectMap.set(subjectId, {
+          id: subjectId,
+          subject_id: subjectId,
+          name: subject.subject_name || "Subject",
+          subject_name: subject.subject_name || "Subject",
+          subject_group: subject.subject_group || "compulsory",
+        });
+      });
+    }
+
+    return Array.from(subjectMap.values()).sort((left, right) =>
+      String(left.subject_name || "").localeCompare(String(right.subject_name || ""))
+    );
+  }, [editingId, form.scopes, form.subjects, subjectOfferings]);
+  const examCards = useMemo(
     () =>
-      form.subjects
-        .map((subject) => Number(subject.subject_id))
-        .filter((subjectId) => Number.isFinite(subjectId) && subjectId > 0),
-    [form.subjects]
+      exams.map((exam) => {
+        const scopes = Array.isArray(exam.scopes) ? exam.scopes : [];
+        const subjects = Array.isArray(exam.subjects) ? exam.subjects : [];
+        const scopeLabels = scopes.map((scope) => {
+          const className = scope.class_name || scope.class || `Class ${scope.class_id}`;
+          const sectionName =
+            scope.section_id === null || scope.section_id === undefined
+              ? "All Sections"
+              : scope.section_name || scope.section || `Section ${scope.section_id}`;
+          return `${className} · ${sectionName}`;
+        });
+
+        return {
+          ...exam,
+          scopes,
+          subjects,
+          scopeLabels,
+        };
+      }),
+    [exams]
   );
 
   async function loadInitial() {
-    const [examsRes, classesRes, subjectsRes] = await Promise.all([
+    const [examsRes, classesRes, offeringsRes] = await Promise.all([
       getExams(),
       getClassStructure(),
-      getSubjects()
+      getSubjectOfferings()
     ]);
     setExams(examsRes?.data || []);
     setClassStructure(classesRes?.data || []);
-    setAllSubjects(subjectsRes?.data || []);
+    setSubjectOfferings(offeringsRes?.data || []);
   }
 
   const loadInitialExamData = useEffectEvent(() => {
     loadInitial();
   });
-
-  const loadScopeStudents = useCallback(async () => {
-    if (!useStudentSubjectMap) {
-      setScopeStudents([]);
-      return;
-    }
-
-    const scopes = normalizeScopeRows(form.scopes);
-    if (!scopes.length) {
-      setScopeStudents([]);
-      return;
-    }
-
-    setScopeStudentsLoading(true);
-    try {
-      const responses = await Promise.all(
-        scopes.map((scope) =>
-          getStudents({
-            class_id: scope.class_id,
-            section_id: scope.section_id ?? undefined
-          })
-        )
-      );
-
-      const dedupe = new Map();
-      responses.forEach((res) => {
-        const rows = Array.isArray(res) ? res : Array.isArray(res?.data) ? res.data : [];
-        rows.forEach((row) => {
-          const id = Number(row.id);
-          if (!id) return;
-
-          const className = row.class || row.class_name || "";
-          const sectionName = row.section || row.section_name || "";
-          const rollNumber =
-            row.roll_number === null || row.roll_number === undefined ? "" : String(row.roll_number);
-
-          dedupe.set(String(id), {
-            id,
-            name: row.name || `Student ${id}`,
-            class_name: className,
-            section_name: sectionName,
-            roll_number: rollNumber
-          });
-        });
-      });
-
-      const nextStudents = Array.from(dedupe.values()).sort((left, right) => {
-        const classDiff = String(left.class_name || "").localeCompare(String(right.class_name || ""));
-        if (classDiff !== 0) return classDiff;
-        const sectionDiff = String(left.section_name || "").localeCompare(String(right.section_name || ""));
-        if (sectionDiff !== 0) return sectionDiff;
-        const leftRoll = Number(left.roll_number || 0);
-        const rightRoll = Number(right.roll_number || 0);
-        if (leftRoll && rightRoll && leftRoll !== rightRoll) return leftRoll - rightRoll;
-        return String(left.name || "").localeCompare(String(right.name || ""));
-      });
-
-      setScopeStudents(nextStudents);
-    } catch (err) {
-      setScopeStudents([]);
-      setFormError(err?.message || "Failed to load students for subject mapping.");
-    } finally {
-      setScopeStudentsLoading(false);
-    }
-  }, [form.scopes, useStudentSubjectMap]);
 
   useEffect(() => {
     loadInitialExamData();
@@ -197,50 +231,6 @@ export default function Exams() {
     return () => window.clearTimeout(timeoutId);
   }, [notice]);
 
-  useEffect(() => {
-    if (!open || !useStudentSubjectMap) return;
-    void loadScopeStudents();
-  }, [open, useStudentSubjectMap, normalizedScopes, loadScopeStudents]);
-
-  useEffect(() => {
-    if (!useStudentSubjectMap) return;
-
-    const validSubjectIdSet = new Set(selectedSubjectIds);
-    const validStudentIdSet = new Set(scopeStudents.map((student) => Number(student.id)));
-    const shouldFilterStudents = scopeStudents.length > 0;
-
-    setStudentSubjectMap((prev) => {
-      let changed = false;
-      const next = {};
-
-      Object.entries(prev).forEach(([studentId, subjectIds]) => {
-        if (shouldFilterStudents && !validStudentIdSet.has(Number(studentId))) {
-          changed = true;
-          return;
-        }
-
-        const current = Array.isArray(subjectIds) ? subjectIds : [];
-        const filtered = Array.from(
-          new Set(
-            current
-              .map((subjectId) => Number(subjectId))
-              .filter((subjectId) => validSubjectIdSet.has(subjectId))
-          )
-        );
-
-        if (filtered.length) {
-          next[studentId] = filtered;
-        }
-
-        if (filtered.length !== current.length) {
-          changed = true;
-        }
-      });
-
-      return changed ? next : prev;
-    });
-  }, [useStudentSubjectMap, selectedSubjectIds, scopeStudents]);
-
   function showNotice(title, message, variant = "success") {
     setNotice({ title, message, variant });
   }
@@ -248,15 +238,43 @@ export default function Exams() {
   function resetForm() {
     setEditingId(null);
     setFormError("");
-    setUseStudentSubjectMap(false);
-    setStudentSubjectMap({});
-    setScopeStudents([]);
-    setScopeStudentsLoading(false);
     setForm({
       name: "",
       scopes: [{ class_id: "", section_id: "" }],
       subjects: []
     });
+  }
+
+  function getAvailableSubjectIdsForScopes(scopes) {
+    const normalized = normalizeScopeRows(scopes);
+    const subjectIds = new Set();
+
+    if (!normalized.length) return subjectIds;
+
+    subjectOfferings.forEach((offering) => {
+      if (!offering?.class_id || !offering?.subject_id) return;
+
+      const offeringClassId = Number(offering.class_id);
+      const offeringSectionId =
+        offering.section_id === null || offering.section_id === undefined
+          ? null
+          : Number(offering.section_id);
+      const matchesScope = normalized.some((scope) => {
+        if (Number(scope.class_id) !== offeringClassId) return false;
+        if (scope.section_id === null) return true;
+        return offeringSectionId === null || Number(scope.section_id) === offeringSectionId;
+      });
+
+      if (matchesScope) subjectIds.add(Number(offering.subject_id));
+    });
+
+    return subjectIds;
+  }
+
+  function pruneSubjectsForScopes(subjects, scopes) {
+    if (editingId) return subjects;
+    const validSubjectIds = getAvailableSubjectIdsForScopes(scopes);
+    return subjects.filter((subject) => validSubjectIds.has(Number(subject.subject_id)));
   }
 
   function setScope(index, key, value) {
@@ -268,6 +286,16 @@ export default function Exams() {
             ? { class_id: value, section_id: "" }
             : { ...scope, [key]: value }
           : scope
+      ),
+      subjects: pruneSubjectsForScopes(
+        prev.subjects,
+        prev.scopes.map((scope, scopeIndex) =>
+          scopeIndex === index
+            ? key === "class_id"
+              ? { class_id: value, section_id: "" }
+              : { ...scope, [key]: value }
+            : scope
+        )
       )
     }));
   }
@@ -282,12 +310,16 @@ export default function Exams() {
   function removeScopeRow(index) {
     setForm((prev) => ({
       ...prev,
-      scopes: prev.scopes.filter((_, scopeIndex) => scopeIndex !== index)
+      scopes: prev.scopes.filter((_, scopeIndex) => scopeIndex !== index),
+      subjects: pruneSubjectsForScopes(
+        prev.subjects,
+        prev.scopes.filter((_, scopeIndex) => scopeIndex !== index)
+      )
     }));
   }
 
   function toggleSubject(subject) {
-    const subjectId = Number(subject.id);
+    const subjectId = Number(subject.subject_id || subject.id);
     const exists = form.subjects.some((item) => Number(item.subject_id) === subjectId);
 
     if (exists) {
@@ -363,52 +395,6 @@ export default function Exams() {
           : subject
       )
     }));
-  }
-
-  function setStudentCustomMapping(studentId, checked) {
-    const normalizedStudentId = String(Number(studentId));
-    if (!normalizedStudentId) return;
-
-    setStudentSubjectMap((prev) => {
-      if (!checked) {
-        const { [normalizedStudentId]: _removed, ...rest } = prev;
-        return rest;
-      }
-
-      if (!selectedSubjectIds.length) return prev;
-
-      const existing = Array.isArray(prev[normalizedStudentId]) ? prev[normalizedStudentId] : [];
-      const next = existing.length ? existing : [...selectedSubjectIds];
-      return {
-        ...prev,
-        [normalizedStudentId]: Array.from(new Set(next.map((subjectId) => Number(subjectId)).filter(Boolean)))
-      };
-    });
-  }
-
-  function setStudentSubject(studentId, subjectId, checked) {
-    const normalizedStudentId = String(Number(studentId));
-    const normalizedSubjectId = Number(subjectId);
-    if (!normalizedStudentId || !normalizedSubjectId) return;
-
-    setStudentSubjectMap((prev) => {
-      const current = Array.isArray(prev[normalizedStudentId]) ? prev[normalizedStudentId] : [];
-      const currentSet = new Set(current.map((item) => Number(item)).filter(Boolean));
-
-      if (checked) currentSet.add(normalizedSubjectId);
-      else currentSet.delete(normalizedSubjectId);
-
-      const nextList = Array.from(currentSet);
-      if (!nextList.length) {
-        const { [normalizedStudentId]: _removed, ...rest } = prev;
-        return rest;
-      }
-
-      return {
-        ...prev,
-        [normalizedStudentId]: nextList
-      };
-    });
   }
 
   async function onSubmit(e) {
@@ -488,27 +474,10 @@ export default function Exams() {
       return;
     }
 
-    const subjectIdSet = new Set(cleanSubjects.map((subject) => Number(subject.subject_id)));
-    const cleanStudentSubjects = useStudentSubjectMap
-      ? Object.entries(studentSubjectMap)
-          .map(([studentId, subjectIds]) => ({
-            student_id: Number(studentId),
-            subject_ids: Array.from(
-              new Set(
-                (Array.isArray(subjectIds) ? subjectIds : [])
-                  .map((subjectId) => Number(subjectId))
-                  .filter((subjectId) => subjectIdSet.has(subjectId))
-              )
-            )
-          }))
-          .filter((row) => row.student_id && row.subject_ids.length > 0)
-      : [];
-
     const payload = {
       name: cleanName,
       scopes: cleanScopes,
-      subjects: cleanSubjects,
-      student_subjects: cleanStudentSubjects
+      subjects: cleanSubjects
     };
 
     try {
@@ -561,23 +530,6 @@ export default function Exams() {
         }))
       });
 
-      const groupedMappings = {};
-      (exam.student_subjects || []).forEach((row) => {
-        const studentId = Number(row.student_id);
-        const subjectId = Number(row.subject_id);
-        if (!studentId || !subjectId) return;
-        const key = String(studentId);
-        if (!groupedMappings[key]) groupedMappings[key] = [];
-        groupedMappings[key].push(subjectId);
-      });
-
-      Object.keys(groupedMappings).forEach((studentId) => {
-        groupedMappings[studentId] = Array.from(new Set(groupedMappings[studentId]));
-      });
-
-      setUseStudentSubjectMap(Object.keys(groupedMappings).length > 0);
-      setStudentSubjectMap(groupedMappings);
-      setScopeStudents([]);
       setFormError("");
       setOpen(true);
     } catch (err) {
@@ -633,308 +585,271 @@ export default function Exams() {
               <Button>{editingId ? "Edit Exam" : "Add Exam"}</Button>
             </DialogTrigger>
 
-            <DialogContent className="max-h-[85vh] overflow-y-auto">
+            <DialogContent className="max-h-[90vh] overflow-y-auto rounded-2xl sm:max-w-[980px]">
               <form onSubmit={onSubmit} className="space-y-4">
                 <DialogHeader>
                   <DialogTitle>{editingId ? "Update Exam" : "Create Exam"}</DialogTitle>
                   <DialogDescription>
-                    Set scope, define subject-wise mark pattern, and optionally choose custom subjects per student.
+                    Select the class scope first. Subjects are pulled from assigned subject offerings.
                   </DialogDescription>
                 </DialogHeader>
 
-                <div className="grid gap-2">
-                  <Label>Exam Name *</Label>
-                  <Input
-                    value={form.name}
-                    onChange={(e) => setForm((prev) => ({ ...prev, name: e.target.value }))}
-                    required
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <Label>Class Scopes (Section Optional) *</Label>
-                    <Button type="button" variant="outline" size="sm" onClick={addScopeRow}>
-                      Add Scope
-                    </Button>
-                  </div>
-
-                  {form.scopes.map((scope, index) => {
-                    const selectedClass = classMap.get(String(scope.class_id));
-                    const sections = selectedClass?.sections || [];
-                    return (
-                      <div key={index} className="grid grid-cols-12 gap-2 border rounded p-2">
-                        <select
-                          className="border rounded p-2 col-span-5"
-                          value={scope.class_id}
-                          onChange={(e) => setScope(index, "class_id", e.target.value)}
-                          required
-                        >
-                          <option value="">Class</option>
-                          {classStructure.map((item) => (
-                            <option key={item.id} value={item.id}>
-                              {item.name}
-                            </option>
-                          ))}
-                        </select>
-
-                        <select
-                          className="border rounded p-2 col-span-5"
-                          value={scope.section_id}
-                          onChange={(e) => setScope(index, "section_id", e.target.value)}
-                        >
-                          <option value="">All Sections</option>
-                          {sections.map((section) => (
-                            <option key={section.id} value={section.id}>
-                              {section.name}
-                              {section.medium ? ` (${section.medium})` : ""}
-                            </option>
-                          ))}
-                        </select>
-
-                        <button
-                          type="button"
-                          className="col-span-2 inline-flex items-center justify-center rounded border border-red-200/70 bg-red-50 text-red-600 transition-colors hover:bg-red-100 disabled:opacity-50 dark:border-red-500/40 dark:bg-red-500/10 dark:text-red-200 dark:hover:bg-red-500/20"
-                          onClick={() => removeScopeRow(index)}
-                          disabled={form.scopes.length === 1}
-                          aria-label="Delete scope"
-                          title="Delete scope"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </button>
-                      </div>
-                    );
-                  })}
-                </div>
-
-                <div className="space-y-2">
-                  <Label>Subjects *</Label>
-                  <div className="grid grid-cols-2 gap-2 max-h-40 overflow-auto border rounded p-2">
-                    {allSubjects.map((subject) => {
-                      const checked = form.subjects.some(
-                        (item) => Number(item.subject_id) === Number(subject.id)
-                      );
-                      return (
-                        <label key={subject.id} className="flex items-center gap-2 text-sm">
-                          <input
-                            type="checkbox"
-                            checked={checked}
-                            onChange={() => toggleSubject(subject)}
+                <div className="grid gap-4 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
+                  <div className="space-y-4">
+                    <Card className="gap-0 rounded-2xl border-border/70 bg-card shadow-sm">
+                      <CardHeader className="p-4 pb-2">
+                        <CardTitle className="text-base">Exam Details</CardTitle>
+                        <CardDescription>Name and class/section scope</CardDescription>
+                      </CardHeader>
+                      <CardContent className="space-y-4 p-4 pt-2">
+                        <div className="grid gap-2">
+                          <Label>Exam Name *</Label>
+                          <Input
+                            className="rounded-xl"
+                            value={form.name}
+                            onChange={(e) => setForm((prev) => ({ ...prev, name: e.target.value }))}
+                            required
                           />
-                          {subject.name}
-                        </label>
-                      );
-                    })}
-                  </div>
-                </div>
+                        </div>
 
-                {form.subjects.length > 0 && (
-                  <div className="space-y-2">
-                    {form.subjects.map((subject) => {
-                      const split = isSplitPattern(subject);
-                      const totalMax =
-                        toWholeNumber(subject.theory_max, 0) + toWholeNumber(subject.practical_max, 0);
-                      const totalPass =
-                        toWholeNumber(subject.theory_pass, 0) + toWholeNumber(subject.practical_pass, 0);
-
-                      return (
-                        <div key={subject.subject_id} className="border rounded p-3 space-y-2">
+                        <div className="space-y-3">
                           <div className="flex items-center justify-between gap-2">
-                            <div className="text-sm font-medium">{subject.subject_name}</div>
-                            <select
-                              className="border rounded p-2 text-sm"
-                              value={subject.mark_pattern || "single"}
-                              onChange={(e) => setSubjectPattern(subject.subject_id, e.target.value)}
-                            >
-                              <option value="single">Single Total</option>
-                              <option value="split">Theory + Practical</option>
-                            </select>
+                            <Label>Class Scopes *</Label>
+                            <Button type="button" variant="outline" size="sm" className="rounded-xl" onClick={addScopeRow}>
+                              Add Scope
+                            </Button>
                           </div>
 
-                          {!split ? (
-                            <div className="grid grid-cols-2 gap-2">
-                              <Input
-                                type="number"
-                                min="1"
-                                step="1"
-                                value={subject.max_marks}
-                                onChange={(e) => updateSubjectField(subject.subject_id, "max_marks", e.target.value)}
-                                placeholder="Max Marks"
-                              />
-                              <Input
-                                type="number"
-                                min="0"
-                                step="1"
-                                value={subject.pass_marks}
-                                onChange={(e) => updateSubjectField(subject.subject_id, "pass_marks", e.target.value)}
-                                placeholder="Pass Marks"
-                              />
-                            </div>
-                          ) : (
-                            <div className="space-y-2">
-                              <div className="grid grid-cols-2 gap-2">
-                                <Input
-                                  type="number"
-                                  min="0"
-                                  step="1"
-                                  value={subject.theory_max}
-                                  onChange={(e) => updateSubjectField(subject.subject_id, "theory_max", e.target.value)}
-                                  placeholder="Theory Max"
-                                />
-                                <Input
-                                  type="number"
-                                  min="0"
-                                  step="1"
-                                  value={subject.theory_pass}
-                                  onChange={(e) => updateSubjectField(subject.subject_id, "theory_pass", e.target.value)}
-                                  placeholder="Theory Pass"
-                                />
-                                <Input
-                                  type="number"
-                                  min="0"
-                                  step="1"
-                                  value={subject.practical_max}
-                                  onChange={(e) => updateSubjectField(subject.subject_id, "practical_max", e.target.value)}
-                                  placeholder="Practical Max"
-                                />
-                                <Input
-                                  type="number"
-                                  min="0"
-                                  step="1"
-                                  value={subject.practical_pass}
-                                  onChange={(e) => updateSubjectField(subject.subject_id, "practical_pass", e.target.value)}
-                                  placeholder="Practical Pass"
-                                />
-                              </div>
-                              <p className="text-xs text-muted-foreground">
-                                Total Max: {totalMax} | Total Pass: {totalPass}
-                              </p>
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-
-                <div className="space-y-3 border rounded p-3">
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="space-y-1">
-                      <Label>Custom Student Subject Mapping</Label>
-                      <p className="text-xs text-muted-foreground">
-                        Enable this only when students in the same scope have different subject combinations.
-                      </p>
-                    </div>
-                    <label className="inline-flex items-center gap-2 text-sm">
-                      <input
-                        type="checkbox"
-                        checked={useStudentSubjectMap}
-                        onChange={(e) => {
-                          const checked = Boolean(e.target.checked);
-                          setUseStudentSubjectMap(checked);
-                          if (!checked) {
-                            setStudentSubjectMap({});
-                            setScopeStudents([]);
-                          }
-                        }}
-                      />
-                      Enable
-                    </label>
-                  </div>
-
-                  {useStudentSubjectMap && (
-                    <div className="space-y-2">
-                      <div className="flex items-center justify-between gap-2">
-                        <p className="text-xs text-muted-foreground">
-                          Students are loaded from selected class scopes. If Custom Subjects is off for a student, all exam subjects apply to that student.
-                        </p>
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="outline"
-                          onClick={loadScopeStudents}
-                          disabled={scopeStudentsLoading || !normalizedScopes.length}
-                        >
-                          {scopeStudentsLoading ? "Loading..." : "Reload Students"}
-                        </Button>
-                      </div>
-
-                      {!normalizedScopes.length && (
-                        <p className="text-xs text-amber-600">
-                          Add at least one valid class scope to configure student mappings.
-                        </p>
-                      )}
-
-                      {normalizedScopes.length > 0 && !scopeStudentsLoading && scopeStudents.length === 0 && (
-                        <p className="text-xs text-muted-foreground">
-                          No students found in the selected scopes.
-                        </p>
-                      )}
-
-                      {scopeStudents.length > 0 && (
-                        <div className="max-h-56 overflow-auto rounded border">
-                          {scopeStudents.map((student) => {
-                            const studentKey = String(student.id);
-                            const subjectIds = Array.isArray(studentSubjectMap[studentKey])
-                              ? studentSubjectMap[studentKey]
-                              : [];
-                            const hasCustom = subjectIds.length > 0;
-
+                          {form.scopes.map((scope, index) => {
+                            const selectedClass = classMap.get(String(scope.class_id));
+                            const sections = selectedClass?.sections || [];
                             return (
-                              <div key={student.id} className="border-b p-3 last:border-b-0">
-                                <div className="flex items-start justify-between gap-3">
-                                  <div>
-                                    <p className="text-sm font-medium">{student.name}</p>
-                                    <p className="text-xs text-muted-foreground">
-                                      {student.class_name || "-"} / {student.section_name || "-"}
-                                      {student.roll_number ? ` | Roll: ${student.roll_number}` : ""}
-                                    </p>
-                                  </div>
-                                  <label className="inline-flex items-center gap-2 text-xs">
-                                    <input
-                                      type="checkbox"
-                                      checked={hasCustom}
-                                      onChange={(e) =>
-                                        setStudentCustomMapping(student.id, Boolean(e.target.checked))
-                                      }
-                                    />
-                                    Custom Subjects
-                                  </label>
-                                </div>
+                              <div
+                                key={index}
+                                className="grid grid-cols-12 gap-2 rounded-xl border border-border bg-muted/20 p-3 dark:bg-muted/10"
+                              >
+                                <select
+                                  className={`${FIELD_CLASSNAME} col-span-12 sm:col-span-5`}
+                                  value={scope.class_id}
+                                  onChange={(e) => setScope(index, "class_id", e.target.value)}
+                                  required
+                                >
+                                  <option value="">Class</option>
+                                  {classStructure.map((item) => (
+                                    <option key={item.id} value={item.id}>
+                                      {item.name}
+                                    </option>
+                                  ))}
+                                </select>
 
-                                {hasCustom && (
-                                  <div className="mt-2 grid grid-cols-2 gap-2">
-                                    {form.subjects.map((subject) => {
-                                      const subjectId = Number(subject.subject_id);
-                                      return (
-                                        <label
-                                          key={`${student.id}-${subjectId}`}
-                                          className="inline-flex items-center gap-2 text-xs"
-                                        >
-                                          <input
-                                            type="checkbox"
-                                            checked={subjectIds.includes(subjectId)}
-                                            onChange={(e) =>
-                                              setStudentSubject(
-                                                student.id,
-                                                subjectId,
-                                                Boolean(e.target.checked)
-                                              )
-                                            }
-                                          />
-                                          {subject.subject_name}
-                                        </label>
-                                      );
-                                    })}
-                                  </div>
-                                )}
+                                <select
+                                  className={`${FIELD_CLASSNAME} col-span-10 sm:col-span-5`}
+                                  value={scope.section_id}
+                                  onChange={(e) => setScope(index, "section_id", e.target.value)}
+                                >
+                                  <option value="">All Sections</option>
+                                  {sections.map((section) => (
+                                    <option key={section.id} value={section.id}>
+                                      {section.name}
+                                      {section.medium ? ` (${section.medium})` : ""}
+                                    </option>
+                                  ))}
+                                </select>
+
+                                <button
+                                  type="button"
+                                  className="col-span-2 inline-flex items-center justify-center rounded-xl border border-red-200/70 bg-red-50 text-red-600 transition-colors hover:bg-red-100 disabled:opacity-50 dark:border-red-500/40 dark:bg-red-500/10 dark:text-red-200 dark:hover:bg-red-500/20"
+                                  onClick={() => removeScopeRow(index)}
+                                  disabled={form.scopes.length === 1}
+                                  aria-label="Delete scope"
+                                  title="Delete scope"
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </button>
                               </div>
                             );
                           })}
                         </div>
-                      )}
-                    </div>
-                  )}
+                      </CardContent>
+                    </Card>
+                  </div>
+                  <div className="space-y-4">
+                    <Card className="gap-0 rounded-2xl border-border/70 bg-card shadow-sm">
+                      <CardHeader className="p-4 pb-2">
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <CardTitle className="text-base">Exam Subjects</CardTitle>
+                            <CardDescription>
+                              Loaded from active subject offerings for the selected scope
+                            </CardDescription>
+                          </div>
+                          <Badge variant="secondary" className="rounded-full">
+                            {form.subjects.length} selected
+                          </Badge>
+                        </div>
+                      </CardHeader>
+                      <CardContent className="space-y-4 p-4 pt-2">
+                        <div className="grid max-h-56 grid-cols-1 gap-2 overflow-auto rounded-xl border border-border bg-background p-2 sm:grid-cols-2">
+                          {availableExamSubjects.length ? (
+                            availableExamSubjects.map((subject) => {
+                              const checked = form.subjects.some(
+                                (item) => Number(item.subject_id) === Number(subject.subject_id)
+                              );
+                              return (
+                                <label
+                                  key={subject.subject_id}
+                                  className={`flex items-center gap-2 rounded-xl border px-3 py-2 text-sm transition-colors ${
+                                    checked
+                                      ? "border-foreground/20 bg-muted/70 text-foreground shadow-sm dark:border-border dark:bg-muted/30"
+                                      : "border-border bg-background text-foreground hover:bg-muted/40 dark:hover:bg-muted/20"
+                                  }`}
+                                >
+                                  <input
+                                    type="checkbox"
+                                    checked={checked}
+                                    onChange={() => toggleSubject(subject)}
+                                    className="size-4 rounded border-border accent-stone-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 dark:accent-stone-300 dark:focus-visible:ring-offset-background"
+                                  />
+                                  <span className="min-w-0 flex-1 truncate">{subject.subject_name}</span>
+                                  <Badge
+                                    variant="outline"
+                                    className={`rounded-full px-2 py-0 text-[11px] ${subjectGroupBadgeClass(subject.subject_group)}`}
+                                  >
+                                    {subjectGroupLabels[subject.subject_group] || subject.subject_group}
+                                  </Badge>
+                                </label>
+                              );
+                            })
+                          ) : (
+                            <p className="col-span-full rounded-xl border border-dashed border-border px-3 py-4 text-sm text-muted-foreground">
+                              Select a class scope with assigned subject offerings before choosing exam subjects.
+                            </p>
+                          )}
+                        </div>
+
+                        {form.subjects.length > 0 ? (
+                          <div className="space-y-2">
+                            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                              Marks Setup
+                            </p>
+                            {form.subjects.map((subject) => {
+                              const split = isSplitPattern(subject);
+                              const totalMax =
+                                toWholeNumber(subject.theory_max, 0) + toWholeNumber(subject.practical_max, 0);
+                              const totalPass =
+                                toWholeNumber(subject.theory_pass, 0) + toWholeNumber(subject.practical_pass, 0);
+
+                              return (
+                                <div
+                                  key={subject.subject_id}
+                                  className="space-y-3 rounded-xl border border-border bg-muted/20 p-3 dark:bg-muted/10"
+                                >
+                                  <div className="flex flex-wrap items-center justify-between gap-2">
+                                    <div className="min-w-0">
+                                      <p className="truncate text-sm font-semibold text-foreground">{subject.subject_name}</p>
+                                      <div className="mt-1 flex flex-wrap gap-2">
+                                        <Badge
+                                          variant="outline"
+                                          className={`rounded-full px-2 py-0 text-[11px] ${subjectGroupBadgeClass(subject.subject_group)}`}
+                                        >
+                                          {subjectGroupLabels[subject.subject_group] || subject.subject_group}
+                                        </Badge>
+                                        <Badge
+                                          variant="outline"
+                                          className={`rounded-full px-2 py-0 text-[11px] ${markPatternBadgeClass(subject.mark_pattern)}`}
+                                        >
+                                          {split ? "Theory + Practical" : "Single Total"}
+                                        </Badge>
+                                      </div>
+                                    </div>
+                                    <select
+                                      className={`${FIELD_CLASSNAME} h-9 w-auto min-w-40 rounded-xl py-1.5`}
+                                      value={subject.mark_pattern || "single"}
+                                      onChange={(e) => setSubjectPattern(subject.subject_id, e.target.value)}
+                                    >
+                                      <option value="single">Single Total</option>
+                                      <option value="split">Theory + Practical</option>
+                                    </select>
+                                  </div>
+
+                                  {!split ? (
+                                    <div className="grid grid-cols-2 gap-2">
+                                      <Input
+                                        className="rounded-xl"
+                                        type="number"
+                                        min="1"
+                                        step="1"
+                                        value={subject.max_marks}
+                                        onChange={(e) => updateSubjectField(subject.subject_id, "max_marks", e.target.value)}
+                                        placeholder="Max Marks"
+                                      />
+                                      <Input
+                                        className="rounded-xl"
+                                        type="number"
+                                        min="0"
+                                        step="1"
+                                        value={subject.pass_marks}
+                                        onChange={(e) => updateSubjectField(subject.subject_id, "pass_marks", e.target.value)}
+                                        placeholder="Pass Marks"
+                                      />
+                                    </div>
+                                  ) : (
+                                    <div className="space-y-2">
+                                      <div className="grid grid-cols-2 gap-2">
+                                        <Input
+                                          className="rounded-xl"
+                                          type="number"
+                                          min="0"
+                                          step="1"
+                                          value={subject.theory_max}
+                                          onChange={(e) => updateSubjectField(subject.subject_id, "theory_max", e.target.value)}
+                                          placeholder="Theory Max"
+                                        />
+                                        <Input
+                                          className="rounded-xl"
+                                          type="number"
+                                          min="0"
+                                          step="1"
+                                          value={subject.theory_pass}
+                                          onChange={(e) => updateSubjectField(subject.subject_id, "theory_pass", e.target.value)}
+                                          placeholder="Theory Pass"
+                                        />
+                                        <Input
+                                          className="rounded-xl"
+                                          type="number"
+                                          min="0"
+                                          step="1"
+                                          value={subject.practical_max}
+                                          onChange={(e) => updateSubjectField(subject.subject_id, "practical_max", e.target.value)}
+                                          placeholder="Practical Max"
+                                        />
+                                        <Input
+                                          className="rounded-xl"
+                                          type="number"
+                                          min="0"
+                                          step="1"
+                                          value={subject.practical_pass}
+                                          onChange={(e) => updateSubjectField(subject.subject_id, "practical_pass", e.target.value)}
+                                          placeholder="Practical Pass"
+                                        />
+                                      </div>
+                                      <p className="text-xs text-muted-foreground">
+                                        Total Max: {totalMax} | Total Pass: {totalPass}
+                                      </p>
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        ) : null}
+                      </CardContent>
+                    </Card>
+                  </div>
+                </div>
+
+                <div className="rounded-2xl border border-border bg-muted/20 p-4 text-sm text-muted-foreground dark:bg-muted/10">
+                  Student-specific elective or optional choices are managed in Student Details. Exam setup now uses class subject offerings and student registrations automatically during marks and reports.
                 </div>
 
                 {formError && <p className="text-sm text-red-600">{formError}</p>}
@@ -950,23 +865,89 @@ export default function Exams() {
         }
       />
 
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
-        {exams.map((exam) => (
-          <div key={exam.id} className="border rounded p-4 bg-secondary/70">
-            <p className="font-semibold text-lg">{exam.name}</p>
-            <p className="text-xs text-muted-foreground">Session: {exam.session_name || "-"}</p>
-            <p className="text-xs text-muted-foreground">Exam ID: {exam.id}</p>
-            <div className="flex gap-2 mt-3">
-              <Button variant="secondary" size="sm" onClick={() => onEdit(exam.id)}>
-                Edit
-              </Button>
-              <Button size="sm" variant="destructive" onClick={() => setDeletingExam(exam)}>
-                Delete
-              </Button>
+      {examCards.length === 0 ? (
+        <Card className="rounded-2xl border border-dashed border-border/70 bg-card shadow-sm">
+          <CardContent className="flex flex-col items-center justify-center gap-4 px-6 py-12 text-center">
+            <div className="flex size-12 items-center justify-center rounded-2xl bg-muted text-muted-foreground">
+              <ClipboardList className="size-6" />
             </div>
-          </div>
-        ))}
-      </div>
+            <div className="space-y-1">
+              <CardTitle>No exams configured</CardTitle>
+              <CardDescription>
+                Create an exam after assigning subjects to classes.
+              </CardDescription>
+            </div>
+            <Button className="rounded-xl shadow-sm" onClick={() => setOpen(true)}>
+              Add Exam
+            </Button>
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+          {examCards.map((exam) => (
+            <Card
+              key={exam.id}
+              className="gap-0 rounded-2xl border border-border/60 bg-card shadow-sm transition-shadow hover:shadow-md"
+            >
+              <CardHeader className="p-4 pb-2">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <CardTitle className="truncate text-base tracking-tight">{exam.name}</CardTitle>
+                    <CardDescription>Session: {exam.session_name || "-"}</CardDescription>
+                  </div>
+                  <Badge variant="secondary" className="rounded-full">
+                    #{exam.id}
+                  </Badge>
+                </div>
+              </CardHeader>
+
+              <CardContent className="space-y-3 p-4 pt-1">
+                <div className="flex flex-wrap items-center gap-2 text-xs">
+                  <Badge variant="outline" className="rounded-full border-border bg-muted/40 text-muted-foreground">
+                    {exam.subjects.length} subject{exam.subjects.length === 1 ? "" : "s"}
+                  </Badge>
+                  <Badge variant="outline" className="rounded-full border-border bg-muted/40 text-muted-foreground">
+                    {exam.scopes.length} scope{exam.scopes.length === 1 ? "" : "s"}
+                  </Badge>
+                </div>
+
+                <div className="space-y-2">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Scopes</p>
+                  <div className="flex flex-wrap gap-2">
+                    {exam.scopeLabels.length ? (
+                      exam.scopeLabels.slice(0, 3).map((scopeLabel) => (
+                        <Badge
+                          key={scopeLabel}
+                          variant="outline"
+                          className="rounded-full border-border bg-background font-normal text-muted-foreground dark:bg-input/20"
+                        >
+                          {scopeLabel}
+                        </Badge>
+                      ))
+                    ) : (
+                      <span className="text-xs text-muted-foreground">No scope data</span>
+                    )}
+                    {exam.scopeLabels.length > 3 ? (
+                      <Badge variant="outline" className="rounded-full border-border bg-muted/40 text-muted-foreground">
+                        +{exam.scopeLabels.length - 3} more
+                      </Badge>
+                    ) : null}
+                  </div>
+                </div>
+
+                <div className="flex gap-2 pt-1">
+                  <Button variant="outline" size="sm" className="h-8 rounded-xl px-3" onClick={() => onEdit(exam.id)}>
+                    Edit
+                  </Button>
+                  <Button size="sm" variant="destructive" className="h-8 rounded-xl px-3" onClick={() => setDeletingExam(exam)}>
+                    Delete
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
 
       <AlertDialog
         open={!!deletingExam}

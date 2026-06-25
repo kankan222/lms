@@ -23,6 +23,7 @@ function normalizeSubjects(subjects) {
     .map((s) => {
       const subjectId = Number(s.subject_id);
       if (!subjectId) return null;
+      const subjectOfferingId = Number(s.subject_offering_id ?? s.subjectOfferingId ?? 0) || null;
 
       const theoryMax = parseOptionalNumber(s.theory_max);
       const theoryPass = parseOptionalNumber(s.theory_pass);
@@ -54,6 +55,7 @@ function normalizeSubjects(subjects) {
 
         return {
           subject_id: subjectId,
+          subject_offering_id: subjectOfferingId,
           mark_pattern: "split",
           max_marks: totalMax,
           pass_marks: totalPass,
@@ -71,6 +73,7 @@ function normalizeSubjects(subjects) {
 
       return {
         subject_id: subjectId,
+        subject_offering_id: subjectOfferingId,
         mark_pattern: "single",
         max_marks: maxMarks,
         pass_marks: passMarks,
@@ -293,7 +296,8 @@ export async function createExam(data, userId) {
     });
 
     await repo.replaceExamScopes(conn, examId, scopes);
-    await repo.replaceExamSubjects(conn, examId, subjects);
+    const subjectsWithOfferings = await repo.attachUniqueSubjectOfferingIds(conn, scopes, subjects);
+    await repo.replaceExamSubjects(conn, examId, subjectsWithOfferings);
     if (hasStudentSubjectPayload) {
       await repo.replaceStudentExamSubjects(conn, examId, studentSubjectRows);
     }
@@ -361,7 +365,8 @@ export async function updateExam(id, data) {
       section_id: scopes[0].section_id
     });
     await repo.replaceExamScopes(conn, examId, scopes);
-    await repo.replaceExamSubjects(conn, examId, subjects);
+    const subjectsWithOfferings = await repo.attachUniqueSubjectOfferingIds(conn, scopes, subjects);
+    await repo.replaceExamSubjects(conn, examId, subjectsWithOfferings);
     if (hasStudentSubjectPayload) {
       await repo.replaceStudentExamSubjects(conn, examId, studentSubjectRows);
     }
