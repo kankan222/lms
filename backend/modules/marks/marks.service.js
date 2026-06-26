@@ -170,6 +170,7 @@ function formatReport(rows, publication = null) {
       id: rows[0].student_id,
       name: rows[0].student_name,
       roll_number: rows[0].roll_number,
+      guardian_name: rows[0].guardian_name,
     },
     exam: {
       id: rows[0].exam_id,

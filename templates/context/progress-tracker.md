@@ -56,6 +56,9 @@ Update this file after every meaningful implementation change.
   ingress at `/api/v1/sync`, updating agent defaults to the proxied
   production path, and retaining the MSSQL agent used by attendance
   source computers.
+- Updated the single-exam report card layout to remove the address from
+  the header, show Exam and Class/Section in the header, and move the
+  student details grid to Student/Roll followed by Guardian/Medium.
 
 ## In Progress
 
@@ -296,6 +299,14 @@ Update this file after every meaningful implementation change.
   issue label to `Date` with `DD/MM/YYYY` formatting.
 - Increased marksheet header address/date font sizes and rendered the date as
   one line: `Date: DD/MM/YYYY`.
+- Rebalanced the single-exam report card header columns and typography so the
+  school name, section, report-card title, and exam/class/section metadata have
+  clearer alignment and visual hierarchy.
+- Adjusted the single-exam report card details table CSS so the manually edited
+  three student-information rows render side-by-side in one horizontal band.
+- Updated the single-exam report PDF header to show institution name, bracketed
+  section, exam name, and Report Card, with a two-row three-column student
+  information table.
 - Added loading states to marksheet download buttons in Reports and Student
   Details so users see `Downloading...` while PDFs are being generated.
 - Added the first final combined marksheet implementation as a separate PDF

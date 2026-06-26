@@ -1264,6 +1264,7 @@ export async function getStudentReportRows(examId, studentId, onlyApproved = tru
     `SELECT
       st.id AS student_id,
       st.name AS student_name,
+      guardians.guardian_name,
       e.id AS exam_id,
       e.name AS exam_name,
       c.name AS class_name,
@@ -1289,6 +1290,14 @@ export async function getStudentReportRows(examId, studentId, onlyApproved = tru
       AND se.session_id = e.session_id
       AND se.status = 'active'
      JOIN students st ON st.id = se.student_id
+     LEFT JOIN (
+       SELECT
+         sp.student_id,
+         GROUP_CONCAT(DISTINCT p.name ORDER BY FIELD(LOWER(sp.relationship), 'father', 'mother', 'guardian'), p.name SEPARATOR ', ') AS guardian_name
+       FROM student_parents sp
+       JOIN parents p ON p.id = sp.parent_id
+       GROUP BY sp.student_id
+     ) guardians ON guardians.student_id = st.id
      JOIN classes c ON c.id = se.class_id
      ${hasScopesTable ? "LEFT JOIN scopes sc_ref ON sc_ref.id = c.scope_id" : ""}
      JOIN sections sec ON sec.id = se.section_id

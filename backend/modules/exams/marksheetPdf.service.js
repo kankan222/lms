@@ -102,6 +102,7 @@ export async function generateMarksheetPdf(report) {
   html = html
     .replace("{{studentName}}", escapeHtml(report?.student?.name || "-"))
     .replace("{{rollNumber}}", escapeHtml(report?.student?.roll_number || "-"))
+    .replace("{{guardianName}}", escapeHtml(report?.student?.guardian_name || "-"))
     .replace("{{examName}}", escapeHtml(report?.exam?.name || "-"))
     .replace("{{className}}", escapeHtml(report?.exam?.class_name || "-"))
     .replace("{{sectionName}}", escapeHtml(report?.exam?.section_name || "-"))
