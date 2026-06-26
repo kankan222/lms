@@ -720,7 +720,7 @@ export default function Reports() {
   const autoLoadScopedGridEvent = useEffectEvent(() => {
     if (loading || selfViewOnly) return;
     if (!filters.exam_id || !filters.class_id || !filters.section_id || !filters.subject_id) return;
-    if (isAdmin && activeTab === "pending" && editMode) return;
+    if (editMode) return;
     handleLoadGrid();
   });
 
@@ -1111,7 +1111,11 @@ export default function Reports() {
       await saveMarks(buildMutationPayload({ marks }));
       await handleLoadGrid();
       setEditMode(false);
-      setSuccess("Marks saved.");
+      setSuccess(
+        activeTab === "approved"
+          ? "Marks correction saved. Changed rows moved back to draft for review."
+          : "Marks saved."
+      );
     } catch (err) {
       setError(err?.message || "Failed to save marks.");
       setGridLoading(false);
@@ -1520,10 +1524,10 @@ export default function Reports() {
   function renderGridPanel({ mode = "entry" } = {}) {
     const isPendingMode = mode === "pending";
     const isApprovedMode = mode === "approved";
-    const canEditMarks = isPendingMode ? editMode : !isApprovedMode && canUseEntryFlow;
+    const canEditMarks = isPendingMode || isApprovedMode ? editMode : canUseEntryFlow;
     const canSelectRows = !isApprovedMode;
     const showEntryActions = canUseEntryFlow && !isPendingMode && !isApprovedMode;
-    const showAdminEditActions = isAdmin && isPendingMode;
+    const showAdminEditActions = isAdmin && (isPendingMode || isApprovedMode);
     const showAdminApprovalActions = isAdmin && isPendingMode;
     const emptyMessage = isPendingMode
       ? "Load a pending approval grid to review submitted marks."
@@ -1681,7 +1685,7 @@ export default function Reports() {
                 </TableCell>
                 <TableCell>{selectedSubject?.name || grid?.subject?.name || "-"}</TableCell>
                 <TableCell>
-                  {canEditMarks && row.approval_status !== "approved" ? (
+                  {canEditMarks ? (
                     hasSubjectComponents(grid?.subject) ? (
                       <div className="space-y-3">
                         {(grid.subject.components || []).map((component) => {

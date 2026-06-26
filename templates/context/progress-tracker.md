@@ -349,3 +349,8 @@ Update this file after every meaningful implementation change.
   stale legacy `student_exam_subjects` filters in marks and exam report queries.
 - Fixed teacher Reports exam selection by returning class-scope metadata from
   teacher-accessible exams and section medium from teacher exam scopes.
+- Enabled admin correction of approved marks from the Reports Published tab;
+  changed approved rows are saved through the existing backend path and move
+  back to draft for review.
+- Fixed the Reports Published edit button by preventing the grid auto-load
+  effect from resetting edit mode immediately after Edit is clicked.
