@@ -341,3 +341,6 @@ Update this file after every meaningful implementation change.
 - Refined the Exams dialog Marks Setup hierarchy with stronger subject labels,
   Biology-only Botany/Zoology branch controls, and clearer marks field labels
   and placeholders.
+- Combined the Reports exam section and medium selection into one
+  Section (Medium) selector while keeping the selected medium in filter state
+  for existing marks/report API calls.

@@ -68,10 +68,6 @@ function statusClassName(status) {
   return "bg-red-600 text-white";
 }
 
-function uniqueMediums(sections) {
-  return [...new Set((sections || []).map((item) => item.medium).filter(Boolean))];
-}
-
 function uniqueById(items = []) {
   const seen = new Set();
   return items.filter((item) => {
@@ -486,7 +482,6 @@ export default function Reports() {
 
     return sections.filter((item) => allowedSectionIds.has(String(item.id)));
   }, [selectedClass, filters.exam_id, examScopes]);
-  const mediums = uniqueMediums(availableSections);
   const filteredSubjects = examSubjects.length
     ? subjects.filter((subject) =>
         examSubjects.some((item) => String(item.subject_id) === String(subject.id))
@@ -1356,36 +1351,26 @@ export default function Reports() {
               </div>
 
               <div className="grid gap-2">
-                <Label>Section</Label>
+                <Label>Section (Medium)</Label>
                 <select
                   className="w-full rounded-md border px-3 py-2"
                   value={filters.section_id}
-                  onChange={(e) =>
-                    setFilters((prev) => ({ ...prev, section_id: e.target.value }))
-                  }
+                  onChange={(e) => {
+                    const nextSectionId = e.target.value;
+                    const nextSection = sectionOptions.find(
+                      (section) => String(section.id) === String(nextSectionId)
+                    );
+                    setFilters((prev) => ({
+                      ...prev,
+                      section_id: nextSectionId,
+                      medium: nextSection?.medium || "",
+                    }));
+                  }}
                 >
                   <option value="">Select section</option>
                   {sectionOptions.map((section) => (
                     <option key={section.id} value={section.id}>
-                      {section.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="grid gap-2">
-                <Label>Medium</Label>
-                <select
-                  className="w-full rounded-md border px-3 py-2"
-                  value={filters.medium}
-                  onChange={(e) =>
-                    setFilters((prev) => ({ ...prev, medium: e.target.value }))
-                  }
-                >
-                  <option value="">All mediums</option>
-                  {mediums.map((medium) => (
-                    <option key={medium} value={medium}>
-                      {medium}
+                      {section.name}{section.medium ? ` (${section.medium})` : ""}
                     </option>
                   ))}
                 </select>
