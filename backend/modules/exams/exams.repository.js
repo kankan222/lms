@@ -783,7 +783,7 @@ export async function getStudentsForScope(examId, classId, sectionId, name = "",
          )`
       : "";
   const studentSubjectSql =
-    hasStudentExamSubjects && subjectId
+    hasStudentExamSubjects && !hasSubjectRegistrations && subjectId
       ? `AND (
            NOT EXISTS (
              SELECT 1
@@ -803,7 +803,7 @@ export async function getStudentsForScope(examId, classId, sectionId, name = "",
 
   if (name) params.push(`%${name}%`);
   if (hasSubjectRegistrations && subjectId) params.push(subjectId, subjectId, subjectId);
-  if (hasStudentExamSubjects && subjectId) params.push(subjectId);
+  if (hasStudentExamSubjects && !hasSubjectRegistrations && subjectId) params.push(subjectId);
 
   return query(
     `SELECT DISTINCT
@@ -1080,7 +1080,7 @@ export async function getStudentReportRows(examId, studentId, onlyApproved = tru
       ? `(es.subject_offering_id IS NOT NULL AND ${offeringAlias}.id = es.subject_offering_id)
          OR (es.subject_offering_id IS NULL AND ${offeringAlias}.subject_id = es.subject_id)`
       : `${offeringAlias}.subject_id = es.subject_id`;
-  const studentSubjectFilterSql = hasStudentExamSubjects
+  const studentSubjectFilterSql = hasStudentExamSubjects && !hasSubjectRegistrations
     ? `AND (
          NOT EXISTS (
            SELECT 1

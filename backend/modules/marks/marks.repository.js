@@ -379,12 +379,19 @@ export async function getExamScopes(examId) {
 }
 
 export async function getTeacherAccessibleExams(userId) {
+  const hasScopesTable = await supportsScopesTable();
+  const classScopeExpr = buildClassScopeExpression(hasScopesTable);
+
   return query(
     `SELECT DISTINCT
       e.id,
       e.name,
       e.session_id,
-      ses.name AS session_name
+      ses.name AS session_name,
+      COALESCE(
+        NULLIF(GROUP_CONCAT(DISTINCT ${classScopeExpr} ORDER BY ${classScopeExpr} SEPARATOR ','), ''),
+        'school'
+      ) AS class_scope
      FROM teachers t
      JOIN teacher_class_assignments tca
        ON tca.teacher_id = t.id
@@ -394,8 +401,11 @@ export async function getTeacherAccessibleExams(userId) {
        ON sc.exam_id = e.id
       AND sc.class_id = tca.class_id
       AND (sc.section_id IS NULL OR sc.section_id = tca.section_id)
+     JOIN classes c ON c.id = sc.class_id
+     ${hasScopesTable ? "LEFT JOIN scopes sc_ref ON sc_ref.id = c.scope_id" : ""}
      LEFT JOIN academic_sessions ses ON ses.id = e.session_id
      WHERE t.user_id = ?
+     GROUP BY e.id, e.name, e.session_id, ses.name
      ORDER BY e.id DESC`,
     [userId]
   );
@@ -511,7 +521,8 @@ export async function getAllowedTeacherScopes(userId, examId) {
       tca.section_id,
       ${classScopeExpr} AS class_scope,
       c.name AS class_name,
-      s.name AS section_name
+      s.name AS section_name,
+      s.medium
      FROM exam_scopes sc
      JOIN exams e ON e.id = sc.exam_id
      JOIN teachers t ON t.user_id = ?
@@ -547,7 +558,7 @@ export async function getStudentsForScope({ examId, classId, sectionId, medium, 
     params.push(`%${String(name).trim()}%`);
   }
 
-  if (hasStudentExamSubjects && subjectId) {
+  if (hasStudentExamSubjects && !hasSubjectRegistrations && subjectId) {
     where.push(
       `(
         NOT EXISTS (
@@ -1196,7 +1207,7 @@ export async function getStudentReportRows(examId, studentId, onlyApproved = tru
       ? `(es.subject_offering_id IS NOT NULL AND ${offeringAlias}.id = es.subject_offering_id)
          OR (es.subject_offering_id IS NULL AND ${offeringAlias}.subject_id = es.subject_id)`
       : `${offeringAlias}.subject_id = es.subject_id`;
-  const studentSubjectFilterSql = hasStudentExamSubjects
+  const studentSubjectFilterSql = hasStudentExamSubjects && !hasSubjectRegistrations
     ? `AND (
          NOT EXISTS (
            SELECT 1

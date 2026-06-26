@@ -344,3 +344,8 @@ Update this file after every meaningful implementation change.
 - Combined the Reports exam section and medium selection into one
   Section (Medium) selector while keeping the selected medium in filter state
   for existing marks/report API calls.
+- Fixed HS report student loading by letting the newer
+  `student_subject_registrations` subject-choice model take precedence over
+  stale legacy `student_exam_subjects` filters in marks and exam report queries.
+- Fixed teacher Reports exam selection by returning class-scope metadata from
+  teacher-accessible exams and section medium from teacher exam scopes.
