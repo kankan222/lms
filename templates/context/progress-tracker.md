@@ -333,3 +333,11 @@ Update this file after every meaningful implementation change.
 - Added more dashboard chart variety by converting payment collections to an
   area chart and adding an operational balance radar chart for student base,
   attendance, collection, and fee health across School and Higher Secondary.
+- Updated teacher assignment details so saved assignment labels now include the
+  section medium as class-section (medium)-subject wherever the assignment API
+  provides it.
+- Updated Exams cards to use colored scope and count badges that match the
+  Assign Subject to Class and Student Info badge language.
+- Refined the Exams dialog Marks Setup hierarchy with stronger subject labels,
+  Biology-only Botany/Zoology branch controls, and clearer marks field labels
+  and placeholders.

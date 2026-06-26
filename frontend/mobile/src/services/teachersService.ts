@@ -68,6 +68,7 @@ export type TeacherAssignment = {
   teacher: string;
   class: string;
   section: string;
+  section_medium?: string | null;
   subject: string;
   session: string;
 };

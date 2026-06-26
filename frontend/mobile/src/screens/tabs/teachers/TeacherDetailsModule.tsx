@@ -87,6 +87,12 @@ function getErrorMessage(err: unknown, fallback: string) {
   return fallback;
 }
 
+function formatSectionLabel(sectionName?: string | null, sectionMedium?: string | null) {
+  const name = String(sectionName || "Section").trim();
+  const medium = String(sectionMedium || "").trim();
+  return medium ? `${name} (${medium})` : name;
+}
+
 function resolveScopeCode(scopeCode?: string | null, scopeName?: string | null): "school" | "hs" {
   const code = String(scopeCode || "").trim().toLowerCase();
   if (code === "hs" || code === "school") return code;
@@ -250,11 +256,11 @@ export default function TeacherDetailsModule({ teacherId, canManageTeachers }: P
       Array.from(
         new Map(
           assignments.map((assignment) => [
-            `${assignment.class}-${assignment.section}`,
+            `${assignment.class}-${assignment.section}-${assignment.section_medium || ""}`,
             {
-              key: `${assignment.class}-${assignment.section}`,
+              key: `${assignment.class}-${assignment.section}-${assignment.section_medium || ""}`,
               className: assignment.class,
-              sectionName: assignment.section,
+              sectionName: formatSectionLabel(assignment.section, assignment.section_medium),
             },
           ]),
         ).values(),
@@ -445,7 +451,9 @@ export default function TeacherDetailsModule({ teacherId, canManageTeachers }: P
                 <Text style={[styles.groupTitle, { color: theme.text }]}>Assignment Details</Text>
                 {assignments.map((assignment) => (
                   <View key={assignment.id} style={[styles.listCard, { borderColor: theme.border, backgroundColor: theme.cardMuted }]}>
-                    <Text style={[styles.listTitle, { color: theme.text }]}>{assignment.class} / {assignment.section}</Text>
+                    <Text style={[styles.listTitle, { color: theme.text }]}>
+                      {assignment.class} / {formatSectionLabel(assignment.section, assignment.section_medium)}
+                    </Text>
                     <Text style={[styles.listMeta, { color: theme.subText }]}>Subject: {assignment.subject}</Text>
                     <Text style={[styles.listMeta, { color: theme.subText }]}>Session: {assignment.session}</Text>
                   </View>

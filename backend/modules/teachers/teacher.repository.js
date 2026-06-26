@@ -334,6 +334,7 @@ export function getTeacherAssignments(teacherId) {
       t.name AS teacher,
       c.name AS class,
       s.name AS section,
+      s.medium AS section_medium,
       sub.name AS subject,
       ses.name AS session
     FROM teacher_class_assignments ta

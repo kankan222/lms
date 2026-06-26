@@ -69,6 +69,20 @@ function hasSubjectComponents(subject) {
   return Array.isArray(subject?.components) && subject.components.length > 0;
 }
 
+function isBiologySubject(subject) {
+  const value = [
+    subject?.subject_name,
+    subject?.name,
+    subject?.subject_code,
+    subject?.code,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+
+  return /\bbiology\b/.test(value) || /\bbio\b/.test(value);
+}
+
 function makeDefaultSubject(subject) {
   return {
     subject_id: Number(subject.subject_id || subject.id),
@@ -200,6 +214,32 @@ function subjectGroupBadgeClass(group) {
   return "border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-500/30 dark:bg-blue-500/15 dark:text-blue-200";
 }
 
+function scopeBadgeClass(scope) {
+  const value = String(scope || "").trim().toLowerCase();
+
+  if (value === "hs") {
+    return "border-indigo-200 bg-indigo-50 text-indigo-700 dark:border-indigo-500/30 dark:bg-indigo-500/15 dark:text-indigo-200";
+  }
+
+  if (value === "school") {
+    return "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/15 dark:text-emerald-200";
+  }
+
+  return "border-slate-200 bg-slate-50 text-slate-700 dark:border-slate-500/30 dark:bg-slate-500/15 dark:text-slate-200";
+}
+
+function examCountBadgeClass(kind) {
+  if (kind === "subjects") {
+    return "border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-500/30 dark:bg-blue-500/15 dark:text-blue-200";
+  }
+
+  if (kind === "scopes") {
+    return "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/15 dark:text-emerald-200";
+  }
+
+  return "border-slate-200 bg-slate-50 text-slate-700 dark:border-slate-500/30 dark:bg-slate-500/15 dark:text-slate-200";
+}
+
 function markPatternBadgeClass(pattern) {
   return String(pattern || "single").trim().toLowerCase() === "split"
     ? "border-violet-200 bg-violet-50 text-violet-700 dark:border-violet-500/30 dark:bg-violet-500/15 dark:text-violet-200"
@@ -287,6 +327,19 @@ export default function Exams() {
           .split(",")
           .map((scope) => scope.trim().toLowerCase())
           .filter(Boolean);
+        const fallbackScope = classScopes[0] || "school";
+        const scopeBadgeLabels = scopes.map((scope, index) => {
+          const className = scope.class_name || scope.class || `Class ${scope.class_id}`;
+          const sectionName =
+            scope.section_id === null || scope.section_id === undefined
+              ? "All Sections"
+              : scope.section_name || scope.section || `Section ${scope.section_id}`;
+          return {
+            key: `${scope.class_id || className}-${scope.section_id ?? "all"}-${index}`,
+            label: `${className} · ${sectionName}`,
+            scope: String(scope.class_scope || scope.scope || fallbackScope).trim().toLowerCase() || fallbackScope,
+          };
+        });
         const scopeLabels = scopes.map((scope) => {
           const className = scope.class_name || scope.class || `Class ${scope.class_id}`;
           const sectionName =
@@ -302,6 +355,7 @@ export default function Exams() {
           subjects,
           classScopes: classScopes.length ? classScopes : ["school"],
           scopeLabels,
+          scopeBadgeLabels,
         };
       }),
     [exams]
@@ -789,11 +843,14 @@ export default function Exams() {
             </div>
             <div className="flex flex-wrap justify-end gap-2">
               {exam.classScopes.map((scope) => (
-                <Badge key={scope} variant="outline" className="rounded-full border-border bg-muted/40">
+                <Badge key={scope} variant="outline" className={`rounded-full ${scopeBadgeClass(scope)}`}>
                   {classScopeLabels[scope] || scope}
                 </Badge>
               ))}
-              <Badge variant="secondary" className="rounded-full">
+              <Badge
+                variant="outline"
+                className="rounded-full border-slate-200 bg-slate-50 text-slate-700 dark:border-slate-500/30 dark:bg-slate-500/15 dark:text-slate-200"
+              >
                 #{exam.id}
               </Badge>
             </div>
@@ -802,10 +859,10 @@ export default function Exams() {
 
         <CardContent className="space-y-3 p-4 pt-1">
           <div className="flex flex-wrap items-center gap-2 text-xs">
-            <Badge variant="outline" className="rounded-full border-border bg-muted/40 text-muted-foreground">
+            <Badge variant="outline" className={`rounded-full ${examCountBadgeClass("subjects")}`}>
               {exam.subjects.length} subject{exam.subjects.length === 1 ? "" : "s"}
             </Badge>
-            <Badge variant="outline" className="rounded-full border-border bg-muted/40 text-muted-foreground">
+            <Badge variant="outline" className={`rounded-full ${examCountBadgeClass("scopes")}`}>
               {exam.scopes.length} scope{exam.scopes.length === 1 ? "" : "s"}
             </Badge>
           </div>
@@ -813,22 +870,25 @@ export default function Exams() {
           <div className="space-y-2">
             <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Scopes</p>
             <div className="flex flex-wrap gap-2">
-              {exam.scopeLabels.length ? (
-                exam.scopeLabels.slice(0, 3).map((scopeLabel) => (
+              {exam.scopeBadgeLabels.length ? (
+                exam.scopeBadgeLabels.slice(0, 3).map((scopeLabel) => (
                   <Badge
-                    key={scopeLabel}
+                    key={scopeLabel.key}
                     variant="outline"
-                    className="rounded-full border-border bg-background font-normal text-muted-foreground dark:bg-input/20"
+                    className={`rounded-full font-normal ${scopeBadgeClass(scopeLabel.scope)}`}
                   >
-                    {scopeLabel}
+                    {scopeLabel.label}
                   </Badge>
                 ))
               ) : (
                 <span className="text-xs text-muted-foreground">No scope data</span>
               )}
-              {exam.scopeLabels.length > 3 ? (
-                <Badge variant="outline" className="rounded-full border-border bg-muted/40 text-muted-foreground">
-                  +{exam.scopeLabels.length - 3} more
+              {exam.scopeBadgeLabels.length > 3 ? (
+                <Badge
+                  variant="outline"
+                  className="rounded-full border-slate-200 bg-slate-50 text-slate-700 dark:border-slate-500/30 dark:bg-slate-500/15 dark:text-slate-200"
+                >
+                  +{exam.scopeBadgeLabels.length - 3} more
                 </Badge>
               ) : null}
             </div>
@@ -1034,6 +1094,7 @@ export default function Exams() {
                             {form.subjects.map((subject) => {
                               const split = isSplitPattern(subject);
                               const componentMode = hasSubjectComponents(subject);
+                              const biologySubject = isBiologySubject(subject);
                               const totalMax =
                                 toWholeNumber(subject.theory_max, 0) + toWholeNumber(subject.practical_max, 0);
                               const totalPass =
@@ -1046,7 +1107,9 @@ export default function Exams() {
                                 >
                                   <div className="flex flex-wrap items-center justify-between gap-2">
                                     <div className="min-w-0">
-                                      <p className="truncate text-sm font-semibold text-foreground">{subject.subject_name}</p>
+                                      <p className="truncate text-sm font-bold uppercase tracking-wide text-foreground">
+                                        {subject.subject_name}
+                                      </p>
                                       <div className="mt-1 flex flex-wrap gap-2">
                                         <Badge
                                           variant="outline"
@@ -1073,32 +1136,34 @@ export default function Exams() {
                                     </select>
                                   </div>
 
-                                  <div className="flex flex-wrap items-center gap-2">
-                                    {componentMode ? (
-                                      <Button
-                                        type="button"
-                                        variant="outline"
-                                        size="sm"
-                                        onClick={() => clearSubjectComponents(subject.subject_id)}
-                                      >
-                                        Remove Branches
-                                      </Button>
-                                    ) : (
-                                      <Button
-                                        type="button"
-                                        variant="outline"
-                                        size="sm"
-                                        onClick={() => enableSubjectComponents(subject.subject_id)}
-                                      >
-                                        Use Botany/Zoology
-                                      </Button>
-                                    )}
-                                    {componentMode ? (
-                                      <span className="text-xs text-muted-foreground">
-                                        Parent total is calculated from branch marks.
-                                      </span>
-                                    ) : null}
-                                  </div>
+                                  {biologySubject || componentMode ? (
+                                    <div className="flex flex-wrap items-center gap-2">
+                                      {componentMode ? (
+                                        <Button
+                                          type="button"
+                                          variant="outline"
+                                          size="sm"
+                                          onClick={() => clearSubjectComponents(subject.subject_id)}
+                                        >
+                                          Remove Branches
+                                        </Button>
+                                      ) : (
+                                        <Button
+                                          type="button"
+                                          variant="outline"
+                                          size="sm"
+                                          onClick={() => enableSubjectComponents(subject.subject_id)}
+                                        >
+                                          Use Botany/Zoology
+                                        </Button>
+                                      )}
+                                      {componentMode ? (
+                                        <span className="text-xs text-muted-foreground">
+                                          Parent total is calculated from branch marks.
+                                        </span>
+                                      ) : null}
+                                    </div>
+                                  ) : null}
 
                                   {componentMode ? (
                                     <div className="space-y-3">
@@ -1132,74 +1197,86 @@ export default function Exams() {
                                               </Badge>
                                             </div>
                                             <div className="grid grid-cols-2 gap-2">
-                                              <Input
-                                                className="rounded-xl"
-                                                type="number"
-                                                min="0"
-                                                step="1"
-                                                value={component.theory_max}
-                                                onWheel={preventNumberWheel}
-                                                onChange={(e) =>
-                                                  updateSubjectComponentField(
-                                                    subject.subject_id,
-                                                    componentIndex,
-                                                    "theory_max",
-                                                    e.target.value
-                                                  )
-                                                }
-                                                placeholder="Theory Max"
-                                              />
-                                              <Input
-                                                className="rounded-xl"
-                                                type="number"
-                                                min="0"
-                                                step="1"
-                                                value={component.theory_pass}
-                                                onWheel={preventNumberWheel}
-                                                onChange={(e) =>
-                                                  updateSubjectComponentField(
-                                                    subject.subject_id,
-                                                    componentIndex,
-                                                    "theory_pass",
-                                                    e.target.value
-                                                  )
-                                                }
-                                                placeholder="Theory Pass"
-                                              />
-                                              <Input
-                                                className="rounded-xl"
-                                                type="number"
-                                                min="0"
-                                                step="1"
-                                                value={component.practical_max}
-                                                onWheel={preventNumberWheel}
-                                                onChange={(e) =>
-                                                  updateSubjectComponentField(
-                                                    subject.subject_id,
-                                                    componentIndex,
-                                                    "practical_max",
-                                                    e.target.value
-                                                  )
-                                                }
-                                                placeholder="Practical Max"
-                                              />
-                                              <Input
-                                                className="rounded-xl"
-                                                type="number"
-                                                min="0"
-                                                step="1"
-                                                value={component.practical_pass}
-                                                onWheel={preventNumberWheel}
-                                                onChange={(e) =>
-                                                  updateSubjectComponentField(
-                                                    subject.subject_id,
-                                                    componentIndex,
-                                                    "practical_pass",
-                                                    e.target.value
-                                                  )
-                                                }
-                                                placeholder="Practical Pass"
-                                              />
+                                              <label className="space-y-1 text-xs font-medium text-muted-foreground">
+                                                <span>Theory maximum</span>
+                                                <Input
+                                                  className="rounded-xl"
+                                                  type="number"
+                                                  min="0"
+                                                  step="1"
+                                                  value={component.theory_max}
+                                                  onWheel={preventNumberWheel}
+                                                  onChange={(e) =>
+                                                    updateSubjectComponentField(
+                                                      subject.subject_id,
+                                                      componentIndex,
+                                                      "theory_max",
+                                                      e.target.value
+                                                    )
+                                                  }
+                                                  placeholder="Enter theory max"
+                                                />
+                                              </label>
+                                              <label className="space-y-1 text-xs font-medium text-muted-foreground">
+                                                <span>Theory pass</span>
+                                                <Input
+                                                  className="rounded-xl"
+                                                  type="number"
+                                                  min="0"
+                                                  step="1"
+                                                  value={component.theory_pass}
+                                                  onWheel={preventNumberWheel}
+                                                  onChange={(e) =>
+                                                    updateSubjectComponentField(
+                                                      subject.subject_id,
+                                                      componentIndex,
+                                                      "theory_pass",
+                                                      e.target.value
+                                                    )
+                                                  }
+                                                  placeholder="Enter theory pass"
+                                                />
+                                              </label>
+                                              <label className="space-y-1 text-xs font-medium text-muted-foreground">
+                                                <span>Practical maximum</span>
+                                                <Input
+                                                  className="rounded-xl"
+                                                  type="number"
+                                                  min="0"
+                                                  step="1"
+                                                  value={component.practical_max}
+                                                  onWheel={preventNumberWheel}
+                                                  onChange={(e) =>
+                                                    updateSubjectComponentField(
+                                                      subject.subject_id,
+                                                      componentIndex,
+                                                      "practical_max",
+                                                      e.target.value
+                                                    )
+                                                  }
+                                                  placeholder="Enter practical max"
+                                                />
+                                              </label>
+                                              <label className="space-y-1 text-xs font-medium text-muted-foreground">
+                                                <span>Practical pass</span>
+                                                <Input
+                                                  className="rounded-xl"
+                                                  type="number"
+                                                  min="0"
+                                                  step="1"
+                                                  value={component.practical_pass}
+                                                  onWheel={preventNumberWheel}
+                                                  onChange={(e) =>
+                                                    updateSubjectComponentField(
+                                                      subject.subject_id,
+                                                      componentIndex,
+                                                      "practical_pass",
+                                                      e.target.value
+                                                    )
+                                                  }
+                                                  placeholder="Enter practical pass"
+                                                />
+                                              </label>
                                             </div>
                                           </div>
                                         );
@@ -1210,70 +1287,88 @@ export default function Exams() {
                                     </div>
                                   ) : !split ? (
                                     <div className="grid grid-cols-2 gap-2">
-                                      <Input
-                                        className="rounded-xl"
-                                        type="number"
-                                        min="1"
-                                        step="1"
-                                        value={subject.max_marks}
-                                        onWheel={preventNumberWheel}
-                                        onChange={(e) => updateSubjectField(subject.subject_id, "max_marks", e.target.value)}
-                                        placeholder="Max Marks"
-                                      />
-                                      <Input
-                                        className="rounded-xl"
-                                        type="number"
-                                        min="0"
-                                        step="1"
-                                        value={subject.pass_marks}
-                                        onWheel={preventNumberWheel}
-                                        onChange={(e) => updateSubjectField(subject.subject_id, "pass_marks", e.target.value)}
-                                        placeholder="Pass Marks"
-                                      />
+                                      <label className="space-y-1 text-xs font-medium text-muted-foreground">
+                                        <span>Total maximum</span>
+                                        <Input
+                                          className="rounded-xl"
+                                          type="number"
+                                          min="1"
+                                          step="1"
+                                          value={subject.max_marks}
+                                          onWheel={preventNumberWheel}
+                                          onChange={(e) => updateSubjectField(subject.subject_id, "max_marks", e.target.value)}
+                                          placeholder="Enter total max marks"
+                                        />
+                                      </label>
+                                      <label className="space-y-1 text-xs font-medium text-muted-foreground">
+                                        <span>Total pass</span>
+                                        <Input
+                                          className="rounded-xl"
+                                          type="number"
+                                          min="0"
+                                          step="1"
+                                          value={subject.pass_marks}
+                                          onWheel={preventNumberWheel}
+                                          onChange={(e) => updateSubjectField(subject.subject_id, "pass_marks", e.target.value)}
+                                          placeholder="Enter total pass marks"
+                                        />
+                                      </label>
                                     </div>
                                   ) : (
                                     <div className="space-y-2">
                                       <div className="grid grid-cols-2 gap-2">
-                                        <Input
-                                          className="rounded-xl"
-                                          type="number"
-                                          min="0"
-                                          step="1"
-                                          value={subject.theory_max}
-                                          onWheel={preventNumberWheel}
-                                          onChange={(e) => updateSubjectField(subject.subject_id, "theory_max", e.target.value)}
-                                          placeholder="Theory Max"
-                                        />
-                                        <Input
-                                          className="rounded-xl"
-                                          type="number"
-                                          min="0"
-                                          step="1"
-                                          value={subject.theory_pass}
-                                          onWheel={preventNumberWheel}
-                                          onChange={(e) => updateSubjectField(subject.subject_id, "theory_pass", e.target.value)}
-                                          placeholder="Theory Pass"
-                                        />
-                                        <Input
-                                          className="rounded-xl"
-                                          type="number"
-                                          min="0"
-                                          step="1"
-                                          value={subject.practical_max}
-                                          onWheel={preventNumberWheel}
-                                          onChange={(e) => updateSubjectField(subject.subject_id, "practical_max", e.target.value)}
-                                          placeholder="Practical Max"
-                                        />
-                                        <Input
-                                          className="rounded-xl"
-                                          type="number"
-                                          min="0"
-                                          step="1"
-                                          value={subject.practical_pass}
-                                          onWheel={preventNumberWheel}
-                                          onChange={(e) => updateSubjectField(subject.subject_id, "practical_pass", e.target.value)}
-                                          placeholder="Practical Pass"
-                                        />
+                                        <label className="space-y-1 text-xs font-medium text-muted-foreground">
+                                          <span>Theory maximum</span>
+                                          <Input
+                                            className="rounded-xl"
+                                            type="number"
+                                            min="0"
+                                            step="1"
+                                            value={subject.theory_max}
+                                            onWheel={preventNumberWheel}
+                                            onChange={(e) => updateSubjectField(subject.subject_id, "theory_max", e.target.value)}
+                                            placeholder="Enter theory max"
+                                          />
+                                        </label>
+                                        <label className="space-y-1 text-xs font-medium text-muted-foreground">
+                                          <span>Theory pass</span>
+                                          <Input
+                                            className="rounded-xl"
+                                            type="number"
+                                            min="0"
+                                            step="1"
+                                            value={subject.theory_pass}
+                                            onWheel={preventNumberWheel}
+                                            onChange={(e) => updateSubjectField(subject.subject_id, "theory_pass", e.target.value)}
+                                            placeholder="Enter theory pass"
+                                          />
+                                        </label>
+                                        <label className="space-y-1 text-xs font-medium text-muted-foreground">
+                                          <span>Practical maximum</span>
+                                          <Input
+                                            className="rounded-xl"
+                                            type="number"
+                                            min="0"
+                                            step="1"
+                                            value={subject.practical_max}
+                                            onWheel={preventNumberWheel}
+                                            onChange={(e) => updateSubjectField(subject.subject_id, "practical_max", e.target.value)}
+                                            placeholder="Enter practical max"
+                                          />
+                                        </label>
+                                        <label className="space-y-1 text-xs font-medium text-muted-foreground">
+                                          <span>Practical pass</span>
+                                          <Input
+                                            className="rounded-xl"
+                                            type="number"
+                                            min="0"
+                                            step="1"
+                                            value={subject.practical_pass}
+                                            onWheel={preventNumberWheel}
+                                            onChange={(e) => updateSubjectField(subject.subject_id, "practical_pass", e.target.value)}
+                                            placeholder="Enter practical pass"
+                                          />
+                                        </label>
                                       </div>
                                       <p className="text-xs text-muted-foreground">
                                         Total Max: {totalMax} | Total Pass: {totalPass}

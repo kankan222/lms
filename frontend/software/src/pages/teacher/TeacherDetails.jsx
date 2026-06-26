@@ -135,6 +135,16 @@ function subjectGroupBadgeClass(group) {
   return "border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-500/30 dark:bg-blue-500/15 dark:text-blue-200";
 }
 
+function formatSectionLabel(sectionName, sectionMedium) {
+  const name = String(sectionName || "Section").trim();
+  const medium = String(sectionMedium || "").trim();
+  return medium ? `${name} (${medium})` : name;
+}
+
+function formatAssignmentLabel(assignment) {
+  return `${assignment.class} - ${formatSectionLabel(assignment.section, assignment.section_medium)} - ${assignment.subject}`;
+}
+
 export default function TeacherDetails() {
   const { id } = useParams();
   const { can } = usePermissions();
@@ -252,11 +262,11 @@ export default function TeacherDetails() {
   const assignedClassSections = Array.from(
     new Map(
       assignments.map((assignment) => [
-        `${assignment.class}-${assignment.section}`,
+        `${assignment.class}-${assignment.section}-${assignment.section_medium || ""}`,
         {
-          key: `${assignment.class}-${assignment.section}`,
+          key: `${assignment.class}-${assignment.section}-${assignment.section_medium || ""}`,
           className: assignment.class,
-          sectionName: assignment.section,
+          sectionName: formatSectionLabel(assignment.section, assignment.section_medium),
         },
       ]),
     ).values(),
@@ -613,7 +623,7 @@ export default function TeacherDetails() {
                           key={assignment.id}
                           className="px-2 py-1 text-xs rounded bg-muted flex items-center gap-1"
                         >
-                          {assignment.class} - {assignment.section} - {assignment.subject}
+                          {formatAssignmentLabel(assignment)}
                           <Trash2
                             size={16}
                             className="cursor-pointer text-red-500"
@@ -1022,7 +1032,7 @@ export default function TeacherDetails() {
             <AlertDialogTitle>Remove assignment?</AlertDialogTitle>
             <AlertDialogDescription>
               {assignmentToRemove
-                ? `This will remove ${assignmentToRemove.class} - ${assignmentToRemove.section} - ${assignmentToRemove.subject} from the teacher.`
+                ? `This will remove ${formatAssignmentLabel(assignmentToRemove)} from the teacher.`
                 : "This will remove the selected assignment."}
             </AlertDialogDescription>
           </AlertDialogHeader>
