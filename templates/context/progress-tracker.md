@@ -405,3 +405,6 @@ Update this file after every meaningful implementation change.
 - Adjusted the final marksheet PDF first-page cover panel so the academic year
   and student details stay anchored at the bottom of the right section, and
   changed the photo placeholder from landscape to portrait proportions.
+- Anchored the final marksheet PDF second-page signature grid and final-result
+  block to the bottom of the page while increasing subject and marks body text
+  size further without changing the compact header sizing.
