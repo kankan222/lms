@@ -902,6 +902,15 @@ export async function getReportPublication(query, userId) {
   return repo.getReportPublication(examId, classId, sectionId, medium);
 }
 
+export async function listPublishedReportScopes(query, userId) {
+  const userCtx = await getUserContext(userId);
+  if (userCtx.isParent || userCtx.isStudent) {
+    throw new AppError("Not authorized to view published report scopes", 403);
+  }
+
+  return repo.listPublishedReportScopes(query || {});
+}
+
 export async function saveReportPublication(payload, userId) {
   const userCtx = await getUserContext(userId);
   if (userCtx.isParent || userCtx.isStudent) {

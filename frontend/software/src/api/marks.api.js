@@ -57,6 +57,10 @@ export function getReportPublication(params = {}) {
   return apiRequest(`/marks/report-publication${buildQuery(params)}`);
 }
 
+export function getPublishedReportScopes(params = {}) {
+  return apiRequest(`/marks/published-scopes${buildQuery(params)}`);
+}
+
 export function saveReportPublication(data) {
   return apiRequest("/marks/report-publication", {
     method: "POST",

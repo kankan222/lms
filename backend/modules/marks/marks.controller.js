@@ -36,6 +36,15 @@ export async function getReportPublication(req, res, next) {
   }
 }
 
+export async function listPublishedReportScopes(req, res, next) {
+  try {
+    const result = await service.listPublishedReportScopes(req.query || {}, req.user.userId);
+    res.json({ success: true, data: result });
+  } catch (err) {
+    next(err);
+  }
+}
+
 export async function saveReportPublication(req, res, next) {
   try {
     const result = await service.saveReportPublication(req.body || {}, req.user.userId);

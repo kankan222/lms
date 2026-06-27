@@ -25,6 +25,7 @@ router.get("/grid", requirePermission("marks.view"), controller.getMarksGrid);
 router.get("/pending-queue", requirePermission("marks.approve"), controller.getPendingApprovalQueue);
 router.get("/summary", requirePermission("marks.approve"), controller.getApprovalStatusSummary);
 router.get("/report-publication", requirePermission("marks.approve"), controller.getReportPublication);
+router.get("/published-scopes", requirePermission("marks.view"), controller.listPublishedReportScopes);
 router.post("/report-publication", requirePermission("marks.approve"), controller.saveReportPublication);
 router.post("/save", requireAnyPermission(["marks.enter", "marks.approve"]), controller.saveMarks);
 router.post("/submit", requireAnyPermission(["marks.enter", "marks.approve"]), controller.submitMarksForApproval);

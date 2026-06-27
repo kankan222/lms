@@ -328,6 +328,9 @@ Update this file after every meaningful implementation change.
 - Made marksheet guardian-name queries schema-aware so deployments without
   `student_parents.father_name` / `mother_name` fall back to parent profile
   names instead of failing.
+- Added a default Published Records overview in Reports that lists all approved
+  marks grouped by exam, class, section, and subject, with optional filtering
+  and one-click loading of the matching marks grid.
 - Added loading states to marksheet download buttons in Reports and Student
   Details so users see `Downloading...` while PDFs are being generated.
 - Added the first final combined marksheet implementation as a separate PDF
@@ -386,3 +389,6 @@ Update this file after every meaningful implementation change.
   back to draft for review.
 - Fixed the Reports Published edit button by preventing the grid auto-load
   effect from resetting edit mode immediately after Edit is clicked.
+- Made marksheet activity queries schema-aware so deployments that have not yet
+  applied the class/section activity-scope migration fall back to the legacy
+  scope-key activity model instead of failing on missing `ma.class_id`.

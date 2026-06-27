@@ -28,6 +28,7 @@ import {
   getMarksApprovalSummary,
   getMarksGrid,
   getPendingApprovalQueue,
+  getPublishedReportScopes,
   getReportPublication,
   getMyResults,
   getMyStudents,
@@ -427,10 +428,12 @@ export default function Reports() {
   const [reviewQueueSnapshot, setReviewQueueSnapshot] = useState(null);
   const [reportPublication, setReportPublication] = useState(null);
   const [publicationDate, setPublicationDate] = useState("");
+  const [publishedScopes, setPublishedScopes] = useState([]);
 
   const [loading, setLoading] = useState(true);
   const [gridLoading, setGridLoading] = useState(false);
   const [publicationLoading, setPublicationLoading] = useState(false);
+  const [publishedScopesLoading, setPublishedScopesLoading] = useState(false);
   const [selfLoading, setSelfLoading] = useState(false);
   const [selfDownloadLoading, setSelfDownloadLoading] = useState(false);
   const [selfFinalDownloadLoading, setSelfFinalDownloadLoading] = useState(false);
@@ -831,6 +834,40 @@ export default function Reports() {
   useEffect(() => {
     loadReportPublicationEvent();
   }, [activeTab, isAdmin, publicationScope]);
+
+  const loadPublishedScopesEvent = useEffectEvent(async () => {
+    if (activeTab !== "approved") return;
+
+    setPublishedScopesLoading(true);
+    try {
+      const res = await getPublishedReportScopes({
+        class_scope: filters.class_scope,
+        exam_id: filters.exam_id,
+        class_id: filters.class_id,
+        section_id: filters.section_id,
+        medium: filters.medium,
+        subject_id: filters.subject_id,
+      });
+      setPublishedScopes(Array.isArray(res?.data) ? res.data : []);
+    } catch (err) {
+      setPublishedScopes([]);
+      setError(err?.message || "Failed to load published records.");
+    } finally {
+      setPublishedScopesLoading(false);
+    }
+  });
+
+  useEffect(() => {
+    loadPublishedScopesEvent();
+  }, [
+    activeTab,
+    filters.class_scope,
+    filters.exam_id,
+    filters.class_id,
+    filters.section_id,
+    filters.medium,
+    filters.subject_id,
+  ]);
 
   async function loadBootstrap() {
     setLoading(true);
@@ -1521,6 +1558,126 @@ export default function Reports() {
     );
   }
 
+  async function openPublishedScope(scope) {
+    const nextFilters = {
+      ...filters,
+      class_scope: scope.class_scope || filters.class_scope || "",
+      exam_id: String(scope.exam_id || ""),
+      class_id: String(scope.class_id || ""),
+      section_id: String(scope.section_id || ""),
+      medium: scope.medium || "",
+      subject_id: String(scope.subject_id || ""),
+      approval_status: "approved",
+    };
+
+    setFilters(nextFilters);
+    setGridLoading(true);
+    try {
+      const res = await getMarksGrid(nextFilters);
+      resetGridState(res?.data || { rows: [] });
+      setBanner(null);
+    } catch (err) {
+      resetGridState({ rows: [] });
+      setError(err?.message || "Failed to load published marks.");
+    } finally {
+      setGridLoading(false);
+    }
+  }
+
+  function renderPublishedRecordsPanel() {
+    if (activeTab !== "approved") return null;
+
+    return (
+      <SurfaceCard accent>
+        <div className="space-y-4 p-4">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <p className="text-base font-semibold">Published Records</p>
+              <p className="text-sm text-muted-foreground">
+                Showing approved marks by exam, class, section, and subject. Use filters above to narrow this list.
+              </p>
+            </div>
+            <Badge variant="outline" className="rounded-full border-emerald-200 bg-emerald-50 text-emerald-700">
+              {publishedScopes.length} group{publishedScopes.length === 1 ? "" : "s"}
+            </Badge>
+          </div>
+
+          {publishedScopesLoading ? (
+            <p className="rounded-xl border border-dashed px-3 py-6 text-center text-sm text-muted-foreground">
+              Loading published records...
+            </p>
+          ) : publishedScopes.length ? (
+            <div className="overflow-auto rounded-xl border">
+              <Table>
+                <TableHeader>
+                  <TableRow className="bg-muted/40">
+                    <TableHead>Exam</TableHead>
+                    <TableHead>Class</TableHead>
+                    <TableHead>Section</TableHead>
+                    <TableHead>Subject</TableHead>
+                    <TableHead>Approved</TableHead>
+                    <TableHead>Issue Date</TableHead>
+                    <TableHead className="text-right">Action</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {publishedScopes.map((scope) => (
+                    <TableRow
+                      key={`${scope.exam_id}-${scope.class_id}-${scope.section_id}-${scope.subject_id}-${scope.medium || ""}`}
+                    >
+                      <TableCell>
+                        <div className="font-medium">{scope.exam_name}</div>
+                        <div className="text-xs text-muted-foreground">{scope.session_name}</div>
+                      </TableCell>
+                      <TableCell>{scope.class_name}</TableCell>
+                      <TableCell>
+                        {scope.section_name}
+                        {scope.medium ? ` (${scope.medium})` : ""}
+                      </TableCell>
+                      <TableCell>{scope.subject_name}</TableCell>
+                      <TableCell>
+                        {scope.approved_count} mark{Number(scope.approved_count) === 1 ? "" : "s"}
+                        <div className="text-xs text-muted-foreground">
+                          {scope.student_count} student{Number(scope.student_count) === 1 ? "" : "s"}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        {scope.published_on ? (
+                          <Badge variant="outline" className="rounded-full border-emerald-200 bg-emerald-50 text-emerald-700">
+                            {scope.published_on}
+                          </Badge>
+                        ) : (
+                          <Badge variant="outline" className="rounded-full border-amber-200 bg-amber-50 text-amber-700">
+                            Not dated
+                          </Badge>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => openPublishedScope(scope)}
+                          disabled={gridLoading}
+                        >
+                          Open
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          ) : (
+            <p className="rounded-xl border border-dashed px-3 py-6 text-center text-sm text-muted-foreground">
+              No approved marks found for the current filters.
+            </p>
+          )}
+        </div>
+      </SurfaceCard>
+    );
+  }
+
   function renderGridPanel({ mode = "entry" } = {}) {
     const isPendingMode = mode === "pending";
     const isApprovedMode = mode === "approved";
@@ -2052,6 +2209,7 @@ export default function Reports() {
 
             <TabsContent value="approved" className="grid gap-4">
               {renderFilterPanel()}
+              {renderPublishedRecordsPanel()}
               {renderPublicationPanel()}
               {renderGridPanel({ mode: "approved" })}
             </TabsContent>

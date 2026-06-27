@@ -1,5 +1,7 @@
 import { execute, query } from "../../core/db/query.js";
 
+let activityClassScopesSupported = null;
+
 export function scopeKeyForClassName(className) {
   const value = String(className || "").trim().toUpperCase();
   if (["NURSERY", "LKG", "UKG"].includes(value)) return "nursery_ukg";
@@ -9,6 +11,25 @@ export function scopeKeyForClassName(className) {
   if (value === "IX") return "ix";
   if (value === "X") return "x";
   return null;
+}
+
+async function supportsActivityClassScopes() {
+  if (activityClassScopesSupported !== null) return activityClassScopesSupported;
+
+  try {
+    const rows = await query(
+      `SELECT COUNT(*) AS count
+       FROM information_schema.COLUMNS
+       WHERE TABLE_SCHEMA = DATABASE()
+         AND TABLE_NAME = 'marksheet_activities'
+         AND COLUMN_NAME IN ('class_id', 'section_id')`
+    );
+    activityClassScopesSupported = Number(rows?.[0]?.count || 0) === 2;
+  } catch {
+    activityClassScopesSupported = false;
+  }
+
+  return activityClassScopesSupported;
 }
 
 export async function listGradeSettings(scaleType = null) {
@@ -73,6 +94,7 @@ export async function deleteGradeSetting(id) {
 }
 
 export async function listActivities(filters = {}) {
+  const hasClassScopes = await supportsActivityClassScopes();
   const where = [];
   const params = [];
   const scopeKey = filters.scope_key || null;
@@ -83,15 +105,37 @@ export async function listActivities(filters = {}) {
     where.push("ma.scope_key = ?");
     params.push(scopeKey);
   }
-  if (classId) {
+  if (hasClassScopes && classId) {
     where.push("(ma.class_id = ? OR ma.class_id IS NULL)");
     params.push(classId);
   }
-  if (sectionId) {
+  if (hasClassScopes && sectionId) {
     where.push("(ma.section_id = ? OR ma.section_id IS NULL)");
     params.push(sectionId);
   }
   const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
+
+  if (!hasClassScopes) {
+    return query(
+      `SELECT
+         ma.id,
+         ma.name,
+         ma.scope_key,
+         NULL AS class_id,
+         NULL AS class_name,
+         NULL AS section_id,
+         NULL AS section_name,
+         NULL AS section_medium,
+         ma.sort_order,
+         ma.max_marks,
+         ma.is_active
+       FROM marksheet_activities ma
+       ${whereSql}
+       ORDER BY ma.scope_key, ma.sort_order, ma.name`,
+      params
+    );
+  }
+
   return query(
     `SELECT
        ma.id,
@@ -115,6 +159,23 @@ export async function listActivities(filters = {}) {
 }
 
 export async function createActivity(data) {
+  const hasClassScopes = await supportsActivityClassScopes();
+
+  if (!hasClassScopes) {
+    const result = await execute(
+      `INSERT INTO marksheet_activities (name, scope_key, sort_order, max_marks, is_active)
+       VALUES (?, ?, ?, ?, ?)`,
+      [
+        data.name,
+        data.scope_key || "i_v",
+        data.sort_order || 0,
+        data.max_marks || 10,
+        data.is_active === false ? 0 : 1,
+      ]
+    );
+    return result.insertId;
+  }
+
   const result = await execute(
     `INSERT INTO marksheet_activities (name, scope_key, class_id, section_id, sort_order, max_marks, is_active)
      VALUES (?, ?, ?, ?, ?, ?, ?)`,
@@ -132,6 +193,25 @@ export async function createActivity(data) {
 }
 
 export async function updateActivity(id, data) {
+  const hasClassScopes = await supportsActivityClassScopes();
+
+  if (!hasClassScopes) {
+    await execute(
+      `UPDATE marksheet_activities
+       SET name = ?, scope_key = ?, sort_order = ?, max_marks = ?, is_active = ?
+       WHERE id = ?`,
+      [
+        data.name,
+        data.scope_key || "i_v",
+        data.sort_order || 0,
+        data.max_marks || 10,
+        data.is_active === false ? 0 : 1,
+        id,
+      ]
+    );
+    return;
+  }
+
   await execute(
     `UPDATE marksheet_activities
      SET name = ?, scope_key = ?, class_id = ?, section_id = ?, sort_order = ?, max_marks = ?, is_active = ?
@@ -161,20 +241,40 @@ export async function getClassById(classId) {
 export async function getActivityMarkGrid({ sessionId, classId, sectionId }) {
   const cls = await getClassById(classId);
   const scopeKey = scopeKeyForClassName(cls?.name);
+  const hasClassScopes = await supportsActivityClassScopes();
+
+  const activitiesQuery = hasClassScopes
+    ? query(
+        `SELECT id, name, scope_key, class_id, section_id, sort_order, max_marks, is_active
+         FROM marksheet_activities
+         WHERE is_active = TRUE
+           AND (
+             (class_id IS NULL AND section_id IS NULL AND scope_key IS NULL)
+             OR (class_id = ? AND (section_id IS NULL OR section_id = ?))
+             OR (class_id IS NULL AND section_id IS NULL AND scope_key = ?)
+           )
+         ORDER BY class_id IS NULL DESC, section_id IS NULL DESC, sort_order, name`,
+        [classId, sectionId, scopeKey]
+      )
+    : query(
+        `SELECT
+           id,
+           name,
+           scope_key,
+           NULL AS class_id,
+           NULL AS section_id,
+           sort_order,
+           max_marks,
+           is_active
+         FROM marksheet_activities
+         WHERE is_active = TRUE
+           AND scope_key = ?
+         ORDER BY sort_order, name`,
+        [scopeKey]
+      );
 
   const [activities, students] = await Promise.all([
-    query(
-      `SELECT id, name, scope_key, class_id, section_id, sort_order, max_marks, is_active
-       FROM marksheet_activities
-       WHERE is_active = TRUE
-         AND (
-           (class_id IS NULL AND section_id IS NULL AND scope_key IS NULL)
-           OR (class_id = ? AND (section_id IS NULL OR section_id = ?))
-           OR (class_id IS NULL AND section_id IS NULL AND scope_key = ?)
-         )
-       ORDER BY class_id IS NULL DESC, section_id IS NULL DESC, sort_order, name`,
-      [classId, sectionId, scopeKey]
-    ),
+    activitiesQuery,
     query(
       `SELECT
          se.student_id,
@@ -234,6 +334,33 @@ export async function saveActivityMarks({ activityId, sessionId, classId, sectio
 
 export async function getStudentActivityRows({ studentId, sessionId, classId, sectionId, className }) {
   const scopeKey = scopeKeyForClassName(className);
+  const hasClassScopes = await supportsActivityClassScopes();
+
+  if (!hasClassScopes) {
+    return query(
+      `SELECT
+         ma.id AS activity_id,
+         ma.name,
+         ma.scope_key,
+         NULL AS class_id,
+         NULL AS section_id,
+         ma.sort_order,
+         ma.max_marks,
+         mam.marks
+       FROM marksheet_activities ma
+       LEFT JOIN marksheet_activity_marks mam
+         ON mam.activity_id = ma.id
+        AND mam.student_id = ?
+        AND mam.session_id = ?
+        AND mam.class_id = ?
+        AND mam.section_id = ?
+       WHERE ma.is_active = TRUE
+         AND ma.scope_key = ?
+       ORDER BY ma.sort_order, ma.name`,
+      [studentId, sessionId, classId, sectionId, scopeKey]
+    );
+  }
+
   return query(
     `SELECT
        ma.id AS activity_id,
