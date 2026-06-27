@@ -408,3 +408,7 @@ Update this file after every meaningful implementation change.
 - Anchored the final marksheet PDF second-page signature grid and final-result
   block to the bottom of the page while increasing subject and marks body text
   size further without changing the compact header sizing.
+- Added top signing space inside final marksheet PDF signature cells while
+  preserving a smaller top padding for remarks cells.
+- Centered the final marksheet PDF first-page portrait photo placeholder within
+  the open area above the bottom-anchored academic year and student details.
