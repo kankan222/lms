@@ -399,3 +399,9 @@ Update this file after every meaningful implementation change.
   typography and row padding, making the promotion/final-result columns match
   exam-column width, adding an outer border around the right-side summary block,
   and printing promotion/final totals without decimal places.
+- Rebalanced the final marksheet PDF second page after header compaction by
+  increasing subject/marks body text, enlarging signature cells, and giving
+  remarks cells extra height and left-aligned writing space.
+- Adjusted the final marksheet PDF first-page cover panel so the academic year
+  and student details stay anchored at the bottom of the right section, and
+  changed the photo placeholder from landscape to portrait proportions.

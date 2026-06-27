@@ -186,7 +186,7 @@ export async function generateFinalMarksheetPdf(report) {
           <div class="signature-cell">Sign. of Class Teacher<br />${safeLabel}</div>
           <div class="signature-cell">Sign. of Guardian<br />${safeLabel}</div>
           <div class="signature-cell">Sign. of the Principal<br />${safeLabel}</div>
-          <div class="signature-cell">Remarks : ${safeLabel}</div>
+          <div class="signature-cell signature-remarks">Remarks : ${safeLabel}</div>
         </div>`;
     })
     .join("");
