@@ -439,3 +439,8 @@ Update this file after every meaningful implementation change.
 - Fixed final marksheet grade visibility by calculating the final grade from
   the available final percentage even when promotion completeness is not met,
   with a default percentage-grade fallback and cleaner final-result PDF text.
+- Refined the final marksheet first-page cover design with a bordered Report
+  Card label, larger portrait photo placeholder, and a bordered padded student
+  details block moved slightly upward from the bottom.
+- Enlarged and lowered the final marksheet first-page photo placeholder to
+  better balance the top and bottom spacing in the right-side cover panel.
