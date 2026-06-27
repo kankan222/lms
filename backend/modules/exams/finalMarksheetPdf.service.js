@@ -122,6 +122,15 @@ function renderGradeSecuredRows(activities = [], mockGrades = []) {
   }).join("");
 }
 
+function renderFinalResultText(report) {
+  const grade = report?.summary?.grade || "-";
+  const promotedClass = String(report?.student?.promoted_class_name || "").trim();
+  if (!promotedClass) {
+    return `FINAL GRADE : ${escapeHtml(grade)}`;
+  }
+  return `PROMOTED TO CLASS ${escapeHtml(promotedClass)} WITH ${escapeHtml(grade)} GRADE/DISTINCTION`;
+}
+
 export async function generateFinalMarksheetPdf(report) {
   const templatePath = path.join(__dirname, "..", "reports", "templates", "finalReportCard.html");
   let html = await fs.readFile(templatePath, "utf8");
@@ -216,6 +225,7 @@ export async function generateFinalMarksheetPdf(report) {
     .replaceAll("{{grade}}", escapeHtml(report?.summary?.grade || "-"))
     .replaceAll("{{gradeSecuredRows}}", gradeSecuredRows)
     .replaceAll("{{promotedClassName}}", escapeHtml(report?.student?.promoted_class_name || ""))
+    .replaceAll("{{finalResultText}}", renderFinalResultText(report))
     .replaceAll("{{signatureCells}}", signatureCells);
 
   const browser = await puppeteer.launch({

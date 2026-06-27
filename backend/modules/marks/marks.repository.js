@@ -430,6 +430,24 @@ export async function getExamScopes(examId) {
   );
 }
 
+export async function getClassSectionScope(classId, sectionId) {
+  const rows = await query(
+    `SELECT
+       c.id AS class_id,
+       c.name AS class_name,
+       sec.id AS section_id,
+       sec.name AS section_name,
+       sec.medium
+     FROM classes c
+     JOIN sections sec ON sec.class_id = c.id
+     WHERE c.id = ?
+       AND sec.id = ?
+     LIMIT 1`,
+    [classId, sectionId]
+  );
+  return rows[0] || null;
+}
+
 export async function getTeacherAccessibleExams(userId) {
   const hasScopesTable = await supportsScopesTable();
   const classScopeExpr = buildClassScopeExpression(hasScopesTable);
@@ -1106,6 +1124,83 @@ export async function listPublishedReportScopes(filters = {}) {
        sub.name,
        ${publicationExpr}
      ORDER BY e.id DESC, c.name, sec.name, sec.medium, sub.name`,
+    params
+  );
+}
+
+export async function listApprovedMarkRecords(filters = {}) {
+  const hasScopesTable = await supportsScopesTable();
+  const classScopeExpr = buildClassScopeExpression(hasScopesTable);
+  const where = [
+    `me.approval_status = 'approved'`,
+    `se.status = 'active'`,
+  ];
+  const params = [];
+
+  if (filters.exam_id) {
+    where.push(`e.id = ?`);
+    params.push(Number(filters.exam_id));
+  }
+  if (filters.class_id) {
+    where.push(`se.class_id = ?`);
+    params.push(Number(filters.class_id));
+  }
+  if (filters.section_id) {
+    where.push(`se.section_id = ?`);
+    params.push(Number(filters.section_id));
+  }
+  if (filters.subject_id) {
+    where.push(`sub.id = ?`);
+    params.push(Number(filters.subject_id));
+  }
+  if (filters.class_scope || filters.scope) {
+    where.push(`${classScopeExpr} = ?`);
+    params.push(String(filters.class_scope || filters.scope).trim().toLowerCase());
+  }
+  if (filters.medium) {
+    where.push(`LOWER(sec.medium) = ?`);
+    params.push(String(filters.medium).trim().toLowerCase());
+  }
+  if (filters.name) {
+    where.push(`LOWER(st.name) LIKE ?`);
+    params.push(`%${String(filters.name).trim().toLowerCase()}%`);
+  }
+
+  return query(
+    `SELECT
+       e.id AS exam_id,
+       e.name AS exam_name,
+       e.session_id,
+       sess.name AS session_name,
+       se.student_id,
+       st.name AS student_name,
+       se.roll_number,
+       se.class_id,
+       c.name AS class_name,
+       ${classScopeExpr} AS class_scope,
+       se.section_id,
+       sec.name AS section_name,
+       sec.medium,
+       sub.id AS subject_id,
+       sub.name AS subject_name,
+       me.marks,
+       me.theory_marks,
+       me.practical_marks,
+       me.approval_status,
+       DATE_FORMAT(me.approved_at, '%Y-%m-%d %H:%i:%s') AS approved_at
+     FROM marks_entries me
+     JOIN exams e ON e.id = me.exam_id
+     JOIN academic_sessions sess ON sess.id = e.session_id
+     JOIN student_enrollments se
+       ON se.student_id = me.student_id
+      AND se.session_id = e.session_id
+     JOIN students st ON st.id = se.student_id
+     JOIN classes c ON c.id = se.class_id
+     ${hasScopesTable ? "LEFT JOIN scopes sc_ref ON sc_ref.id = c.scope_id" : ""}
+     JOIN sections sec ON sec.id = se.section_id
+     JOIN subjects sub ON sub.id = me.subject_id
+     WHERE ${where.join(" AND ")}
+     ORDER BY e.id DESC, c.name, sec.name, sec.medium, se.roll_number, st.name, sub.name`,
     params
   );
 }

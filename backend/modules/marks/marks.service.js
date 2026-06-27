@@ -1,5 +1,6 @@
 import { pool } from "../../database/pool.js";
 import AppError from "../../core/errors/AppError.js";
+import { generateMarkStatementPdf } from "./markStatementPdf.service.js";
 import { generateFinalMarksheetPdf } from "../exams/finalMarksheetPdf.service.js";
 import { generateMarksheetPdf } from "../exams/marksheetPdf.service.js";
 import * as marksheetRepo from "../marksheet/marksheet.repository.js";
@@ -214,7 +215,7 @@ function round2(value) {
 }
 
 function marksheetGradeForPercentage(percentage, settings = []) {
-  return resolveGrade(percentage, settings, "-");
+  return resolveGrade(percentage, settings, "") || gradeForPercentage(percentage);
 }
 
 function promotedClassName(className) {
@@ -358,6 +359,9 @@ async function formatFinalReport(scope, rows) {
   const isComplete = subjects.length > 0 && subjects.every((subject) =>
     requiredTypes.every((type) => subject.criteria?.[type] !== null)
   );
+  const finalGrade = subjectsWithFinal.length
+    ? marksheetGradeForPercentage(percentage, percentageGrades)
+    : "";
 
   const mockGrades = exams
     .filter((exam) => exam.final_calculation_type === "mock")
@@ -409,7 +413,7 @@ async function formatFinalReport(scope, rows) {
       total,
       max_total: maxTotal,
       percentage,
-      grade: isComplete ? marksheetGradeForPercentage(percentage, percentageGrades) : "",
+      grade: finalGrade,
       is_complete: isComplete,
     },
   };
@@ -911,6 +915,15 @@ export async function listPublishedReportScopes(query, userId) {
   return repo.listPublishedReportScopes(query || {});
 }
 
+export async function listApprovedMarkRecords(query, userId) {
+  const userCtx = await getUserContext(userId);
+  if (userCtx.isParent || userCtx.isStudent) {
+    throw new AppError("Not authorized to view approved mark records", 403);
+  }
+
+  return repo.listApprovedMarkRecords(query || {});
+}
+
 export async function saveReportPublication(payload, userId) {
   const userCtx = await getUserContext(userId);
   if (userCtx.isParent || userCtx.isStudent) {
@@ -1039,6 +1052,40 @@ export async function downloadFinalMarksheet(query, userId) {
   return {
     buffer,
     fileName: `final-marksheet-student-${studentId}-session-${scope.session_id}.pdf`,
+  };
+}
+
+export async function downloadMarkStatement(query, userId) {
+  const { examId, classId, sectionId, subjectId, medium, exam, examSubject, userCtx } =
+    await getValidatedScope(query, userId);
+
+  if (!userCtx.roles.includes("super_admin") && !userCtx.roles.includes("admin") && !canManageExamCatalog(userCtx)) {
+    throw new AppError("Not authorized to download marks statements", 403);
+  }
+
+  const [scope, students] = await Promise.all([
+    repo.getClassSectionScope(classId, sectionId),
+    repo.getStudentsForScope({
+      examId,
+      classId,
+      sectionId,
+      medium,
+      subjectId,
+    }),
+  ]);
+
+  if (!scope) throw new AppError("Class section not found", 404);
+
+  const buffer = await generateMarkStatementPdf({
+    exam,
+    subject: examSubject,
+    scope,
+    students,
+  });
+
+  return {
+    buffer,
+    fileName: `marks-statement-exam-${examId}-class-${classId}-section-${sectionId}-subject-${subjectId}.pdf`,
   };
 }
 

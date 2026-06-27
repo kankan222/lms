@@ -28,11 +28,44 @@ const emptyActivity = {
   name: "",
   scope_key: "",
   class_id: "",
+  class_ids: [],
   section_id: "",
+  section_ids: [],
   sort_order: 0,
   max_marks: 10,
   is_active: true,
 };
+
+const checkboxClassName =
+  "size-4 rounded border-border accent-stone-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 dark:accent-stone-300 dark:focus-visible:ring-offset-background";
+
+function CheckboxChoice({ checked, disabled = false, label, onChange }) {
+  return (
+    <label
+      className={`flex min-h-9 items-center gap-2 rounded-md border px-3 py-2 text-sm transition-colors ${
+        checked
+          ? "border-punch-600 bg-punch-50 text-foreground dark:bg-muted/30"
+          : "border-border bg-background text-foreground hover:bg-muted/40 dark:hover:bg-muted/20"
+      } ${disabled ? "cursor-not-allowed opacity-60" : "cursor-pointer"}`}
+    >
+      <input
+        type="checkbox"
+        className={checkboxClassName}
+        checked={checked}
+        disabled={disabled}
+        onChange={onChange}
+      />
+      <span className="truncate">{label}</span>
+    </label>
+  );
+}
+
+function toggleStringId(values = [], id) {
+  const nextId = String(id);
+  return values.some((value) => String(value) === nextId)
+    ? values.filter((value) => String(value) !== nextId)
+    : [...values, nextId];
+}
 
 export default function Activities() {
   const [activities, setActivities] = useState([]);
@@ -49,9 +82,20 @@ export default function Activities() {
     () => classes.find((item) => String(item.id) === String(filters.class_id)),
     [classes, filters.class_id]
   );
-  const selectedActivityClass = useMemo(
-    () => classes.find((item) => String(item.id) === String(form.class_id)),
-    [classes, form.class_id]
+  const selectedActivityClasses = useMemo(
+    () => classes.filter((item) => (form.class_ids || []).some((id) => String(id) === String(item.id))),
+    [classes, form.class_ids]
+  );
+  const selectedActivitySectionOptions = useMemo(
+    () =>
+      selectedActivityClasses.flatMap((classItem) =>
+        (classItem.sections || []).map((section) => ({
+          ...section,
+          class_id: classItem.id,
+          class_name: classItem.name,
+        }))
+      ),
+    [selectedActivityClasses]
   );
 
   async function loadInitial() {
@@ -83,8 +127,29 @@ export default function Activities() {
     e.preventDefault();
     setError("");
     try {
-      if (editingId) await updateActivity(editingId, form);
-      else await createActivity(form);
+      const selectedClassIds = (form.class_ids || []).map(String);
+      const selectedSectionIds = (form.section_ids || []).map(String);
+      const sectionClassById = new Map(
+        selectedActivitySectionOptions.map((section) => [String(section.id), String(section.class_id)])
+      );
+      const payloads = selectedSectionIds.length
+        ? selectedSectionIds.map((sectionId) => ({
+            ...form,
+            class_id: sectionClassById.get(sectionId) || "",
+            section_id: sectionId,
+          }))
+        : selectedClassIds.length
+          ? selectedClassIds.map((classId) => ({ ...form, class_id: classId, section_id: "" }))
+          : [{ ...form, class_id: "", section_id: "" }];
+
+      if (editingId) {
+        if (payloads.length !== 1) {
+          throw new Error("Edit one class or section scope at a time.");
+        }
+        await updateActivity(editingId, payloads[0]);
+      } else {
+        await Promise.all(payloads.map((payload) => createActivity(payload)));
+      }
       resetForm();
       const res = await getActivities();
       setActivities(res?.data || []);
@@ -138,39 +203,103 @@ export default function Activities() {
               </div>
               <div className="grid gap-2">
                 <Label>Class Scope</Label>
-                <select
-                  className="rounded-md border bg-background px-3 py-2 text-sm"
-                  value={form.class_id}
-                  onChange={(e) => setForm((p) => ({ ...p, class_id: e.target.value, section_id: "" }))}
-                >
-                  <option value="">All Classes</option>
-                  {classes.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
-                </select>
+                <div className="max-h-44 space-y-2 overflow-y-auto rounded-md border border-border bg-background p-2">
+                  <CheckboxChoice
+                    checked={(form.class_ids || []).length === 0}
+                    label="All Classes"
+                    onChange={() =>
+                      setForm((p) => ({
+                        ...p,
+                        class_id: "",
+                        class_ids: [],
+                        section_id: "",
+                        section_ids: [],
+                      }))
+                    }
+                  />
+                  {classes.map((item) => (
+                    <CheckboxChoice
+                      key={item.id}
+                      checked={(form.class_ids || []).some((id) => String(id) === String(item.id))}
+                      label={item.name}
+                      onChange={() =>
+                        setForm((p) => {
+                          const class_ids = toggleStringId(p.class_ids, item.id);
+                          const allowedSectionIds = new Set(
+                            classes
+                              .filter((classItem) =>
+                                class_ids.some((id) => String(id) === String(classItem.id))
+                              )
+                              .flatMap((classItem) => classItem.sections || [])
+                              .map((section) => String(section.id))
+                          );
+                          return {
+                            ...p,
+                            class_id: class_ids[0] || "",
+                            class_ids,
+                            section_id: "",
+                            section_ids: (p.section_ids || []).filter((id) => allowedSectionIds.has(String(id))),
+                          };
+                        })
+                      }
+                    />
+                  ))}
+                </div>
               </div>
               <div className="grid gap-2">
                 <Label>Section Scope</Label>
-                <select
-                  className="rounded-md border bg-background px-3 py-2 text-sm"
-                  value={form.section_id}
-                  onChange={(e) => setForm((p) => ({ ...p, section_id: e.target.value }))}
-                  disabled={!form.class_id}
-                >
-                  <option value="">All Sections</option>
-                  {(selectedActivityClass?.sections || []).map((section) => (
-                    <option key={section.id} value={section.id}>
-                      {section.name}{section.medium ? ` (${section.medium})` : ""}
-                    </option>
+                <div className="max-h-44 space-y-2 overflow-y-auto rounded-md border border-border bg-background p-2">
+                  <CheckboxChoice
+                    checked={(form.section_ids || []).length === 0}
+                    disabled={(form.class_ids || []).length === 0}
+                    label={(form.class_ids || []).length > 1 ? "All Sections for Selected Classes" : "All Sections"}
+                    onChange={() => setForm((p) => ({ ...p, section_id: "", section_ids: [] }))}
+                  />
+                  {selectedActivitySectionOptions.map((section) => (
+                    <CheckboxChoice
+                      key={section.id}
+                      checked={(form.section_ids || []).some((id) => String(id) === String(section.id))}
+                      disabled={(form.class_ids || []).length === 0}
+                      label={`${section.class_name} - ${section.name}${section.medium ? ` (${section.medium})` : ""}`}
+                      onChange={() =>
+                        setForm((p) => ({
+                          ...p,
+                          section_id: "",
+                          section_ids: toggleStringId(p.section_ids, section.id),
+                        }))
+                      }
+                    />
                   ))}
-                </select>
+                  {(form.class_ids || []).length === 0 ? (
+                    <p className="px-2 py-1 text-sm text-muted-foreground">Select one or more classes first.</p>
+                  ) : null}
+                  {(form.class_ids || []).length > 0 && !selectedActivitySectionOptions.length ? (
+                    <p className="px-2 py-1 text-sm text-muted-foreground">No sections found for selected classes.</p>
+                  ) : null}
+                </div>
               </div>
               <div className="grid grid-cols-2 gap-2">
                 <div className="grid gap-2">
                   <Label>Max Marks</Label>
-                  <Input type="number" step="0.01" value={form.max_marks} onChange={(e) => setForm((p) => ({ ...p, max_marks: e.target.value }))} />
+                  <Input
+                    type="text"
+                    inputMode="decimal"
+                    value={form.max_marks}
+                    onChange={(e) => {
+                      const value = e.target.value.replace(/[^\d.]/g, "").replace(/(\..*)\./g, "$1");
+                      setForm((p) => ({ ...p, max_marks: value }));
+                    }}
+                  />
                 </div>
                 <div className="grid gap-2">
                   <Label>Order</Label>
-                  <Input type="number" value={form.sort_order} onChange={(e) => setForm((p) => ({ ...p, sort_order: e.target.value }))} />
+                  <Input
+                    type="text"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    value={form.sort_order}
+                    onChange={(e) => setForm((p) => ({ ...p, sort_order: e.target.value.replace(/\D/g, "") }))}
+                  />
                 </div>
               </div>
               <label className="flex items-center gap-2 text-sm">
@@ -215,7 +344,9 @@ export default function Activities() {
                         name: activity.name,
                         scope_key: activity.scope_key || "",
                         class_id: activity.class_id ? String(activity.class_id) : "",
+                        class_ids: activity.class_id ? [String(activity.class_id)] : [],
                         section_id: activity.section_id ? String(activity.section_id) : "",
+                        section_ids: activity.section_id ? [String(activity.section_id)] : [],
                         sort_order: activity.sort_order || 0,
                         max_marks: activity.max_marks || 10,
                         is_active: Boolean(activity.is_active),
@@ -243,14 +374,47 @@ export default function Activities() {
                   <option value="">Session</option>
                   {sessions.map((session) => <option key={session.id} value={session.id}>{session.name}</option>)}
                 </select>
-                <select className="rounded-md border bg-background px-3 py-2 text-sm" value={filters.class_id} onChange={(e) => setFilters((p) => ({ ...p, class_id: e.target.value, section_id: "" }))}>
-                  <option value="">Class</option>
-                  {classes.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
-                </select>
-                <select className="rounded-md border bg-background px-3 py-2 text-sm" value={filters.section_id} onChange={(e) => setFilters((p) => ({ ...p, section_id: e.target.value }))}>
-                  <option value="">Section</option>
-                  {(selectedClass?.sections || []).map((section) => <option key={section.id} value={section.id}>{section.name}{section.medium ? ` (${section.medium})` : ""}</option>)}
-                </select>
+                <div className="max-h-44 space-y-2 overflow-y-auto rounded-md border border-border bg-background p-2">
+                  {classes.map((item) => (
+                    <CheckboxChoice
+                      key={item.id}
+                      checked={String(filters.class_id) === String(item.id)}
+                      label={item.name}
+                      onChange={() =>
+                        setFilters((p) => ({
+                          ...p,
+                          class_id: String(item.id),
+                          section_id: "",
+                        }))
+                      }
+                    />
+                  ))}
+                  {!classes.length ? (
+                    <p className="px-2 py-1 text-sm text-muted-foreground">No classes found.</p>
+                  ) : null}
+                </div>
+                <div className="max-h-44 space-y-2 overflow-y-auto rounded-md border border-border bg-background p-2">
+                  {(selectedClass?.sections || []).map((section) => (
+                    <CheckboxChoice
+                      key={section.id}
+                      checked={String(filters.section_id) === String(section.id)}
+                      disabled={!filters.class_id}
+                      label={`${section.name}${section.medium ? ` (${section.medium})` : ""}`}
+                      onChange={() =>
+                        setFilters((p) => ({
+                          ...p,
+                          section_id: String(section.id),
+                        }))
+                      }
+                    />
+                  ))}
+                  {!filters.class_id ? (
+                    <p className="px-2 py-1 text-sm text-muted-foreground">Select a class first.</p>
+                  ) : null}
+                  {filters.class_id && !(selectedClass?.sections || []).length ? (
+                    <p className="px-2 py-1 text-sm text-muted-foreground">No sections found for this class.</p>
+                  ) : null}
+                </div>
                 <Button type="button" onClick={loadMarkGrid} disabled={!filters.session_id || !filters.class_id || !filters.section_id}>Load</Button>
               </div>
 
@@ -271,11 +435,18 @@ export default function Activities() {
                           {grid.activities.map((activity) => (
                             <td key={activity.id} className="px-3 py-2">
                               <Input
-                                type="number"
-                                step="0.01"
+                                type="text"
+                                inputMode="numeric"
+                                pattern="[0-9]*"
                                 className="h-8 w-24"
                                 value={marks[`${activity.id}-${student.student_id}`] ?? ""}
-                                onChange={(e) => setMarks((p) => ({ ...p, [`${activity.id}-${student.student_id}`]: e.target.value }))}
+                                onChange={(e) => {
+                                  const value = e.target.value;
+                                  setMarks((p) => ({
+                                    ...p,
+                                    [`${activity.id}-${student.student_id}`]: value === "" ? "" : value.replace(/\D/g, ""),
+                                  }));
+                                }}
                               />
                             </td>
                           ))}

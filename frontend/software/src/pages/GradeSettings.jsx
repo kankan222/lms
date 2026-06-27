@@ -23,6 +23,13 @@ const emptyForm = {
   is_active: true,
 };
 
+function wholeNumberValue(value) {
+  const text = String(value ?? "").trim();
+  if (!text) return "";
+  const number = Number(text);
+  return Number.isFinite(number) ? String(Math.round(number)) : text.replace(/\D/g, "");
+}
+
 function scaleBadgeClass(scaleType) {
   const value = String(scaleType || "").trim().toLowerCase();
   if (value === "activity") {
@@ -65,10 +72,10 @@ export default function GradeSettings() {
     try {
       const payload = {
         ...form,
-        min_value: Number(form.min_value),
-        max_value: Number(form.max_value),
-        mark_value: form.mark_value === "" ? null : Number(form.mark_value),
-        sort_order: Number(form.sort_order || 0),
+        min_value: Number(wholeNumberValue(form.min_value)),
+        max_value: Number(wholeNumberValue(form.max_value)),
+        mark_value: form.mark_value === "" ? null : Number(wholeNumberValue(form.mark_value)),
+        sort_order: Number(wholeNumberValue(form.sort_order) || 0),
       };
       if (editingId) await updateGradeSetting(editingId, payload);
       else await createGradeSetting(payload);
@@ -114,21 +121,45 @@ export default function GradeSettings() {
               <div className="grid grid-cols-2 gap-2">
                 <div className="grid gap-2">
                   <Label>Min</Label>
-                  <Input type="number" step="0.01" value={form.min_value} onChange={(e) => setForm((p) => ({ ...p, min_value: e.target.value }))} />
+                  <Input
+                    type="text"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    value={form.min_value}
+                    onChange={(e) => setForm((p) => ({ ...p, min_value: e.target.value.replace(/\D/g, "") }))}
+                  />
                 </div>
                 <div className="grid gap-2">
                   <Label>Max</Label>
-                  <Input type="number" step="0.01" value={form.max_value} onChange={(e) => setForm((p) => ({ ...p, max_value: e.target.value }))} />
+                  <Input
+                    type="text"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    value={form.max_value}
+                    onChange={(e) => setForm((p) => ({ ...p, max_value: e.target.value.replace(/\D/g, "") }))}
+                  />
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-2">
                 <div className="grid gap-2">
                   <Label>Activity Mark Value</Label>
-                  <Input type="number" step="0.01" value={form.mark_value} onChange={(e) => setForm((p) => ({ ...p, mark_value: e.target.value }))} />
+                  <Input
+                    type="text"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    value={form.mark_value}
+                    onChange={(e) => setForm((p) => ({ ...p, mark_value: e.target.value.replace(/\D/g, "") }))}
+                  />
                 </div>
                 <div className="grid gap-2">
                   <Label>Order</Label>
-                  <Input type="number" value={form.sort_order} onChange={(e) => setForm((p) => ({ ...p, sort_order: e.target.value }))} />
+                  <Input
+                    type="text"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    value={form.sort_order}
+                    onChange={(e) => setForm((p) => ({ ...p, sort_order: e.target.value.replace(/\D/g, "") }))}
+                  />
                 </div>
               </div>
               <label className="flex items-center gap-2 text-sm">
@@ -161,7 +192,7 @@ export default function GradeSettings() {
                     {!row.is_active ? <Badge variant="secondary">Inactive</Badge> : null}
                   </div>
                   <p className="text-sm text-muted-foreground">
-                    {row.min_value} to {row.max_value} · {row.qualitative_value || "-"}
+                    {wholeNumberValue(row.min_value)} to {wholeNumberValue(row.max_value)} · {row.qualitative_value || "-"}
                   </p>
                 </div>
                 <div className="flex gap-2">
@@ -171,10 +202,10 @@ export default function GradeSettings() {
                       scale_type: row.scale_type,
                       grade_label: row.grade_label,
                       qualitative_value: row.qualitative_value || "",
-                      min_value: row.min_value,
-                      max_value: row.max_value,
-                      mark_value: row.mark_value ?? "",
-                      sort_order: row.sort_order || 0,
+                      min_value: wholeNumberValue(row.min_value),
+                      max_value: wholeNumberValue(row.max_value),
+                      mark_value: row.mark_value === null || row.mark_value === undefined ? "" : wholeNumberValue(row.mark_value),
+                      sort_order: wholeNumberValue(row.sort_order || 0),
                       is_active: Boolean(row.is_active),
                     });
                   }}>Edit</Button>

@@ -412,3 +412,30 @@ Update this file after every meaningful implementation change.
   preserving a smaller top padding for remarks cells.
 - Centered the final marksheet PDF first-page portrait photo placeholder within
   the open area above the bottom-anchored academic year and student details.
+- Updated the Activities page class and section controls to use visible
+  checkbox lists for easier class/section selection in both activity
+  definitions and activity marks filters.
+- Expanded the Activities definition form so class and section checkbox lists
+  support multi-selection, creating one scoped activity row per selected class
+  or selected section while keeping activity marks entry single-scope.
+- Adjusted Activities marks entry inputs to use text fields with numeric input
+  mode so marks accept whole numbers without browser number-spinner or
+  mouse-wheel value changes while scrolling the grid.
+- Changed Activities Max Marks and Order inputs to text fields with numeric
+  input modes and sanitizing so mouse-wheel scrolling cannot change values.
+- Changed Grade Settings numeric fields to text inputs with whole-number
+  sanitizing and rounded existing decimal values for display/editing so
+  mouse-wheel scrolling cannot change grade ranges or activity mark values.
+- Split approved marks out of the Reports Published tab into a dedicated
+  Records tab backed by a per-student approved-records API, showing roll,
+  student, class, section, subject, marks, approval status, and single/final
+  marksheet downloads.
+- Added client-side pagination to the Reports Records tab and rounded displayed
+  marks, theory, practical, and total values to whole numbers.
+- Added an admin Mark Report tab in Reports that downloads a blank marks
+  statement PDF for the selected exam/class/section/subject, with student roll
+  numbers and names split into two 20-row side-by-side tables per page and
+  empty marks columns for manual entry.
+- Fixed final marksheet grade visibility by calculating the final grade from
+  the available final percentage even when promotion completeness is not met,
+  with a default percentage-grade fallback and cleaner final-result PDF text.

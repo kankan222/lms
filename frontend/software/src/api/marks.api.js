@@ -61,6 +61,10 @@ export function getPublishedReportScopes(params = {}) {
   return apiRequest(`/marks/published-scopes${buildQuery(params)}`);
 }
 
+export function getApprovedMarkRecords(params = {}) {
+  return apiRequest(`/marks/approved-records${buildQuery(params)}`);
+}
+
 export function saveReportPublication(data) {
   return apiRequest("/marks/report-publication", {
     method: "POST",
@@ -126,4 +130,8 @@ export function downloadMyMarksheet(params = {}) {
 
 export function downloadFinalMarksheet(params = {}) {
   return fetchAuthorizedBlob(`/marks/final-report/pdf${buildQuery(params)}`);
+}
+
+export function downloadMarkStatement(params = {}) {
+  return fetchAuthorizedBlob(`/marks/statement/pdf${buildQuery(params)}`);
 }

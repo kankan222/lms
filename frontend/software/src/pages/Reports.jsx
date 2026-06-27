@@ -21,14 +21,15 @@ import { getSubjects } from "../api/subjects.api";
 import {
   getAccessibleExamById,
   getAccessibleExams,
+  getApprovedMarkRecords,
   approveMarks,
   downloadFinalMarksheet,
+  downloadMarkStatement,
   downloadMyMarksheet,
   downloadStudentMarksheet,
   getMarksApprovalSummary,
   getMarksGrid,
   getPendingApprovalQueue,
-  getPublishedReportScopes,
   getReportPublication,
   getMyResults,
   getMyStudents,
@@ -54,6 +55,8 @@ const EMPTY_SELF_FILTERS = {
   exam_id: "",
   student_id: "",
 };
+
+const APPROVED_RECORDS_PAGE_SIZE = 25;
 
 function statusVariant(status) {
   if (status === "approved") return "default";
@@ -131,6 +134,12 @@ function hasSubjectComponents(subject) {
 function toNumberOrZero(value) {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function formatWholeNumber(value) {
+  if (value === null || value === undefined || value === "") return "-";
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? String(Math.round(parsed)) : String(value);
 }
 
 function downloadBlob(blob, fileName) {
@@ -428,17 +437,19 @@ export default function Reports() {
   const [reviewQueueSnapshot, setReviewQueueSnapshot] = useState(null);
   const [reportPublication, setReportPublication] = useState(null);
   const [publicationDate, setPublicationDate] = useState("");
-  const [publishedScopes, setPublishedScopes] = useState([]);
+  const [approvedRecords, setApprovedRecords] = useState([]);
+  const [approvedRecordsPage, setApprovedRecordsPage] = useState(1);
 
   const [loading, setLoading] = useState(true);
   const [gridLoading, setGridLoading] = useState(false);
   const [publicationLoading, setPublicationLoading] = useState(false);
-  const [publishedScopesLoading, setPublishedScopesLoading] = useState(false);
+  const [approvedRecordsLoading, setApprovedRecordsLoading] = useState(false);
   const [selfLoading, setSelfLoading] = useState(false);
   const [selfDownloadLoading, setSelfDownloadLoading] = useState(false);
   const [selfFinalDownloadLoading, setSelfFinalDownloadLoading] = useState(false);
   const [downloadingStudentId, setDownloadingStudentId] = useState(null);
   const [downloadingFinalStudentId, setDownloadingFinalStudentId] = useState(null);
+  const [statementDownloading, setStatementDownloading] = useState(false);
   const [examMetaLoading, setExamMetaLoading] = useState(false);
   const [banner, setBanner] = useState(null);
 
@@ -513,6 +524,21 @@ export default function Reports() {
   );
   const displayedPendingQueue = editMode && reviewQueueSnapshot ? reviewQueueSnapshot : pendingQueue;
   const pendingReviewMeta = displayedPendingQueue.groups?.[0] || null;
+  const approvedRecordsTotalPages = Math.max(
+    1,
+    Math.ceil(approvedRecords.length / APPROVED_RECORDS_PAGE_SIZE)
+  );
+  const paginatedApprovedRecords = useMemo(() => {
+    const start = (approvedRecordsPage - 1) * APPROVED_RECORDS_PAGE_SIZE;
+    return approvedRecords.slice(start, start + APPROVED_RECORDS_PAGE_SIZE);
+  }, [approvedRecords, approvedRecordsPage]);
+  const approvedRecordsStart = approvedRecords.length
+    ? (approvedRecordsPage - 1) * APPROVED_RECORDS_PAGE_SIZE + 1
+    : 0;
+  const approvedRecordsEnd = Math.min(
+    approvedRecordsPage * APPROVED_RECORDS_PAGE_SIZE,
+    approvedRecords.length
+  );
   const classOptions = useMemo(() => {
     if (
       !isAdmin ||
@@ -835,30 +861,32 @@ export default function Reports() {
     loadReportPublicationEvent();
   }, [activeTab, isAdmin, publicationScope]);
 
-  const loadPublishedScopesEvent = useEffectEvent(async () => {
-    if (activeTab !== "approved") return;
+  const loadApprovedRecordsEvent = useEffectEvent(async () => {
+    if (activeTab !== "records") return;
 
-    setPublishedScopesLoading(true);
+    setApprovedRecordsLoading(true);
     try {
-      const res = await getPublishedReportScopes({
+      const res = await getApprovedMarkRecords({
         class_scope: filters.class_scope,
         exam_id: filters.exam_id,
         class_id: filters.class_id,
         section_id: filters.section_id,
         medium: filters.medium,
         subject_id: filters.subject_id,
+        name: filters.name,
       });
-      setPublishedScopes(Array.isArray(res?.data) ? res.data : []);
+      setApprovedRecords(Array.isArray(res?.data) ? res.data : []);
+      setApprovedRecordsPage(1);
     } catch (err) {
-      setPublishedScopes([]);
-      setError(err?.message || "Failed to load published records.");
+      setApprovedRecords([]);
+      setError(err?.message || "Failed to load approved records.");
     } finally {
-      setPublishedScopesLoading(false);
+      setApprovedRecordsLoading(false);
     }
   });
 
   useEffect(() => {
-    loadPublishedScopesEvent();
+    loadApprovedRecordsEvent();
   }, [
     activeTab,
     filters.class_scope,
@@ -867,7 +895,14 @@ export default function Reports() {
     filters.section_id,
     filters.medium,
     filters.subject_id,
+    filters.name,
   ]);
+
+  useEffect(() => {
+    if (approvedRecordsPage > approvedRecordsTotalPages) {
+      setApprovedRecordsPage(approvedRecordsTotalPages);
+    }
+  }, [approvedRecordsPage, approvedRecordsTotalPages]);
 
   async function loadBootstrap() {
     setLoading(true);
@@ -1248,6 +1283,37 @@ export default function Reports() {
     }
   }
 
+  async function handleDownloadApprovedRecord(row, type) {
+    const studentId = Number(row.student_id);
+    if (type === "final") {
+      setDownloadingFinalStudentId(studentId);
+      try {
+        const blob = await downloadFinalMarksheet({
+          student_id: studentId,
+          session_id: row.session_id || "",
+          class_id: row.class_id || "",
+          section_id: row.section_id || "",
+        });
+        downloadBlob(blob, `final-marksheet-student-${studentId}.pdf`);
+      } catch (err) {
+        setError(err?.message || "Failed to download final marksheet.");
+      } finally {
+        setDownloadingFinalStudentId(null);
+      }
+      return;
+    }
+
+    setDownloadingStudentId(studentId);
+    try {
+      const blob = await downloadStudentMarksheet(row.exam_id, studentId);
+      downloadBlob(blob, `marksheet-exam-${row.exam_id}-student-${studentId}.pdf`);
+    } catch (err) {
+      setError(err?.message || "Failed to download marksheet.");
+    } finally {
+      setDownloadingStudentId(null);
+    }
+  }
+
   async function handleLoadSelfResults() {
     if (!selfFilters.exam_id) {
       setError("Select an exam first.");
@@ -1290,6 +1356,32 @@ export default function Reports() {
       setError(err?.message || "Failed to download final marksheet.");
     } finally {
       setSelfFinalDownloadLoading(false);
+    }
+  }
+
+  async function handleDownloadMarkStatement() {
+    if (!filters.exam_id || !filters.class_id || !filters.section_id || !filters.subject_id) {
+      setError("Select exam, class, section, and subject before downloading the marks statement.");
+      return;
+    }
+
+    setStatementDownloading(true);
+    try {
+      const blob = await downloadMarkStatement({
+        exam_id: filters.exam_id,
+        class_id: filters.class_id,
+        section_id: filters.section_id,
+        medium: filters.medium,
+        subject_id: filters.subject_id,
+      });
+      downloadBlob(
+        blob,
+        `marks-statement-exam-${filters.exam_id}-class-${filters.class_id}-section-${filters.section_id}-subject-${filters.subject_id}.pdf`
+      );
+    } catch (err) {
+      setError(err?.message || "Failed to download marks statement.");
+    } finally {
+      setStatementDownloading(false);
     }
   }
 
@@ -1558,121 +1650,176 @@ export default function Reports() {
     );
   }
 
-  async function openPublishedScope(scope) {
-    const nextFilters = {
-      ...filters,
-      class_scope: scope.class_scope || filters.class_scope || "",
-      exam_id: String(scope.exam_id || ""),
-      class_id: String(scope.class_id || ""),
-      section_id: String(scope.section_id || ""),
-      medium: scope.medium || "",
-      subject_id: String(scope.subject_id || ""),
-      approval_status: "approved",
-    };
-
-    setFilters(nextFilters);
-    setGridLoading(true);
-    try {
-      const res = await getMarksGrid(nextFilters);
-      resetGridState(res?.data || { rows: [] });
-      setBanner(null);
-    } catch (err) {
-      resetGridState({ rows: [] });
-      setError(err?.message || "Failed to load published marks.");
-    } finally {
-      setGridLoading(false);
-    }
-  }
-
-  function renderPublishedRecordsPanel() {
-    if (activeTab !== "approved") return null;
+  function renderApprovedRecordsPanel() {
+    if (activeTab !== "records") return null;
 
     return (
       <SurfaceCard accent>
         <div className="space-y-4 p-4">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
-              <p className="text-base font-semibold">Published Records</p>
+              <p className="text-base font-semibold">Approved Records</p>
               <p className="text-sm text-muted-foreground">
-                Showing approved marks by exam, class, section, and subject. Use filters above to narrow this list.
+                Showing all approved marks. Use filters above to narrow by exam, class, section, subject, or student name.
               </p>
             </div>
             <Badge variant="outline" className="rounded-full border-emerald-200 bg-emerald-50 text-emerald-700">
-              {publishedScopes.length} group{publishedScopes.length === 1 ? "" : "s"}
+              {approvedRecords.length} record{approvedRecords.length === 1 ? "" : "s"}
             </Badge>
           </div>
 
-          {publishedScopesLoading ? (
+          {approvedRecordsLoading ? (
             <p className="rounded-xl border border-dashed px-3 py-6 text-center text-sm text-muted-foreground">
-              Loading published records...
+              Loading approved records...
             </p>
-          ) : publishedScopes.length ? (
+          ) : approvedRecords.length ? (
+            <>
             <div className="overflow-auto rounded-xl border">
               <Table>
                 <TableHeader>
                   <TableRow className="bg-muted/40">
-                    <TableHead>Exam</TableHead>
+                    <TableHead>Roll</TableHead>
+                    <TableHead>Name</TableHead>
                     <TableHead>Class</TableHead>
                     <TableHead>Section</TableHead>
                     <TableHead>Subject</TableHead>
-                    <TableHead>Approved</TableHead>
-                    <TableHead>Issue Date</TableHead>
-                    <TableHead className="text-right">Action</TableHead>
+                    <TableHead>Marks</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Downloads</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {publishedScopes.map((scope) => (
+                  {paginatedApprovedRecords.map((record) => (
                     <TableRow
-                      key={`${scope.exam_id}-${scope.class_id}-${scope.section_id}-${scope.subject_id}-${scope.medium || ""}`}
+                      key={`${record.exam_id}-${record.student_id}-${record.subject_id}-${record.class_id}-${record.section_id}`}
                     >
+                      <TableCell>{record.roll_number || "-"}</TableCell>
                       <TableCell>
-                        <div className="font-medium">{scope.exam_name}</div>
-                        <div className="text-xs text-muted-foreground">{scope.session_name}</div>
+                        <div className="font-medium">{record.student_name}</div>
+                        <div className="text-xs text-muted-foreground">{record.exam_name}</div>
                       </TableCell>
-                      <TableCell>{scope.class_name}</TableCell>
+                      <TableCell>{record.class_name}</TableCell>
                       <TableCell>
-                        {scope.section_name}
-                        {scope.medium ? ` (${scope.medium})` : ""}
+                        {record.section_name}
+                        {record.medium ? ` (${record.medium})` : ""}
                       </TableCell>
-                      <TableCell>{scope.subject_name}</TableCell>
+                      <TableCell>{record.subject_name}</TableCell>
                       <TableCell>
-                        {scope.approved_count} mark{Number(scope.approved_count) === 1 ? "" : "s"}
+                        {record.theory_marks !== null || record.practical_marks !== null ? (
+                            <div className="text-xs">
+                            <div>T: {formatWholeNumber(record.theory_marks)}</div>
+                            <div>P: {formatWholeNumber(record.practical_marks)}</div>
+                            <div className="font-medium">Total: {formatWholeNumber(record.marks)}</div>
+                          </div>
+                        ) : (
+                          formatWholeNumber(record.marks)
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        <Badge
+                          variant={statusVariant(record.approval_status)}
+                          className={statusClassName(record.approval_status)}
+                        >
+                          {record.approval_status}
+                        </Badge>
                         <div className="text-xs text-muted-foreground">
-                          {scope.student_count} student{Number(scope.student_count) === 1 ? "" : "s"}
+                          {record.approved_at || ""}
                         </div>
                       </TableCell>
                       <TableCell>
-                        {scope.published_on ? (
-                          <Badge variant="outline" className="rounded-full border-emerald-200 bg-emerald-50 text-emerald-700">
-                            {scope.published_on}
-                          </Badge>
-                        ) : (
-                          <Badge variant="outline" className="rounded-full border-amber-200 bg-amber-50 text-amber-700">
-                            Not dated
-                          </Badge>
-                        )}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          onClick={() => openPublishedScope(scope)}
-                          disabled={gridLoading}
-                        >
-                          Open
-                        </Button>
+                        <div className="flex flex-wrap gap-2">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={downloadingStudentId === Number(record.student_id)}
+                            onClick={() => handleDownloadApprovedRecord(record, "single")}
+                          >
+                            {downloadingStudentId === Number(record.student_id) ? "Downloading..." : "Single"}
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={downloadingFinalStudentId === Number(record.student_id)}
+                            onClick={() => handleDownloadApprovedRecord(record, "final")}
+                          >
+                            {downloadingFinalStudentId === Number(record.student_id) ? "Downloading..." : "Final"}
+                          </Button>
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
               </Table>
             </div>
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-muted/20 px-3 py-2 text-sm">
+              <span className="text-muted-foreground">
+                Showing {approvedRecordsStart}-{approvedRecordsEnd} of {approvedRecords.length}
+              </span>
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={approvedRecordsPage <= 1}
+                  onClick={() => setApprovedRecordsPage((page) => Math.max(1, page - 1))}
+                >
+                  Previous
+                </Button>
+                <span className="min-w-24 text-center text-sm font-medium">
+                  Page {approvedRecordsPage} of {approvedRecordsTotalPages}
+                </span>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={approvedRecordsPage >= approvedRecordsTotalPages}
+                  onClick={() =>
+                    setApprovedRecordsPage((page) => Math.min(approvedRecordsTotalPages, page + 1))
+                  }
+                >
+                  Next
+                </Button>
+              </div>
+            </div>
+            </>
           ) : (
             <p className="rounded-xl border border-dashed px-3 py-6 text-center text-sm text-muted-foreground">
-              No approved marks found for the current filters.
+              No approved records found for the current filters.
             </p>
           )}
+        </div>
+      </SurfaceCard>
+    );
+  }
+
+  function renderMarkReportPanel() {
+    if (!isAdmin) return null;
+
+    const ready = Boolean(filters.exam_id && filters.class_id && filters.section_id && filters.subject_id);
+
+    return (
+      <SurfaceCard accent>
+        <div className="flex flex-wrap items-center justify-between gap-4 p-4">
+          <div>
+            <p className="text-base font-semibold">Mark Report Statement</p>
+            <p className="text-sm text-muted-foreground">
+              Download a blank marks statement for the selected exam, class, section, medium, and subject.
+            </p>
+            <div className="mt-2 flex flex-wrap gap-2 text-xs text-muted-foreground">
+              <span>Exam: {selectedExam?.name || "-"}</span>
+              <span>Subject: {selectedSubject?.name || "-"}</span>
+              <span>Class: {selectedClass?.name || "-"}</span>
+              <span>
+                Section:{" "}
+                {selectedSection
+                  ? `${selectedSection.name}${selectedSection.medium ? ` (${selectedSection.medium})` : ""}`
+                  : "-"}
+              </span>
+            </div>
+          </div>
+          <Button type="button" onClick={handleDownloadMarkStatement} disabled={!ready || statementDownloading}>
+            {statementDownloading ? "Downloading..." : "Download Statement PDF"}
+          </Button>
         </div>
       </SurfaceCard>
     );
@@ -2192,6 +2339,8 @@ export default function Reports() {
               ) : null}
               <TabsTrigger value="entry">Entry</TabsTrigger>
               <TabsTrigger value="approved">Published</TabsTrigger>
+              {isAdmin ? <TabsTrigger value="mark-report">Mark Report</TabsTrigger> : null}
+              <TabsTrigger value="records">Records</TabsTrigger>
               <TabsTrigger value="templates">Templates</TabsTrigger>
             </TabsList>
 
@@ -2209,9 +2358,20 @@ export default function Reports() {
 
             <TabsContent value="approved" className="grid gap-4">
               {renderFilterPanel()}
-              {renderPublishedRecordsPanel()}
               {renderPublicationPanel()}
               {renderGridPanel({ mode: "approved" })}
+            </TabsContent>
+
+            {isAdmin ? (
+              <TabsContent value="mark-report" className="grid gap-4">
+                {renderFilterPanel()}
+                {renderMarkReportPanel()}
+              </TabsContent>
+            ) : null}
+
+            <TabsContent value="records" className="grid gap-4">
+              {renderFilterPanel()}
+              {renderApprovedRecordsPanel()}
             </TabsContent>
 
             <TabsContent value="templates" className="grid gap-4">

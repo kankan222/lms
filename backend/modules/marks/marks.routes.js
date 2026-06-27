@@ -26,6 +26,7 @@ router.get("/pending-queue", requirePermission("marks.approve"), controller.getP
 router.get("/summary", requirePermission("marks.approve"), controller.getApprovalStatusSummary);
 router.get("/report-publication", requirePermission("marks.approve"), controller.getReportPublication);
 router.get("/published-scopes", requirePermission("marks.view"), controller.listPublishedReportScopes);
+router.get("/approved-records", requirePermission("marks.view"), controller.listApprovedMarkRecords);
 router.post("/report-publication", requirePermission("marks.approve"), controller.saveReportPublication);
 router.post("/save", requireAnyPermission(["marks.enter", "marks.approve"]), controller.saveMarks);
 router.post("/submit", requireAnyPermission(["marks.enter", "marks.approve"]), controller.submitMarksForApproval);
@@ -55,6 +56,11 @@ router.get(
   "/final-report/pdf",
   requirePermission("marks.view"),
   controller.downloadFinalMarksheet
+);
+router.get(
+  "/statement/pdf",
+  requirePermission("marks.approve"),
+  controller.downloadMarkStatement
 );
 
 export default router;

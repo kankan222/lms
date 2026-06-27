@@ -45,6 +45,15 @@ export async function listPublishedReportScopes(req, res, next) {
   }
 }
 
+export async function listApprovedMarkRecords(req, res, next) {
+  try {
+    const result = await service.listApprovedMarkRecords(req.query || {}, req.user.userId);
+    res.json({ success: true, data: result });
+  } catch (err) {
+    next(err);
+  }
+}
+
 export async function saveReportPublication(req, res, next) {
   try {
     const result = await service.saveReportPublication(req.body || {}, req.user.userId);
@@ -171,6 +180,20 @@ export async function downloadMyApprovedMarksheet(req, res, next) {
 export async function downloadFinalMarksheet(req, res, next) {
   try {
     const { buffer, fileName } = await service.downloadFinalMarksheet(
+      req.query || {},
+      req.user.userId
+    );
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `attachment; filename=${fileName}`);
+    res.send(buffer);
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function downloadMarkStatement(req, res, next) {
+  try {
+    const { buffer, fileName } = await service.downloadMarkStatement(
       req.query || {},
       req.user.userId
     );
