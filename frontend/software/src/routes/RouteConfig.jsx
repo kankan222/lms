@@ -16,12 +16,15 @@ import {
   Globe,
   UserRoundCog,
   ClipboardList,
+  Trophy,
+  SlidersHorizontal,
 } from "lucide-react";
 import { lazy } from "react";
 
 const DashBoard = lazy(() => import("../pages/Dashboard"));
 const Classes = lazy(() => import("../pages/Classes"));
 const Subjects = lazy(() => import("../pages/Subjects"));
+const Activities = lazy(() => import("../pages/Activities"));
 const AssignSubjectToClass = lazy(() => import("../pages/AssignSubjectToClass"));
 const AssignTeacherToClass = lazy(() => import("../pages/AssignTeacherToClass"));
 const Students = lazy(() => import("../pages/Students"));
@@ -35,6 +38,7 @@ const Messaging = lazy(() => import("../pages/Messaging"));
 const Exams = lazy(() => import("../pages/Exams"));
 const Reports = lazy(() => import("../pages/Reports"));
 const SettingsPage = lazy(() => import("../pages/Settings"));
+const GradeSettings = lazy(() => import("../pages/GradeSettings"));
 const UsersPage = lazy(() => import("../pages/Users"));
 const WebsiteModule = lazy(() => import("../pages/WebsiteModule"));
 const StaffPage = lazy(() => import("../pages/Staff"));
@@ -77,6 +81,15 @@ export const appRoutes = [
       element: <Subjects/>,
       protected : true,
       permission: "subjects.view",
+      hideForRoles: ["teacher"],
+    },
+    {
+      title: "Activities",
+      icon: Trophy,
+      path: "/activities",
+      element: <Activities />,
+      protected: true,
+      permission: "academic.view",
       hideForRoles: ["teacher"],
     },
     {
@@ -222,6 +235,15 @@ export const appRoutes = [
       permission: "dashboard.view",
       hideForRoles: ["teacher"],
     },
+    {
+      title: "Grade Settings",
+      icon: SlidersHorizontal,
+      path: "/settings/grades",
+      element: <GradeSettings />,
+      protected: true,
+      permission: "dashboard.view",
+      hideForRoles: ["teacher"],
+    },
   ];
 
 const routeByPath = new Map(appRoutes.map((route) => [route.path, route]));
@@ -253,6 +275,10 @@ export const navSections = [
       navEntry("/subjects", {
         title: "Subject",
         icon: Book,
+      }),
+      navEntry("/activities", {
+        title: "Activity",
+        icon: Trophy,
       }),
       navEntry("/teachers/assign-class", {
         title: "Assign Teacher to Class",
@@ -336,6 +362,10 @@ export const navSections = [
       navEntry("/settings", {
         title: "General Settings",
         icon: Settings,
+      }),
+      navEntry("/settings/grades", {
+        title: "Grade Settings",
+        icon: SlidersHorizontal,
       }),
       navEntry("/users", {
         title: "Users",

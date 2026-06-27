@@ -199,6 +199,7 @@
 
   .marks-table {
     font-size: 10.5px;
+    table-layout: fixed;
   }
 
   .marks-table th,
@@ -206,6 +207,14 @@
     border: 1px solid #172554;
     padding: 1.9mm 1.2mm;
     text-align: center;
+  }
+
+  .marks-table .criteria-start {
+    border-left: 3px double #172554;
+  }
+
+  .marks-table .total-row td {
+    border-top: 3px double #172554;
   }
 
   .marks-table td.subject {
@@ -218,6 +227,38 @@
     font-weight: 800;
   }
 
+  .summary-row .summary-label {
+    text-align: left;
+    padding-left: 4mm;
+  }
+
+  .summary-row .criteria-summary {
+    border-top: none;
+    border-bottom: none;
+    border-left: none;
+    border-right: none;
+    height: 8mm;
+    text-align: left;
+    padding-left: 8mm;
+    font-weight: 800;
+  }
+
+  .total-row .criteria-summary {
+    border-top: 3px double #172554;
+  }
+
+  .summary-row .criteria-summary.criteria-start {
+    border-left: 3px double #172554;
+  }
+
+  .summary-row .criteria-summary.summary-end {
+    border-right: 1px solid #172554;
+  }
+
+  .summary-row .criteria-summary.blank {
+    color: transparent;
+  }
+
   .signature-grid {
     display: grid;
     grid-template-columns: repeat(6, 1fr);
@@ -226,9 +267,12 @@
     border-top: 1.4px solid #172554;
   }
 
-  .signature-cell {
-    min-height: 22mm;
+  .signature-column {
     border-right: 1px solid #172554;
+  }
+
+  .signature-cell {
+    min-height: 9mm;
     border-bottom: 1px solid #172554;
     padding: 2mm;
     text-align: center;
@@ -245,6 +289,12 @@
     text-align: center;
     font-size: 14px;
     font-weight: 800;
+  }
+
+  .result-title {
+    display: inline-block;
+    border-bottom: 1px solid #172554;
+    margin-bottom: 4mm;
   }
 
   .note {
@@ -282,12 +332,8 @@
 
         <div class="side-title" style="margin-top: 0;">GRADE SECURED IN</div>
         <table class="front-table">
-          <tr><td>Yoga</td><td></td></tr>
-          <tr><td>Handwriting</td><td></td></tr>
-          <tr><td>Discipline &amp; Punctuality</td><td></td></tr>
-          <tr><td>Games &amp; Sports</td><td></td></tr>
-          <tr><td>Self Defence</td><td></td></tr>
-          <tr><td>Quiz</td><td></td></tr>
+          {{activityRows}}
+          {{mockGradeRows}}
         </table>
 
         <div class="side-title" style="margin-top: 0;">GRADE AND QUALITATIVE VALUE</div>
@@ -312,10 +358,10 @@
           <div class="year">ACADEMIC YEAR : {{sessionName}}</div>
           <div class="student-box">
             <div class="student-line single">
-              <span>Name: <span class="dotted">{{studentName}}</span></span>
+              <span>Student's Name: <span class="dotted">{{studentName}}</span></span>
             </div>
             <div class="student-line single">
-              <span>Name of the Guardian: <span class="dotted">{{guardianName}}</span></span>
+              <span>Guardian's Name: <span class="dotted">{{guardianName}}</span></span>
             </div>
             <div class="student-line">
               <span>Class: <span class="dotted">{{className}}</span></span>
@@ -333,40 +379,47 @@
 
   <section class="page">
     <table class="marks-table">
+      <colgroup>
+        <col style="width: 24mm;" />
+        {{examColGroup}}
+        <col style="width: 31mm;" />
+        <col style="width: 31mm;" />
+        <col style="width: 31mm;" />
+        <col style="width: 23mm;" />
+      </colgroup>
       <thead>
         <tr>
           <th rowspan="2" class="matrix-title">SCHOLASTIC<br />AREA</th>
           <th colspan="{{examColumnCount}}" class="matrix-title">MARKS SECURED IN</th>
-          <th colspan="4" class="matrix-title">CRITERIA FOR PROMOTION</th>
-          <th rowspan="2">Total<br />(A+B+C+D)</th>
+          <th colspan="3" class="matrix-title criteria-start">CRITERIA FOR PROMOTION</th>
+          <th class="matrix-title">FINAL RESULT</th>
         </tr>
         <tr>
           {{examHeaders}}
-          <th>Unit Test<br />15% (A)</th>
-          <th>Half Yearly<br />20% (B)</th>
-          <th>Mock Test<br />15% (C)</th>
-          <th>Annual Exam<br />50% (D)</th>
+          <th class="criteria-start">Unit Test<br />(1st &amp; 2nd)<br />20% (A)</th>
+          <th>Half Yearly<br />Exam<br />30% (B)</th>
+          <th>Annual<br />Exam<br />50% (C)</th>
+          <th>Total of<br />(A+B+C)</th>
         </tr>
       </thead>
       <tbody>
         {{subjectRows}}
-        <tr class="summary-row">
+        <tr class="summary-row total-row">
           <td>TOTAL</td>
           {{examTotalCells}}
-          <td colspan="4">Grand Total</td>
-          <td>{{grandTotal}}</td>
+          <td class="criteria-summary criteria-start" colspan="2">Total Marks : {{maxTotal}}</td>
+          <td class="criteria-summary summary-end" colspan="2">Grand Total : {{grandTotal}}</td>
         </tr>
         <tr class="summary-row">
           <td>Percentage</td>
           {{examPercentageCells}}
-          <td colspan="4">Percentage</td>
-          <td>{{percentage}}%</td>
+          <td class="criteria-summary criteria-start" colspan="2">Grade : {{grade}}</td>
+          <td class="criteria-summary summary-end" colspan="2">Percentage : {{percentage}}%</td>
         </tr>
         <tr class="summary-row">
           <td>Grade</td>
           {{examGradeCells}}
-          <td colspan="4">Grade</td>
-          <td>{{grade}}</td>
+          <td class="criteria-summary criteria-start summary-end blank" colspan="4">.</td>
         </tr>
       </tbody>
     </table>
@@ -375,7 +428,8 @@
       {{signatureCells}}
     </div>
     <div class="result-box">
-      RESULT: PROMOTED TO CLASS ................ WITH {{grade}} GRADE/DISTINCTION
+      <span class="result-title">FINAL RESULT</span><br />
+      PROMOTED TO CLASS {{promotedClassName}} WITH {{grade}} GRADE/DISTINCTION
     </div>
     <div class="note">
       *N.B.: Final report is generated from approved and published exams. Subject rows are based on the student's registered/marked subjects.

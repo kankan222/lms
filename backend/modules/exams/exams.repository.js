@@ -7,6 +7,8 @@ let marksEntrySplitSchemaStatusCache;
 let studentExamSubjectsTableCache;
 let subjectRegistrationTablesCache;
 let examSubjectComponentsTableCache;
+let examFinalCalculationTypeCache;
+let studentParentGuardianColumnsCache;
 
 async function supportsScopesTable() {
   if (typeof supportsScopesTableCache === "boolean") {
@@ -197,6 +199,56 @@ export async function supportsExamSubjectComponentsTable() {
   return examSubjectComponentsTableCache;
 }
 
+export async function supportsExamFinalCalculationTypeColumn() {
+  if (typeof examFinalCalculationTypeCache === "boolean") {
+    return examFinalCalculationTypeCache;
+  }
+
+  const rows = await query(
+    `
+      SELECT COUNT(*) AS total
+      FROM information_schema.COLUMNS
+      WHERE TABLE_SCHEMA = DATABASE()
+        AND TABLE_NAME = 'exams'
+        AND COLUMN_NAME = 'final_calculation_type'
+    `
+  );
+
+  examFinalCalculationTypeCache = Number(rows[0]?.total || 0) > 0;
+  return examFinalCalculationTypeCache;
+}
+
+async function supportsStudentParentGuardianColumns() {
+  if (typeof studentParentGuardianColumnsCache === "boolean") {
+    return studentParentGuardianColumnsCache;
+  }
+
+  const rows = await query(
+    `
+      SELECT COUNT(*) AS total
+      FROM information_schema.COLUMNS
+      WHERE TABLE_SCHEMA = DATABASE()
+        AND TABLE_NAME = 'student_parents'
+        AND COLUMN_NAME IN ('father_name', 'mother_name')
+    `
+  );
+
+  studentParentGuardianColumnsCache = Number(rows[0]?.total || 0) === 2;
+  return studentParentGuardianColumnsCache;
+}
+
+async function guardianNameExpression() {
+  if (await supportsStudentParentGuardianColumns()) {
+    return `COALESCE(
+      MAX(NULLIF(sp.father_name, '')),
+      MAX(NULLIF(sp.mother_name, '')),
+      GROUP_CONCAT(DISTINCT p.name ORDER BY FIELD(LOWER(sp.relationship), 'father', 'mother', 'guardian'), p.name SEPARATOR ', ')
+    )`;
+  }
+
+  return `GROUP_CONCAT(DISTINCT p.name ORDER BY FIELD(LOWER(sp.relationship), 'father', 'mother', 'guardian'), p.name SEPARATOR ', ')`;
+}
+
 export async function getTeacherProfileByUser(userId) {
   const rows = await query(`SELECT id FROM teachers WHERE user_id = ? LIMIT 1`, [userId]);
   return rows[0] || null;
@@ -231,20 +283,38 @@ export async function getActiveSessionId(conn) {
 }
 
 export async function createExam(conn, data) {
+  const hasFinalType = await supportsExamFinalCalculationTypeColumn();
   const [result] = await conn.execute(
-    `INSERT INTO exams (name, session_id, class_id, section_id, created_by)
-     VALUES (?, ?, ?, ?, ?)`,
-    [data.name, data.session_id, data.class_id ?? null, data.section_id ?? null, data.created_by]
+    `INSERT INTO exams
+       (name, session_id, class_id, section_id, ${hasFinalType ? "final_calculation_type," : ""} created_by)
+     VALUES (?, ?, ?, ?, ${hasFinalType ? "?," : ""} ?)`,
+    [
+      data.name,
+      data.session_id,
+      data.class_id ?? null,
+      data.section_id ?? null,
+      ...(hasFinalType ? [data.final_calculation_type || "display_only"] : []),
+      data.created_by,
+    ]
   );
   return result.insertId;
 }
 
 export async function updateExam(conn, id, data) {
+  const hasFinalType = await supportsExamFinalCalculationTypeColumn();
   await conn.execute(
     `UPDATE exams
      SET name = ?, session_id = ?, class_id = ?, section_id = ?
+         ${hasFinalType ? ", final_calculation_type = ?" : ""}
      WHERE id = ?`,
-    [data.name, data.session_id, data.class_id ?? null, data.section_id ?? null, id]
+    [
+      data.name,
+      data.session_id,
+      data.class_id ?? null,
+      data.section_id ?? null,
+      ...(hasFinalType ? [data.final_calculation_type || "display_only"] : []),
+      id,
+    ]
   );
 }
 
@@ -290,7 +360,9 @@ export async function getExamScopes(examId) {
 
 export async function getExamById(id) {
   const hasScopesTable = await supportsScopesTable();
+  const hasFinalType = await supportsExamFinalCalculationTypeColumn();
   const classScopeExpr = buildClassScopeExpression(hasScopesTable);
+  const finalTypeExpr = hasFinalType ? "e.final_calculation_type" : "'display_only'";
 
   const rows = await query(
     `SELECT
@@ -299,6 +371,7 @@ export async function getExamById(id) {
       e.session_id,
       e.class_id,
       e.section_id,
+      ${finalTypeExpr} AS final_calculation_type,
       e.created_by,
       ses.name AS session_name,
       ${classScopeExpr} AS class_scope
@@ -315,7 +388,9 @@ export async function getExamById(id) {
 
 export async function listExams(filters, userId, isTeacher) {
   const hasScopesTable = await supportsScopesTable();
+  const hasFinalType = await supportsExamFinalCalculationTypeColumn();
   const classScopeExpr = buildClassScopeExpression(hasScopesTable);
+  const finalTypeExpr = hasFinalType ? "e.final_calculation_type" : "'display_only'";
   const where = [];
   const params = [];
   let join = `
@@ -361,6 +436,7 @@ export async function listExams(filters, userId, isTeacher) {
       e.id,
       e.name,
       e.session_id,
+      ${finalTypeExpr} AS final_calculation_type,
       ses.name AS session_name,
       COALESCE(
         NULLIF(GROUP_CONCAT(DISTINCT ${classScopeExpr} ORDER BY ${classScopeExpr} SEPARATOR ','), ''),
@@ -370,7 +446,7 @@ export async function listExams(filters, userId, isTeacher) {
      ${join}
      LEFT JOIN academic_sessions ses ON ses.id = e.session_id
      ${whereSql}
-     GROUP BY e.id, e.name, e.session_id, ses.name
+     GROUP BY e.id, e.name, e.session_id, ${finalTypeExpr}, ses.name
      ORDER BY e.id DESC`,
     params
   );
@@ -1067,6 +1143,7 @@ export async function getStudentReportRows(examId, studentId, onlyApproved = tru
   const hasStudentExamSubjects = await supportsStudentExamSubjectsTable();
   const hasSubjectRegistrations = await supportsSubjectRegistrationTables();
   const hasSubjectOfferingId = subjectSchema.hasSubjectOfferingId;
+  const guardianExpr = await guardianNameExpression();
 
   const markPatternExpr = supportsSplitSubjectSchema ? "es.mark_pattern" : "'single'";
   const theoryMaxExpr = supportsSplitSubjectSchema ? "es.theory_max" : "NULL";
@@ -1137,6 +1214,7 @@ export async function getStudentReportRows(examId, studentId, onlyApproved = tru
     `SELECT
       st.id AS student_id,
       st.name AS student_name,
+      guardians.guardian_name,
       e.id AS exam_id,
       e.name AS exam_name,
       c.name AS class_name,
@@ -1161,6 +1239,14 @@ export async function getStudentReportRows(examId, studentId, onlyApproved = tru
       AND se.session_id = e.session_id
       AND se.status = 'active'
      JOIN students st ON st.id = se.student_id
+     LEFT JOIN (
+       SELECT
+         sp.student_id,
+         ${guardianExpr} AS guardian_name
+       FROM student_parents sp
+       JOIN parents p ON p.id = sp.parent_id
+       GROUP BY sp.student_id
+     ) guardians ON guardians.student_id = st.id
      JOIN classes c ON c.id = se.class_id
      ${hasScopesTable ? "LEFT JOIN scopes sc_ref ON sc_ref.id = c.scope_id" : ""}
      JOIN sections sec ON sec.id = se.section_id

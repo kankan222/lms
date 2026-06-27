@@ -16,6 +16,20 @@ function normalizeMarkPattern(value, hasSplitValues) {
   return hasSplitValues ? "split" : "single";
 }
 
+const FINAL_CALCULATION_TYPES = new Set([
+  "unit_test",
+  "half_yearly",
+  "annual",
+  "mock",
+  "display_only",
+]);
+
+function normalizeFinalCalculationType(value) {
+  const normalized = String(value || "display_only").trim().toLowerCase();
+  if (FINAL_CALCULATION_TYPES.has(normalized)) return normalized;
+  throw new AppError("Invalid final marksheet calculation type", 400);
+}
+
 function normalizeSubjectComponents(components) {
   if (!Array.isArray(components)) return [];
 
@@ -398,6 +412,7 @@ export async function createExam(data, userId) {
       session_id: sessionId,
       class_id: scopes[0].class_id,
       section_id: scopes[0].section_id,
+      final_calculation_type: normalizeFinalCalculationType(data.final_calculation_type ?? data.finalCalculationType),
       created_by: userId
     });
 
@@ -484,7 +499,10 @@ export async function updateExam(id, data) {
       name: (data.name || existing.name).trim(),
       session_id: Number(data.session_id || existing.session_id),
       class_id: scopes[0].class_id,
-      section_id: scopes[0].section_id
+      section_id: scopes[0].section_id,
+      final_calculation_type: normalizeFinalCalculationType(
+        data.final_calculation_type ?? data.finalCalculationType ?? existing.final_calculation_type
+      )
     });
     await repo.replaceExamScopes(conn, examId, scopes);
     const subjectsWithOfferings = await repo.attachUniqueSubjectOfferingIds(conn, scopes, subjects);
@@ -762,7 +780,12 @@ export async function getStudentReport(examId, studentId, userId) {
   const percentage = maxTotal ? (total / maxTotal) * 100 : 0;
 
   return {
-    student: { id: rows[0].student_id, name: rows[0].student_name, roll_number: rows[0].roll_number },
+    student: {
+      id: rows[0].student_id,
+      name: rows[0].student_name,
+      roll_number: rows[0].roll_number,
+      guardian_name: rows[0].guardian_name || "",
+    },
     exam: {
       id: rows[0].exam_id,
       name: rows[0].exam_name,

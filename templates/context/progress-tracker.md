@@ -307,6 +307,27 @@ Update this file after every meaningful implementation change.
 - Updated the single-exam report PDF header to show institution name, bracketed
   section, exam name, and Report Card, with a two-row three-column student
   information table.
+- Matched the final marksheet back-page summary area closer to the reference:
+  a double divider at the marks/criteria boundary and bordered cells for Total
+  Marks, Grand Total, Percentage, and Grade.
+- Added final marksheet configuration support: exam calculation type
+  (`unit_test`, `half_yearly`, `annual`, `mock`, `display_only`), grade
+  settings, activity definitions/marks, Activity and Grade Settings admin
+  screens, and weighted final marksheet calculations with mock grades.
+- Color-coded Grade Settings scale badges so percentage and activity grades are
+  visually distinct in the admin list.
+- Updated marksheet activities to support subject-like scopes: all classes,
+  a specific class, or a specific section, while keeping the separate activity
+  grade scale.
+- Refined final marksheet layout to match the reference footer/header structure
+  and changed guardian-name sourcing to prefer linked father/mother names for
+  both single and final marksheets.
+- Tightened the final marksheet final-result column and adjusted summary cells
+  so Total Marks, Grand Total, Grade, and Percentage keep only the outer side
+  borders without internal dividers.
+- Made marksheet guardian-name queries schema-aware so deployments without
+  `student_parents.father_name` / `mother_name` fall back to parent profile
+  names instead of failing.
 - Added loading states to marksheet download buttons in Reports and Student
   Details so users see `Downloading...` while PDFs are being generated.
 - Added the first final combined marksheet implementation as a separate PDF

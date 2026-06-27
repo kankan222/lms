@@ -66,6 +66,11 @@ function renderCells(values, className = "") {
   return values.map((value) => `<td class="${className}">${escapeHtml(value)}</td>`).join("");
 }
 
+function formatCell(value) {
+  if (value === null || value === undefined || value === "") return "";
+  return Number.isFinite(Number(value)) ? Number(value).toFixed(2).replace(/\.00$/, "") : value;
+}
+
 export async function generateFinalMarksheetPdf(report) {
   const templatePath = path.join(__dirname, "..", "reports", "templates", "finalReportCard.html");
   let html = await fs.readFile(templatePath, "utf8");
@@ -77,16 +82,17 @@ export async function generateFinalMarksheetPdf(report) {
   const examHeaders = exams
     .map(
       (exam) =>
-        `<th>${escapeHtml(exam.name)}<br />${escapeHtml(exam.max_marks)} Marks</th>`
+        `<th>${escapeHtml(exam.name)}<br />${escapeHtml(exam.max_marks || 100)} Marks</th>`
     )
     .join("");
+  const examColGroup = exams.map(() => `<col style="width: 14mm;" />`).join("");
 
   const subjectRows = subjects
     .map((subject) => {
       const examCells = exams
         .map((exam) => {
           const cell = subject.exams?.[exam.id];
-          return `<td>${cell ? escapeHtml(cell.marks) : "-"}</td>`;
+          return `<td>${cell ? escapeHtml(formatCell(cell.marks)) : ""}</td>`;
         })
         .join("");
 
@@ -94,11 +100,10 @@ export async function generateFinalMarksheetPdf(report) {
         <tr>
           <td class="subject">${escapeHtml(subject.name)}</td>
           ${examCells}
-          <td></td>
-          <td></td>
-          <td></td>
-          <td></td>
-          <td>${escapeHtml(subject.total)}</td>
+          <td class="criteria-start">${escapeHtml(formatCell(subject.criteria?.unit_test))}</td>
+          <td>${escapeHtml(formatCell(subject.criteria?.half_yearly))}</td>
+          <td>${escapeHtml(formatCell(subject.criteria?.annual))}</td>
+          <td>${escapeHtml(formatCell(subject.final_total))}</td>
         </tr>`;
     })
     .join("");
@@ -113,6 +118,26 @@ export async function generateFinalMarksheetPdf(report) {
     return summary ? gradeForPercentage(summary.percentage) : "-";
   });
 
+  const activityRows = (report.activities || [])
+    .map(
+      (activity) => `
+        <tr>
+          <td>${escapeHtml(activity.name)}</td>
+          <td>${escapeHtml(activity.grade || "")}</td>
+        </tr>`
+    )
+    .join("");
+
+  const mockGradeRows = (report.mock_grades || [])
+    .map(
+      (mock) => `
+        <tr>
+          <td>${escapeHtml(mock.name)}</td>
+          <td>${escapeHtml(mock.grade || "")}</td>
+        </tr>`
+    )
+    .join("");
+
   const signatureLabels = exams.length
     ? exams.map((exam) => exam.name)
     : ["Unit Test I", "Mock Test I", "Half Yearly Exam", "Mock Test II", "Mock Test III", "Annual Exam"];
@@ -121,13 +146,16 @@ export async function generateFinalMarksheetPdf(report) {
 
   const signatureCells = paddedLabels
     .slice(0, Math.max(6, signatureLabels.length))
-    .flatMap((label) => [
-      `Sign. of Class Teacher<br />${escapeHtml(label)}`,
-      `Sign. of Guardian<br />${escapeHtml(label)}`,
-      `Sign. of the Principal<br />${escapeHtml(label)}`,
-      `Remarks : ${escapeHtml(label)}`,
-    ])
-    .map((label) => `<div class="signature-cell">${label}</div>`)
+    .map((label) => {
+      const safeLabel = escapeHtml(label);
+      return `
+        <div class="signature-column">
+          <div class="signature-cell">Sign. of Class Teacher<br />${safeLabel}</div>
+          <div class="signature-cell">Sign. of Guardian<br />${safeLabel}</div>
+          <div class="signature-cell">Sign. of the Principal<br />${safeLabel}</div>
+          <div class="signature-cell">Remarks : ${safeLabel}</div>
+        </div>`;
+    })
     .join("");
 
   html = html
@@ -144,13 +172,18 @@ export async function generateFinalMarksheetPdf(report) {
     .replaceAll("{{rollNumber}}", escapeHtml(report?.student?.roll_number || "-"))
     .replaceAll("{{examColumnCount}}", String(Math.max(exams.length, 1)))
     .replaceAll("{{examHeaders}}", examHeaders || "<th>-</th>")
+    .replaceAll("{{examColGroup}}", examColGroup || `<col style="width: 14mm;" />`)
     .replaceAll("{{subjectRows}}", subjectRows)
     .replaceAll("{{examTotalCells}}", renderCells(examTotalCells))
     .replaceAll("{{examPercentageCells}}", renderCells(examPercentageCells))
     .replaceAll("{{examGradeCells}}", renderCells(examGradeCells))
     .replaceAll("{{grandTotal}}", escapeHtml(report?.summary?.total ?? 0))
+    .replaceAll("{{maxTotal}}", escapeHtml(report?.summary?.max_total ?? 0))
     .replaceAll("{{percentage}}", escapeHtml(report?.summary?.percentage ?? 0))
     .replaceAll("{{grade}}", escapeHtml(report?.summary?.grade || "-"))
+    .replaceAll("{{activityRows}}", activityRows)
+    .replaceAll("{{mockGradeRows}}", mockGradeRows)
+    .replaceAll("{{promotedClassName}}", escapeHtml(report?.student?.promoted_class_name || ""))
     .replaceAll("{{signatureCells}}", signatureCells);
 
   const browser = await puppeteer.launch({

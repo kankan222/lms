@@ -41,6 +41,7 @@ import reportRoutes from "./modules/reports/reports.routes.js"
 import feeRoutes from "./modules/fees/fee.routes.js"
 import subjectRoutes from "./modules/subjects/subjects.routes.js"
 import messageRoutes from "./modules/messaging/messaging.routes.js"
+import marksheetRoutes from "./modules/marksheet/marksheet.routes.js"
 import staffRoutes from "./modules/staff/staff.routes.js"
 import staffPublicRoutes from "./modules/staff/staff.public.routes.js"
 import staffWebsiteRoutes from "./modules/staff/staff.website.routes.js"
@@ -85,6 +86,7 @@ app.use("/api/v1/reports", reportRoutes)
 app.use("/api/v1/fees", feeRoutes)
 app.use("/api/v1/subjects", subjectRoutes)
 app.use("/api/v1/messages", messageRoutes)
+app.use("/api/v1/marksheet", marksheetRoutes)
 app.use("/api/v1/staff", staffRoutes)
 app.use("/api/v1/website", staffWebsiteRoutes)
 

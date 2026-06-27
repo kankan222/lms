@@ -2,6 +2,8 @@ import { pool } from "../../database/pool.js";
 import AppError from "../../core/errors/AppError.js";
 import { generateFinalMarksheetPdf } from "../exams/finalMarksheetPdf.service.js";
 import { generateMarksheetPdf } from "../exams/marksheetPdf.service.js";
+import * as marksheetRepo from "../marksheet/marksheet.repository.js";
+import { resolveGrade } from "../marksheet/marksheet.service.js";
 import * as repo from "./marks.repository.js";
 
 async function getUserContext(userId) {
@@ -206,7 +208,30 @@ function formatReport(rows, publication = null) {
   };
 }
 
-function formatFinalReport(scope, rows) {
+function round2(value) {
+  const numeric = Number(value || 0);
+  return Number(numeric.toFixed(2));
+}
+
+function marksheetGradeForPercentage(percentage, settings = []) {
+  return resolveGrade(percentage, settings, "-");
+}
+
+function promotedClassName(className) {
+  const order = ["Nursery", "LKG", "UKG", "I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X"];
+  const normalized = String(className || "").trim().toUpperCase();
+  const index = order.findIndex((item) => item.toUpperCase() === normalized);
+  if (index < 0 || index >= order.length - 1) return "";
+  return order[index + 1];
+}
+
+function weightedContribution(marks, maxMarks, weight) {
+  const max = Number(maxMarks || 0);
+  if (!max) return null;
+  return round2((Number(marks || 0) / max) * weight);
+}
+
+async function formatFinalReport(scope, rows) {
   const examMap = new Map();
   const subjectMap = new Map();
   const groupOrder = {
@@ -228,6 +253,7 @@ function formatFinalReport(scope, rows) {
         id: examId,
         name: row.exam_name,
         published_on: row.published_on,
+        final_calculation_type: row.final_calculation_type || "display_only",
         max_marks: 0,
       });
     }
@@ -277,9 +303,85 @@ function formatFinalReport(scope, rows) {
     exam.max_marks = maxMarks;
   });
 
-  const total = subjects.reduce((sum, subject) => sum + Number(subject.total || 0), 0);
-  const maxTotal = subjects.reduce((sum, subject) => sum + Number(subject.max_total || 0), 0);
-  const percentage = maxTotal ? Number(((total / maxTotal) * 100).toFixed(2)) : 0;
+  const percentageGrades = await marksheetRepo.listGradeSettings("percentage");
+  const activityGrades = await marksheetRepo.listGradeSettings("activity");
+  const activityRows = await marksheetRepo.getStudentActivityRows({
+    studentId: Number(scope.student_id),
+    sessionId: Number(scope.session_id),
+    classId: Number(scope.class_id),
+    sectionId: Number(scope.section_id),
+    className: scope.class_name,
+  });
+
+  const criteria = {
+    unit_test: { label: "Unit Test", weight: 20 },
+    half_yearly: { label: "Half Yearly", weight: 30 },
+    annual: { label: "Annual Exam", weight: 50 },
+  };
+
+  subjects.forEach((subject) => {
+    const byType = {
+      unit_test: { marks: 0, max_marks: 0, has: false },
+      half_yearly: { marks: 0, max_marks: 0, has: false },
+      annual: { marks: 0, max_marks: 0, has: false },
+    };
+
+    exams.forEach((exam) => {
+      const type = exam.final_calculation_type;
+      const cell = subject.exams?.[exam.id];
+      if (!criteria[type] || !cell) return;
+      byType[type].marks += Number(cell.marks || 0);
+      byType[type].max_marks += Number(cell.max_marks || 0);
+      byType[type].has = true;
+    });
+
+    subject.criteria = {};
+    Object.entries(criteria).forEach(([type, meta]) => {
+      const bucket = byType[type];
+      subject.criteria[type] = bucket.has
+        ? weightedContribution(bucket.marks, bucket.max_marks, meta.weight)
+        : null;
+    });
+    const criteriaValues = Object.values(subject.criteria).filter((value) => value !== null);
+    subject.final_total = criteriaValues.length
+      ? round2(criteriaValues.reduce((sum, value) => sum + Number(value || 0), 0))
+      : null;
+  });
+
+  const subjectsWithFinal = subjects.filter((subject) => subject.final_total !== null);
+  const total = round2(subjectsWithFinal.reduce((sum, subject) => sum + Number(subject.final_total || 0), 0));
+  const maxTotal = subjects.length * 100;
+  const percentage = maxTotal ? round2((total / maxTotal) * 100) : 0;
+  const requiredTypes = Object.keys(criteria).filter((type) =>
+    exams.some((exam) => exam.final_calculation_type === type)
+  );
+  const isComplete = subjects.length > 0 && subjects.every((subject) =>
+    requiredTypes.every((type) => subject.criteria?.[type] !== null)
+  );
+
+  const mockGrades = exams
+    .filter((exam) => exam.final_calculation_type === "mock")
+    .map((exam) => {
+      const summary = examTotals[exam.id];
+      return {
+        exam_id: exam.id,
+        name: exam.name,
+        marks: summary?.marks ?? null,
+        max_marks: summary?.max_marks ?? null,
+        percentage: summary?.percentage ?? null,
+        grade: summary ? marksheetGradeForPercentage(summary.percentage, percentageGrades) : "-",
+      };
+    });
+
+  const activities = activityRows.map((activity) => ({
+    id: Number(activity.activity_id),
+    name: activity.name,
+    marks: activity.marks,
+    max_marks: activity.max_marks,
+    grade: activity.marks === null || activity.marks === undefined
+      ? ""
+      : resolveGrade(activity.marks, activityGrades, ""),
+  }));
 
   return {
     student: {
@@ -295,16 +397,20 @@ function formatFinalReport(scope, rows) {
       section_name: scope.section_name,
       medium: scope.medium,
       stream_name: scope.stream_name,
-      guardian_name: "",
+      guardian_name: scope.guardian_name || "",
+      promoted_class_name: isComplete ? promotedClassName(scope.class_name) : "",
     },
     exams,
     subjects,
     exam_totals: examTotals,
+    mock_grades: mockGrades,
+    activities,
     summary: {
       total,
       max_total: maxTotal,
       percentage,
-      grade: gradeForPercentage(percentage),
+      grade: isComplete ? marksheetGradeForPercentage(percentage, percentageGrades) : "",
+      is_complete: isComplete,
     },
   };
 }
@@ -919,7 +1025,7 @@ export async function downloadFinalMarksheet(query, userId) {
     throw new AppError("No published approved marks found for this final marksheet", 404);
   }
 
-  const report = formatFinalReport(scope, rows);
+  const report = await formatFinalReport(scope, rows);
   const buffer = await generateFinalMarksheetPdf(report);
   return {
     buffer,

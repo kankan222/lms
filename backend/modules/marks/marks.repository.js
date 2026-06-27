@@ -7,6 +7,8 @@ let studentExamSubjectsTableCache;
 let subjectRegistrationTablesCache;
 let examSubjectComponentsTableCache;
 let reportPublicationsTableCache;
+let examFinalCalculationTypeCache;
+let studentParentGuardianColumnsCache;
 
 async function supportsScopesTable() {
   if (typeof supportsScopesTableCache === "boolean") {
@@ -171,6 +173,56 @@ export async function supportsReportPublicationsTable() {
 
   reportPublicationsTableCache = Number(rows[0]?.total || 0) > 0;
   return reportPublicationsTableCache;
+}
+
+async function supportsExamFinalCalculationTypeColumn() {
+  if (typeof examFinalCalculationTypeCache === "boolean") {
+    return examFinalCalculationTypeCache;
+  }
+
+  const rows = await query(
+    `
+      SELECT COUNT(*) AS total
+      FROM information_schema.COLUMNS
+      WHERE TABLE_SCHEMA = DATABASE()
+        AND TABLE_NAME = 'exams'
+        AND COLUMN_NAME = 'final_calculation_type'
+    `
+  );
+
+  examFinalCalculationTypeCache = Number(rows[0]?.total || 0) > 0;
+  return examFinalCalculationTypeCache;
+}
+
+async function supportsStudentParentGuardianColumns() {
+  if (typeof studentParentGuardianColumnsCache === "boolean") {
+    return studentParentGuardianColumnsCache;
+  }
+
+  const rows = await query(
+    `
+      SELECT COUNT(*) AS total
+      FROM information_schema.COLUMNS
+      WHERE TABLE_SCHEMA = DATABASE()
+        AND TABLE_NAME = 'student_parents'
+        AND COLUMN_NAME IN ('father_name', 'mother_name')
+    `
+  );
+
+  studentParentGuardianColumnsCache = Number(rows[0]?.total || 0) === 2;
+  return studentParentGuardianColumnsCache;
+}
+
+async function guardianNameExpression() {
+  if (await supportsStudentParentGuardianColumns()) {
+    return `COALESCE(
+      MAX(NULLIF(sp.father_name, '')),
+      MAX(NULLIF(sp.mother_name, '')),
+      GROUP_CONCAT(DISTINCT p.name ORDER BY FIELD(LOWER(sp.relationship), 'father', 'mother', 'guardian'), p.name SEPARATOR ', ')
+    )`;
+  }
+
+  return `GROUP_CONCAT(DISTINCT p.name ORDER BY FIELD(LOWER(sp.relationship), 'father', 'mother', 'guardian'), p.name SEPARATOR ', ')`;
 }
 
 export async function supportsMarksDraftStatus() {
@@ -1062,6 +1114,7 @@ export async function getStudentFinalReportScope({ studentId, sessionId = null, 
     params.push(sectionId);
   }
 
+  const guardianExpr = await guardianNameExpression();
   const rows = await query(
     `SELECT
        se.student_id,
@@ -1075,9 +1128,18 @@ export async function getStudentFinalReportScope({ studentId, sessionId = null, 
        sec.name AS section_name,
        sec.medium,
        se.stream_id,
-       streams.name AS stream_name
+       streams.name AS stream_name,
+       guardians.guardian_name
      FROM student_enrollments se
      JOIN students st ON st.id = se.student_id
+     LEFT JOIN (
+       SELECT
+         sp.student_id,
+         ${guardianExpr} AS guardian_name
+       FROM student_parents sp
+       JOIN parents p ON p.id = sp.parent_id
+       GROUP BY sp.student_id
+     ) guardians ON guardians.student_id = st.id
      JOIN academic_sessions sess ON sess.id = se.session_id
      JOIN classes c ON c.id = se.class_id
      JOIN sections sec ON sec.id = se.section_id
@@ -1094,6 +1156,7 @@ export async function getStudentFinalReportScope({ studentId, sessionId = null, 
 export async function getFinalReportRows({ studentId, sessionId, classId, sectionId, medium, visibleOnly = false }) {
   const hasPublicationsTable = await supportsReportPublicationsTable();
   const hasScopesTable = await supportsScopesTable();
+  const hasFinalType = await supportsExamFinalCalculationTypeColumn();
   const classScopeExpr = buildClassScopeExpression(hasScopesTable);
   const subjectSchema = await getExamSubjectSplitSchemaStatus();
   const subjectOfferingExpr = subjectSchema.hasSubjectOfferingId ? "es.subject_offering_id" : "NULL";
@@ -1110,6 +1173,7 @@ export async function getFinalReportRows({ studentId, sessionId, classId, sectio
       AND erp.medium = LOWER(COALESCE(sec.medium, ''))`
     : "";
   const publishedOnExpr = hasPublicationsTable ? "DATE_FORMAT(erp.published_on, '%Y-%m-%d')" : "NULL";
+  const finalTypeExpr = hasFinalType ? "e.final_calculation_type" : "'display_only'";
   const visibilityClause = visibleOnly && hasPublicationsTable ? "AND erp.published_on <= CURDATE()" : "";
 
   if (visibleOnly && !hasPublicationsTable) return [];
@@ -1130,6 +1194,7 @@ export async function getFinalReportRows({ studentId, sessionId, classId, sectio
        streams.name AS stream_name,
        e.id AS exam_id,
        e.name AS exam_name,
+       ${finalTypeExpr} AS final_calculation_type,
        ${publishedOnExpr} AS published_on,
        es.subject_id,
        ${subjectOfferingExpr} AS subject_offering_id,
@@ -1194,6 +1259,7 @@ export async function getStudentReportRows(examId, studentId, onlyApproved = tru
   const hasStudentExamSubjects = await supportsStudentExamSubjectsTable();
   const hasSubjectRegistrations = await supportsSubjectRegistrationTables();
   const hasSubjectOfferingId = subjectSchema.hasSubjectOfferingId;
+  const guardianExpr = await guardianNameExpression();
 
   const markPatternExpr = supportsSplitSubjectSchema ? "es.mark_pattern" : "'single'";
   const theoryMaxExpr = supportsSplitSubjectSchema ? "es.theory_max" : "NULL";
@@ -1293,7 +1359,7 @@ export async function getStudentReportRows(examId, studentId, onlyApproved = tru
      LEFT JOIN (
        SELECT
          sp.student_id,
-         GROUP_CONCAT(DISTINCT p.name ORDER BY FIELD(LOWER(sp.relationship), 'father', 'mother', 'guardian'), p.name SEPARATOR ', ') AS guardian_name
+         ${guardianExpr} AS guardian_name
        FROM student_parents sp
        JOIN parents p ON p.id = sp.parent_id
        GROUP BY sp.student_id

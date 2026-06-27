@@ -193,6 +193,14 @@ const classScopeLabels = {
   hs: "Higher Secondary",
 };
 
+const finalCalculationTypeLabels = {
+  unit_test: "Unit Test (counts 20%)",
+  half_yearly: "Half Yearly (counts 30%)",
+  annual: "Annual / Final (counts 50%)",
+  mock: "Mock Test (display + grade)",
+  display_only: "Display only",
+};
+
 const FIELD_CLASSNAME =
   "w-full rounded-xl border border-input bg-background px-3 py-2 text-sm text-foreground shadow-xs outline-none transition-colors focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] dark:bg-input/30";
 
@@ -258,6 +266,7 @@ export default function Exams() {
   const [notice, setNotice] = useState(null);
   const [form, setForm] = useState({
     name: "",
+    final_calculation_type: "display_only",
     scopes: [{ class_id: "", section_id: "" }],
     subjects: []
   });
@@ -412,6 +421,7 @@ export default function Exams() {
     setFormError("");
     setForm({
       name: "",
+      final_calculation_type: "display_only",
       scopes: [{ class_id: "", section_id: "" }],
       subjects: []
     });
@@ -744,6 +754,7 @@ export default function Exams() {
 
     const payload = {
       name: cleanName,
+      final_calculation_type: form.final_calculation_type || "display_only",
       scopes: cleanScopes,
       subjects: cleanSubjects
     };
@@ -779,6 +790,7 @@ export default function Exams() {
       setEditingId(exam.id);
       setForm({
         name: exam.name || "",
+        final_calculation_type: exam.final_calculation_type || "display_only",
         scopes:
           (exam.scopes || []).map((scope) => ({
             class_id: String(scope.class_id),
@@ -842,6 +854,12 @@ export default function Exams() {
               <CardDescription>Session: {exam.session_name || "-"}</CardDescription>
             </div>
             <div className="flex flex-wrap justify-end gap-2">
+              <Badge
+                variant="outline"
+                className="rounded-full border-cyan-200 bg-cyan-50 text-cyan-700 dark:border-cyan-500/30 dark:bg-cyan-500/15 dark:text-cyan-200"
+              >
+                {finalCalculationTypeLabels[exam.final_calculation_type] || "Display only"}
+              </Badge>
               {exam.classScopes.map((scope) => (
                 <Badge key={scope} variant="outline" className={`rounded-full ${scopeBadgeClass(scope)}`}>
                   {classScopeLabels[scope] || scope}
@@ -969,6 +987,26 @@ export default function Exams() {
                             onChange={(e) => setForm((prev) => ({ ...prev, name: e.target.value }))}
                             required
                           />
+                        </div>
+
+                        <div className="grid gap-2">
+                          <Label>Final Marksheet Treatment</Label>
+                          <select
+                            className={FIELD_CLASSNAME}
+                            value={form.final_calculation_type}
+                            onChange={(e) =>
+                              setForm((prev) => ({
+                                ...prev,
+                                final_calculation_type: e.target.value,
+                              }))
+                            }
+                          >
+                            {Object.entries(finalCalculationTypeLabels).map(([value, label]) => (
+                              <option key={value} value={value}>
+                                {label}
+                              </option>
+                            ))}
+                          </select>
                         </div>
 
                         <div className="space-y-3">
