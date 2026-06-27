@@ -392,3 +392,10 @@ Update this file after every meaningful implementation change.
 - Made marksheet activity queries schema-aware so deployments that have not yet
   applied the class/section activity-scope migration fall back to the legacy
   scope-key activity model instead of failing on missing `ma.class_id`.
+- Updated the final marksheet PDF Grade Secured In section so activities and
+  mock grades render as one list, keeping up to six rows on the left and
+  placing additional rows side by side in a second name/grade column.
+- Tightened the final marksheet PDF second-page marks table by reducing header
+  typography and row padding, making the promotion/final-result columns match
+  exam-column width, adding an outer border around the right-side summary block,
+  and printing promotion/final totals without decimal places.

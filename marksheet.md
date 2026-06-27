@@ -46,11 +46,11 @@ Games & Sports                              |
 Mock Test                                   |1st Mock Test:    |2nd Mock Test:
 X
                         GRADE SECURED IN
-Yoga/Self Defense                           |Yoga:      | Self Defense: 
-Spoken English                              |   
-Discipline & Punctuality                    |
-Games & Sports                              |
-Mock Test                                   |1st Mock Test:    |2nd Mock Test:
+Yoga                      |         |Self Defense:     
+Spoken English            |         |   
+Discipline & Punctuality  |         |
+Games & Sports            |         |
+1st Mock Test:            |         |2nd Mock Test:
 
 
 

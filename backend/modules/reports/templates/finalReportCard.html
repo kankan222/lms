@@ -24,7 +24,7 @@
     height: 188mm;
     page-break-after: always;
     border: 2px solid #172554;
-    padding: 5mm;
+    padding: 1mm;
     position: relative;
     overflow: hidden;
   }
@@ -190,22 +190,50 @@
     font-weight: 800;
   }
 
+  .grade-secured {
+    table-layout: fixed;
+  }
+
+  .grade-secured td {
+    height: 6.5mm;
+    padding: 1.4mm 1.6mm;
+  }
+
+  .grade-secured .grade-name {
+    width: 37%;
+    font-weight: 800;
+    text-align: left;
+  }
+
+  .grade-secured .grade-value {
+    width: 13%;
+    text-align: center;
+    font-weight: 800;
+  }
+
+  .grade-secured .empty-grade-row {
+    text-align: center;
+    font-weight: 800;
+  }
+
   .matrix-title {
     text-align: center;
-    font-size: 17px;
+    font-size: 12px;
+    line-height: 1.15;
     font-weight: 800;
     text-transform: uppercase;
   }
 
   .marks-table {
-    font-size: 10.5px;
+    font-size: 9.4px;
     table-layout: fixed;
   }
 
   .marks-table th,
   .marks-table td {
     border: 1px solid #172554;
-    padding: 1.9mm 1.2mm;
+    padding: 1mm 0.8mm;
+    line-height: 1.12;
     text-align: center;
   }
 
@@ -237,14 +265,15 @@
     border-bottom: none;
     border-left: none;
     border-right: none;
-    height: 8mm;
+    height: 6.5mm;
     text-align: left;
-    padding-left: 8mm;
+    padding-left: 3mm;
     font-weight: 800;
   }
 
   .total-row .criteria-summary {
     border-top: 3px double #172554;
+    border-bottom: none;
   }
 
   .summary-row .criteria-summary.criteria-start {
@@ -255,14 +284,19 @@
     border-right: 1px solid #172554;
   }
 
+  .summary-row .criteria-summary.summary-bottom {
+    border-bottom: 1px solid #172554;
+  }
+
   .summary-row .criteria-summary.blank {
+    border: none;
     color: transparent;
   }
 
   .signature-grid {
     display: grid;
     grid-template-columns: repeat(6, 1fr);
-    margin-top: 4mm;
+    margin-top: 2mm;
     border-left: 1px solid #172554;
     border-top: 1.4px solid #172554;
   }
@@ -272,12 +306,13 @@
   }
 
   .signature-cell {
-    min-height: 9mm;
+    min-height: 7mm;
     border-bottom: 1px solid #172554;
-    padding: 2mm;
+    padding: 1.2mm;
     text-align: center;
     font-weight: 700;
-    font-size: 10.5px;
+    font-size: 9px;
+    line-height: 1.15;
   }
 
   .result-box {
@@ -285,16 +320,17 @@
     border-right: 1px solid #172554;
     border-bottom: 1px solid #172554;
     border-top: 1.4px solid #172554;
-    padding: 4mm;
+    padding: 2.5mm;
     text-align: center;
-    font-size: 14px;
+    font-size: 11.5px;
+    line-height: 1.2;
     font-weight: 800;
   }
 
   .result-title {
     display: inline-block;
     border-bottom: 1px solid #172554;
-    margin-bottom: 4mm;
+    margin-bottom: 2mm;
   }
 
   .note {
@@ -331,9 +367,14 @@
         </table>
 
         <div class="side-title" style="margin-top: 0;">GRADE SECURED IN</div>
-        <table class="front-table">
-          {{activityRows}}
-          {{mockGradeRows}}
+        <table class="front-table grade-secured">
+          <colgroup>
+            <col style="width: 37%;" />
+            <col style="width: 13%;" />
+            <col style="width: 37%;" />
+            <col style="width: 13%;" />
+          </colgroup>
+          {{gradeSecuredRows}}
         </table>
 
         <div class="side-title" style="margin-top: 0;">GRADE AND QUALITATIVE VALUE</div>
@@ -348,12 +389,11 @@
 
       <div class="panel cover">
         <div class="corner-frame">
+          <img class="logo" src="{{schoolLogo}}" alt="logo" />
           <div class="school-name">Kalong Kapili Vidyapith</div>
           <div class="section-title">({{sectionTitle}})</div>
           <div class="address">{{sectionAddress}}</div>
-          <img class="logo" src="{{schoolLogo}}" alt="Kalong Kapili Vidyapith logo" />
           <div class="record-title">{{recordTitle}}</div>
-          <div class="class-badge">CLASS : {{className}}</div>
           <div class="photo-box"></div>
           <div class="year">ACADEMIC YEAR : {{sessionName}}</div>
           <div class="student-box">
@@ -382,10 +422,10 @@
       <colgroup>
         <col style="width: 24mm;" />
         {{examColGroup}}
-        <col style="width: 31mm;" />
-        <col style="width: 31mm;" />
-        <col style="width: 31mm;" />
-        <col style="width: 23mm;" />
+        <col style="width: 14mm;" />
+        <col style="width: 14mm;" />
+        <col style="width: 14mm;" />
+        <col style="width: 14mm;" />
       </colgroup>
       <thead>
         <tr>
@@ -413,8 +453,8 @@
         <tr class="summary-row">
           <td>Percentage</td>
           {{examPercentageCells}}
-          <td class="criteria-summary criteria-start" colspan="2">Grade : {{grade}}</td>
-          <td class="criteria-summary summary-end" colspan="2">Percentage : {{percentage}}%</td>
+          <td class="criteria-summary criteria-start summary-bottom" colspan="2">Grade : {{grade}}</td>
+          <td class="criteria-summary summary-end summary-bottom" colspan="2">Percentage : {{percentage}}%</td>
         </tr>
         <tr class="summary-row">
           <td>Grade</td>
@@ -430,9 +470,6 @@
     <div class="result-box">
       <span class="result-title">FINAL RESULT</span><br />
       PROMOTED TO CLASS {{promotedClassName}} WITH {{grade}} GRADE/DISTINCTION
-    </div>
-    <div class="note">
-      *N.B.: Final report is generated from approved and published exams. Subject rows are based on the student's registered/marked subjects.
     </div>
   </section>
 </body>

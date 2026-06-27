@@ -71,6 +71,57 @@ function formatCell(value) {
   return Number.isFinite(Number(value)) ? Number(value).toFixed(2).replace(/\.00$/, "") : value;
 }
 
+function formatWholeCell(value) {
+  if (value === null || value === undefined || value === "") return "";
+  return Number.isFinite(Number(value)) ? Number(value).toFixed(0) : value;
+}
+
+function renderGradeSecuredRows(activities = [], mockGrades = []) {
+  const items = [
+    ...activities.map((activity) => ({
+      name: activity.name,
+      grade: activity.grade || "",
+    })),
+    ...mockGrades.map((mock) => ({
+      name: mock.name,
+      grade: mock.grade || "",
+    })),
+  ];
+
+  if (!items.length) {
+    return `<tr><td colspan="4" class="empty-grade-row">-</td></tr>`;
+  }
+
+  if (items.length <= 6) {
+    return items
+      .map(
+        (item) => `
+        <tr>
+          <td class="grade-name" colspan="2">${escapeHtml(item.name)}</td>
+          <td class="grade-value" colspan="2">${escapeHtml(item.grade)}</td>
+        </tr>`
+      )
+      .join("");
+  }
+
+  const leftItems = items.slice(0, 6);
+  const rightItems = items.slice(6);
+  const rowCount = Math.max(leftItems.length, rightItems.length);
+
+  return Array.from({ length: rowCount }, (_, index) => {
+    const left = leftItems[index];
+    const right = rightItems[index];
+
+    return `
+        <tr>
+          <td class="grade-name">${escapeHtml(left?.name || "")}</td>
+          <td class="grade-value">${escapeHtml(left?.grade || "")}</td>
+          <td class="grade-name">${escapeHtml(right?.name || "")}</td>
+          <td class="grade-value">${escapeHtml(right?.grade || "")}</td>
+        </tr>`;
+  }).join("");
+}
+
 export async function generateFinalMarksheetPdf(report) {
   const templatePath = path.join(__dirname, "..", "reports", "templates", "finalReportCard.html");
   let html = await fs.readFile(templatePath, "utf8");
@@ -100,10 +151,10 @@ export async function generateFinalMarksheetPdf(report) {
         <tr>
           <td class="subject">${escapeHtml(subject.name)}</td>
           ${examCells}
-          <td class="criteria-start">${escapeHtml(formatCell(subject.criteria?.unit_test))}</td>
-          <td>${escapeHtml(formatCell(subject.criteria?.half_yearly))}</td>
-          <td>${escapeHtml(formatCell(subject.criteria?.annual))}</td>
-          <td>${escapeHtml(formatCell(subject.final_total))}</td>
+          <td class="criteria-start">${escapeHtml(formatWholeCell(subject.criteria?.unit_test))}</td>
+          <td>${escapeHtml(formatWholeCell(subject.criteria?.half_yearly))}</td>
+          <td>${escapeHtml(formatWholeCell(subject.criteria?.annual))}</td>
+          <td>${escapeHtml(formatWholeCell(subject.final_total))}</td>
         </tr>`;
     })
     .join("");
@@ -118,25 +169,7 @@ export async function generateFinalMarksheetPdf(report) {
     return summary ? gradeForPercentage(summary.percentage) : "-";
   });
 
-  const activityRows = (report.activities || [])
-    .map(
-      (activity) => `
-        <tr>
-          <td>${escapeHtml(activity.name)}</td>
-          <td>${escapeHtml(activity.grade || "")}</td>
-        </tr>`
-    )
-    .join("");
-
-  const mockGradeRows = (report.mock_grades || [])
-    .map(
-      (mock) => `
-        <tr>
-          <td>${escapeHtml(mock.name)}</td>
-          <td>${escapeHtml(mock.grade || "")}</td>
-        </tr>`
-    )
-    .join("");
+  const gradeSecuredRows = renderGradeSecuredRows(report.activities || [], report.mock_grades || []);
 
   const signatureLabels = exams.length
     ? exams.map((exam) => exam.name)
@@ -177,12 +210,11 @@ export async function generateFinalMarksheetPdf(report) {
     .replaceAll("{{examTotalCells}}", renderCells(examTotalCells))
     .replaceAll("{{examPercentageCells}}", renderCells(examPercentageCells))
     .replaceAll("{{examGradeCells}}", renderCells(examGradeCells))
-    .replaceAll("{{grandTotal}}", escapeHtml(report?.summary?.total ?? 0))
-    .replaceAll("{{maxTotal}}", escapeHtml(report?.summary?.max_total ?? 0))
-    .replaceAll("{{percentage}}", escapeHtml(report?.summary?.percentage ?? 0))
+    .replaceAll("{{grandTotal}}", escapeHtml(formatWholeCell(report?.summary?.total ?? 0)))
+    .replaceAll("{{maxTotal}}", escapeHtml(formatWholeCell(report?.summary?.max_total ?? 0)))
+    .replaceAll("{{percentage}}", escapeHtml(formatWholeCell(report?.summary?.percentage ?? 0)))
     .replaceAll("{{grade}}", escapeHtml(report?.summary?.grade || "-"))
-    .replaceAll("{{activityRows}}", activityRows)
-    .replaceAll("{{mockGradeRows}}", mockGradeRows)
+    .replaceAll("{{gradeSecuredRows}}", gradeSecuredRows)
     .replaceAll("{{promotedClassName}}", escapeHtml(report?.student?.promoted_class_name || ""))
     .replaceAll("{{signatureCells}}", signatureCells);
 
