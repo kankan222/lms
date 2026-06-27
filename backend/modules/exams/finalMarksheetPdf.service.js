@@ -131,6 +131,18 @@ function renderFinalResultText(report) {
   return `PROMOTED TO CLASS ${escapeHtml(promotedClass)} WITH ${escapeHtml(grade)} GRADE/DISTINCTION`;
 }
 
+function getExamHeaderMaxMarks(exam, subjects) {
+  const displayMaxMarks = Number(exam?.display_max_marks || 0);
+  if (displayMaxMarks > 0) return displayMaxMarks;
+
+  const subjectMaxMarks = subjects.reduce(
+    (highest, subject) => Math.max(highest, Number(subject.exams?.[exam.id]?.max_marks || 0)),
+    0
+  );
+
+  return subjectMaxMarks || Number(exam?.max_marks || 100);
+}
+
 export async function generateFinalMarksheetPdf(report) {
   const templatePath = path.join(__dirname, "..", "reports", "templates", "finalReportCard.html");
   let html = await fs.readFile(templatePath, "utf8");
@@ -141,8 +153,10 @@ export async function generateFinalMarksheetPdf(report) {
 
   const examHeaders = exams
     .map(
-      (exam) =>
-        `<th>${escapeHtml(exam.name)}<br />${escapeHtml(exam.max_marks || 100)} Marks</th>`
+      (exam) => {
+        const headerMaxMarks = getExamHeaderMaxMarks(exam, subjects);
+        return `<th>${escapeHtml(exam.name)}<br />${escapeHtml(formatWholeCell(headerMaxMarks))} Marks</th>`;
+      }
     )
     .join("");
   const examColGroup = exams.map(() => `<col style="width: 14mm;" />`).join("");

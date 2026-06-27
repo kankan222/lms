@@ -444,3 +444,6 @@ Update this file after every meaningful implementation change.
   details block moved slightly upward from the bottom.
 - Enlarged and lowered the final marksheet first-page photo placeholder to
   better balance the top and bottom spacing in the right-side cover panel.
+- Changed the final marksheet second-page exam header marks to show the
+  maximum marks for a single subject in that exam instead of the summed exam
+  total, while keeping summed totals for percentage calculations.

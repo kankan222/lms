@@ -256,10 +256,12 @@ async function formatFinalReport(scope, rows) {
         published_on: row.published_on,
         final_calculation_type: row.final_calculation_type || "display_only",
         max_marks: 0,
+        display_max_marks: 0,
       });
     }
     const exam = examMap.get(examId);
     exam.max_marks += maxMarks;
+    exam.display_max_marks = Math.max(Number(exam.display_max_marks || 0), maxMarks);
 
     if (!subjectMap.has(subjectKey)) {
       const subjectGroup = String(row.subject_group || "zz").trim().toLowerCase();
@@ -302,6 +304,10 @@ async function formatFinalReport(scope, rows) {
       percentage,
     };
     exam.max_marks = maxMarks;
+    exam.display_max_marks = subjects.reduce(
+      (highest, subject) => Math.max(highest, Number(subject.exams[exam.id]?.max_marks || 0)),
+      0
+    );
   });
 
   const percentageGrades = await marksheetRepo.listGradeSettings("percentage");
