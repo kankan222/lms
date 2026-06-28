@@ -540,3 +540,6 @@ Update this file after every meaningful implementation change.
 - Added compact administrator and principal signature images to the final
   marksheet signature grid using `administrator.jpeg` and `principal.jpg` from
   the reports templates folder.
+- Added percentage and grade summary cells for the inserted Total of Unit Test
+  column on the final marksheet so it matches the other Marks Secured In
+  columns.

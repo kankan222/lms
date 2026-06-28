@@ -230,6 +230,17 @@ export async function generateFinalMarksheetPdf(report) {
   const unitTestTotalCell = formatWholeCell(
     subjects.reduce((sum, subject) => sum + Number(subject.criteria?.unit_test_total || 0), 0)
   );
+  const unitTestMaxTotal = subjects.reduce(
+    (sum, subject) => sum + Number(subject.criteria?.unit_test_max_total || 0),
+    0
+  );
+  const unitTestTotalPercentage = unitTestMaxTotal
+    ? Number(((Number(unitTestTotalCell || 0) / unitTestMaxTotal) * 100).toFixed(2))
+    : null;
+  const unitTestTotalPercentageCell =
+    unitTestTotalPercentage === null ? "-" : `${unitTestTotalPercentage}%`;
+  const unitTestTotalGradeCell =
+    unitTestTotalPercentage === null ? "-" : gradeForPercentage(unitTestTotalPercentage);
   const examPercentageCells = exams.map((exam) => {
     const summary = report.exam_totals?.[exam.id];
     return summary ? `${summary.percentage}%` : "-";
@@ -278,8 +289,8 @@ export async function generateFinalMarksheetPdf(report) {
     .replaceAll("{{examColGroup}}", examColGroup || `<col style="width: 14mm;" />`)
     .replaceAll("{{subjectRows}}", subjectRows)
     .replaceAll("{{examTotalCells}}", renderCells(insertBeforeLast(examTotalCells, unitTestTotalCell)))
-    .replaceAll("{{examPercentageCells}}", renderCells(insertBeforeLast(examPercentageCells, "")))
-    .replaceAll("{{examGradeCells}}", renderCells(insertBeforeLast(examGradeCells, "")))
+    .replaceAll("{{examPercentageCells}}", renderCells(insertBeforeLast(examPercentageCells, unitTestTotalPercentageCell)))
+    .replaceAll("{{examGradeCells}}", renderCells(insertBeforeLast(examGradeCells, unitTestTotalGradeCell)))
     .replaceAll("{{grandTotal}}", escapeHtml(formatWholeCell(report?.summary?.total ?? 0)))
     .replaceAll("{{maxTotal}}", escapeHtml(formatWholeCell(report?.summary?.max_total ?? 0)))
     .replaceAll("{{percentage}}", escapeHtml(formatWholeCell(report?.summary?.percentage ?? 0)))
