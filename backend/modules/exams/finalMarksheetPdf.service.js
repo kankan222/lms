@@ -68,6 +68,16 @@ function gradeForPercentage(percentage) {
   return "C";
 }
 
+function qualitativeValueForGrade(grade) {
+  const normalized = String(grade || "").trim().toUpperCase();
+  if (normalized === "A++") return "Excellent";
+  if (normalized === "A+") return "Very Good";
+  if (normalized === "A") return "Good";
+  if (normalized === "B") return "Average";
+  if (normalized === "C") return "Below Average";
+  return "";
+}
+
 function renderCells(values, className = "") {
   return values.map((value) => `<td class="${className}">${escapeHtml(value)}</td>`).join("");
 }
@@ -252,20 +262,28 @@ export async function generateFinalMarksheetPdf(report) {
 
   const gradeSecuredRows = renderGradeSecuredRows(report.activities || [], report.mock_grades || []);
 
-  const signatureLabels = exams.length
-    ? exams.map((exam) => exam.name)
-    : ["Exam"];
-  const signatureColumnCount = Math.max(signatureLabels.length, 1);
+  const signatureItems = exams.length
+    ? exams.map((exam) => {
+        const summary = report.exam_totals?.[exam.id];
+        const grade = summary ? gradeForPercentage(summary.percentage) : "";
+        return {
+          label: exam.name,
+          qualitativeValue: qualitativeValueForGrade(grade) || "-",
+        };
+      })
+    : [{ label: "Exam", qualitativeValue: "-" }];
+  const signatureColumnCount = Math.max(signatureItems.length, 1);
 
-  const signatureCells = signatureLabels
-    .map((label) => {
-      const safeLabel = escapeHtml(label);
+  const signatureCells = signatureItems
+    .map((item) => {
+      const safeLabel = escapeHtml(item.label);
+      const safeQualitativeValue = escapeHtml(item.qualitativeValue);
       return `
         <div class="signature-column">
           <div class="signature-cell"><img class="signature-image" src="${administratorSignature}" alt="Administrator signature" />Sign. of Administrator<br />${safeLabel}</div>
           <div class="signature-cell">Sign. of Guardian<br />${safeLabel}</div>
           <div class="signature-cell"><img class="signature-image" src="${principalSignature}" alt="Principal signature" />Sign. of the Principal<br />${safeLabel}</div>
-          <div class="signature-cell signature-remarks">Remarks : ${safeLabel}</div>
+          <div class="signature-cell signature-remarks">Remarks : ${safeQualitativeValue}</div>
         </div>`;
     })
     .join("");

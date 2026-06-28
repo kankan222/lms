@@ -543,3 +543,5 @@ Update this file after every meaningful implementation change.
 - Added percentage and grade summary cells for the inserted Total of Unit Test
   column on the final marksheet so it matches the other Marks Secured In
   columns.
+- Filled final marksheet remarks cells with the qualitative value for each
+  individual exam column, derived from that column's total percentage and grade.
