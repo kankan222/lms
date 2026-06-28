@@ -123,12 +123,9 @@ function renderGradeSecuredRows(activities = [], mockGrades = []) {
 }
 
 function renderFinalResultText(report) {
-  const grade = report?.summary?.grade || "-";
+  const grade = report?.summary?.grade || "...";
   const promotedClass = String(report?.student?.promoted_class_name || "").trim();
-  if (!promotedClass) {
-    return `FINAL GRADE : ${escapeHtml(grade)}`;
-  }
-  return `PROMOTED TO CLASS ${escapeHtml(promotedClass)} WITH ${escapeHtml(grade)} GRADE/DISTINCTION`;
+  return `PROMOTED TO CLASS ${escapeHtml(promotedClass || "...")} WITH ${escapeHtml(grade)} GRADE/DISTINCTION`;
 }
 
 function getExamHeaderMaxMarks(exam, subjects) {
@@ -141,6 +138,12 @@ function getExamHeaderMaxMarks(exam, subjects) {
   );
 
   return subjectMaxMarks || Number(exam?.max_marks || 100);
+}
+
+function subjectDensityClass(subjectCount) {
+  if (subjectCount <= 4) return "subjects-sparse";
+  if (subjectCount <= 7) return "subjects-medium";
+  return "subjects-dense";
 }
 
 export async function generateFinalMarksheetPdf(report) {
@@ -227,6 +230,7 @@ export async function generateFinalMarksheetPdf(report) {
     .replaceAll("{{sectionName}}", escapeHtml(report?.student?.section_name || "-"))
     .replaceAll("{{rollNumber}}", escapeHtml(report?.student?.roll_number || "-"))
     .replaceAll("{{examColumnCount}}", String(Math.max(exams.length, 1)))
+    .replaceAll("{{subjectDensityClass}}", subjectDensityClass(subjects.length))
     .replaceAll("{{examHeaders}}", examHeaders || "<th>-</th>")
     .replaceAll("{{examColGroup}}", examColGroup || `<col style="width: 14mm;" />`)
     .replaceAll("{{subjectRows}}", subjectRows)

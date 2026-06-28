@@ -244,6 +244,7 @@
     padding: 1.08mm 0.85mm;
     line-height: 1.15;
     text-align: center;
+    height: 7mm;
   }
 
   .marks-table th {
@@ -264,6 +265,38 @@
     font-weight: 700;
     font-size: 11.6px;
     min-width: 33mm;
+  }
+
+  .marks-table.subjects-sparse {
+    font-size: 13px;
+  }
+
+  .marks-table.subjects-sparse th,
+  .marks-table.subjects-sparse td {
+    height: 10.5mm;
+    padding: 1.6mm 1mm;
+  }
+
+  .marks-table.subjects-sparse th {
+    font-size: 10px;
+  }
+
+  .marks-table.subjects-sparse td.subject {
+    font-size: 14px;
+  }
+
+  .marks-table.subjects-medium {
+    font-size: 12.2px;
+  }
+
+  .marks-table.subjects-medium th,
+  .marks-table.subjects-medium td {
+    height: 8.8mm;
+    padding: 1.35mm 0.95mm;
+  }
+
+  .marks-table.subjects-medium td.subject {
+    font-size: 12.8px;
   }
 
   .summary-row td {
@@ -311,7 +344,7 @@
   .signature-grid {
     display: grid;
     grid-template-columns: repeat(6, 1fr);
-    margin-top: auto;
+    margin-top: 2.2mm;
     border-left: 1px solid #172554;
     border-top: 1.4px solid #172554;
   }
@@ -438,7 +471,7 @@
   </section>
 
   <section class="page back-page">
-    <table class="marks-table">
+    <table class="marks-table {{subjectDensityClass}}">
       <colgroup>
         <col style="width: 24mm;" />
         {{examColGroup}}

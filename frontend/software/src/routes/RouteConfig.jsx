@@ -204,7 +204,7 @@ export const appRoutes = [
       hideForRoles: ["parent"],
     },
     {
-      title: "Mark Report",
+      title: "Mark Statement",
       icon: FileText,
       path: "/mark-report",
       element: <MarkReport />,
@@ -377,7 +377,7 @@ export const navSections = [
         icon: NotebookTabs,
       }),
       navEntry("/mark-report", {
-        title: "Mark Report",
+        title: "Mark Statement",
         icon: FileText,
       }),
       navEntry("/activity-marks", {

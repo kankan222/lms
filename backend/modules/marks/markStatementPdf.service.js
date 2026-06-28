@@ -1,6 +1,7 @@
 import PDFDocument from "pdfkit";
 
-const PAGE_ROWS_PER_SIDE = 20;
+const TABLE_ROW_HEIGHT = 20;
+const SIGNATURE_RESERVED_HEIGHT = 96;
 
 function safeText(value) {
   return String(value ?? "").trim();
@@ -18,8 +19,7 @@ function collectPdf(doc) {
 function drawCell(doc, x, y, width, height, text, options = {}) {
   doc.rect(x, y, width, height).stroke();
   if (text !== undefined && text !== null && text !== "") {
-    doc.text(String(text), x + 3, y + 4,
-    {
+    doc.text(String(text), x + 4, y + 5, {
       width: width - 8,
       height: height - 8,
       align: options.align || "left",
@@ -29,17 +29,17 @@ function drawCell(doc, x, y, width, height, text, options = {}) {
 }
 
 function drawStudentTable(doc, students, x, y, width) {
-  const rowHeight = 18;
+  const rowHeight = TABLE_ROW_HEIGHT;
   const rollWidth = 36;
   const marksWidth = 38;
   const nameWidth = width - rollWidth - marksWidth;
 
-  doc.font("Helvetica-Bold").fontSize(8);
+  doc.font("Helvetica-Bold").fontSize(9);
   drawCell(doc, x, y, rollWidth, rowHeight, "Roll No.", { align: "center" });
   drawCell(doc, x + rollWidth, y, nameWidth, rowHeight, "Student Name", { align: "center" });
   drawCell(doc, x + rollWidth + nameWidth, y, marksWidth, rowHeight, "Marks", { align: "center" });
 
-  doc.font("Helvetica").fontSize(8);
+  doc.font("Helvetica").fontSize(9);
   students.forEach((student, index) => {
     const rowY = y + rowHeight * (index + 1);
     drawCell(doc, x, rowY, rollWidth, rowHeight, safeText(student.roll_number), { align: "center" });
@@ -48,6 +48,12 @@ function drawStudentTable(doc, students, x, y, width) {
   });
 
   return y + rowHeight * (students.length + 1);
+}
+
+function getRowsPerSide(doc, tableTop) {
+  const tableBottom = doc.page.height - doc.page.margins.bottom - SIGNATURE_RESERVED_HEIGHT;
+  const availableHeight = tableBottom - tableTop;
+  return Math.max(1, Math.floor(availableHeight / TABLE_ROW_HEIGHT) - 1);
 }
 
 export async function generateMarkStatementPdf({ exam, subject, scope, students }) {
@@ -59,7 +65,9 @@ export async function generateMarkStatementPdf({ exam, subject, scope, students 
   const done = collectPdf(doc);
 
   const rows = Array.isArray(students) ? students : [];
-  const pageSize = PAGE_ROWS_PER_SIDE * 2;
+  const sampleTableTop = doc.page.margins.top + 120;
+  const rowsPerSide = getRowsPerSide(doc, sampleTableTop);
+  const pageSize = rowsPerSide * 2;
   const pages = [];
   for (let index = 0; index < rows.length; index += pageSize) {
     pages.push(rows.slice(index, index + pageSize));
@@ -109,11 +117,11 @@ export async function generateMarkStatementPdf({ exam, subject, scope, students 
         align: "center",
       });
 
-    drawStudentTable(doc, pageRows.slice(0, PAGE_ROWS_PER_SIDE), left, tableTop, tableWidth);
-    if (pageRows.length > PAGE_ROWS_PER_SIDE) {
+    drawStudentTable(doc, pageRows.slice(0, rowsPerSide), left, tableTop, tableWidth);
+    if (pageRows.length > rowsPerSide) {
       drawStudentTable(
         doc,
-        pageRows.slice(PAGE_ROWS_PER_SIDE, pageSize),
+        pageRows.slice(rowsPerSide, pageSize),
         left + tableWidth + gap,
         tableTop,
         tableWidth

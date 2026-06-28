@@ -163,6 +163,8 @@ const StudentDetails = () => {
   const location = useLocation();
   const { hasRole, can } = usePermissions();
   const isParent = hasRole("parent");
+  const isStudentUser = hasRole("student");
+  const isSelfResultViewer = isParent || isStudentUser;
   const canEditParents = !isParent && can("student.update");
   const [student, setStudent] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -229,7 +231,7 @@ const StudentDetails = () => {
 
   const loadExams = useEffectEvent(async (studentPayload = null) => {
     try {
-      const res = await (isParent
+      const res = await (isSelfResultViewer
         ? getAccessibleExams()
         : getExams({
             session_id: studentPayload?.session_id,
@@ -253,7 +255,7 @@ const StudentDetails = () => {
     setReportError("");
     setReport(null);
     try {
-      const res = await (isParent
+      const res = await (isSelfResultViewer
         ? getMyResults({ exam_id: examId, student_id: studentId })
         : getStudentReport(examId, studentId));
       setReport(res?.data || null);
@@ -370,7 +372,7 @@ const StudentDetails = () => {
     setMarksheetDownloading(true);
     setReportError("");
     try {
-      const blob = await (isParent
+      const blob = await (isSelfResultViewer
         ? downloadMyMarksheet({ exam_id: selectedExamId, student_id: student.id })
         : downloadStudentMarksheet(selectedExamId, student.id));
       if (!blob || blob.size === 0) {

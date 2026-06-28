@@ -891,7 +891,12 @@ export async function getStudentReport(examIdValue, studentIdValue, userId) {
     throw new AppError("Students can only view their own marksheet", 403);
   }
 
-  if ((userCtx.isStudent || userCtx.isParent) && !isPublishedForStudent(publication)) {
+  const canBypassPublication = canManageExamCatalog(userCtx) || userCtx.isTeacher;
+  if (!canBypassPublication && !userCtx.isParent && !userCtx.isStudent) {
+    throw new AppError("Not authorized to view this student's marksheet", 403);
+  }
+
+  if (!canBypassPublication && !isPublishedForStudent(publication)) {
     throw new AppError("This marksheet has not been published for students yet", 404);
   }
 
@@ -1020,11 +1025,14 @@ export async function downloadMyApprovedMarksheet(query, userId) {
 
 export async function downloadFinalMarksheet(query, userId) {
   const userCtx = await getUserContext(userId);
+  const canBypassPublication = canManageExamCatalog(userCtx);
   const requestedStudentId = query.student_id ? Number(query.student_id) : null;
   let studentId = requestedStudentId;
 
   if (userCtx.isStudent || userCtx.isParent) {
     studentId = resolveOwnedStudentId(query, userCtx);
+  } else if (!canBypassPublication) {
+    throw new AppError("Not authorized to download this final marksheet", 403);
   }
 
   if (!studentId) {
@@ -1051,7 +1059,7 @@ export async function downloadFinalMarksheet(query, userId) {
     classId: Number(scope.class_id),
     sectionId: Number(scope.section_id),
     medium: scope.medium,
-    visibleOnly: userCtx.isStudent || userCtx.isParent,
+    visibleOnly: !canBypassPublication,
   });
 
   if (!rows.length) {

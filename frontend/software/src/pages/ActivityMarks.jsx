@@ -3,6 +3,8 @@ import TopBar from "../components/TopBar";
 import { Button } from "../components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { getClassStructure, getSessions } from "../api/academic.api";
 import { getActivityMarkGrid, saveActivityMarks } from "../api/marksheet.api";
 
@@ -30,13 +32,22 @@ function CheckboxChoice({ checked, disabled = false, label, onChange }) {
   );
 }
 
+function wholeNumberValue(value) {
+  const text = String(value ?? "").trim();
+  if (!text) return "";
+  const number = Number(text);
+  return Number.isFinite(number) ? String(Math.round(number)) : text.replace(/\D/g, "");
+}
+
 export default function ActivityMarks() {
   const [sessions, setSessions] = useState([]);
   const [classes, setClasses] = useState([]);
   const [filters, setFilters] = useState({ session_id: "", class_id: "", section_id: "" });
   const [grid, setGrid] = useState({ activities: [], students: [] });
   const [marks, setMarks] = useState({});
+  const [savedMarks, setSavedMarks] = useState({});
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState(null);
 
   const selectedClass = useMemo(
     () => classes.find((item) => String(item.id) === String(filters.class_id)),
@@ -57,7 +68,38 @@ export default function ActivityMarks() {
     loadInitialActivityMarks();
   }, []);
 
-  async function loadMarkGrid() {
+  useEffect(() => {
+    if (!notice) return undefined;
+    const timeoutId = window.setTimeout(() => {
+      setNotice(null);
+    }, 3500);
+    return () => window.clearTimeout(timeoutId);
+  }, [notice]);
+
+  function showNotice(title, message, variant = "success") {
+    setNotice({ title, message, variant });
+  }
+
+  function markStatus(activityId, studentId) {
+    const key = `${activityId}-${studentId}`;
+    const current = marks[key] ?? "";
+    const saved = savedMarks[key] ?? "";
+    if (!current) return { label: "Empty", tone: "empty" };
+    if (current === saved) return { label: "Saved", tone: "saved" };
+    return { label: "Unsaved", tone: "unsaved" };
+  }
+
+  function statusBadgeClass(tone) {
+    if (tone === "saved") {
+      return "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/15 dark:text-emerald-200";
+    }
+    if (tone === "unsaved") {
+      return "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-500/30 dark:bg-amber-500/15 dark:text-amber-200";
+    }
+    return "border-slate-200 bg-slate-50 text-slate-600 dark:border-slate-500/30 dark:bg-slate-500/15 dark:text-slate-200";
+  }
+
+  async function loadMarkGrid({ showSuccess = true } = {}) {
     setError("");
     try {
       const res = await getActivityMarkGrid(filters);
@@ -66,26 +108,58 @@ export default function ActivityMarks() {
       const nextMarks = {};
       nextGrid.students.forEach((student) => {
         nextGrid.activities.forEach((activity) => {
-          nextMarks[`${activity.id}-${student.student_id}`] = student.marks?.[activity.id] ?? "";
+          nextMarks[`${activity.id}-${student.student_id}`] = wholeNumberValue(student.marks?.[activity.id]);
         });
       });
       setMarks(nextMarks);
+      setSavedMarks(nextMarks);
+      if (showSuccess) {
+        showNotice("Activity Marks Loaded", "Activity marks loaded successfully.");
+      }
     } catch (err) {
-      setError(err?.message || "Failed to load activity marks.");
+      const message = err?.message || "Failed to load activity marks.";
+      setError(message);
+      showNotice("Load Failed", message, "error");
     }
   }
 
   async function saveMarksForActivity(activityId) {
     const rows = grid.students.map((student) => ({
       student_id: student.student_id,
-      marks: marks[`${activityId}-${student.student_id}`] ?? "",
+      marks: wholeNumberValue(marks[`${activityId}-${student.student_id}`]),
     }));
-    await saveActivityMarks(activityId, { ...filters, rows });
-    await loadMarkGrid();
+    const activity = grid.activities.find((item) => Number(item.id) === Number(activityId));
+    try {
+      await saveActivityMarks(activityId, { ...filters, rows });
+      await loadMarkGrid({ showSuccess: false });
+      showNotice("Activity Marks Saved", `${activity?.name || "Activity"} marks saved successfully.`);
+    } catch (err) {
+      showNotice("Save Failed", err?.message || "Failed to save activity marks.", "error");
+    }
   }
 
   return (
     <>
+      <div className="pointer-events-none fixed top-6 right-6 z-50 w-full max-w-sm">
+        <div
+          className={`transition-all duration-500 ease-out ${
+            notice
+              ? "translate-x-0 scale-100 opacity-100"
+              : "translate-x-12 scale-95 opacity-0"
+          }`}
+        >
+          {notice ? (
+            <Alert
+              variant={notice.variant === "error" ? "destructive" : "success"}
+              className="pointer-events-auto overflow-hidden border shadow-xl"
+            >
+              <AlertTitle>{notice.title}</AlertTitle>
+              <AlertDescription>{notice.message}</AlertDescription>
+            </Alert>
+          ) : null}
+        </div>
+      </div>
+
       <TopBar title="Activity Marks" subTitle="Enter marksheet activity marks per class section" />
       <Card>
         <CardHeader>
@@ -195,6 +269,17 @@ export default function ActivityMarks() {
                               }));
                             }}
                           />
+                          {(() => {
+                            const status = markStatus(activity.id, student.student_id);
+                            return (
+                              <Badge
+                                variant="outline"
+                                className={`mt-1 rounded-full text-[10px] ${statusBadgeClass(status.tone)}`}
+                              >
+                                {status.label}
+                              </Badge>
+                            );
+                          })()}
                         </td>
                       ))}
                       <td></td>
@@ -207,7 +292,7 @@ export default function ActivityMarks() {
                   <Button
                     key={activity.id}
                     type="button"
-                    variant="outline"
+                    className="bg-emerald-600 text-white hover:bg-emerald-700"
                     onClick={() => saveMarksForActivity(activity.id)}
                   >
                     Save {activity.name}

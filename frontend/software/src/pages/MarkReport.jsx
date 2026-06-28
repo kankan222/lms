@@ -176,8 +176,8 @@ export default function MarkReport() {
       } catch (err) {
         setBanner({
           type: "destructive",
-          title: "Mark report unavailable",
-          message: err?.message || "Failed to load mark report filters.",
+          title: "Mark statement unavailable",
+          message: err?.message || "Failed to load mark statement filters.",
         });
       } finally {
         setLoading(false);
@@ -313,7 +313,7 @@ export default function MarkReport() {
         </div>
       </div>
 
-      <TopBar title="Mark Report" subTitle="Download blank marks statement PDFs for exam entry" />
+      <TopBar title="Mark Statement" subTitle="Download blank marks statement PDFs for exam entry" />
 
       {loading ? <p>Loading...</p> : null}
 
@@ -448,7 +448,7 @@ export default function MarkReport() {
 
           <Card>
             <CardHeader>
-              <CardTitle>Mark Report Statement</CardTitle>
+              <CardTitle>Mark Statement</CardTitle>
               <CardDescription>
                 Download a blank marks statement for the selected exam, class, section, medium, and subject.
               </CardDescription>

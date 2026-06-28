@@ -480,3 +480,19 @@ Update this file after every meaningful implementation change.
 - Updated the Mark Report statement PDF to portrait orientation while keeping
   the 20-row side-by-side split logic, adding class/section/medium header
   details, a bordered Total Marks box, and a subject-teacher signature line.
+- Improved the Mark Report statement PDF table readability with larger roll/name
+  text and changed pagination to fill the available left column, then right
+  column, before moving to the next page.
+- Renamed the Mark Report navigation/page labels to Mark Statement while
+  keeping the existing route and PDF download behavior.
+- Updated Activity Marks entry to round displayed marks to whole numbers,
+  show success/failure alerts for load/save actions, add per-cell Empty/Saved/
+  Unsaved status badges, and use a stronger green save button style.
+- Changed the final marksheet result line to always keep the promoted-class
+  wording and show ellipses for missing promoted class or grade values.
+- Adjusted the final marksheet second-page marks/signature spacing so the
+  signature grid follows the marks table with a small margin, and sparse
+  subject lists use taller cells and larger subject/marks text.
+- Tightened report visibility so student/parent access cannot see approved
+  marksheets before the published date, including Student Details report
+  downloads and final marksheet downloads.
