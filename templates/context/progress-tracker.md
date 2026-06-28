@@ -507,3 +507,13 @@ Update this file after every meaningful implementation change.
   with edit/delete applying to the grouped rows.
 - Changed final marksheet signature columns to render exactly one column per
   actual exam instead of always padding the signature grid to six exams.
+- Fixed the final marksheet right-side summary block so Grade and Percentage
+  span the lower summary row, removing the empty bordered space beneath the
+  four summary cells.
+- Centered the final marksheet signature remarks cells so they align with the
+  other signature fields.
+- Centered the co-scholastic Letter Grade and Marks columns on the final
+  marksheet front page while leaving Qualitative Value alignment unchanged.
+- Updated the final marksheet final-result text so Class X prints
+  `FINAL RESULT (UP TO TEST EXAMINATION)` while other classes keep the promoted
+  class and grade/distinction wording.

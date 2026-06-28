@@ -123,6 +123,12 @@ function renderGradeSecuredRows(activities = [], mockGrades = []) {
 }
 
 function renderFinalResultText(report) {
+  const className = String(report?.student?.class_name || "").trim().toUpperCase();
+
+  if (className === "X") {
+    return "FINAL RESULT (UP TO TEST EXAMINATION)";
+  }
+
   const grade = report?.summary?.grade || "...";
   const promotedClass = String(report?.student?.promoted_class_name || "").trim();
   return `PROMOTED TO CLASS ${escapeHtml(promotedClass || "...")} WITH ${escapeHtml(grade)} GRADE/DISTINCTION`;

@@ -189,6 +189,13 @@
     margin: 0;
   }
 
+  .co-scholastic-table th:nth-child(2),
+  .co-scholastic-table th:nth-child(3),
+  .co-scholastic-table td:nth-child(2),
+  .co-scholastic-table td:nth-child(3) {
+    text-align: center;
+  }
+
   .attendance-table th,
   .attendance-table td {
     text-align: left;
@@ -366,7 +373,7 @@
   .signature-remarks {
     min-height: 10mm;
     padding-top: 2mm;
-    text-align: left;
+    text-align: center;
   }
 
   .result-box {
@@ -399,7 +406,7 @@
     <div class="front-grid">
       <div class="panel">
         <div class="side-title">CO-SCHOLASTIC AREA</div>
-        <table class="front-table">
+        <table class="front-table co-scholastic-table">
           <tr>
             <th>Qualitative Value</th>
             <th>Letter Grade</th>
@@ -506,13 +513,12 @@
         <tr class="summary-row">
           <td>Percentage</td>
           {{examPercentageCells}}
-          <td class="criteria-summary criteria-start summary-bottom" colspan="2">Grade : {{grade}}</td>
-          <td class="criteria-summary summary-end summary-bottom" colspan="2">Percentage : {{percentage}}%</td>
+          <td class="criteria-summary criteria-start summary-bottom" colspan="2" rowspan="2">Grade : {{grade}}</td>
+          <td class="criteria-summary summary-end summary-bottom" colspan="2" rowspan="2">Percentage : {{percentage}}%</td>
         </tr>
         <tr class="summary-row">
           <td>Grade</td>
           {{examGradeCells}}
-          <td class="criteria-summary criteria-start summary-end blank" colspan="4">.</td>
         </tr>
       </tbody>
     </table>
