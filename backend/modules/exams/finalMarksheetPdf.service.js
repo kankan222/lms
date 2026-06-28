@@ -53,6 +53,12 @@ async function readLogoBase64() {
   return "";
 }
 
+async function readSignatureBase64(fileName) {
+  const filePath = path.join(__dirname, "..", "reports", "templates", fileName);
+  const file = await fs.readFile(filePath);
+  return `data:image/jpeg;base64,${file.toString("base64")}`;
+}
+
 function gradeForPercentage(percentage) {
   const value = Number(percentage || 0);
   if (value >= 85) return "A++";
@@ -143,6 +149,10 @@ function renderFinalResultText(report) {
   return `PROMOTED TO CLASS ${escapeHtml(promotedClass || "...")} WITH ${escapeHtml(grade)} GRADE/DISTINCTION`;
 }
 
+function renderFinalExamCriteriaLabel(report) {
+  return isClassXReport(report) ? "Test<br />Exam" : "Annual<br />Exam";
+}
+
 function getExamHeaderMaxMarks(exam, subjects) {
   const displayMaxMarks = Number(exam?.display_max_marks || 0);
   if (displayMaxMarks > 0) return displayMaxMarks;
@@ -169,7 +179,11 @@ function insertBeforeLast(values, insertedValue) {
 export async function generateFinalMarksheetPdf(report) {
   const templatePath = path.join(__dirname, "..", "reports", "templates", "finalReportCard.html");
   let html = await fs.readFile(templatePath, "utf8");
-  const logo = await readLogoBase64();
+  const [logo, administratorSignature, principalSignature] = await Promise.all([
+    readLogoBase64(),
+    readSignatureBase64("administrator.jpeg"),
+    readSignatureBase64("principal.jpg"),
+  ]);
   const scopeMeta = getScopeMeta(report?.student?.class_scope);
   const exams = report.exams || [];
   const subjects = report.subjects || [];
@@ -237,9 +251,9 @@ export async function generateFinalMarksheetPdf(report) {
       const safeLabel = escapeHtml(label);
       return `
         <div class="signature-column">
-          <div class="signature-cell">Sign. of Class Teacher<br />${safeLabel}</div>
+          <div class="signature-cell"><img class="signature-image" src="${administratorSignature}" alt="Administrator signature" />Sign. of Administrator<br />${safeLabel}</div>
           <div class="signature-cell">Sign. of Guardian<br />${safeLabel}</div>
-          <div class="signature-cell">Sign. of the Principal<br />${safeLabel}</div>
+          <div class="signature-cell"><img class="signature-image" src="${principalSignature}" alt="Principal signature" />Sign. of the Principal<br />${safeLabel}</div>
           <div class="signature-cell signature-remarks">Remarks : ${safeLabel}</div>
         </div>`;
     })
@@ -272,6 +286,7 @@ export async function generateFinalMarksheetPdf(report) {
     .replaceAll("{{grade}}", escapeHtml(report?.summary?.grade || "-"))
     .replaceAll("{{gradeSecuredRows}}", gradeSecuredRows)
     .replaceAll("{{promotedClassName}}", escapeHtml(report?.student?.promoted_class_name || ""))
+    .replaceAll("{{finalExamCriteriaLabel}}", renderFinalExamCriteriaLabel(report))
     .replaceAll("{{finalResultTitle}}", escapeHtml(renderFinalResultTitle(report)))
     .replaceAll("{{finalResultText}}", renderFinalResultText(report))
     .replaceAll("{{signatureColumnCount}}", String(signatureColumnCount))

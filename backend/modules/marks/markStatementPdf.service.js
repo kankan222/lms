@@ -48,15 +48,13 @@ function drawCenteredUnderlinedText(doc, text, x, y, width, options = {}) {
 
 function drawStudentTable(doc, students, x, y, width) {
   const rowHeight = TABLE_ROW_HEIGHT;
-  const rollWidth = 36;
+  const rollWidth = 48;
   const marksWidth = 38;
   const nameWidth = width - rollWidth - marksWidth;
-  const rollHeader = rollWidth < 42 ? "Roll\nNo" : "Roll No";
 
   doc.font("Helvetica-Bold").fontSize(9);
-  drawCell(doc, x, y, rollWidth, rowHeight, rollHeader, {
+  drawCell(doc, x, y, rollWidth, rowHeight, "Roll No", {
     align: "center",
-    paddingY: rollHeader.includes("\n") ? 2 : 5,
     ellipsis: false,
   });
   drawCell(doc, x + rollWidth, y, nameWidth, rowHeight, "Student Name", { align: "center" });

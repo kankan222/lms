@@ -363,11 +363,19 @@
   .signature-cell {
     min-height: 8mm;
     border-bottom: 1px solid #172554;
-    padding: 4.5mm 1.5mm 1.5mm;
+    padding: 1mm 1.5mm 1mm;
     text-align: center;
     font-weight: 700;
     font-size: 9.7px;
     line-height: 1.15;
+  }
+
+  .signature-image {
+    display: block;
+    width: 18mm;
+    height: 6mm;
+    object-fit: contain;
+    margin: 0 auto 0.6mm;
   }
 
   .signature-remarks {
@@ -498,7 +506,7 @@
           {{examHeaders}}
           <th class="criteria-start">Unit Test<br />(1st &amp; 2nd)<br />20% (A)</th>
           <th>Half Yearly<br />Exam<br />30% (B)</th>
-          <th>Annual<br />Exam<br />50% (C)</th>
+          <th>{{finalExamCriteriaLabel}}<br />50% (C)</th>
           <th>Total of<br />(A+B+C)</th>
         </tr>
       </thead>

@@ -530,5 +530,13 @@ Update this file after every meaningful implementation change.
   `FINAL RESULT (UP TO TEST EXAMINATION)` replaces the result heading and the
   promoted-class statement is omitted only for Class X.
 - Updated the Mark Statement PDF title from parenthesized text to an underlined
-  `MARKS STATEMENT` heading and changed the narrow roll-number header to stack
-  as `Roll` / `No` instead of truncating.
+  `MARKS STATEMENT` heading and widened the roll-number column so the `Roll No`
+  header appears fully.
+- Changed the final marksheet promotion-criteria 50% column label from Annual
+  Exam to Test Exam for Class X only, while preserving the existing annual-style
+  calculation bucket for final marks.
+- Changed the final marksheet first signature row label from Sign. of Class
+  Teacher to Sign. of Administrator.
+- Added compact administrator and principal signature images to the final
+  marksheet signature grid using `administrator.jpeg` and `principal.jpg` from
+  the reports templates folder.
