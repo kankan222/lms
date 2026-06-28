@@ -517,3 +517,18 @@ Update this file after every meaningful implementation change.
 - Updated the final marksheet final-result text so Class X prints
   `FINAL RESULT (UP TO TEST EXAMINATION)` while other classes keep the promoted
   class and grade/distinction wording.
+- Hid the Reports Records and Templates sections from teacher logins in the
+  internal software app, keeping those admin report sections available only to
+  users with marks approval access.
+- Updated the mobile Reports tab so teacher/non-admin mark-entry users see only
+  Entry, while Published remains available to marks-approval users and Results
+  remains the self-view path.
+- Added a Total of Unit Test column under Marks Secured In on the final
+  marksheet before the final exam column, showing raw 1st/2nd unit-test marks
+  while keeping the weighted Unit Test 20% promotion-criteria column separate.
+- Adjusted the Class X final marksheet result block so
+  `FINAL RESULT (UP TO TEST EXAMINATION)` replaces the result heading and the
+  promoted-class statement is omitted only for Class X.
+- Updated the Mark Statement PDF title from parenthesized text to an underlined
+  `MARKS STATEMENT` heading and changed the narrow roll-number header to stack
+  as `Roll` / `No` instead of truncating.

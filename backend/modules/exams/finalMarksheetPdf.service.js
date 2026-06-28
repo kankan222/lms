@@ -122,12 +122,21 @@ function renderGradeSecuredRows(activities = [], mockGrades = []) {
   }).join("");
 }
 
-function renderFinalResultText(report) {
+function isClassXReport(report) {
   const className = String(report?.student?.class_name || "").trim().toUpperCase();
+  return className === "X";
+}
 
-  if (className === "X") {
+function renderFinalResultTitle(report) {
+  if (isClassXReport(report)) {
     return "FINAL RESULT (UP TO TEST EXAMINATION)";
   }
+
+  return "FINAL RESULT";
+}
+
+function renderFinalResultText(report) {
+  if (isClassXReport(report)) return "";
 
   const grade = report?.summary?.grade || "...";
   const promotedClass = String(report?.student?.promoted_class_name || "").trim();
@@ -152,6 +161,11 @@ function subjectDensityClass(subjectCount) {
   return "subjects-dense";
 }
 
+function insertBeforeLast(values, insertedValue) {
+  if (!values.length) return [insertedValue];
+  return [...values.slice(0, -1), insertedValue, values[values.length - 1]];
+}
+
 export async function generateFinalMarksheetPdf(report) {
   const templatePath = path.join(__dirname, "..", "reports", "templates", "finalReportCard.html");
   let html = await fs.readFile(templatePath, "utf8");
@@ -160,15 +174,18 @@ export async function generateFinalMarksheetPdf(report) {
   const exams = report.exams || [];
   const subjects = report.subjects || [];
 
-  const examHeaders = exams
+  const examHeaderCells = exams
     .map(
       (exam) => {
         const headerMaxMarks = getExamHeaderMaxMarks(exam, subjects);
         return `<th>${escapeHtml(exam.name)}<br />${escapeHtml(formatWholeCell(headerMaxMarks))} Marks</th>`;
       }
-    )
-    .join("");
-  const examColGroup = exams.map(() => `<col style="width: 14mm;" />`).join("");
+    );
+  const examHeaders = insertBeforeLast(examHeaderCells, "<th>Total of<br />Unit Test</th>").join("");
+  const examColGroup = insertBeforeLast(
+    exams.map(() => `<col style="width: 14mm;" />`),
+    `<col style="width: 14mm;" />`
+  ).join("");
 
   const subjectRows = subjects
     .map((subject) => {
@@ -176,13 +193,17 @@ export async function generateFinalMarksheetPdf(report) {
         .map((exam) => {
           const cell = subject.exams?.[exam.id];
           return `<td>${cell ? escapeHtml(formatCell(cell.marks)) : ""}</td>`;
-        })
+        });
+      const marksSecuredCells = insertBeforeLast(
+        examCells,
+        `<td>${escapeHtml(formatWholeCell(subject.criteria?.unit_test_total))}</td>`
+      )
         .join("");
 
       return `
         <tr>
           <td class="subject">${escapeHtml(subject.name)}</td>
-          ${examCells}
+          ${marksSecuredCells}
           <td class="criteria-start">${escapeHtml(formatWholeCell(subject.criteria?.unit_test))}</td>
           <td>${escapeHtml(formatWholeCell(subject.criteria?.half_yearly))}</td>
           <td>${escapeHtml(formatWholeCell(subject.criteria?.annual))}</td>
@@ -192,6 +213,9 @@ export async function generateFinalMarksheetPdf(report) {
     .join("");
 
   const examTotalCells = exams.map((exam) => report.exam_totals?.[exam.id]?.marks ?? "-");
+  const unitTestTotalCell = formatWholeCell(
+    subjects.reduce((sum, subject) => sum + Number(subject.criteria?.unit_test_total || 0), 0)
+  );
   const examPercentageCells = exams.map((exam) => {
     const summary = report.exam_totals?.[exam.id];
     return summary ? `${summary.percentage}%` : "-";
@@ -234,19 +258,21 @@ export async function generateFinalMarksheetPdf(report) {
     .replaceAll("{{sectionName}}", escapeHtml(report?.student?.section_name || "-"))
     .replaceAll("{{rollNumber}}", escapeHtml(report?.student?.roll_number || "-"))
     .replaceAll("{{examColumnCount}}", String(Math.max(exams.length, 1)))
+    .replaceAll("{{marksSecuredColumnCount}}", String(Math.max(exams.length, 1) + 1))
     .replaceAll("{{subjectDensityClass}}", subjectDensityClass(subjects.length))
     .replaceAll("{{examHeaders}}", examHeaders || "<th>-</th>")
     .replaceAll("{{examColGroup}}", examColGroup || `<col style="width: 14mm;" />`)
     .replaceAll("{{subjectRows}}", subjectRows)
-    .replaceAll("{{examTotalCells}}", renderCells(examTotalCells))
-    .replaceAll("{{examPercentageCells}}", renderCells(examPercentageCells))
-    .replaceAll("{{examGradeCells}}", renderCells(examGradeCells))
+    .replaceAll("{{examTotalCells}}", renderCells(insertBeforeLast(examTotalCells, unitTestTotalCell)))
+    .replaceAll("{{examPercentageCells}}", renderCells(insertBeforeLast(examPercentageCells, "")))
+    .replaceAll("{{examGradeCells}}", renderCells(insertBeforeLast(examGradeCells, "")))
     .replaceAll("{{grandTotal}}", escapeHtml(formatWholeCell(report?.summary?.total ?? 0)))
     .replaceAll("{{maxTotal}}", escapeHtml(formatWholeCell(report?.summary?.max_total ?? 0)))
     .replaceAll("{{percentage}}", escapeHtml(formatWholeCell(report?.summary?.percentage ?? 0)))
     .replaceAll("{{grade}}", escapeHtml(report?.summary?.grade || "-"))
     .replaceAll("{{gradeSecuredRows}}", gradeSecuredRows)
     .replaceAll("{{promotedClassName}}", escapeHtml(report?.student?.promoted_class_name || ""))
+    .replaceAll("{{finalResultTitle}}", escapeHtml(renderFinalResultTitle(report)))
     .replaceAll("{{finalResultText}}", renderFinalResultText(report))
     .replaceAll("{{signatureColumnCount}}", String(signatureColumnCount))
     .replaceAll("{{signatureCells}}", signatureCells);

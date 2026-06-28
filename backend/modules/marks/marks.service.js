@@ -355,7 +355,11 @@ async function formatFinalReport(scope, rows) {
         ? weightedContribution(bucket.marks, bucket.max_marks, meta.weight)
         : null;
     });
-    const criteriaValues = Object.values(subject.criteria).filter((value) => value !== null);
+    subject.criteria.unit_test_total = byType.unit_test.has ? round2(byType.unit_test.marks) : null;
+    subject.criteria.unit_test_max_total = byType.unit_test.has ? round2(byType.unit_test.max_marks) : null;
+    const criteriaValues = Object.keys(criteria)
+      .map((type) => subject.criteria[type])
+      .filter((value) => value !== null);
     subject.final_total = criteriaValues.length
       ? round2(criteriaValues.reduce((sum, value) => sum + Number(value || 0), 0))
       : null;

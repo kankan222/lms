@@ -412,6 +412,7 @@ export default function Reports() {
   const canUseEntryFlow = canEnterMarks || isAdmin;
   const canViewExamCatalog = can("exams.view");
   const selfViewOnly = !isAdmin && !canEnterMarks;
+  const canViewAdminReportSections = isAdmin;
   const [activeTab, setActiveTab] = useState(
     selfViewOnly ? "results" : isAdmin ? "pending" : "entry"
   );
@@ -860,7 +861,7 @@ export default function Reports() {
   }, [activeTab, isAdmin, publicationScope]);
 
   const loadApprovedRecordsEvent = useEffectEvent(async () => {
-    if (activeTab !== "records") return;
+    if (!canViewAdminReportSections || activeTab !== "records") return;
 
     setApprovedRecordsLoading(true);
     try {
@@ -895,6 +896,12 @@ export default function Reports() {
     filters.subject_id,
     filters.name,
   ]);
+
+  useEffect(() => {
+    if (!canViewAdminReportSections && ["records", "templates"].includes(activeTab)) {
+      setActiveTab(selfViewOnly ? "results" : "entry");
+    }
+  }, [activeTab, canViewAdminReportSections, selfViewOnly]);
 
   useEffect(() => {
     if (approvedRecordsPage > approvedRecordsTotalPages) {
@@ -1362,6 +1369,10 @@ export default function Reports() {
     selectedStudentIds.length === grid.rows.length;
 
   function handleTabChange(nextTab) {
+    if (!canViewAdminReportSections && ["records", "templates"].includes(nextTab)) {
+      return;
+    }
+
     setActiveTab(nextTab);
     setFilters((prev) => ({
       ...prev,
@@ -2278,8 +2289,8 @@ export default function Reports() {
               ) : null}
               <TabsTrigger value="entry">Entry</TabsTrigger>
               <TabsTrigger value="approved">Published</TabsTrigger>
-              <TabsTrigger value="records">Records</TabsTrigger>
-              <TabsTrigger value="templates">Templates</TabsTrigger>
+              {canViewAdminReportSections ? <TabsTrigger value="records">Records</TabsTrigger> : null}
+              {canViewAdminReportSections ? <TabsTrigger value="templates">Templates</TabsTrigger> : null}
             </TabsList>
 
             {isAdmin ? (
@@ -2300,27 +2311,31 @@ export default function Reports() {
               {renderGridPanel({ mode: "approved" })}
             </TabsContent>
 
-            <TabsContent value="records" className="grid gap-4">
-              {renderFilterPanel()}
-              {renderApprovedRecordsPanel()}
-            </TabsContent>
+            {canViewAdminReportSections ? (
+              <TabsContent value="records" className="grid gap-4">
+                {renderFilterPanel()}
+                {renderApprovedRecordsPanel()}
+              </TabsContent>
+            ) : null}
 
-            <TabsContent value="templates" className="grid gap-4">
-              <SurfaceCard accent>
-                <div className="space-y-4 p-4">
-                  <div>
-                    <p className="text-base font-semibold">Marksheet Templates</p>
-                    <p className="text-sm text-muted-foreground">
-                      Preview how downloaded marksheets are presented. The single-exam template is active; the final template is the combined-exam layout planned from the shared references.
-                    </p>
+            {canViewAdminReportSections ? (
+              <TabsContent value="templates" className="grid gap-4">
+                <SurfaceCard accent>
+                  <div className="space-y-4 p-4">
+                    <div>
+                      <p className="text-base font-semibold">Marksheet Templates</p>
+                      <p className="text-sm text-muted-foreground">
+                        Preview how downloaded marksheets are presented. The single-exam template is active; the final template is the combined-exam layout planned from the shared references.
+                      </p>
+                    </div>
+                    <div className="grid gap-4 xl:grid-cols-2">
+                      <MarksheetTemplatePreview type="single" />
+                      <MarksheetTemplatePreview type="final" />
+                    </div>
                   </div>
-                  <div className="grid gap-4 xl:grid-cols-2">
-                    <MarksheetTemplatePreview type="single" />
-                    <MarksheetTemplatePreview type="final" />
-                  </div>
-                </div>
-              </SurfaceCard>
-            </TabsContent>
+                </SurfaceCard>
+              </TabsContent>
+            ) : null}
           </Tabs>
         </div>
       ) : null}

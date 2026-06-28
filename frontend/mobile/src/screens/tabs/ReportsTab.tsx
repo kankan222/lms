@@ -309,7 +309,6 @@ export default function ReportsTab() {
     }
     return [
       { key: "entry" as ReportsTabKey, label: "Entry" },
-      { key: "published" as ReportsTabKey, label: "Published" },
     ];
   }, [isAdmin, selfViewOnly]);
 
@@ -484,7 +483,7 @@ export default function ReportsTab() {
 
   useEffect(() => {
     setActiveTab(tabs[0]?.key || "entry");
-  }, [selfViewOnly, isAdmin]);
+  }, [tabs]);
 
   useEffect(() => {
     if (!notice) return undefined;

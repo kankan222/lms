@@ -19,13 +19,31 @@ function collectPdf(doc) {
 function drawCell(doc, x, y, width, height, text, options = {}) {
   doc.rect(x, y, width, height).stroke();
   if (text !== undefined && text !== null && text !== "") {
-    doc.text(String(text), x + 4, y + 5, {
-      width: width - 8,
-      height: height - 8,
+    const paddingX = options.paddingX ?? 4;
+    const paddingY = options.paddingY ?? 5;
+    doc.text(String(text), x + paddingX, y + paddingY, {
+      width: width - paddingX * 2,
+      height: height - paddingY * 2,
       align: options.align || "left",
-      ellipsis: true,
+      ellipsis: options.ellipsis ?? true,
     });
   }
+}
+
+function drawCenteredUnderlinedText(doc, text, x, y, width, options = {}) {
+  const fontSize = options.fontSize || 13;
+  doc.font(options.font || "Helvetica-Bold").fontSize(fontSize);
+
+  const textWidth = doc.widthOfString(text);
+  const textX = x + Math.max(0, (width - textWidth) / 2);
+  doc.text(text, x, y, {
+    width,
+    align: "center",
+  });
+  doc
+    .moveTo(textX, y + fontSize + 2)
+    .lineTo(textX + textWidth, y + fontSize + 2)
+    .stroke();
 }
 
 function drawStudentTable(doc, students, x, y, width) {
@@ -33,9 +51,14 @@ function drawStudentTable(doc, students, x, y, width) {
   const rollWidth = 36;
   const marksWidth = 38;
   const nameWidth = width - rollWidth - marksWidth;
+  const rollHeader = rollWidth < 42 ? "Roll\nNo" : "Roll No";
 
   doc.font("Helvetica-Bold").fontSize(9);
-  drawCell(doc, x, y, rollWidth, rowHeight, "Roll No.", { align: "center" });
+  drawCell(doc, x, y, rollWidth, rowHeight, rollHeader, {
+    align: "center",
+    paddingY: rollHeader.includes("\n") ? 2 : 5,
+    ellipsis: false,
+  });
   drawCell(doc, x + rollWidth, y, nameWidth, rowHeight, "Student Name", { align: "center" });
   drawCell(doc, x + rollWidth + nameWidth, y, marksWidth, rowHeight, "Marks", { align: "center" });
 
@@ -89,10 +112,7 @@ export async function generateMarkStatementPdf({ exam, subject, scope, students 
       width: usableWidth,
       align: "center",
     });
-    doc.fontSize(13).text("(MARKS STATEMENT)", left, top + 24, {
-      width: usableWidth,
-      align: "center",
-    });
+    drawCenteredUnderlinedText(doc, "MARKS STATEMENT", left, top + 24, usableWidth, { fontSize: 13 });
 
     doc.font("Helvetica-Bold").fontSize(10);
     doc.text(
