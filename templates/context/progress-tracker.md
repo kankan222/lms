@@ -547,3 +547,5 @@ Update this file after every meaningful implementation change.
   individual exam column, derived from that column's total percentage and grade.
 - Aligned the final marksheet summary block as two left/right pairs: Total
   Marks with Grand Total, then Grade with Percentage.
+- Right-aligned the Grand Total and Percentage cells in the final marksheet
+  summary block.
