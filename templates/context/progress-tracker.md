@@ -502,3 +502,8 @@ Update this file after every meaningful implementation change.
   increased sparse/medium subject row heights to reduce empty space above it.
 - Added grade to the single marksheet summary so it now shows Total Marks,
   Marks Obtained, Grade, and Percentage in order.
+- Changed the Activities setup list to group matching activity definitions by
+  name/settings and show multiple class/section scopes as badges on one row,
+  with edit/delete applying to the grouped rows.
+- Changed final marksheet signature columns to render exactly one column per
+  actual exam instead of always padding the signature grid to six exams.

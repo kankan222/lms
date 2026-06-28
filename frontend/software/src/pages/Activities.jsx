@@ -98,7 +98,7 @@ function activityScopeBadgeClass(activity) {
 
 export default function Activities() {
   const [activities, setActivities] = useState([]);
-  const [editingId, setEditingId] = useState(null);
+  const [editingRows, setEditingRows] = useState([]);
   const [formOpen, setFormOpen] = useState(false);
   const [form, setForm] = useState(emptyActivity);
   const [classes, setClasses] = useState([]);
@@ -121,6 +121,34 @@ export default function Activities() {
       ),
     [selectedActivityClasses]
   );
+
+  const groupedActivities = useMemo(() => {
+    const groupMap = new Map();
+    activities.forEach((activity) => {
+      const key = [
+        String(activity.name || "").trim().toLowerCase(),
+        wholeNumberValue(activity.max_marks),
+        String(activity.sort_order || 0),
+        String(Boolean(activity.is_active)),
+      ].join("|");
+      if (!groupMap.has(key)) {
+        groupMap.set(key, {
+          ...activity,
+          rows: [],
+        });
+      }
+      groupMap.get(key).rows.push(activity);
+    });
+
+    return [...groupMap.values()].map((group) => ({
+      ...group,
+      rows: group.rows.sort((a, b) => {
+        const classCompare = String(a.class_name || "").localeCompare(String(b.class_name || ""));
+        if (classCompare) return classCompare;
+        return String(a.section_name || "").localeCompare(String(b.section_name || ""));
+      }),
+    }));
+  }, [activities]);
 
   async function loadInitial() {
     const [activityRes, classRes] = await Promise.all([getActivities(), getClassStructure()]);
@@ -149,7 +177,7 @@ export default function Activities() {
   }
 
   function resetForm() {
-    setEditingId(null);
+    setEditingRows([]);
     setForm(emptyActivity);
     setError("");
   }
@@ -159,18 +187,28 @@ export default function Activities() {
     setFormOpen(true);
   }
 
-  function openEditForm(activity) {
-    setEditingId(activity.id);
+  function openEditForm(activityGroup) {
+    const rows = Array.isArray(activityGroup.rows) && activityGroup.rows.length
+      ? activityGroup.rows
+      : [activityGroup];
+    const classIds = rows
+      .filter((row) => row.class_id)
+      .map((row) => String(row.class_id));
+    const sectionIds = rows
+      .filter((row) => row.section_id)
+      .map((row) => String(row.section_id));
+
+    setEditingRows(rows);
     setForm({
-      name: activity.name,
-      scope_key: activity.scope_key || "",
-      class_id: activity.class_id ? String(activity.class_id) : "",
-      class_ids: activity.class_id ? [String(activity.class_id)] : [],
-      section_id: activity.section_id ? String(activity.section_id) : "",
-      section_ids: activity.section_id ? [String(activity.section_id)] : [],
-      sort_order: activity.sort_order || 0,
-      max_marks: wholeNumberValue(activity.max_marks || 10),
-      is_active: Boolean(activity.is_active),
+      name: rows[0].name,
+      scope_key: rows[0].scope_key || "",
+      class_id: classIds[0] || "",
+      class_ids: [...new Set(classIds)],
+      section_id: sectionIds[0] || "",
+      section_ids: [...new Set(sectionIds)],
+      sort_order: rows[0].sort_order || 0,
+      max_marks: wholeNumberValue(rows[0].max_marks || 10),
+      is_active: Boolean(rows[0].is_active),
     });
     setError("");
     setFormOpen(true);
@@ -199,10 +237,20 @@ export default function Activities() {
         max_marks: Number(wholeNumberValue(payload.max_marks) || 0),
       }));
 
-      if (editingId) {
-        await updateActivity(editingId, normalizedPayloads[0]);
+      if (editingRows.length) {
+        await updateActivity(editingRows[0].id, normalizedPayloads[0]);
         if (normalizedPayloads.length > 1) {
-          await Promise.all(normalizedPayloads.slice(1).map((payload) => createActivity(payload)));
+          await Promise.all(
+            normalizedPayloads.slice(1).map((payload, index) => {
+              const existingRow = editingRows[index + 1];
+              return existingRow
+                ? updateActivity(existingRow.id, payload)
+                : createActivity(payload);
+            })
+          );
+        }
+        if (editingRows.length > normalizedPayloads.length) {
+          await Promise.all(editingRows.slice(normalizedPayloads.length).map((row) => deleteActivity(row.id)));
         }
       } else {
         await Promise.all(normalizedPayloads.map((payload) => createActivity(payload)));
@@ -213,19 +261,22 @@ export default function Activities() {
       const res = await getActivities();
       setActivities(res?.data || []);
       showNotice(
-        editingId ? "Activity Updated" : "Activity Created",
-        editingId ? "Activity updated successfully." : "Activity created successfully."
+        editingRows.length ? "Activity Updated" : "Activity Created",
+        editingRows.length ? "Activity updated successfully." : "Activity created successfully."
       );
     } catch (err) {
       const message = err?.message || "Failed to save activity.";
       setError(message);
-      showNotice(editingId ? "Update Failed" : "Create Failed", message, "error");
+      showNotice(editingRows.length ? "Update Failed" : "Create Failed", message, "error");
     }
   }
 
-  async function removeActivity(activityId) {
+  async function removeActivityGroup(activityGroup) {
     try {
-      await deleteActivity(activityId);
+      const rows = Array.isArray(activityGroup.rows) && activityGroup.rows.length
+        ? activityGroup.rows
+        : [activityGroup];
+      await Promise.all(rows.map((row) => deleteActivity(row.id)));
       const res = await getActivities();
       setActivities(res?.data || []);
       showNotice("Activity Deleted", "Activity deleted successfully.");
@@ -234,11 +285,9 @@ export default function Activities() {
     }
   }
 
-  function activityScopeLabel(activity) {
+  function activityScopeBadgeLabel(activity) {
     if (activity.class_id) {
-      return `${activity.class_name || "Class"}${
-        activity.section_id ? ` - ${activity.section_name || "Section"}` : " - All Sections"
-      }`;
+      return `${activity.class_name || "Class"}${activity.section_id ? ` - ${activity.section_name || "Section"}` : " (All Sections)"}`;
     }
 
     if (activity.scope_key) return scopeLabels[activity.scope_key] || activity.scope_key;
@@ -283,7 +332,7 @@ export default function Activities() {
             </DialogTrigger>
             <DialogContent className="max-h-[88vh] overflow-y-auto rounded-2xl sm:max-w-3xl">
               <DialogHeader>
-                <DialogTitle>{editingId ? "Edit Activity" : "Add Activity"}</DialogTitle>
+                <DialogTitle>{editingRows.length ? "Edit Activity" : "Add Activity"}</DialogTitle>
               </DialogHeader>
               <form onSubmit={saveDefinition} className="grid gap-4">
                 <p className="text-sm text-muted-foreground">
@@ -404,7 +453,7 @@ export default function Activities() {
                 </label>
                 {error ? <p className="text-sm text-red-600">{error}</p> : null}
                 <div className="grid gap-2 sm:grid-cols-2">
-                  <Button className="w-full">{editingId ? "Update" : "Create"}</Button>
+                  <Button className="w-full">{editingRows.length ? "Update" : "Create"}</Button>
                   <Button type="button" variant="outline" className="w-full" onClick={() => setFormOpen(false)}>Cancel</Button>
                 </div>
               </form>
@@ -419,14 +468,16 @@ export default function Activities() {
           <CardDescription>These rows print on the front page of the final marksheet.</CardDescription>
         </CardHeader>
         <CardContent className="grid gap-2">
-          {activities.map((activity) => (
-            <div key={activity.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border px-3 py-2">
+          {groupedActivities.map((activity) => (
+            <div key={`${activity.id}-${activity.name}`} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border px-3 py-2">
               <div>
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   <span className="font-semibold">{activity.name}</span>
-                  <Badge variant="outline" className={`rounded-full ${activityScopeBadgeClass(activity)}`}>
-                    {activityScopeLabel(activity)}
-                  </Badge>
+                  {activity.rows.map((scopeRow) => (
+                    <Badge key={scopeRow.id} variant="outline" className={`rounded-full ${activityScopeBadgeClass(scopeRow)}`}>
+                      {activityScopeBadgeLabel(scopeRow)}
+                    </Badge>
+                  ))}
                   {!activity.is_active ? (
                     <Badge
                       variant="outline"
@@ -442,11 +493,11 @@ export default function Activities() {
               </div>
               <div className="flex gap-2">
                 <Button size="sm" variant="outline" onClick={() => openEditForm(activity)}>Edit</Button>
-                <Button size="sm" variant="destructive" onClick={() => removeActivity(activity.id)}>Delete</Button>
+                <Button size="sm" variant="destructive" onClick={() => removeActivityGroup(activity)}>Delete</Button>
               </div>
             </div>
           ))}
-          {!activities.length ? (
+          {!groupedActivities.length ? (
             <p className="rounded-lg border border-dashed px-3 py-6 text-center text-sm text-muted-foreground">
               No activities found.
             </p>

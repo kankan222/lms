@@ -199,12 +199,10 @@ export async function generateFinalMarksheetPdf(report) {
 
   const signatureLabels = exams.length
     ? exams.map((exam) => exam.name)
-    : ["Unit Test I", "Mock Test I", "Half Yearly Exam", "Mock Test II", "Mock Test III", "Annual Exam"];
-  const paddedLabels = [...signatureLabels];
-  while (paddedLabels.length < 6) paddedLabels.push("");
+    : ["Exam"];
+  const signatureColumnCount = Math.max(signatureLabels.length, 1);
 
-  const signatureCells = paddedLabels
-    .slice(0, Math.max(6, signatureLabels.length))
+  const signatureCells = signatureLabels
     .map((label) => {
       const safeLabel = escapeHtml(label);
       return `
@@ -244,6 +242,7 @@ export async function generateFinalMarksheetPdf(report) {
     .replaceAll("{{gradeSecuredRows}}", gradeSecuredRows)
     .replaceAll("{{promotedClassName}}", escapeHtml(report?.student?.promoted_class_name || ""))
     .replaceAll("{{finalResultText}}", renderFinalResultText(report))
+    .replaceAll("{{signatureColumnCount}}", String(signatureColumnCount))
     .replaceAll("{{signatureCells}}", signatureCells);
 
   const browser = await puppeteer.launch({
