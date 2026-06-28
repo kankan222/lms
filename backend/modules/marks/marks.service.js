@@ -202,6 +202,7 @@ function formatReport(rows, publication = null) {
       total,
       max_total: maxTotal,
       percentage: Number(percentage.toFixed(2)),
+      grade: gradeForPercentage(percentage),
     },
     publication: publication
       ? {

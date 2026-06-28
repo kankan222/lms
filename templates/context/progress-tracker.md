@@ -496,3 +496,9 @@ Update this file after every meaningful implementation change.
 - Tightened report visibility so student/parent access cannot see approved
   marksheets before the published date, including Student Details report
   downloads and final marksheet downloads.
+- Added a Mark Statement PDF preview panel with a Preview PDF action that
+  renders the generated statement below the download controls before saving.
+- Re-anchored the final marksheet second-page signature grid to the bottom and
+  increased sparse/medium subject row heights to reduce empty space above it.
+- Added grade to the single marksheet summary so it now shows Total Marks,
+  Marks Obtained, Grade, and Percentage in order.

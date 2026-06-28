@@ -86,6 +86,8 @@ export default function MarkReport() {
   const [loading, setLoading] = useState(true);
   const [examMetaLoading, setExamMetaLoading] = useState(false);
   const [downloading, setDownloading] = useState(false);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewUrl, setPreviewUrl] = useState("");
   const [banner, setBanner] = useState(null);
 
   const scopeFilteredExams = useMemo(
@@ -254,25 +256,71 @@ export default function MarkReport() {
     }
   }, [filters.exam_id, filters.class_id, filters.section_id, availableClasses, availableSections, examMetaLoading]);
 
-  async function handleDownloadMarkStatement() {
+  useEffect(() => {
+    setPreviewUrl("");
+  }, [filters.exam_id, filters.class_id, filters.section_id, filters.medium, filters.subject_id]);
+
+  useEffect(() => {
+    if (!previewUrl) return undefined;
+    return () => {
+      window.URL.revokeObjectURL(previewUrl);
+    };
+  }, [previewUrl]);
+
+  function assertReadyForStatement() {
     if (!ready) {
       setBanner({
         type: "destructive",
         title: "Missing selection",
         message: "Select exam, class, section, and subject before downloading the marks statement.",
       });
-      return;
+      return false;
     }
+    return true;
+  }
+
+  async function fetchStatementBlob() {
+    return downloadMarkStatement({
+      exam_id: filters.exam_id,
+      class_id: filters.class_id,
+      section_id: filters.section_id,
+      medium: filters.medium,
+      subject_id: filters.subject_id,
+    });
+  }
+
+  async function handlePreviewMarkStatement() {
+    if (!assertReadyForStatement()) return;
+
+    setPreviewLoading(true);
+    try {
+      const blob = await fetchStatementBlob();
+      if (!blob || blob.size === 0) {
+        throw new Error("Preview file is empty");
+      }
+      setPreviewUrl(window.URL.createObjectURL(blob));
+      setBanner({
+        type: "success",
+        title: "Preview ready",
+        message: "Marks statement preview generated successfully.",
+      });
+    } catch (err) {
+      setBanner({
+        type: "destructive",
+        title: "Preview failed",
+        message: err?.message || "Failed to preview marks statement.",
+      });
+    } finally {
+      setPreviewLoading(false);
+    }
+  }
+
+  async function handleDownloadMarkStatement() {
+    if (!assertReadyForStatement()) return;
 
     setDownloading(true);
     try {
-      const blob = await downloadMarkStatement({
-        exam_id: filters.exam_id,
-        class_id: filters.class_id,
-        section_id: filters.section_id,
-        medium: filters.medium,
-        subject_id: filters.subject_id,
-      });
+      const blob = await fetchStatementBlob();
       downloadBlob(
         blob,
         `marks-statement-exam-${filters.exam_id}-class-${filters.class_id}-section-${filters.section_id}-subject-${filters.subject_id}.pdf`
@@ -463,11 +511,41 @@ export default function MarkReport() {
                   {selectedSection
                     ? `${selectedSection.name}${selectedSection.medium ? ` (${selectedSection.medium})` : ""}`
                     : "-"}
-                </span>
+                  </span>
               </div>
-              <Button type="button" onClick={handleDownloadMarkStatement} disabled={!ready || downloading}>
-                {downloading ? "Downloading..." : "Download Statement PDF"}
-              </Button>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={handlePreviewMarkStatement}
+                  disabled={!ready || previewLoading}
+                >
+                  {previewLoading ? "Generating..." : "Preview PDF"}
+                </Button>
+                <Button type="button" onClick={handleDownloadMarkStatement} disabled={!ready || downloading}>
+                  {downloading ? "Downloading..." : "Download Statement PDF"}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>PDF Preview</CardTitle>
+              <CardDescription>Preview the selected mark statement before downloading.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {previewUrl ? (
+                <iframe
+                  title="Mark statement PDF preview"
+                  src={previewUrl}
+                  className="h-[720px] w-full rounded-lg border bg-background"
+                />
+              ) : (
+                <div className="flex min-h-64 items-center justify-center rounded-lg border border-dashed text-sm text-muted-foreground">
+                  Select filters and click Preview PDF.
+                </div>
+              )}
             </CardContent>
           </Card>
         </div>
