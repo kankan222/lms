@@ -474,3 +474,9 @@ Update this file after every meaningful implementation change.
   class, section, grouped-scope, and inactive rows are easier to scan.
 - Added success and failure alerts to Activities create, update, and delete
   actions to match the feedback pattern used in other admin tabs.
+- Moved the Mark Report statement downloader out of the Reports tab set into a
+  standalone Mark Report page and navigation item under Reports below Exam
+  Report.
+- Updated the Mark Report statement PDF to portrait orientation while keeping
+  the 20-row side-by-side split logic, adding class/section/medium header
+  details, a bordered Total Marks box, and a subject-teacher signature line.

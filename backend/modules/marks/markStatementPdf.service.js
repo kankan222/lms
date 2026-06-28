@@ -18,7 +18,8 @@ function collectPdf(doc) {
 function drawCell(doc, x, y, width, height, text, options = {}) {
   doc.rect(x, y, width, height).stroke();
   if (text !== undefined && text !== null && text !== "") {
-    doc.text(String(text), x + 4, y + 5, {
+    doc.text(String(text), x + 3, y + 4,
+    {
       width: width - 8,
       height: height - 8,
       align: options.align || "left",
@@ -28,17 +29,17 @@ function drawCell(doc, x, y, width, height, text, options = {}) {
 }
 
 function drawStudentTable(doc, students, x, y, width) {
-  const rowHeight = 22;
-  const rollWidth = 46;
-  const marksWidth = 52;
+  const rowHeight = 18;
+  const rollWidth = 36;
+  const marksWidth = 38;
   const nameWidth = width - rollWidth - marksWidth;
 
-  doc.font("Helvetica-Bold").fontSize(9);
+  doc.font("Helvetica-Bold").fontSize(8);
   drawCell(doc, x, y, rollWidth, rowHeight, "Roll No.", { align: "center" });
   drawCell(doc, x + rollWidth, y, nameWidth, rowHeight, "Student Name", { align: "center" });
   drawCell(doc, x + rollWidth + nameWidth, y, marksWidth, rowHeight, "Marks", { align: "center" });
 
-  doc.font("Helvetica").fontSize(9);
+  doc.font("Helvetica").fontSize(8);
   students.forEach((student, index) => {
     const rowY = y + rowHeight * (index + 1);
     drawCell(doc, x, rowY, rollWidth, rowHeight, safeText(student.roll_number), { align: "center" });
@@ -52,7 +53,7 @@ function drawStudentTable(doc, students, x, y, width) {
 export async function generateMarkStatementPdf({ exam, subject, scope, students }) {
   const doc = new PDFDocument({
     size: "A4",
-    layout: "landscape",
+    layout: "portrait",
     margin: 32,
   });
   const done = collectPdf(doc);
@@ -71,9 +72,10 @@ export async function generateMarkStatementPdf({ exam, subject, scope, students 
     const usableWidth = doc.page.width - doc.page.margins.left - doc.page.margins.right;
     const left = doc.page.margins.left;
     const top = doc.page.margins.top;
-    const gap = 18;
+    const gap = 12;
     const tableWidth = (usableWidth - gap) / 2;
-    const tableTop = top + 82;
+    const tableTop = top + 120;
+    const subjectMaxMarks = Number(subject?.max_marks || 0);
 
     doc.font("Helvetica-Bold").fontSize(17).text("KALONG KAPILI VIDYAPITH", left, top, {
       width: usableWidth,
@@ -92,11 +94,20 @@ export async function generateMarkStatementPdf({ exam, subject, scope, students 
       { width: usableWidth, align: "center" }
     );
     doc.text(
-      `Class : ${safeText(scope?.class_name)}    Medium : ${safeText(scope?.medium)}`,
+      `Class : ${safeText(scope?.class_name)}    Section : ${safeText(scope?.section_name)}    Medium : ${safeText(scope?.medium)}`,
       left,
       top + 66,
       { width: usableWidth, align: "center" }
     );
+    doc
+      .roundedRect(left, top + 88, 112, 24, 3)
+      .stroke()
+      .font("Helvetica-Bold")
+      .fontSize(10)
+      .text(`Total Marks - ${subjectMaxMarks || "-"}`, left + 8, top + 95, {
+        width: 96,
+        align: "center",
+      });
 
     drawStudentTable(doc, pageRows.slice(0, PAGE_ROWS_PER_SIDE), left, tableTop, tableWidth);
     if (pageRows.length > PAGE_ROWS_PER_SIDE) {
@@ -108,6 +119,23 @@ export async function generateMarkStatementPdf({ exam, subject, scope, students 
         tableWidth
       );
     }
+
+    const signatureY = doc.page.height - 92;
+    const signatureWidth = 180;
+    const signatureX = doc.page.width - doc.page.margins.right - signatureWidth;
+    doc
+      .font("Helvetica-Bold")
+      .fontSize(9)
+      .text("Signature of Subject Teacher", signatureX, signatureY, {
+        width: signatureWidth,
+        align: "center",
+      });
+    doc
+      .moveTo(signatureX + 16, signatureY + 34)
+      .lineTo(signatureX + signatureWidth - 16, signatureY + 34)
+      .dash(2, { space: 3 })
+      .stroke()
+      .undash();
 
     doc.font("Helvetica").fontSize(8).text(`Page ${pageIndex + 1} of ${pages.length}`, left, doc.page.height - 42, {
       width: usableWidth,

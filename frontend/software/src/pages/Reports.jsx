@@ -24,7 +24,6 @@ import {
   getApprovedMarkRecords,
   approveMarks,
   downloadFinalMarksheet,
-  downloadMarkStatement,
   downloadMyMarksheet,
   downloadStudentMarksheet,
   getMarksApprovalSummary,
@@ -449,7 +448,6 @@ export default function Reports() {
   const [selfFinalDownloadLoading, setSelfFinalDownloadLoading] = useState(false);
   const [downloadingStudentId, setDownloadingStudentId] = useState(null);
   const [downloadingFinalStudentId, setDownloadingFinalStudentId] = useState(null);
-  const [statementDownloading, setStatementDownloading] = useState(false);
   const [examMetaLoading, setExamMetaLoading] = useState(false);
   const [banner, setBanner] = useState(null);
 
@@ -1359,32 +1357,6 @@ export default function Reports() {
     }
   }
 
-  async function handleDownloadMarkStatement() {
-    if (!filters.exam_id || !filters.class_id || !filters.section_id || !filters.subject_id) {
-      setError("Select exam, class, section, and subject before downloading the marks statement.");
-      return;
-    }
-
-    setStatementDownloading(true);
-    try {
-      const blob = await downloadMarkStatement({
-        exam_id: filters.exam_id,
-        class_id: filters.class_id,
-        section_id: filters.section_id,
-        medium: filters.medium,
-        subject_id: filters.subject_id,
-      });
-      downloadBlob(
-        blob,
-        `marks-statement-exam-${filters.exam_id}-class-${filters.class_id}-section-${filters.section_id}-subject-${filters.subject_id}.pdf`
-      );
-    } catch (err) {
-      setError(err?.message || "Failed to download marks statement.");
-    } finally {
-      setStatementDownloading(false);
-    }
-  }
-
   const allSelected =
     grid?.rows?.length > 0 &&
     selectedStudentIds.length === grid.rows.length;
@@ -1787,39 +1759,6 @@ export default function Reports() {
               No approved records found for the current filters.
             </p>
           )}
-        </div>
-      </SurfaceCard>
-    );
-  }
-
-  function renderMarkReportPanel() {
-    if (!isAdmin) return null;
-
-    const ready = Boolean(filters.exam_id && filters.class_id && filters.section_id && filters.subject_id);
-
-    return (
-      <SurfaceCard accent>
-        <div className="flex flex-wrap items-center justify-between gap-4 p-4">
-          <div>
-            <p className="text-base font-semibold">Mark Report Statement</p>
-            <p className="text-sm text-muted-foreground">
-              Download a blank marks statement for the selected exam, class, section, medium, and subject.
-            </p>
-            <div className="mt-2 flex flex-wrap gap-2 text-xs text-muted-foreground">
-              <span>Exam: {selectedExam?.name || "-"}</span>
-              <span>Subject: {selectedSubject?.name || "-"}</span>
-              <span>Class: {selectedClass?.name || "-"}</span>
-              <span>
-                Section:{" "}
-                {selectedSection
-                  ? `${selectedSection.name}${selectedSection.medium ? ` (${selectedSection.medium})` : ""}`
-                  : "-"}
-              </span>
-            </div>
-          </div>
-          <Button type="button" onClick={handleDownloadMarkStatement} disabled={!ready || statementDownloading}>
-            {statementDownloading ? "Downloading..." : "Download Statement PDF"}
-          </Button>
         </div>
       </SurfaceCard>
     );
@@ -2339,7 +2278,6 @@ export default function Reports() {
               ) : null}
               <TabsTrigger value="entry">Entry</TabsTrigger>
               <TabsTrigger value="approved">Published</TabsTrigger>
-              {isAdmin ? <TabsTrigger value="mark-report">Mark Report</TabsTrigger> : null}
               <TabsTrigger value="records">Records</TabsTrigger>
               <TabsTrigger value="templates">Templates</TabsTrigger>
             </TabsList>
@@ -2361,13 +2299,6 @@ export default function Reports() {
               {renderPublicationPanel()}
               {renderGridPanel({ mode: "approved" })}
             </TabsContent>
-
-            {isAdmin ? (
-              <TabsContent value="mark-report" className="grid gap-4">
-                {renderFilterPanel()}
-                {renderMarkReportPanel()}
-              </TabsContent>
-            ) : null}
 
             <TabsContent value="records" className="grid gap-4">
               {renderFilterPanel()}

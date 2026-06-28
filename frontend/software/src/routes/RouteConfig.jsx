@@ -9,6 +9,7 @@ import {
   Mail,
   Bell,
   FileSpreadsheet,
+  FileText,
   NotebookTabs,
   Settings,
   BriefcaseBusinessIcon,
@@ -38,6 +39,7 @@ const TeacherDeviceMapping = lazy(() => import("../pages/TeacherDeviceMapping"))
 const Messaging = lazy(() => import("../pages/Messaging"));
 const Exams = lazy(() => import("../pages/Exams"));
 const Reports = lazy(() => import("../pages/Reports"));
+const MarkReport = lazy(() => import("../pages/MarkReport"));
 const ActivityMarks = lazy(() => import("../pages/ActivityMarks"));
 const SettingsPage = lazy(() => import("../pages/Settings"));
 const GradeSettings = lazy(() => import("../pages/GradeSettings"));
@@ -202,6 +204,15 @@ export const appRoutes = [
       hideForRoles: ["parent"],
     },
     {
+      title: "Mark Report",
+      icon: FileText,
+      path: "/mark-report",
+      element: <MarkReport />,
+      protected: true,
+      permission: "marks.approve",
+      hideForRoles: ["teacher", "parent"],
+    },
+    {
       title: "Activity Marks",
       icon: ClipboardPenLine,
       path: "/activity-marks",
@@ -364,6 +375,10 @@ export const navSections = [
       navEntry("/reports", {
         title: "Exam Report",
         icon: NotebookTabs,
+      }),
+      navEntry("/mark-report", {
+        title: "Mark Report",
+        icon: FileText,
       }),
       navEntry("/activity-marks", {
         title: "Activity Marks",
