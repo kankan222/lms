@@ -545,3 +545,5 @@ Update this file after every meaningful implementation change.
   columns.
 - Filled final marksheet remarks cells with the qualitative value for each
   individual exam column, derived from that column's total percentage and grade.
+- Stacked Grand Total and Percentage together in the right-side final marksheet
+  summary block while keeping Grade on the left-side summary cell.

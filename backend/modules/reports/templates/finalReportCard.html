@@ -343,6 +343,11 @@
     border-bottom: 1px solid #172554;
   }
 
+  .summary-row .criteria-summary.summary-stack {
+    text-align: center;
+    line-height: 1.55;
+  }
+
   .summary-row .criteria-summary.blank {
     border: none;
     color: transparent;
@@ -516,13 +521,15 @@
           <td>TOTAL</td>
           {{examTotalCells}}
           <td class="criteria-summary criteria-start" colspan="2">Total Marks : {{maxTotal}}</td>
-          <td class="criteria-summary summary-end" colspan="2">Grand Total : {{grandTotal}}</td>
+          <td class="criteria-summary summary-end summary-bottom summary-stack" colspan="2" rowspan="3">
+            <div>Grand Total : {{grandTotal}}</div>
+            <div>Percentage : {{percentage}}%</div>
+          </td>
         </tr>
         <tr class="summary-row">
           <td>Percentage</td>
           {{examPercentageCells}}
           <td class="criteria-summary criteria-start summary-bottom" colspan="2" rowspan="2">Grade : {{grade}}</td>
-          <td class="criteria-summary summary-end summary-bottom" colspan="2" rowspan="2">Percentage : {{percentage}}%</td>
         </tr>
         <tr class="summary-row">
           <td>Grade</td>
