@@ -7,6 +7,8 @@ import * as marksheetRepo from "../marksheet/marksheet.repository.js";
 import { resolveGrade } from "../marksheet/marksheet.service.js";
 import * as repo from "./marks.repository.js";
 
+const FINAL_MARKSHEET_EXCLUDED_TYPES = new Set(["single_marksheet_only"]);
+
 async function getUserContext(userId) {
   const [roles, teacher, parentStudentIds, studentProfile] = await Promise.all([
     repo.getUserRoleNames(userId),
@@ -233,6 +235,9 @@ function weightedContribution(marks, maxMarks, weight) {
 }
 
 async function formatFinalReport(scope, rows) {
+  const displayRows = rows.filter(
+    (row) => !FINAL_MARKSHEET_EXCLUDED_TYPES.has(String(row.final_calculation_type || "").trim().toLowerCase())
+  );
   const examMap = new Map();
   const subjectMap = new Map();
   const groupOrder = {
@@ -241,7 +246,7 @@ async function formatFinalReport(scope, rows) {
     optional: 3,
   };
 
-  rows.forEach((row) => {
+  displayRows.forEach((row) => {
     const examId = String(row.exam_id);
     const subjectKey = row.subject_offering_id
       ? `offering:${row.subject_offering_id}`
@@ -402,7 +407,7 @@ async function formatFinalReport(scope, rows) {
       session_name: scope.session_name,
       class_id: Number(scope.class_id),
       class_name: scope.class_name,
-      class_scope: rows[0]?.class_scope || "school",
+      class_scope: displayRows[0]?.class_scope || rows[0]?.class_scope || "school",
       section_id: Number(scope.section_id),
       section_name: scope.section_name,
       medium: scope.medium,
@@ -1051,6 +1056,13 @@ export async function downloadFinalMarksheet(query, userId) {
 
   if (!rows.length) {
     throw new AppError("No published approved marks found for this final marksheet", 404);
+  }
+
+  const hasDisplayableFinalMarks = rows.some(
+    (row) => !FINAL_MARKSHEET_EXCLUDED_TYPES.has(String(row.final_calculation_type || "").trim().toLowerCase())
+  );
+  if (!hasDisplayableFinalMarks) {
+    throw new AppError("No approved marks are configured to display in this final marksheet", 404);
   }
 
   const report = await formatFinalReport(scope, rows);

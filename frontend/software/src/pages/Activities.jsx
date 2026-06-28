@@ -5,13 +5,19 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { getClassStructure, getSessions } from "../api/academic.api";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import { getClassStructure } from "../api/academic.api";
 import {
   createActivity,
   deleteActivity,
   getActivities,
-  getActivityMarkGrid,
-  saveActivityMarks,
   updateActivity,
 } from "../api/marksheet.api";
 
@@ -67,25 +73,43 @@ function toggleStringId(values = [], id) {
     : [...values, nextId];
 }
 
+function wholeNumberValue(value) {
+  const text = String(value ?? "").trim();
+  if (!text) return "";
+  const number = Number(text);
+  return Number.isFinite(number) ? String(Math.round(number)) : text.replace(/\D/g, "");
+}
+
+function activityScopeBadgeClass(activity) {
+  if (activity.section_id) {
+    return "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/15 dark:text-emerald-200";
+  }
+
+  if (activity.class_id) {
+    return "border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-500/30 dark:bg-blue-500/15 dark:text-blue-200";
+  }
+
+  if (activity.scope_key) {
+    return "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-500/30 dark:bg-amber-500/15 dark:text-amber-200";
+  }
+
+  return "border-violet-200 bg-violet-50 text-violet-700 dark:border-violet-500/30 dark:bg-violet-500/15 dark:text-violet-200";
+}
+
 export default function Activities() {
   const [activities, setActivities] = useState([]);
   const [editingId, setEditingId] = useState(null);
+  const [formOpen, setFormOpen] = useState(false);
   const [form, setForm] = useState(emptyActivity);
-  const [sessions, setSessions] = useState([]);
   const [classes, setClasses] = useState([]);
-  const [filters, setFilters] = useState({ session_id: "", class_id: "", section_id: "" });
-  const [grid, setGrid] = useState({ activities: [], students: [] });
-  const [marks, setMarks] = useState({});
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState(null);
 
-  const selectedClass = useMemo(
-    () => classes.find((item) => String(item.id) === String(filters.class_id)),
-    [classes, filters.class_id]
-  );
   const selectedActivityClasses = useMemo(
     () => classes.filter((item) => (form.class_ids || []).some((id) => String(id) === String(item.id))),
     [classes, form.class_ids]
   );
+
   const selectedActivitySectionOptions = useMemo(
     () =>
       selectedActivityClasses.flatMap((classItem) =>
@@ -99,13 +123,8 @@ export default function Activities() {
   );
 
   async function loadInitial() {
-    const [activityRes, sessionRes, classRes] = await Promise.all([
-      getActivities(),
-      getSessions(),
-      getClassStructure(),
-    ]);
+    const [activityRes, classRes] = await Promise.all([getActivities(), getClassStructure()]);
     setActivities(activityRes?.data || []);
-    setSessions(sessionRes?.data || []);
     setClasses(classRes?.data || []);
   }
 
@@ -117,10 +136,44 @@ export default function Activities() {
     loadInitialActivities();
   }, []);
 
+  useEffect(() => {
+    if (!notice) return undefined;
+    const timeoutId = window.setTimeout(() => {
+      setNotice(null);
+    }, 3500);
+    return () => window.clearTimeout(timeoutId);
+  }, [notice]);
+
+  function showNotice(title, message, variant = "success") {
+    setNotice({ title, message, variant });
+  }
+
   function resetForm() {
     setEditingId(null);
     setForm(emptyActivity);
     setError("");
+  }
+
+  function openCreateForm() {
+    resetForm();
+    setFormOpen(true);
+  }
+
+  function openEditForm(activity) {
+    setEditingId(activity.id);
+    setForm({
+      name: activity.name,
+      scope_key: activity.scope_key || "",
+      class_id: activity.class_id ? String(activity.class_id) : "",
+      class_ids: activity.class_id ? [String(activity.class_id)] : [],
+      section_id: activity.section_id ? String(activity.section_id) : "",
+      section_ids: activity.section_id ? [String(activity.section_id)] : [],
+      sort_order: activity.sort_order || 0,
+      max_marks: wholeNumberValue(activity.max_marks || 10),
+      is_active: Boolean(activity.is_active),
+    });
+    setError("");
+    setFormOpen(true);
   }
 
   async function saveDefinition(e) {
@@ -141,335 +194,265 @@ export default function Activities() {
         : selectedClassIds.length
           ? selectedClassIds.map((classId) => ({ ...form, class_id: classId, section_id: "" }))
           : [{ ...form, class_id: "", section_id: "" }];
+      const normalizedPayloads = payloads.map((payload) => ({
+        ...payload,
+        max_marks: Number(wholeNumberValue(payload.max_marks) || 0),
+      }));
 
       if (editingId) {
-        if (payloads.length !== 1) {
-          throw new Error("Edit one class or section scope at a time.");
+        await updateActivity(editingId, normalizedPayloads[0]);
+        if (normalizedPayloads.length > 1) {
+          await Promise.all(normalizedPayloads.slice(1).map((payload) => createActivity(payload)));
         }
-        await updateActivity(editingId, payloads[0]);
       } else {
-        await Promise.all(payloads.map((payload) => createActivity(payload)));
+        await Promise.all(normalizedPayloads.map((payload) => createActivity(payload)));
       }
+
       resetForm();
+      setFormOpen(false);
       const res = await getActivities();
       setActivities(res?.data || []);
+      showNotice(
+        editingId ? "Activity Updated" : "Activity Created",
+        editingId ? "Activity updated successfully." : "Activity created successfully."
+      );
     } catch (err) {
-      setError(err?.message || "Failed to save activity.");
+      const message = err?.message || "Failed to save activity.";
+      setError(message);
+      showNotice(editingId ? "Update Failed" : "Create Failed", message, "error");
     }
   }
 
-  async function loadMarkGrid() {
-    setError("");
+  async function removeActivity(activityId) {
     try {
-      const res = await getActivityMarkGrid(filters);
-      const nextGrid = res?.data || { activities: [], students: [] };
-      setGrid(nextGrid);
-      const nextMarks = {};
-      nextGrid.students.forEach((student) => {
-        nextGrid.activities.forEach((activity) => {
-          nextMarks[`${activity.id}-${student.student_id}`] =
-            student.marks?.[activity.id] ?? "";
-        });
-      });
-      setMarks(nextMarks);
+      await deleteActivity(activityId);
+      const res = await getActivities();
+      setActivities(res?.data || []);
+      showNotice("Activity Deleted", "Activity deleted successfully.");
     } catch (err) {
-      setError(err?.message || "Failed to load activity marks.");
+      showNotice("Delete Failed", err?.message || "Failed to delete activity.", "error");
     }
   }
 
-  async function saveMarksForActivity(activityId) {
-    const rows = grid.students.map((student) => ({
-      student_id: student.student_id,
-      marks: marks[`${activityId}-${student.student_id}`] ?? "",
-    }));
-    await saveActivityMarks(activityId, { ...filters, rows });
-    await loadMarkGrid();
+  function activityScopeLabel(activity) {
+    if (activity.class_id) {
+      return `${activity.class_name || "Class"}${
+        activity.section_id ? ` - ${activity.section_name || "Section"}` : " - All Sections"
+      }`;
+    }
+
+    if (activity.scope_key) return scopeLabels[activity.scope_key] || activity.scope_key;
+    return "All Classes";
   }
 
   return (
     <>
-      <TopBar title="Activities" subTitle="Configure class-scoped activities and enter marksheet activity marks" />
-      <div className="grid gap-4 xl:grid-cols-[360px_minmax(0,1fr)]">
-        <Card>
-          <CardHeader>
-            <CardTitle>{editingId ? "Edit Activity" : "Add Activity"}</CardTitle>
-            <CardDescription>Activities can apply to all classes, one class, or one section.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <form onSubmit={saveDefinition} className="grid gap-3">
-              <div className="grid gap-2">
-                <Label>Name</Label>
-                <Input value={form.name} onChange={(e) => setForm((p) => ({ ...p, name: e.target.value }))} />
-              </div>
-              <div className="grid gap-2">
-                <Label>Class Scope</Label>
-                <div className="max-h-44 space-y-2 overflow-y-auto rounded-md border border-border bg-background p-2">
-                  <CheckboxChoice
-                    checked={(form.class_ids || []).length === 0}
-                    label="All Classes"
-                    onChange={() =>
-                      setForm((p) => ({
-                        ...p,
-                        class_id: "",
-                        class_ids: [],
-                        section_id: "",
-                        section_ids: [],
-                      }))
-                    }
-                  />
-                  {classes.map((item) => (
-                    <CheckboxChoice
-                      key={item.id}
-                      checked={(form.class_ids || []).some((id) => String(id) === String(item.id))}
-                      label={item.name}
-                      onChange={() =>
-                        setForm((p) => {
-                          const class_ids = toggleStringId(p.class_ids, item.id);
-                          const allowedSectionIds = new Set(
-                            classes
-                              .filter((classItem) =>
-                                class_ids.some((id) => String(id) === String(classItem.id))
-                              )
-                              .flatMap((classItem) => classItem.sections || [])
-                              .map((section) => String(section.id))
-                          );
-                          return {
-                            ...p,
-                            class_id: class_ids[0] || "",
-                            class_ids,
-                            section_id: "",
-                            section_ids: (p.section_ids || []).filter((id) => allowedSectionIds.has(String(id))),
-                          };
-                        })
-                      }
-                    />
-                  ))}
-                </div>
-              </div>
-              <div className="grid gap-2">
-                <Label>Section Scope</Label>
-                <div className="max-h-44 space-y-2 overflow-y-auto rounded-md border border-border bg-background p-2">
-                  <CheckboxChoice
-                    checked={(form.section_ids || []).length === 0}
-                    disabled={(form.class_ids || []).length === 0}
-                    label={(form.class_ids || []).length > 1 ? "All Sections for Selected Classes" : "All Sections"}
-                    onChange={() => setForm((p) => ({ ...p, section_id: "", section_ids: [] }))}
-                  />
-                  {selectedActivitySectionOptions.map((section) => (
-                    <CheckboxChoice
-                      key={section.id}
-                      checked={(form.section_ids || []).some((id) => String(id) === String(section.id))}
-                      disabled={(form.class_ids || []).length === 0}
-                      label={`${section.class_name} - ${section.name}${section.medium ? ` (${section.medium})` : ""}`}
-                      onChange={() =>
-                        setForm((p) => ({
-                          ...p,
-                          section_id: "",
-                          section_ids: toggleStringId(p.section_ids, section.id),
-                        }))
-                      }
-                    />
-                  ))}
-                  {(form.class_ids || []).length === 0 ? (
-                    <p className="px-2 py-1 text-sm text-muted-foreground">Select one or more classes first.</p>
-                  ) : null}
-                  {(form.class_ids || []).length > 0 && !selectedActivitySectionOptions.length ? (
-                    <p className="px-2 py-1 text-sm text-muted-foreground">No sections found for selected classes.</p>
-                  ) : null}
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-2">
-                <div className="grid gap-2">
-                  <Label>Max Marks</Label>
-                  <Input
-                    type="text"
-                    inputMode="decimal"
-                    value={form.max_marks}
-                    onChange={(e) => {
-                      const value = e.target.value.replace(/[^\d.]/g, "").replace(/(\..*)\./g, "$1");
-                      setForm((p) => ({ ...p, max_marks: value }));
-                    }}
-                  />
-                </div>
-                <div className="grid gap-2">
-                  <Label>Order</Label>
-                  <Input
-                    type="text"
-                    inputMode="numeric"
-                    pattern="[0-9]*"
-                    value={form.sort_order}
-                    onChange={(e) => setForm((p) => ({ ...p, sort_order: e.target.value.replace(/\D/g, "") }))}
-                  />
-                </div>
-              </div>
-              <label className="flex items-center gap-2 text-sm">
-                <input type="checkbox" checked={form.is_active} onChange={(e) => setForm((p) => ({ ...p, is_active: e.target.checked }))} />
-                Active
-              </label>
-              {error ? <p className="text-sm text-red-600">{error}</p> : null}
-              <div className="flex gap-2">
-                <Button>{editingId ? "Update" : "Create"}</Button>
-                {editingId ? <Button type="button" variant="outline" onClick={resetForm}>Cancel</Button> : null}
-              </div>
-            </form>
-          </CardContent>
-        </Card>
-
-        <div className="grid gap-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>Activity Definitions</CardTitle>
-              <CardDescription>These rows print on the front page of the final marksheet.</CardDescription>
-            </CardHeader>
-            <CardContent className="grid gap-2">
-              {activities.map((activity) => (
-                <div key={activity.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border px-3 py-2">
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <span className="font-semibold">{activity.name}</span>
-                      <Badge variant="outline">
-                        {activity.class_id
-                          ? `${activity.class_name || "Class"}${activity.section_id ? ` - ${activity.section_name || "Section"}` : " - All Sections"}`
-                          : activity.scope_key
-                            ? scopeLabels[activity.scope_key]
-                            : "All Classes"}
-                      </Badge>
-                    </div>
-                    <p className="text-sm text-muted-foreground">Max {activity.max_marks} · Order {activity.sort_order}</p>
-                  </div>
-                  <div className="flex gap-2">
-                    <Button size="sm" variant="outline" onClick={() => {
-                      setEditingId(activity.id);
-                      setForm({
-                        name: activity.name,
-                        scope_key: activity.scope_key || "",
-                        class_id: activity.class_id ? String(activity.class_id) : "",
-                        class_ids: activity.class_id ? [String(activity.class_id)] : [],
-                        section_id: activity.section_id ? String(activity.section_id) : "",
-                        section_ids: activity.section_id ? [String(activity.section_id)] : [],
-                        sort_order: activity.sort_order || 0,
-                        max_marks: activity.max_marks || 10,
-                        is_active: Boolean(activity.is_active),
-                      });
-                    }}>Edit</Button>
-                    <Button size="sm" variant="destructive" onClick={async () => {
-                      await deleteActivity(activity.id);
-                      const res = await getActivities();
-                      setActivities(res?.data || []);
-                    }}>Delete</Button>
-                  </div>
-                </div>
-              ))}
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>Activity Marks</CardTitle>
-              <CardDescription>Enter marks per student. Grades are calculated from Grade Settings.</CardDescription>
-            </CardHeader>
-            <CardContent className="grid gap-3">
-              <div className="grid gap-2 md:grid-cols-4">
-                <select className="rounded-md border bg-background px-3 py-2 text-sm" value={filters.session_id} onChange={(e) => setFilters((p) => ({ ...p, session_id: e.target.value }))}>
-                  <option value="">Session</option>
-                  {sessions.map((session) => <option key={session.id} value={session.id}>{session.name}</option>)}
-                </select>
-                <div className="max-h-44 space-y-2 overflow-y-auto rounded-md border border-border bg-background p-2">
-                  {classes.map((item) => (
-                    <CheckboxChoice
-                      key={item.id}
-                      checked={String(filters.class_id) === String(item.id)}
-                      label={item.name}
-                      onChange={() =>
-                        setFilters((p) => ({
-                          ...p,
-                          class_id: String(item.id),
-                          section_id: "",
-                        }))
-                      }
-                    />
-                  ))}
-                  {!classes.length ? (
-                    <p className="px-2 py-1 text-sm text-muted-foreground">No classes found.</p>
-                  ) : null}
-                </div>
-                <div className="max-h-44 space-y-2 overflow-y-auto rounded-md border border-border bg-background p-2">
-                  {(selectedClass?.sections || []).map((section) => (
-                    <CheckboxChoice
-                      key={section.id}
-                      checked={String(filters.section_id) === String(section.id)}
-                      disabled={!filters.class_id}
-                      label={`${section.name}${section.medium ? ` (${section.medium})` : ""}`}
-                      onChange={() =>
-                        setFilters((p) => ({
-                          ...p,
-                          section_id: String(section.id),
-                        }))
-                      }
-                    />
-                  ))}
-                  {!filters.class_id ? (
-                    <p className="px-2 py-1 text-sm text-muted-foreground">Select a class first.</p>
-                  ) : null}
-                  {filters.class_id && !(selectedClass?.sections || []).length ? (
-                    <p className="px-2 py-1 text-sm text-muted-foreground">No sections found for this class.</p>
-                  ) : null}
-                </div>
-                <Button type="button" onClick={loadMarkGrid} disabled={!filters.session_id || !filters.class_id || !filters.section_id}>Load</Button>
-              </div>
-
-              {grid.activities.length ? (
-                <div className="overflow-auto rounded-lg border">
-                  <table className="w-full min-w-[760px] text-sm">
-                    <thead className="bg-muted/50">
-                      <tr>
-                        <th className="px-3 py-2 text-left">Student</th>
-                        {grid.activities.map((activity) => <th key={activity.id} className="px-3 py-2 text-left">{activity.name}</th>)}
-                        <th className="px-3 py-2"></th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {grid.students.map((student) => (
-                        <tr key={student.student_id} className="border-t">
-                          <td className="px-3 py-2 font-medium">{student.roll_number}. {student.student_name}</td>
-                          {grid.activities.map((activity) => (
-                            <td key={activity.id} className="px-3 py-2">
-                              <Input
-                                type="text"
-                                inputMode="numeric"
-                                pattern="[0-9]*"
-                                className="h-8 w-24"
-                                value={marks[`${activity.id}-${student.student_id}`] ?? ""}
-                                onChange={(e) => {
-                                  const value = e.target.value;
-                                  setMarks((p) => ({
-                                    ...p,
-                                    [`${activity.id}-${student.student_id}`]: value === "" ? "" : value.replace(/\D/g, ""),
-                                  }));
-                                }}
-                              />
-                            </td>
-                          ))}
-                          <td></td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                  <div className="flex flex-wrap gap-2 border-t p-3">
-                    {grid.activities.map((activity) => (
-                      <Button key={activity.id} type="button" variant="outline" onClick={() => saveMarksForActivity(activity.id)}>
-                        Save {activity.name}
-                      </Button>
-                    ))}
-                  </div>
-                </div>
-              ) : (
-                <p className="text-sm text-muted-foreground">Load a class section to enter activity marks.</p>
-              )}
-            </CardContent>
-          </Card>
+      <div className="pointer-events-none fixed top-6 right-6 z-50 w-full max-w-sm">
+        <div
+          className={`transition-all duration-500 ease-out ${
+            notice
+              ? "translate-x-0 scale-100 opacity-100"
+              : "translate-x-12 scale-95 opacity-0"
+          }`}
+        >
+          {notice ? (
+            <Alert
+              variant={notice.variant === "error" ? "destructive" : "success"}
+              className="pointer-events-auto overflow-hidden border shadow-xl"
+            >
+              <AlertTitle>{notice.title}</AlertTitle>
+              <AlertDescription>{notice.message}</AlertDescription>
+            </Alert>
+          ) : null}
         </div>
       </div>
+
+      <TopBar
+        title="Activities"
+        subTitle="Configure class-scoped activities for the final marksheet"
+        action={
+          <Dialog
+            open={formOpen}
+            onOpenChange={(open) => {
+              setFormOpen(open);
+              if (!open) resetForm();
+            }}
+          >
+            <DialogTrigger asChild>
+              <Button type="button" onClick={openCreateForm}>Add Activity</Button>
+            </DialogTrigger>
+            <DialogContent className="max-h-[88vh] overflow-y-auto rounded-2xl sm:max-w-3xl">
+              <DialogHeader>
+                <DialogTitle>{editingId ? "Edit Activity" : "Add Activity"}</DialogTitle>
+              </DialogHeader>
+              <form onSubmit={saveDefinition} className="grid gap-4">
+                <p className="text-sm text-muted-foreground">
+                  Activities can apply to all classes, selected classes, or selected sections.
+                </p>
+                <div className="grid gap-2">
+                  <Label>Name</Label>
+                  <Input value={form.name} onChange={(e) => setForm((p) => ({ ...p, name: e.target.value }))} />
+                </div>
+                <div className="grid gap-3 md:grid-cols-2">
+                  <div className="grid gap-2">
+                    <Label>Class Scope</Label>
+                    <div className="h-56 space-y-2 overflow-y-auto rounded-md border border-border bg-background p-2">
+                      <CheckboxChoice
+                        checked={(form.class_ids || []).length === 0}
+                        label="All Classes"
+                        onChange={() =>
+                          setForm((p) => ({
+                            ...p,
+                            class_id: "",
+                            class_ids: [],
+                            section_id: "",
+                            section_ids: [],
+                          }))
+                        }
+                      />
+                      {classes.map((item) => (
+                        <CheckboxChoice
+                          key={item.id}
+                          checked={(form.class_ids || []).some((id) => String(id) === String(item.id))}
+                          label={item.name}
+                          onChange={() =>
+                            setForm((p) => {
+                              const class_ids = toggleStringId(p.class_ids, item.id);
+                              const allowedSectionIds = new Set(
+                                classes
+                                  .filter((classItem) =>
+                                    class_ids.some((id) => String(id) === String(classItem.id))
+                                  )
+                                  .flatMap((classItem) => classItem.sections || [])
+                                  .map((section) => String(section.id))
+                              );
+                              return {
+                                ...p,
+                                class_id: class_ids[0] || "",
+                                class_ids,
+                                section_id: "",
+                                section_ids: (p.section_ids || []).filter((id) => allowedSectionIds.has(String(id))),
+                              };
+                            })
+                          }
+                        />
+                      ))}
+                    </div>
+                  </div>
+                  <div className="grid gap-2">
+                    <Label>Section Scope</Label>
+                    <div className="h-56 space-y-2 overflow-y-auto rounded-md border border-border bg-background p-2">
+                      <CheckboxChoice
+                        checked={(form.section_ids || []).length === 0}
+                        disabled={(form.class_ids || []).length === 0}
+                        label={(form.class_ids || []).length > 1 ? "All Sections for Selected Classes" : "All Sections"}
+                        onChange={() => setForm((p) => ({ ...p, section_id: "", section_ids: [] }))}
+                      />
+                      {selectedActivitySectionOptions.map((section) => (
+                        <CheckboxChoice
+                          key={section.id}
+                          checked={(form.section_ids || []).some((id) => String(id) === String(section.id))}
+                          disabled={(form.class_ids || []).length === 0}
+                          label={`${section.class_name} - ${section.name}${section.medium ? ` (${section.medium})` : ""}`}
+                          onChange={() =>
+                            setForm((p) => ({
+                              ...p,
+                              section_id: "",
+                              section_ids: toggleStringId(p.section_ids, section.id),
+                            }))
+                          }
+                        />
+                      ))}
+                      {(form.class_ids || []).length === 0 ? (
+                        <p className="px-2 py-1 text-sm text-muted-foreground">Select one or more classes first.</p>
+                      ) : null}
+                      {(form.class_ids || []).length > 0 && !selectedActivitySectionOptions.length ? (
+                        <p className="px-2 py-1 text-sm text-muted-foreground">No sections found for selected classes.</p>
+                      ) : null}
+                    </div>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="grid gap-2">
+                    <Label>Max Marks</Label>
+                    <Input
+                      type="text"
+                      inputMode="numeric"
+                      pattern="[0-9]*"
+                      value={form.max_marks}
+                      onChange={(e) => setForm((p) => ({ ...p, max_marks: e.target.value.replace(/\D/g, "") }))}
+                    />
+                  </div>
+                  <div className="grid gap-2">
+                    <Label>Order</Label>
+                    <Input
+                      type="text"
+                      inputMode="numeric"
+                      pattern="[0-9]*"
+                      value={form.sort_order}
+                      onChange={(e) => setForm((p) => ({ ...p, sort_order: e.target.value.replace(/\D/g, "") }))}
+                    />
+                  </div>
+                </div>
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={form.is_active}
+                    onChange={(e) => setForm((p) => ({ ...p, is_active: e.target.checked }))}
+                  />
+                  Active
+                </label>
+                {error ? <p className="text-sm text-red-600">{error}</p> : null}
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <Button className="w-full">{editingId ? "Update" : "Create"}</Button>
+                  <Button type="button" variant="outline" className="w-full" onClick={() => setFormOpen(false)}>Cancel</Button>
+                </div>
+              </form>
+            </DialogContent>
+          </Dialog>
+        }
+      />
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Activity Definitions</CardTitle>
+          <CardDescription>These rows print on the front page of the final marksheet.</CardDescription>
+        </CardHeader>
+        <CardContent className="grid gap-2">
+          {activities.map((activity) => (
+            <div key={activity.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border px-3 py-2">
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="font-semibold">{activity.name}</span>
+                  <Badge variant="outline" className={`rounded-full ${activityScopeBadgeClass(activity)}`}>
+                    {activityScopeLabel(activity)}
+                  </Badge>
+                  {!activity.is_active ? (
+                    <Badge
+                      variant="outline"
+                      className="rounded-full border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-500/30 dark:bg-rose-500/15 dark:text-rose-200"
+                    >
+                      Inactive
+                    </Badge>
+                  ) : null}
+                </div>
+                <p className="text-sm text-muted-foreground">
+                  Max {wholeNumberValue(activity.max_marks)} | Order {activity.sort_order}
+                </p>
+              </div>
+              <div className="flex gap-2">
+                <Button size="sm" variant="outline" onClick={() => openEditForm(activity)}>Edit</Button>
+                <Button size="sm" variant="destructive" onClick={() => removeActivity(activity.id)}>Delete</Button>
+              </div>
+            </div>
+          ))}
+          {!activities.length ? (
+            <p className="rounded-lg border border-dashed px-3 py-6 text-center text-sm text-muted-foreground">
+              No activities found.
+            </p>
+          ) : null}
+        </CardContent>
+      </Card>
     </>
   );
 }

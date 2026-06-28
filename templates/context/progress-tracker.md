@@ -447,3 +447,30 @@ Update this file after every meaningful implementation change.
 - Changed the final marksheet second-page exam header marks to show the
   maximum marks for a single subject in that exam instead of the summed exam
   total, while keeping summed totals for percentage calculations.
+- Added a Single marksheet only exam treatment that keeps normal/single
+  marksheet downloads available while excluding that exam from final marksheet
+  tables, totals, signatures, and final-result calculations.
+- Fixed Activities edit mode so selecting multiple classes or sections saves
+  all selected scopes by updating the current activity row and creating the
+  remaining scoped rows.
+- Moved activity marks entry out of the Activities setup page into a separate
+  Activity Marks page and navigation item under Reports below Exam Report.
+- Added a repair migration and backend guard for marksheet activity class
+  scopes so multi-class activity creation no longer falls back to the old
+  scope-key-only schema that caused duplicate activity-name errors.
+- Updated the Activities setup UI to match other admin tabs with a top-right
+  Add Activity sheet and a full-width activity definitions list with edit and
+  delete actions.
+- Changed the Activities add/edit form from a side sheet to a centered dialog
+  while preserving the multi-class and multi-section activity controls.
+- Adjusted the Activities dialog so class and section selectors appear side by
+  side on wider screens with matched scrollable panels, similar to the assign
+  teacher dialog layout.
+- Updated the Activities dialog action buttons so Create/Update and Cancel
+  share the full available width and stack cleanly on small screens.
+- Changed Activities max marks entry and display to whole numbers only,
+  rounding existing decimal values for edit/list rendering.
+- Added colored scope and inactive badges to the Activities list so all-class,
+  class, section, grouped-scope, and inactive rows are easier to scan.
+- Added success and failure alerts to Activities create, update, and delete
+  actions to match the feedback pattern used in other admin tabs.

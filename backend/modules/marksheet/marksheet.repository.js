@@ -13,7 +13,7 @@ export function scopeKeyForClassName(className) {
   return null;
 }
 
-async function supportsActivityClassScopes() {
+export async function supportsActivityClassScopes() {
   if (activityClassScopesSupported !== null) return activityClassScopesSupported;
 
   try {

@@ -22,6 +22,7 @@ const FINAL_CALCULATION_TYPES = new Set([
   "annual",
   "mock",
   "display_only",
+  "single_marksheet_only",
 ]);
 
 function normalizeFinalCalculationType(value) {

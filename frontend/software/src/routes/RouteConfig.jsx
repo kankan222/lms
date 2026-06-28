@@ -16,6 +16,7 @@ import {
   Globe,
   UserRoundCog,
   ClipboardList,
+  ClipboardPenLine,
   Trophy,
   SlidersHorizontal,
 } from "lucide-react";
@@ -37,6 +38,7 @@ const TeacherDeviceMapping = lazy(() => import("../pages/TeacherDeviceMapping"))
 const Messaging = lazy(() => import("../pages/Messaging"));
 const Exams = lazy(() => import("../pages/Exams"));
 const Reports = lazy(() => import("../pages/Reports"));
+const ActivityMarks = lazy(() => import("../pages/ActivityMarks"));
 const SettingsPage = lazy(() => import("../pages/Settings"));
 const GradeSettings = lazy(() => import("../pages/GradeSettings"));
 const UsersPage = lazy(() => import("../pages/Users"));
@@ -200,6 +202,15 @@ export const appRoutes = [
       hideForRoles: ["parent"],
     },
     {
+      title: "Activity Marks",
+      icon: ClipboardPenLine,
+      path: "/activity-marks",
+      element: <ActivityMarks />,
+      protected: true,
+      permission: "academic.view",
+      hideForRoles: ["teacher", "parent"],
+    },
+    {
       title: "Users",
       icon: Users,
       path: "/users",
@@ -353,6 +364,10 @@ export const navSections = [
       navEntry("/reports", {
         title: "Exam Report",
         icon: NotebookTabs,
+      }),
+      navEntry("/activity-marks", {
+        title: "Activity Marks",
+        icon: ClipboardPenLine,
       }),
     ],
   },

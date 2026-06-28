@@ -199,6 +199,7 @@ const finalCalculationTypeLabels = {
   annual: "Annual / Final (counts 50%)",
   mock: "Mock Test (display + grade)",
   display_only: "Display only",
+  single_marksheet_only: "Single marksheet only",
 };
 
 const FIELD_CLASSNAME =

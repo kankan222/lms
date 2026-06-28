@@ -105,12 +105,24 @@ export async function listActivities(query = {}) {
 
 export async function createActivity(payload) {
   const data = normalizeActivity(payload);
+  if ((data.class_id || data.section_id) && !(await repo.supportsActivityClassScopes())) {
+    throw new AppError(
+      "Activity class/section selection is not enabled on this database. Apply migration 20260628_marksheet_activity_class_scope_repair.sql.",
+      500
+    );
+  }
   const id = await repo.createActivity(data);
   return { id };
 }
 
 export async function updateActivity(id, payload) {
   const data = normalizeActivity(payload);
+  if ((data.class_id || data.section_id) && !(await repo.supportsActivityClassScopes())) {
+    throw new AppError(
+      "Activity class/section selection is not enabled on this database. Apply migration 20260628_marksheet_activity_class_scope_repair.sql.",
+      500
+    );
+  }
   await repo.updateActivity(Number(id), data);
   return { updated: true };
 }
