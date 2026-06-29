@@ -1357,6 +1357,17 @@ export async function getFinalReportRows({ studentId, sessionId, classId, sectio
   const subjectOfferingJoin = subjectSchema.hasSubjectOfferingId
     ? "LEFT JOIN subject_offerings so ON so.id = es.subject_offering_id"
     : "";
+  const supportsSplitSubjectSchema =
+    subjectSchema.hasMarkPattern &&
+    subjectSchema.hasTheoryMax &&
+    subjectSchema.hasPracticalMax;
+  const marksSchema = await getMarksEntrySplitSchemaStatus();
+  const supportsSplitMarksSchema = marksSchema.hasTheoryMarks && marksSchema.hasPracticalMarks;
+  const markPatternExpr = supportsSplitSubjectSchema ? "es.mark_pattern" : "'single'";
+  const theoryMaxExpr = supportsSplitSubjectSchema ? "es.theory_max" : "NULL";
+  const practicalMaxExpr = supportsSplitSubjectSchema ? "es.practical_max" : "NULL";
+  const theoryMarksExpr = supportsSplitMarksSchema ? "me.theory_marks" : "NULL";
+  const practicalMarksExpr = supportsSplitMarksSchema ? "me.practical_marks" : "NULL";
   const publicationJoin = hasPublicationsTable
     ? `${visibleOnly ? "JOIN" : "LEFT JOIN"} exam_report_publications erp
        ON erp.exam_id = e.id
@@ -1393,8 +1404,13 @@ export async function getFinalReportRows({ studentId, sessionId, classId, sectio
        ${subjectGroupExpr} AS subject_group,
        sub.name AS subject_name,
        es.id AS exam_subject_id,
+       ${markPatternExpr} AS mark_pattern,
+       ${theoryMaxExpr} AS theory_max,
+       ${practicalMaxExpr} AS practical_max,
        es.max_marks,
        me.marks,
+       ${theoryMarksExpr} AS theory_marks,
+       ${practicalMarksExpr} AS practical_marks,
        me.approval_status
      FROM marks_entries me
      JOIN exams e ON e.id = me.exam_id

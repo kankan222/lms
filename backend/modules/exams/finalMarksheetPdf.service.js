@@ -109,6 +109,20 @@ function renderFinalMarkCell(cell) {
   const components = Array.isArray(cell.components) ? cell.components : [];
   const splitComponents = components.filter(hasSplitMarks);
   if (!splitComponents.length) {
+    const isDirectSplit =
+      String(cell.mark_pattern || "").trim().toLowerCase() === "split" ||
+      cell.theory_marks !== null ||
+      cell.practical_marks !== null ||
+      cell.theory_max !== null ||
+      cell.practical_max !== null;
+    if (isDirectSplit) {
+      return `
+        <td class="split-mark-cell">
+          <div><span>Theory</span><span>-</span><span>${escapeHtml(formatCell(cell.theory_marks))}</span></div>
+          <div><span>Practical</span><span>-</span><span>${escapeHtml(formatCell(cell.practical_marks))}</span></div>
+          <div><span>Total</span><span>-</span><span>${escapeHtml(formatCell(cell.marks))}</span></div>
+        </td>`;
+    }
     return `<td>${escapeHtml(formatCell(cell.marks))}</td>`;
   }
 

@@ -340,6 +340,17 @@ async function formatFinalReport(scope, rows) {
     subject.exams[examId] = {
       marks,
       max_marks: maxMarks,
+      mark_pattern: String(row.mark_pattern || "single").trim().toLowerCase(),
+      theory_marks:
+        row.theory_marks === null || row.theory_marks === undefined
+          ? null
+          : Number(row.theory_marks),
+      practical_marks:
+        row.practical_marks === null || row.practical_marks === undefined
+          ? null
+          : Number(row.practical_marks),
+      theory_max: row.theory_max === null ? null : Number(row.theory_max),
+      practical_max: row.practical_max === null ? null : Number(row.practical_max),
       components: (row.components || []).map((component) => {
         const componentMarks = componentMarksBySubject.get(
           `${Number(row.exam_subject_id)}:${Number(component.id)}`
