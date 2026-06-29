@@ -568,6 +568,127 @@ export async function getStudentFeeOptions(enrollmentId) {
   return query(sql, [enrollmentId]);
 }
 
+export async function findStudentFeesForPaymentImport(filters = {}) {
+  const hasScopesTable = await supportsScopesTable();
+  const classScopeExpr = buildClassScopeExpression(hasScopesTable);
+  const where = ["se.status = 'active'"];
+  const params = [];
+
+  if (filters.session_id) {
+    where.push("se.session_id = ?");
+    params.push(filters.session_id);
+  } else if (filters.session_name) {
+    where.push("LOWER(acs.name) = LOWER(?)");
+    params.push(filters.session_name);
+  }
+
+  if (filters.class_id) {
+    where.push("se.class_id = ?");
+    params.push(filters.class_id);
+  } else if (filters.class_name) {
+    where.push("LOWER(c.name) = LOWER(?)");
+    params.push(filters.class_name);
+  }
+
+  if (filters.section_id) {
+    where.push("se.section_id = ?");
+    params.push(filters.section_id);
+  } else if (filters.section_name) {
+    where.push("LOWER(sec.name) = LOWER(?)");
+    params.push(filters.section_name);
+  }
+
+  if (filters.stream_id) {
+    where.push("se.stream_id = ?");
+    params.push(filters.stream_id);
+  } else if (filters.stream_name) {
+    where.push("LOWER(str.name) = LOWER(?)");
+    params.push(filters.stream_name);
+  }
+
+  if (filters.admission_no) {
+    where.push("LOWER(s.admission_no) = LOWER(?)");
+    params.push(filters.admission_no);
+  }
+
+  if (filters.student_name) {
+    where.push("LOWER(s.name) = LOWER(?)");
+    params.push(filters.student_name);
+  }
+
+  if (filters.roll_number) {
+    where.push("LOWER(se.roll_number) = LOWER(?)");
+    params.push(filters.roll_number);
+  }
+
+  if (filters.fee_type) {
+    where.push("sf.fee_type = ?");
+    params.push(filters.fee_type);
+  }
+
+  if (filters.installment_name) {
+    where.push("LOWER(fi.installment_name) = LOWER(?)");
+    params.push(filters.installment_name);
+  }
+
+  const sql = `
+    SELECT
+      sf.id,
+      sf.enrollment_id,
+      sf.fee_type,
+      sf.amount,
+      sf.status,
+      fi.installment_name,
+      s.id AS student_id,
+      s.name AS student_name,
+      s.admission_no,
+      se.roll_number,
+      se.class_id,
+      se.section_id,
+      se.session_id,
+      c.name AS class_name,
+      ${classScopeExpr} AS class_scope,
+      sec.name AS section_name,
+      acs.name AS session_name,
+      str.name AS stream_name,
+      COALESCE(SUM(p.amount_paid), 0) AS paid,
+      (sf.amount - COALESCE(SUM(p.amount_paid), 0)) AS remaining
+    FROM student_fees sf
+    JOIN student_enrollments se ON se.id = sf.enrollment_id
+    JOIN students s ON s.id = se.student_id
+    JOIN classes c ON c.id = se.class_id
+    ${hasScopesTable ? "LEFT JOIN scopes sc ON sc.id = c.scope_id" : ""}
+    JOIN sections sec ON sec.id = se.section_id
+    JOIN academic_sessions acs ON acs.id = se.session_id
+    LEFT JOIN streams str ON str.id = se.stream_id
+    LEFT JOIN fee_installments fi ON fi.id = sf.installment_id
+    LEFT JOIN payments p ON p.student_fee_id = sf.id
+    WHERE ${where.join(" AND ")}
+    GROUP BY
+      sf.id,
+      sf.enrollment_id,
+      sf.fee_type,
+      sf.amount,
+      sf.status,
+      fi.installment_name,
+      s.id,
+      s.name,
+      s.admission_no,
+      se.roll_number,
+      se.class_id,
+      se.section_id,
+      se.session_id,
+      c.name,
+      sec.name,
+      acs.name,
+      str.name
+    HAVING remaining > 0
+    ORDER BY sf.id ASC
+  `;
+
+  return query(sql, params);
+}
+
 export async function getStudentsByIds(studentIds) {
   if (!studentIds.length) return [];
 

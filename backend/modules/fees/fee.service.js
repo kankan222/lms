@@ -102,6 +102,108 @@ function csvEscape(value) {
   return str;
 }
 
+function normalizeImportText(value) {
+  return String(value ?? "").trim();
+}
+
+function normalizeImportName(value) {
+  return normalizeImportText(value).toLowerCase();
+}
+
+function normalizeImportFeeType(value) {
+  const text = normalizeImportName(value).replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+  if (!text) return "";
+  if (text === "admission" || text === "admission_fee") return "admission";
+  if (text === "installment" || text === "installment_fee" || text === "monthly_fee") {
+    return "installment";
+  }
+  return text;
+}
+
+function parseOptionalPositiveInt(value) {
+  const raw = normalizeImportText(value);
+  if (!raw) return null;
+  return parsePositiveInt(raw);
+}
+
+async function resolveStudentFeeForPaymentImport(row) {
+  const amountPaid = Number(row.amount_paid);
+  if (!Number.isFinite(amountPaid) || amountPaid <= 0) {
+    throw new AppError("amount_paid must be a positive number", 400);
+  }
+
+  const feeType = normalizeImportFeeType(row.fee_type);
+  const installmentName = normalizeImportText(row.installment_name);
+
+  if (!feeType) {
+    throw new AppError("fee_type is required. Use admission or installment", 400);
+  }
+  if (!["admission", "installment"].includes(feeType)) {
+    throw new AppError("fee_type must be admission or installment", 400);
+  }
+  if (feeType === "installment" && !installmentName) {
+    throw new AppError("installment_name is required for installment payments", 400);
+  }
+
+  const admissionNo = normalizeImportText(row.admission_no);
+  const studentName = normalizeImportText(row.student_name || row.name);
+  const rollNumber = normalizeImportText(row.roll_number);
+  if (!admissionNo && !studentName) {
+    throw new AppError("Enter admission_no or student_name", 400);
+  }
+
+  const filters = {
+    session_id: parseOptionalPositiveInt(row.session_id),
+    session_name: normalizeImportText(row.session_name || row.session),
+    class_id: parseOptionalPositiveInt(row.class_id),
+    class_name: normalizeImportText(row.class_name || row.class),
+    section_id: parseOptionalPositiveInt(row.section_id),
+    section_name: normalizeImportText(row.section_name || row.section),
+    stream_id: parseOptionalPositiveInt(row.stream_id),
+    stream_name: normalizeImportText(row.stream_name || row.stream),
+    admission_no: admissionNo,
+    student_name: studentName,
+    roll_number: rollNumber,
+    fee_type: feeType,
+    installment_name: feeType === "installment" ? installmentName : "",
+  };
+
+  if (!filters.session_id && !filters.session_name) {
+    throw new AppError("session is required", 400);
+  }
+  if (!filters.class_id && !filters.class_name) {
+    throw new AppError("class is required", 400);
+  }
+  if (!filters.section_id && !filters.section_name) {
+    throw new AppError("section is required", 400);
+  }
+
+  Object.keys(filters).forEach((key) => {
+    if (filters[key] === "" || filters[key] === null || filters[key] === undefined) {
+      delete filters[key];
+    }
+  });
+
+  const matches = await repo.findStudentFeesForPaymentImport(filters);
+  if (!matches.length) {
+    throw new AppError("No matching unpaid fee found for this student and fee item", 400);
+  }
+  if (matches.length > 1) {
+    throw new AppError("Multiple matching students/fees found. Add admission_no or roll_number", 400);
+  }
+
+  const match = matches[0];
+  if (amountPaid > Number(match.remaining || 0)) {
+    throw new AppError(`amount_paid cannot exceed remaining amount ${match.remaining}`, 400);
+  }
+
+  return {
+    studentFeeId: Number(match.id),
+    amountPaid,
+    match,
+  };
+}
+
 function buildPaymentQueryFilters(filters = {}) {
   const queryFilters = { ...(filters || {}) };
   const userId = queryFilters.userId;
@@ -475,6 +577,59 @@ export async function createPayment(data, user) {
   return {
     message: "Payment recorded successfully",
     payment_id: result?.insertId || null
+  };
+}
+
+export async function bulkCreatePayments(rows = [], user) {
+  if (!Array.isArray(rows) || !rows.length) {
+    throw new AppError("No payment rows found", 400);
+  }
+
+  const created = [];
+  const failed = [];
+
+  for (const [index, row] of rows.entries()) {
+    const rowNo = index + 2;
+    try {
+      const { studentFeeId, amountPaid, match } = await resolveStudentFeeForPaymentImport(row);
+
+      const result = await createPayment(
+        {
+          student_fee_id: studentFeeId,
+          amount_paid: amountPaid,
+          remarks: row.remarks || "",
+        },
+        user
+      );
+
+      created.push({
+        rowNo,
+        student_name: match.student_name,
+        admission_no: match.admission_no || "",
+        fee_type: match.fee_type,
+        installment_name: match.installment_name || "",
+        payment_id: result.payment_id,
+      });
+    } catch (err) {
+      failed.push({
+        rowNo,
+        admission_no: row.admission_no || "",
+        student_name: row.student_name || row.name || "",
+        message: err?.message || "Failed to record payment",
+      });
+    }
+  }
+
+  return {
+    message: failed.length
+      ? `${created.length} payments imported, ${failed.length} failed.`
+      : `${created.length} payments imported successfully.`,
+    createdCount: created.length,
+    failedCount: failed.length,
+    created,
+    failed,
+    failures: failed,
+    totalRows: rows.length,
   };
 }
 

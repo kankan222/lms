@@ -75,6 +75,16 @@ export function createPayment(data) {
   });
 }
 
+export function bulkUploadPayments(file) {
+  const form = new FormData();
+  form.append("file", file);
+
+  return apiRequest("/fees/payments/bulk-upload", {
+    method: "POST",
+    body: form,
+  });
+}
+
 export function getPayments(params = {}) {
   const query = new URLSearchParams();
   if (params.class_id) query.set("class_id", params.class_id);

@@ -59,6 +59,12 @@ Update this file after every meaningful implementation change.
 - Updated the single-exam report card layout to remove the address from
   the header, show Exam and Class/Section in the header, and move the
   student details grid to Student/Roll followed by Guardian/Medium.
+- Added payment CSV bulk upload support with a downloadable import
+  format and renamed the existing payment export action to Download
+  Payment Data.
+- Updated payment CSV bulk upload to follow the student bulk entry
+  pattern, using student/session/class/section/fee item information
+  instead of requiring internal student fee IDs.
 
 ## In Progress
 

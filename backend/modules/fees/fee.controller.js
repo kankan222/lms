@@ -1,4 +1,55 @@
 import * as feeService from "./fee.service.js";
+import fs from "node:fs/promises";
+
+function parseCsvLine(line) {
+  return line
+    .split(/,(?=(?:(?:[^\"]*\"){2})*[^\"]*$)/)
+    .map((value) => value.replace(/^\"|\"$/g, "").trim());
+}
+
+function normalizeCsvHeader(header) {
+  return String(header || "")
+    .trim()
+    .replace(/^\uFEFF/, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+}
+
+function mapPaymentCsvHeader(header) {
+  const normalized = normalizeCsvHeader(header).replace(/_(required|optional|req|opt)$/g, "");
+  if (normalized === "amount" || normalized === "paid_amount" || normalized === "amountpaid") {
+    return "amount_paid";
+  }
+  if (normalized === "student" || normalized === "student_full_name") {
+    return "student_name";
+  }
+  if (normalized === "admission" || normalized === "admission_number" || normalized === "admission_no") {
+    return "admission_no";
+  }
+  if (normalized === "roll" || normalized === "roll_no" || normalized === "roll_number") {
+    return "roll_number";
+  }
+  if (normalized === "fee" || normalized === "fee_item") {
+    return "fee_type";
+  }
+  if (normalized === "installment" || normalized === "installment_name") {
+    return "installment_name";
+  }
+  return normalized;
+}
+
+function mapCsvRow(headers, values) {
+  const row = {};
+  headers.forEach((header, index) => {
+    const mappedHeader = mapPaymentCsvHeader(header);
+    const value = values[index] ?? "";
+    if (!(mappedHeader in row) || !String(row[mappedHeader] || "").trim()) {
+      row[mappedHeader] = value;
+    }
+  });
+  return row;
+}
 
 function mapFeeError(err, res) {
   if (err?.code === "ER_DUP_ENTRY") {
@@ -145,6 +196,27 @@ export async function getStudentLedger(req, res) {
 export async function createPayment(req, res) {
   const result = await feeService.createPayment(req.body, req.user);
   res.json(result);
+}
+
+export async function bulkUploadPayments(req, res) {
+  if (!req.file?.path) {
+    return res.status(400).json({ message: "CSV file is required" });
+  }
+
+  const content = await fs.readFile(req.file.path, "utf8");
+  const lines = content
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  if (lines.length < 2) {
+    return res.status(400).json({ message: "CSV must include a header row and at least one payment row" });
+  }
+
+  const headers = parseCsvLine(lines[0]);
+  const rows = lines.slice(1).map((line) => mapCsvRow(headers, parseCsvLine(line)));
+  const result = await feeService.bulkCreatePayments(rows, req.user);
+  res.status(result.failedCount > 0 ? 207 : 201).json(result);
 }
 
 export async function approvePayment(req, res) {

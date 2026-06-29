@@ -1,6 +1,7 @@
 import express from "express";
 import * as feeController from "./fee.controller.js";
 import { requirePermission } from "../../core/rbac/rbac.middleware.js";
+import { uploadPaymentFile } from "./fee.middleware.js";
 
 const router = express.Router();
 
@@ -96,6 +97,12 @@ router.post(
   "/payment",
   requirePermission("payment.create"),
   feeController.createPayment,
+);
+router.post(
+  "/payments/bulk-upload",
+  requirePermission("payment.create"),
+  uploadPaymentFile.single("file"),
+  feeController.bulkUploadPayments,
 );
 router.get(
   "/payments",

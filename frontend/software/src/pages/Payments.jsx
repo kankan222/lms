@@ -36,6 +36,7 @@ import {
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { getClassStructure, getStreams } from "../api/academic.api";
 import {
+  bulkUploadPayments,
   createPayment,
   deletePayment,
   exportPaymentsCsv,
@@ -109,6 +110,11 @@ export default function Payments() {
   const [editError, setEditError] = useState("");
   const [notice, setNotice] = useState(null);
   const [studentSearch, setStudentSearch] = useState("");
+  const [bulkOpen, setBulkOpen] = useState(false);
+  const [bulkFile, setBulkFile] = useState(null);
+  const [bulkMessage, setBulkMessage] = useState("");
+  const [bulkFailures, setBulkFailures] = useState([]);
+  const [bulkUploading, setBulkUploading] = useState(false);
 
   const [createForm, setCreateForm] = useState({
     class_id: "",
@@ -443,6 +449,72 @@ export default function Payments() {
     }
   }
 
+  function handleDownloadCsvFormat() {
+    const csv = [
+      "session (required),class (required),section (required),stream (optional),admission_no (required if student_name not unique),student_name (required if admission_no blank),roll_number (optional),fee_type (required),installment_name (required for installment),amount_paid (required),remarks (optional)",
+      "2025-2026,X,A,,ADM001,Student Name,12,installment,April,500,Monthly fee payment",
+      "2025-2026,X,A,,ADM001,Student Name,12,admission,,1000,Admission fee payment",
+    ].join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "payment-upload-format.csv";
+    a.click();
+    window.URL.revokeObjectURL(url);
+    showNotice("Download Started", "Payment upload CSV format download started.");
+  }
+
+  async function handleBulkUploadPayments() {
+    if (bulkUploading) return;
+
+    setBulkMessage("");
+    setBulkFailures([]);
+
+    if (!bulkFile) {
+      setBulkMessage("Select a CSV file first.");
+      return;
+    }
+
+    setBulkUploading(true);
+    try {
+      const result = await bulkUploadPayments(bulkFile);
+      const createdCount = Number(result?.createdCount || 0);
+      const failedCount = Number(result?.failedCount || 0);
+      const totalRows = Number(result?.totalRows || createdCount + failedCount);
+      const failures = Array.isArray(result?.failures)
+        ? result.failures
+        : Array.isArray(result?.failed)
+          ? result.failed
+          : [];
+
+      setBulkFile(null);
+
+      if (failedCount > 0) {
+        setBulkFailures(failures);
+        setBulkMessage(`Uploaded ${createdCount}/${totalRows}. ${failedCount} row(s) failed.`);
+        showNotice(
+          "Bulk Upload Partial",
+          `${createdCount} payment(s) uploaded, ${failedCount} failed. See row errors in the dialog.`,
+          "error"
+        );
+        await loadPayments();
+        return;
+      }
+
+      setBulkMessage("Bulk upload completed successfully.");
+      setBulkOpen(false);
+      showNotice("Bulk Upload Complete", "Payments uploaded successfully.");
+      await loadPayments();
+    } catch (err) {
+      setBulkMessage(err?.message || "Bulk upload failed.");
+      setBulkFailures([]);
+      showNotice("Bulk Upload Failed", err?.message || "Bulk upload failed.", "error");
+    } finally {
+      setBulkUploading(false);
+    }
+  }
+
   const selectedClass = classes.find((c) => String(c.id) === String(classId));
   const selectedClassScope = resolveClassScope(selectedClass?.class_scope);
   const effectiveFilterStreamId = selectedClassScope === "hs" ? streamId : "";
@@ -470,7 +542,7 @@ export default function Payments() {
         title="Payments"
         subTitle="Record and manage fee payments"
         action={
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <Popover>
               <PopoverTrigger asChild>
                 <Button variant="outline">
@@ -590,8 +662,71 @@ export default function Payments() {
               </PopoverContent>
             </Popover>
             <Button variant="outline" onClick={handleExportCsv}>
-              Download CSV
+              Download Payment Data
             </Button>
+            <Button variant="outline" onClick={handleDownloadCsvFormat}>
+              Download CSV Format
+            </Button>
+            <Dialog
+              open={bulkOpen}
+              onOpenChange={(nextOpen) => {
+                setBulkOpen(nextOpen);
+                if (!nextOpen) {
+                  setBulkFile(null);
+                  setBulkMessage("");
+                  setBulkFailures([]);
+                }
+              }}
+            >
+              <DialogTrigger asChild>
+                <Button variant="outline">Bulk Upload CSV</Button>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Bulk Upload Payments</DialogTitle>
+                  <DialogDescription>
+                    Upload payment rows using student and fee item details.
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="space-y-3">
+                  <Input
+                    type="file"
+                    accept=".csv,text/csv"
+                    onChange={(e) => {
+                      setBulkFile(e.target.files?.[0] || null);
+                      setBulkMessage("");
+                      setBulkFailures([]);
+                    }}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    The downloaded CSV marks required and optional fields in the header. Use admission_no when available; otherwise use student_name with roll_number when names may repeat. Keep stream blank for School classes.
+                  </p>
+                  {bulkMessage && (
+                    <p
+                      className={`text-xs ${
+                        bulkMessage.toLowerCase().includes("completed")
+                          ? "text-emerald-700 dark:text-emerald-200"
+                          : "text-red-700 dark:text-red-200"
+                      }`}
+                    >
+                      {bulkMessage}
+                    </p>
+                  )}
+                  {bulkFailures.length > 0 ? (
+                    <div className="max-h-44 overflow-auto rounded-md border p-2 text-xs">
+                      {bulkFailures.slice(0, 50).map((item, index) => (
+                        <p key={`${item.rowNo || "row"}-${index}`} className="mb-1 last:mb-0">
+                          Row {item.rowNo || "-"} ({item.admission_no || item.student_name || "Unknown"}): {item.message || item.error}
+                        </p>
+                      ))}
+                    </div>
+                  ) : null}
+                  <Button onClick={handleBulkUploadPayments} disabled={bulkUploading}>
+                    {bulkUploading ? "Uploading..." : "Upload"}
+                  </Button>
+                </div>
+              </DialogContent>
+            </Dialog>
             <Dialog
               open={openCreate}
               onOpenChange={(nextOpen) => {
