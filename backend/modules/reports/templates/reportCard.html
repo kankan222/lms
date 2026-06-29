@@ -118,7 +118,8 @@
   }
 
   table.report tfoot td:nth-child(2) {
-    border-left: none;
+    border-left: 0 !important;
+    text-align: left;
   }
 
   table.report td:first-child,
@@ -253,8 +254,8 @@
     {{rows}}
     <tfoot>
       <tr>
-        <td>Total Marks - </td>
-        <td>{{maxTotal}}</td>
+        <td></td>
+        <td>Total Marks - {{maxTotal}}</td>
         <td>Grand Total - {{total}} (Out of {{maxTotal}} Marks)</td>
       </tr>
     </tfoot>
