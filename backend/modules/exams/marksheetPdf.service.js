@@ -155,7 +155,7 @@ export async function generateMarksheetPdf(report) {
     .replace("{{issuedDate}}", escapeHtml(formatIssuedDate(report?.publication?.published_on)))
     .replace("{{rows}}", rows)
     .replace("{{total}}", escapeHtml(report?.summary?.total ?? report?.total ?? 0))
-    .replace("{{maxTotal}}", escapeHtml(report?.summary?.max_total ?? 0))
+    .replaceAll("{{maxTotal}}", escapeHtml(report?.summary?.max_total ?? 0))
     .replace("{{grade}}", escapeHtml(report?.summary?.grade || "-"))
     .replace("{{percentage}}", escapeHtml(report?.summary?.percentage ?? report?.percentage ?? 0))
     .replaceAll("{{signatureLabel}}", escapeHtml(scopeMeta.signatureLabel))
