@@ -118,18 +118,30 @@
     text-align: left;
   }
 
-  table.report .detail-row td {
-    font-size: 13px;
-    padding-top: 7px;
-    padding-bottom: 7px;
+  table.report td.marks-obtained {
+    text-align: center;
   }
 
-  table.report .detail-level-1 td:first-child {
-    padding-left: 28px;
+  .marks-breakdown {
+    display: inline-block;
+    min-width: 120px;
+    text-align: left;
+    line-height: 1.35;
   }
 
-  table.report .detail-level-2 td:first-child {
-    padding-left: 52px;
+  .marks-breakdown div {
+    display: grid;
+    grid-template-columns: 1fr auto minmax(22px, auto);
+    column-gap: 8px;
+    white-space: nowrap;
+  }
+
+  .marks-breakdown div:last-child {
+    font-weight: 700;
+  }
+
+  .marks-breakdown span:last-child {
+    text-align: right;
   }
 
   .summary {

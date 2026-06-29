@@ -73,6 +73,11 @@ Update this file after every meaningful implementation change.
 - Updated single and final marksheet summary rows so Grand Total shows
   the obtained marks with the explicit out-of max marks text from
   `marksheet.md`.
+- Adjusted the single marksheet split subject layout so Theory,
+  Practical, and Total appear inside the Marks Obtained column while
+  the Subject column stays on one subject row, matching `marksheet.md`.
+- Merged Botany and Zoology in the single marksheet PDF display into one
+  Biology row with summed theory, practical, total, and max marks.
 
 ## In Progress
 

@@ -89,43 +89,101 @@ function hasSplitMarks(item) {
   );
 }
 
-function renderDetailRow(label, maxMarks, marks, level = 1) {
+function formatCell(value) {
+  if (value === null || value === undefined || value === "") return "";
+  return Number.isFinite(Number(value)) ? Number(value).toFixed(2).replace(/\.00$/, "") : value;
+}
+
+function renderSplitMarksObtained(theoryMarks, practicalMarks, totalMarks) {
   return `
-      <tr class="detail-row detail-level-${level}">
-        <td>${escapeHtml(label)}</td>
-        <td>${escapeHtml(maxMarks ?? "")}</td>
-        <td>${escapeHtml(marks ?? "")}</td>
-      </tr>`;
+    <div class="marks-breakdown">
+      <div><span>Theory</span><span>-</span><span>${escapeHtml(formatCell(theoryMarks))}</span></div>
+      <div><span>Practical</span><span>-</span><span>${escapeHtml(formatCell(practicalMarks))}</span></div>
+      <div><span>Total</span><span>-</span><span>${escapeHtml(formatCell(totalMarks))}</span></div>
+    </div>`;
+}
+
+function normalizedSubjectName(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function isBiologyPartSubject(subject) {
+  const name = normalizedSubjectName(subject?.subject);
+  return name === "botany" || name === "zoology";
+}
+
+function sumNullable(items, key) {
+  const values = items
+    .map((item) => item?.[key])
+    .filter((value) => value !== null && value !== undefined && value !== "");
+  if (!values.length) return null;
+  return values.reduce((sum, value) => sum + Number(value || 0), 0);
+}
+
+function combineBiologyPartSubjects(subjects = []) {
+  const biologyParts = subjects.filter(isBiologyPartSubject);
+  if (!biologyParts.length) return subjects;
+
+  const firstBiologyPartIndex = subjects.findIndex(isBiologyPartSubject);
+  const combinedSubject = {
+    subject: "Biology",
+    mark_pattern: "split",
+    marks: sumNullable(biologyParts, "marks") ?? 0,
+    max_marks: sumNullable(biologyParts, "max_marks") ?? 0,
+    pass_marks: sumNullable(biologyParts, "pass_marks") ?? 0,
+    theory_marks: sumNullable(biologyParts, "theory_marks"),
+    practical_marks: sumNullable(biologyParts, "practical_marks"),
+    theory_max: sumNullable(biologyParts, "theory_max"),
+    theory_pass: sumNullable(biologyParts, "theory_pass"),
+    practical_max: sumNullable(biologyParts, "practical_max"),
+    practical_pass: sumNullable(biologyParts, "practical_pass"),
+    components: [],
+  };
+
+  const output = [];
+  subjects.forEach((subject, index) => {
+    if (index === firstBiologyPartIndex) {
+      output.push(combinedSubject);
+    }
+    if (!isBiologyPartSubject(subject)) {
+      output.push(subject);
+    }
+  });
+
+  return output;
 }
 
 function renderMarksheetSubjectRows(subject) {
   const components = Array.isArray(subject.components) ? subject.components : [];
-  const rows = [
-    `
-      <tr>
-        <td>${escapeHtml(subject.subject)}</td>
-        <td>${escapeHtml(subject.max_marks)}</td>
-        <td>${escapeHtml(subject.marks)}</td>
-      </tr>`,
-  ];
+  let marksObtained = escapeHtml(formatCell(subject.marks));
 
   if (components.length) {
-    components.forEach((component) => {
-      rows.push(renderDetailRow(component.name, component.max_marks, component.marks, 1));
-      if (hasSplitMarks(component)) {
-        rows.push(renderDetailRow("Theory", component.theory_max, component.theory_marks, 2));
-        rows.push(renderDetailRow("Practical", component.practical_max, component.practical_marks, 2));
-      }
-    });
-    return rows.join("");
+    const splitComponents = components.filter(hasSplitMarks);
+    if (splitComponents.length) {
+      const theoryMarks = splitComponents.reduce(
+        (sum, component) => sum + Number(component.theory_marks || 0),
+        0
+      );
+      const practicalMarks = splitComponents.reduce(
+        (sum, component) => sum + Number(component.practical_marks || 0),
+        0
+      );
+      marksObtained = renderSplitMarksObtained(theoryMarks, practicalMarks, subject.marks);
+    }
+  } else if (hasSplitMarks(subject)) {
+    marksObtained = renderSplitMarksObtained(
+      subject.theory_marks,
+      subject.practical_marks,
+      subject.marks
+    );
   }
 
-  if (hasSplitMarks(subject)) {
-    rows.push(renderDetailRow("Theory", subject.theory_max, subject.theory_marks, 1));
-    rows.push(renderDetailRow("Practical", subject.practical_max, subject.practical_marks, 1));
-  }
-
-  return rows.join("");
+  return `
+      <tr>
+        <td>${escapeHtml(subject.subject)}</td>
+        <td>${escapeHtml(formatCell(subject.max_marks))}</td>
+        <td class="marks-obtained">${marksObtained}</td>
+      </tr>`;
 }
 
 export async function generateMarksheetPdf(report) {
@@ -138,7 +196,7 @@ export async function generateMarksheetPdf(report) {
     readLogoBase64(),
   ]);
 
-  const rows = (report.subjects || []).map(renderMarksheetSubjectRows).join("");
+  const rows = combineBiologyPartSubjects(report.subjects || []).map(renderMarksheetSubjectRows).join("");
 
   html = html
     .replace("{{studentName}}", escapeHtml(report?.student?.name || "-"))
