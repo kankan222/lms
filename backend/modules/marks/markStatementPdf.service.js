@@ -7,6 +7,18 @@ function safeText(value) {
   return String(value ?? "").trim();
 }
 
+function formatStatementDate(value) {
+  const raw = safeText(value);
+  if (!raw) return "";
+
+  const match = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (match) {
+    return `${match[3]}/${match[2]}/${match[1]}`;
+  }
+
+  return raw;
+}
+
 function collectPdf(doc) {
   return new Promise((resolve, reject) => {
     const chunks = [];
@@ -77,7 +89,7 @@ function getRowsPerSide(doc, tableTop) {
   return Math.max(1, Math.floor(availableHeight / TABLE_ROW_HEIGHT) - 1);
 }
 
-export async function generateMarkStatementPdf({ exam, subject, scope, students }) {
+export async function generateMarkStatementPdf({ exam, subject, scope, students, statementDate }) {
   const doc = new PDFDocument({
     size: "A4",
     layout: "portrait",
@@ -105,6 +117,7 @@ export async function generateMarkStatementPdf({ exam, subject, scope, students 
     const tableWidth = (usableWidth - gap) / 2;
     const tableTop = top + 120;
     const subjectMaxMarks = Number(subject?.max_marks || 0);
+    const statementDateText = formatStatementDate(statementDate);
 
     doc.font("Helvetica-Bold").fontSize(17).text("KALONG KAPILI VIDYAPITH", left, top, {
       width: usableWidth,
@@ -134,9 +147,20 @@ export async function generateMarkStatementPdf({ exam, subject, scope, students 
         width: 96,
         align: "center",
       });
+    doc
+      .roundedRect(left + 124, top + 88, 112, 24, 3)
+      .stroke()
+      .font("Helvetica-Bold")
+      .fontSize(10)
+      .text(`Date: ${statementDateText}`, left + 132, top + 95, {
+        width: 96,
+        align: "center",
+      });
 
-    drawStudentTable(doc, pageRows.slice(0, rowsPerSide), left, tableTop, tableWidth);
-    if (pageRows.length > rowsPerSide) {
+    if (pageRows.length <= rowsPerSide) {
+      drawStudentTable(doc, pageRows, left, tableTop, usableWidth);
+    } else {
+      drawStudentTable(doc, pageRows.slice(0, rowsPerSide), left, tableTop, tableWidth);
       drawStudentTable(
         doc,
         pageRows.slice(rowsPerSide, pageSize),

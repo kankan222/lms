@@ -110,9 +110,9 @@ Update this file after every meaningful implementation change.
   require user JWTs for visitor-facing reads/submissions.
 - Mobile keeps its separate Axios/cache layer because it has different
   persistence and offline/stale-response needs than the web clients.
-- OTP is required only for new devices or suspicious logins; successful
-  OTP verification trusts the device and regular refresh-token behavior
-  remains unchanged.
+- OTP is required for every production password login. Non-production logins
+  can trust verified devices so only new devices or suspicious logins require
+  OTP. Regular refresh-token behavior remains unchanged.
 - The mobile apps are already published. Future Android and iOS
   submissions are production updates and must preserve package/bundle
   identifiers while incrementing store-required build versions.
@@ -549,3 +549,18 @@ Update this file after every meaningful implementation change.
   Marks with Grand Total, then Grade with Percentage.
 - Right-aligned the Grand Total and Percentage cells in the final marksheet
   summary block.
+- Moved single marksheet Total Marks and Marks Obtained into the marks table
+  footer under the Marks and Marks Obtained columns, while preserving the
+  existing Marksheet title and Marks column label.
+- Added a Date input to the Mark Statement page and printed it in a bordered
+  Date box beside Total Marks on the generated marks statement PDF.
+- Updated the Mark Statement PDF roster layout so small rosters use one
+  full-width Roll No / Student Name / Marks table, while larger rosters keep the
+  existing two-table six-column split.
+- Changed production auth behavior so every password login requires OTP when
+  `NODE_ENV=production`; trusted-device OTP bypass remains available only in
+  non-production environments and refresh-token behavior is unchanged.
+- Updated the single marksheet table to show nested theory/practical marks for
+  split subjects and nested branch/component rows, such as Botany/Zoology with
+  their own theory and practical marks, while preserving the existing Marksheet
+  title and Marks column label.

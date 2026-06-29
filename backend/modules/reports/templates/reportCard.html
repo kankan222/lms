@@ -108,9 +108,28 @@
     font-weight: 700;
   }
 
+  table.report tfoot td {
+    background: #f8fafc;
+    font-weight: 700;
+  }
+
   table.report td:first-child,
   table.report th:first-child {
     text-align: left;
+  }
+
+  table.report .detail-row td {
+    font-size: 13px;
+    padding-top: 7px;
+    padding-bottom: 7px;
+  }
+
+  table.report .detail-level-1 td:first-child {
+    padding-left: 28px;
+  }
+
+  table.report .detail-level-2 td:first-child {
+    padding-left: 52px;
   }
 
   .summary {
@@ -176,7 +195,7 @@
         <div class="school-name">Kalong Kapili Vidyapith</div>
         <div class="section-name">({{sectionTitle}})</div>
         <div class="exam-name">{{examName}}</div>
-        <div class="title">Report Card</div>
+        <div class="title">Marksheet</div>
       </div>
       <div class="issued-date">
         Date: {{issuedDate}}
@@ -208,22 +227,21 @@
   <table class="report">
     <tr>
       <th>Subject</th>
-      <th>Total Marks</th>
+      <th>Marks</th>
       <th>Marks Obtained</th>
     </tr>
     {{rows}}
+    <tfoot>
+      <tr>
+        <td></td>
+        <td>Total Marks - {{maxTotal}}</td>
+        <td>Grand Total - {{total}}</td>
+      </tr>
+    </tfoot>
   </table>
 
   <div class="summary">
     <div class="summary-box">
-      <div class="summary-row">
-        <span class="summary-label">Total Marks</span>
-        <span>{{maxTotal}}</span>
-      </div>
-      <div class="summary-row">
-        <span class="summary-label">Marks Obtained</span>
-        <span>{{total}}</span>
-      </div>
       <div class="summary-row">
         <span class="summary-label">Grade</span>
         <span>{{grade}}</span>

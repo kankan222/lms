@@ -77,12 +77,14 @@
 - Login accepts email, phone, or identifier plus password.
 - New devices and suspicious logins require a 6 digit SMS OTP through
   Fast2SMS Smart OTP before access and refresh tokens are issued.
+- In `NODE_ENV=production`, every password login requires OTP even when the
+  device ID was previously trusted. Trusted-device bypass is development-only.
 - Repeated password login attempts for the same active challenge should
   reuse the existing OTP challenge instead of sending another OTP.
 - OTPs are sent only to the phone number stored on the user record.
 - Trusted devices are identified by client-generated device IDs and
-  remain trusted until password reset, account deactivation, or
-  explicit revocation.
+  remain trusted in non-production environments until password reset,
+  account deactivation, or explicit revocation.
 - Access tokens contain `userId` and `sessionId`; refresh tokens are
   hashed in the sessions table.
 - Permissions are loaded server-side and cached for 10 minutes by

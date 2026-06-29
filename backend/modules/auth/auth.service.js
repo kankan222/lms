@@ -33,6 +33,10 @@ const OTP_RESEND_COOLDOWN_MS = 60 * 1000;
 const OTP_MAX_RESENDS_PER_DAY = 10;
 const SUSPICIOUS_FAILED_LOGIN_THRESHOLD = 3;
 
+function isProductionEnvironment() {
+  return String(process.env.NODE_ENV || "").trim().toLowerCase() === "production";
+}
+
 function normalizeStoredIndianPhone(phone) {
   const digits = String(phone || "").replace(/\D/g, "");
   if (digits.length === 10) return digits;
@@ -96,7 +100,7 @@ async function issueLoginSession(user, accessData, meta) {
     expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
   });
 
-  if (meta.deviceId) {
+  if (meta.deviceId && !isProductionEnvironment()) {
     await otpRepo.touchTrustedDevice({
       userId: user.id,
       deviceId: meta.deviceId,
@@ -124,6 +128,10 @@ async function issueLoginSession(user, accessData, meta) {
 }
 
 async function resolveOtpRequirement(user, roles, meta) {
+  if (isProductionEnvironment()) {
+    return { required: true, reason: "production_login" };
+  }
+
   if (!meta.deviceId) {
     return { required: true, reason: "new_device" };
   }
@@ -317,7 +325,7 @@ export async function verifyOtp(data, meta) {
   const accessData = await loadAccessData(user.id);
 
   await otpRepo.markOtpVerified(challengeId);
-  if (meta.deviceId) {
+  if (meta.deviceId && !isProductionEnvironment()) {
     await otpRepo.trustDevice({
       userId: user.id,
       deviceId: meta.deviceId,

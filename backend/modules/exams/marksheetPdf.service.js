@@ -78,6 +78,56 @@ function formatIssuedDate(dateValue = new Date()) {
   });
 }
 
+function hasSplitMarks(item) {
+  const hasValue = (value) => value !== null && value !== undefined && value !== "";
+  return (
+    String(item?.mark_pattern || "").trim().toLowerCase() === "split" ||
+    hasValue(item?.theory_max) ||
+    hasValue(item?.practical_max) ||
+    hasValue(item?.theory_marks) ||
+    hasValue(item?.practical_marks)
+  );
+}
+
+function renderDetailRow(label, maxMarks, marks, level = 1) {
+  return `
+      <tr class="detail-row detail-level-${level}">
+        <td>${escapeHtml(label)}</td>
+        <td>${escapeHtml(maxMarks ?? "")}</td>
+        <td>${escapeHtml(marks ?? "")}</td>
+      </tr>`;
+}
+
+function renderMarksheetSubjectRows(subject) {
+  const components = Array.isArray(subject.components) ? subject.components : [];
+  const rows = [
+    `
+      <tr>
+        <td>${escapeHtml(subject.subject)}</td>
+        <td>${escapeHtml(subject.max_marks)}</td>
+        <td>${escapeHtml(subject.marks)}</td>
+      </tr>`,
+  ];
+
+  if (components.length) {
+    components.forEach((component) => {
+      rows.push(renderDetailRow(component.name, component.max_marks, component.marks, 1));
+      if (hasSplitMarks(component)) {
+        rows.push(renderDetailRow("Theory", component.theory_max, component.theory_marks, 2));
+        rows.push(renderDetailRow("Practical", component.practical_max, component.practical_marks, 2));
+      }
+    });
+    return rows.join("");
+  }
+
+  if (hasSplitMarks(subject)) {
+    rows.push(renderDetailRow("Theory", subject.theory_max, subject.theory_marks, 1));
+    rows.push(renderDetailRow("Practical", subject.practical_max, subject.practical_marks, 1));
+  }
+
+  return rows.join("");
+}
+
 export async function generateMarksheetPdf(report) {
   const templatePath = path.join(__dirname, "..", "reports", "templates", "reportCard.html");
   let html = await fs.readFile(templatePath, "utf8");
@@ -88,16 +138,7 @@ export async function generateMarksheetPdf(report) {
     readLogoBase64(),
   ]);
 
-  const rows = (report.subjects || [])
-    .map(
-      (subject) => `
-      <tr>
-        <td>${escapeHtml(subject.subject)}</td>
-        <td>${escapeHtml(subject.max_marks)}</td>
-        <td>${escapeHtml(subject.marks)}</td>
-      </tr>`
-    )
-    .join("");
+  const rows = (report.subjects || []).map(renderMarksheetSubjectRows).join("");
 
   html = html
     .replace("{{studentName}}", escapeHtml(report?.student?.name || "-"))

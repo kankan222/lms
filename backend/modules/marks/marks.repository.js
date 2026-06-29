@@ -409,6 +409,10 @@ async function attachExamSubjectComponents(subjects) {
   }));
 }
 
+export function attachComponentsToExamSubjects(subjects) {
+  return attachExamSubjectComponents(subjects);
+}
+
 export async function getExamScopes(examId) {
   const hasScopesTable = await supportsScopesTable();
   const classScopeExpr = buildClassScopeExpression(hasScopesTable);
@@ -1525,6 +1529,7 @@ export async function getStudentReportRows(examId, studentId, onlyApproved = tru
       sec.name AS section_name,
       sec.medium,
       se.roll_number,
+      es.id AS exam_subject_id,
       sub.name AS subject_name,
       ${markPatternExpr} AS mark_pattern,
       es.max_marks,

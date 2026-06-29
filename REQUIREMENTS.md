@@ -8,7 +8,10 @@
   identifier and password.
 - New devices, changed device types, unknown IP addresses, and suspicious
   login activity must require SMS OTP verification.
-- Successfully verified devices may be registered as trusted devices.
+- Production password logins must require SMS OTP verification every time,
+  even for previously verified devices.
+- Successfully verified devices may be registered as trusted devices outside
+  production.
 - Users must be able to refresh sessions, log out, and log out from all
   sessions.
 - Access must be controlled through roles and granular permissions.
@@ -245,7 +248,8 @@
 - Access tokens must identify the user and session.
 - Refresh tokens must support rotation.
 - Token refresh must not require OTP verification.
-- New or suspicious devices must complete OTP verification.
+- Production password logins must complete OTP verification on every login.
+- Non-production new or suspicious devices must complete OTP verification.
 - Trusted devices must be revocable after password reset, account
   deactivation, or explicit administrative action.
 - Backend permission checks are the security boundary.
@@ -345,6 +349,4 @@
   testing before broad production rollout.
 - Production releases must preserve existing data, conversations, package
   identifiers, and compatible client behavior.
-
-
 

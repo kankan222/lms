@@ -164,11 +164,25 @@ async function ensureTeacherScopeAccess(userId, examId, classId, sectionId, subj
   }
 }
 
-function formatReport(rows, publication = null) {
+async function formatReport(rows, publication = null) {
   const total = rows.reduce((sum, row) => sum + Number(row.marks || 0), 0);
   const maxTotal = rows.reduce((sum, row) => sum + Number(row.max_marks || 0), 0);
   const percentage = maxTotal ? (total / maxTotal) * 100 : 0;
   const classScope = String(rows[0].class_scope || "school").trim().toLowerCase();
+  const rowsWithComponents = await repo.attachComponentsToExamSubjects(rows);
+  const componentMarksRows = rowsWithComponents.some((row) => row.components?.length)
+    ? await Promise.all(
+        rowsWithComponents.map((row) =>
+          row.components?.length
+            ? repo.getComponentMarksByStudentIds(row.exam_subject_id, [row.student_id])
+            : []
+        )
+      )
+    : [];
+  const componentMarksBySubject = new Map();
+  componentMarksRows.flat().forEach((row) => {
+    componentMarksBySubject.set(Number(row.component_id), row);
+  });
 
   return {
     student: {
@@ -185,7 +199,7 @@ function formatReport(rows, publication = null) {
       section_name: rows[0].section_name,
       medium: rows[0].medium,
     },
-    subjects: rows.map((row) => ({
+    subjects: rowsWithComponents.map((row) => ({
       subject: row.subject_name,
       mark_pattern: String(row.mark_pattern || "single").trim().toLowerCase(),
       marks: Number(row.marks || 0),
@@ -197,6 +211,25 @@ function formatReport(rows, publication = null) {
       theory_pass: row.theory_pass === null ? null : Number(row.theory_pass),
       practical_max: row.practical_max === null ? null : Number(row.practical_max),
       practical_pass: row.practical_pass === null ? null : Number(row.practical_pass),
+      components: (row.components || []).map((component) => {
+        const componentMarks = componentMarksBySubject.get(Number(component.id));
+        return {
+          name: component.name,
+          mark_pattern: String(component.mark_pattern || "single").trim().toLowerCase(),
+          marks: componentMarks ? Number(componentMarks.marks || 0) : null,
+          max_marks: Number(component.max_marks || 0),
+          theory_marks:
+            componentMarks?.theory_marks === null || componentMarks?.theory_marks === undefined
+              ? null
+              : Number(componentMarks.theory_marks),
+          practical_marks:
+            componentMarks?.practical_marks === null || componentMarks?.practical_marks === undefined
+              ? null
+              : Number(componentMarks.practical_marks),
+          theory_max: component.theory_max === null ? null : Number(component.theory_max),
+          practical_max: component.practical_max === null ? null : Number(component.practical_max),
+        };
+      }),
     })),
     summary: {
       total,
@@ -910,7 +943,7 @@ export async function getStudentReport(examIdValue, studentIdValue, userId) {
     throw new AppError("No approved marks found for this student in this exam", 404);
   }
 
-  return formatReport(rows, publication);
+  return await formatReport(rows, publication);
 }
 
 export async function getReportPublication(query, userId) {
@@ -1112,6 +1145,7 @@ export async function downloadMarkStatement(query, userId) {
     subject: examSubject,
     scope,
     students,
+    statementDate: query.statement_date,
   });
 
   return {

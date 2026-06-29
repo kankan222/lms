@@ -17,6 +17,7 @@ const EMPTY_FILTERS = {
   section_id: "",
   medium: "",
   subject_id: "",
+  statement_date: "",
 };
 
 const classScopeLabels = {
@@ -258,7 +259,14 @@ export default function MarkReport() {
 
   useEffect(() => {
     setPreviewUrl("");
-  }, [filters.exam_id, filters.class_id, filters.section_id, filters.medium, filters.subject_id]);
+  }, [
+    filters.exam_id,
+    filters.class_id,
+    filters.section_id,
+    filters.medium,
+    filters.subject_id,
+    filters.statement_date,
+  ]);
 
   useEffect(() => {
     if (!previewUrl) return undefined;
@@ -286,6 +294,7 @@ export default function MarkReport() {
       section_id: filters.section_id,
       medium: filters.medium,
       subject_id: filters.subject_id,
+      statement_date: filters.statement_date,
     });
   }
 
@@ -489,6 +498,21 @@ export default function MarkReport() {
                   <div className="rounded-md border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
                     {filters.medium || selectedSection?.medium || "-"}
                   </div>
+                </div>
+              </div>
+
+              <div className="grid gap-3 md:grid-cols-3">
+                <div className="grid gap-2">
+                  <Label htmlFor="statement-date">Date</Label>
+                  <input
+                    id="statement-date"
+                    type="date"
+                    className="rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground shadow-xs outline-none transition-colors focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] dark:bg-input/30"
+                    value={filters.statement_date}
+                    onChange={(e) =>
+                      setFilters((prev) => ({ ...prev, statement_date: e.target.value }))
+                    }
+                  />
                 </div>
               </div>
             </CardContent>
