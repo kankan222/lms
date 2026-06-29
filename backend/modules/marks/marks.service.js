@@ -236,7 +236,7 @@ async function formatReport(rows, publication = null) {
       .sort((a, b) => {
         const groupCompare = subjectGroupOrder(a.subject_group) - subjectGroupOrder(b.subject_group);
         if (groupCompare) return groupCompare;
-        return String(a.subject || "").localeCompare(String(b.subject || ""));
+        return compareSubjectNamesForMarksheet(a.subject, b.subject);
       }),
     summary: {
       total,
@@ -275,6 +275,39 @@ function subjectGroupOrder(group) {
   if (normalized === "elective") return 2;
   if (normalized === "optional") return 3;
   return 9;
+}
+
+function normalizeSubjectNameForSort(name) {
+  return String(name || "")
+    .trim()
+    .toLowerCase()
+    .replace(/&/g, " and ")
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function languageSubjectOrder(name) {
+  const normalized = normalizeSubjectNameForSort(name);
+  if (!normalized) return 100;
+
+  if (/^english\s*(i|1|first)?$/.test(normalized) || normalized === "english") return 1;
+  if (/^english\s*(ii|2|second)$/.test(normalized)) return 2;
+  if (normalized.startsWith("english")) return 3;
+  if (normalized === "assamese" || normalized.startsWith("assamese ")) return 4;
+  if ((normalized === "hindi" || normalized.startsWith("hindi ")) && !normalized.includes("mil")) return 5;
+  if (normalized.includes("mil") && normalized.includes("hindi")) return 6;
+  if (normalized.includes("mil") && normalized.includes("bengali")) return 7;
+  if (normalized.includes("mil") && normalized.includes("assamese")) return 8;
+
+  return 100;
+}
+
+function compareSubjectNamesForMarksheet(aName, bName) {
+  const aLanguageOrder = languageSubjectOrder(aName);
+  const bLanguageOrder = languageSubjectOrder(bName);
+  if (aLanguageOrder !== bLanguageOrder) return aLanguageOrder - bLanguageOrder;
+  return String(aName || "").localeCompare(String(bName || ""));
 }
 
 function weightedContribution(marks, maxMarks, weight) {
@@ -400,7 +433,7 @@ async function formatFinalReport(scope, rows) {
 
   const subjects = [...subjectMap.values()].sort((a, b) => {
     if (a.order !== b.order) return a.order - b.order;
-    return String(a.name || "").localeCompare(String(b.name || ""));
+    return compareSubjectNamesForMarksheet(a.name, b.name);
   });
 
   const examTotals = {};

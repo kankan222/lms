@@ -84,6 +84,12 @@ Update this file after every meaningful implementation change.
 - Aligned single marksheet subject ordering with final marksheet order:
   compulsory subjects first, then elective, then optional, with subject
   group fallback from current class subject assignments for older exams.
+- Filtered the Reports subject dropdown by selected exam, class, and
+  section using active subject offerings so large subject lists only show
+  relevant subjects for the selected marks entry scope.
+- Added marksheet language-priority sorting inside each subject group:
+  English/English I/English II first, then Assamese, Hindi, MIL Hindi,
+  MIL Bengali, MIL Assamese, followed by other subjects alphabetically.
 
 ## In Progress
 

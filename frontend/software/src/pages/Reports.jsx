@@ -17,7 +17,7 @@ import {
 } from "../components/ui/table";
 import { getClassStructure } from "../api/academic.api";
 import { getExams, getExamById } from "../api/exam.api";
-import { getSubjects } from "../api/subjects.api";
+import { getSubjects, getSubjectOfferings } from "../api/subjects.api";
 import {
   getAccessibleExamById,
   getAccessibleExams,
@@ -421,6 +421,7 @@ export default function Reports() {
 
   const [classes, setClasses] = useState([]);
   const [subjects, setSubjects] = useState([]);
+  const [subjectOfferings, setSubjectOfferings] = useState([]);
   const [exams, setExams] = useState([]);
   const [examSubjects, setExamSubjects] = useState([]);
   const [examScopes, setExamScopes] = useState([]);
@@ -497,11 +498,35 @@ export default function Reports() {
 
     return sections.filter((item) => allowedSectionIds.has(String(item.id)));
   }, [selectedClass, filters.exam_id, examScopes]);
-  const filteredSubjects = examSubjects.length
-    ? subjects.filter((subject) =>
-        examSubjects.some((item) => String(item.subject_id) === String(subject.id))
-      )
-    : subjects;
+  const scopedSubjectOfferings = useMemo(() => {
+    if (!filters.class_id) return [];
+    return subjectOfferings.filter((offering) => {
+      const classMatches = String(offering.class_id || "") === String(filters.class_id);
+      const sectionId = String(offering.section_id || "");
+      const sectionMatches =
+        !filters.section_id || !sectionId || sectionId === String(filters.section_id);
+      return classMatches && sectionMatches;
+    });
+  }, [subjectOfferings, filters.class_id, filters.section_id]);
+  const filteredSubjects = useMemo(() => {
+    const examSubjectRows = examSubjects.length ? examSubjects : [];
+    const examSubjectIds = new Set(examSubjectRows.map((item) => String(item.subject_id)));
+    const hasScopedOfferings = filters.class_id && scopedSubjectOfferings.length > 0;
+    const scopedSubjectIds = new Set(scopedSubjectOfferings.map((item) => String(item.subject_id)));
+    const scopedOfferingIds = new Set(scopedSubjectOfferings.map((item) => String(item.id)));
+
+    return subjects.filter((subject) => {
+      const subjectId = String(subject.id);
+      if (examSubjectRows.length && !examSubjectIds.has(subjectId)) return false;
+      if (!hasScopedOfferings) return true;
+
+      return examSubjectRows.some((examSubject) => {
+        if (String(examSubject.subject_id) !== subjectId) return false;
+        const offeringId = String(examSubject.subject_offering_id || "");
+        return offeringId ? scopedOfferingIds.has(offeringId) : scopedSubjectIds.has(subjectId);
+      });
+    });
+  }, [examSubjects, filters.class_id, scopedSubjectOfferings, subjects]);
   const selectedExam = useMemo(
     () => exams.find((item) => String(item.id) === String(filters.exam_id)) || null,
     [exams, filters.exam_id]
@@ -662,6 +687,46 @@ export default function Reports() {
       ignore = true;
     };
   }, [filters.exam_id, canViewExamCatalog]);
+
+  useEffect(() => {
+    if (!filters.class_id) {
+      setSubjectOfferings([]);
+      return;
+    }
+
+    let ignore = false;
+    (async () => {
+      try {
+        const res = await getSubjectOfferings({
+          class_id: filters.class_id,
+          section_id: filters.section_id || undefined,
+        });
+        if (!ignore) {
+          setSubjectOfferings(Array.isArray(res?.data) ? res.data : []);
+        }
+      } catch (err) {
+        if (!ignore) {
+          setSubjectOfferings([]);
+          setBanner({
+            type: "destructive",
+            title: "Subjects load failed",
+            message: err?.message || "Failed to load subjects for the selected class and section.",
+          });
+        }
+      }
+    })();
+
+    return () => {
+      ignore = true;
+    };
+  }, [filters.class_id, filters.section_id]);
+
+  useEffect(() => {
+    if (!filters.subject_id) return;
+    if (filteredSubjects.some((subject) => String(subject.id) === String(filters.subject_id))) return;
+
+    setFilters((prev) => ({ ...prev, subject_id: "" }));
+  }, [filteredSubjects, filters.subject_id]);
 
   useEffect(() => {
     if (!filters.exam_id) return;
@@ -1503,7 +1568,17 @@ export default function Reports() {
                     setFilters((prev) => ({ ...prev, subject_id: e.target.value }))
                   }
                 >
-                  <option value="">Select subject</option>
+                  <option value="">
+                    {!filters.exam_id
+                      ? "Select exam first"
+                      : !filters.class_id
+                        ? "Select class first"
+                        : !filters.section_id
+                          ? "Select section first"
+                          : filteredSubjects.length
+                            ? "Select subject"
+                            : "No subjects for selected scope"}
+                  </option>
                   {filteredSubjects.map((subject) => (
                     <option key={subject.id} value={subject.id}>
                       {subject.name}
