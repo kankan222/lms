@@ -282,10 +282,14 @@
 
   .marks-table .split-mark-cell div {
     display: grid;
-    grid-template-columns: 1fr auto auto;
+    grid-template-columns: minmax(10mm, 1fr) auto minmax(4mm, auto);
     column-gap: 0.8mm;
     text-align: left;
     white-space: nowrap;
+  }
+
+  .marks-table .split-mark-cell div span:last-child {
+    text-align: right;
   }
 
   .marks-table .split-mark-cell div:last-child {
@@ -539,7 +543,7 @@
           <td>TOTAL</td>
           {{examTotalCells}}
           <td class="criteria-summary criteria-start" colspan="2">Total Marks : {{maxTotal}}</td>
-          <td class="criteria-summary summary-end summary-right" colspan="2">Grand Total : {{grandTotal}}</td>
+          <td class="criteria-summary summary-end summary-right" colspan="2">Grand Total: {{grandTotal}} (Out of {{maxTotal}} Marks)</td>
         </tr>
         <tr class="summary-row">
           <td>Percentage</td>

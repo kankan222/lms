@@ -70,6 +70,9 @@ Update this file after every meaningful implementation change.
   `marksheet.md` Computer example.
 - Fixed report and mark statement native dropdown styling so select
   controls and options use dark-mode-safe background and text colors.
+- Updated single and final marksheet summary rows so Grand Total shows
+  the obtained marks with the explicit out-of max marks text from
+  `marksheet.md`.
 
 ## In Progress
 

@@ -111,10 +111,10 @@ function renderFinalMarkCell(cell) {
   if (!splitComponents.length) {
     const isDirectSplit =
       String(cell.mark_pattern || "").trim().toLowerCase() === "split" ||
-      cell.theory_marks !== null ||
-      cell.practical_marks !== null ||
-      cell.theory_max !== null ||
-      cell.practical_max !== null;
+      (cell.theory_marks !== null && cell.theory_marks !== undefined) ||
+      (cell.practical_marks !== null && cell.practical_marks !== undefined) ||
+      (cell.theory_max !== null && cell.theory_max !== undefined) ||
+      (cell.practical_max !== null && cell.practical_max !== undefined);
     if (isDirectSplit) {
       return `
         <td class="split-mark-cell">
