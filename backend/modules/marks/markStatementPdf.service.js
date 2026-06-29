@@ -148,11 +148,11 @@ export async function generateMarkStatementPdf({ exam, subject, scope, students,
         align: "center",
       });
     doc
-      .roundedRect(left + 124, top + 88, 112, 24, 3)
+      .roundedRect(left + usableWidth - 112, top + 88, 112, 24, 3)
       .stroke()
       .font("Helvetica-Bold")
       .fontSize(10)
-      .text(`Date: ${statementDateText}`, left + 132, top + 95, {
+      .text(`Date: ${statementDateText}`, left + usableWidth - 104, top + 95, {
         width: 96,
         align: "center",
       });

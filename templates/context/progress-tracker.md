@@ -554,6 +554,8 @@ Update this file after every meaningful implementation change.
   existing Marksheet title and Marks column label.
 - Added a Date input to the Mark Statement page and printed it in a bordered
   Date box beside Total Marks on the generated marks statement PDF.
+- Moved the Mark Statement PDF Date box to the far right of the page on the
+  same line as Total Marks.
 - Updated the Mark Statement PDF roster layout so small rosters use one
   full-width Roll No / Student Name / Marks table, while larger rosters keep the
   existing two-table six-column split.
