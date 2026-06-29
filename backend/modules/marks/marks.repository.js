@@ -774,6 +774,7 @@ export async function getComponentMarksByStudentIds(examSubjectId, studentIds) {
   return query(
     `SELECT
       ecm.student_id,
+      esc.exam_subject_id,
       ecm.exam_subject_component_id AS component_id,
       ecm.marks,
       ecm.theory_marks,
@@ -1391,6 +1392,7 @@ export async function getFinalReportRows({ studentId, sessionId, classId, sectio
        ${subjectOfferingExpr} AS subject_offering_id,
        ${subjectGroupExpr} AS subject_group,
        sub.name AS subject_name,
+       es.id AS exam_subject_id,
        es.max_marks,
        me.marks,
        me.approval_status

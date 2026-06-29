@@ -19,6 +19,8 @@ const EMPTY_FILTERS = {
   subject_id: "",
   statement_date: "",
 };
+const SELECT_CLASSNAME =
+  "rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground shadow-xs outline-none transition-colors focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] disabled:cursor-not-allowed disabled:opacity-60 dark:bg-input/30 [&>option]:bg-background [&>option]:text-foreground";
 
 const classScopeLabels = {
   school: "School",
@@ -386,7 +388,7 @@ export default function MarkReport() {
                 <div className="grid gap-2">
                   <Label>Class Scope</Label>
                   <select
-                    className="rounded-md border bg-background px-3 py-2 text-sm"
+                    className={SELECT_CLASSNAME}
                     value={filters.class_scope}
                     onChange={(e) =>
                       setFilters((prev) => ({
@@ -410,7 +412,7 @@ export default function MarkReport() {
                 <div className="grid gap-2">
                   <Label>Exam</Label>
                   <select
-                    className="rounded-md border bg-background px-3 py-2 text-sm"
+                    className={SELECT_CLASSNAME}
                     value={filters.exam_id}
                     onChange={(e) =>
                       setFilters((prev) => ({
@@ -433,7 +435,7 @@ export default function MarkReport() {
                 <div className="grid gap-2">
                   <Label>Subject</Label>
                   <select
-                    className="rounded-md border bg-background px-3 py-2 text-sm"
+                    className={SELECT_CLASSNAME}
                     value={filters.subject_id}
                     onChange={(e) => setFilters((prev) => ({ ...prev, subject_id: e.target.value }))}
                     disabled={!filters.exam_id || examMetaLoading}
@@ -450,7 +452,7 @@ export default function MarkReport() {
                 <div className="grid gap-2">
                   <Label>Class</Label>
                   <select
-                    className="rounded-md border bg-background px-3 py-2 text-sm"
+                    className={SELECT_CLASSNAME}
                     value={filters.class_id}
                     onChange={(e) =>
                       setFilters((prev) => ({
@@ -472,7 +474,7 @@ export default function MarkReport() {
                 <div className="grid gap-2">
                   <Label>Section</Label>
                   <select
-                    className="rounded-md border bg-background px-3 py-2 text-sm"
+                    className={SELECT_CLASSNAME}
                     value={filters.section_id}
                     onChange={(e) => {
                       const section = availableSections.find((item) => String(item.id) === e.target.value);

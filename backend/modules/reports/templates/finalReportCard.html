@@ -274,6 +274,24 @@
     min-width: 33mm;
   }
 
+  .marks-table .split-mark-cell {
+    padding: 0.75mm 0.8mm;
+    font-size: 9.2px;
+    line-height: 1.08;
+  }
+
+  .marks-table .split-mark-cell div {
+    display: grid;
+    grid-template-columns: 1fr auto auto;
+    column-gap: 0.8mm;
+    text-align: left;
+    white-space: nowrap;
+  }
+
+  .marks-table .split-mark-cell div:last-child {
+    font-weight: 800;
+  }
+
   .marks-table.subjects-sparse {
     font-size: 13px;
   }

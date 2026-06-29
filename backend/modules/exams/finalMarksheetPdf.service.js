@@ -92,6 +92,37 @@ function formatWholeCell(value) {
   return Number.isFinite(Number(value)) ? Number(value).toFixed(0) : value;
 }
 
+function hasSplitMarks(component) {
+  const pattern = String(component?.mark_pattern || "").trim().toLowerCase();
+  return (
+    pattern === "split" ||
+    (component?.theory_marks !== null && component?.theory_marks !== undefined) ||
+    (component?.practical_marks !== null && component?.practical_marks !== undefined) ||
+    (component?.theory_max !== null && component?.theory_max !== undefined) ||
+    (component?.practical_max !== null && component?.practical_max !== undefined)
+  );
+}
+
+function renderFinalMarkCell(cell) {
+  if (!cell) return "<td></td>";
+
+  const components = Array.isArray(cell.components) ? cell.components : [];
+  const splitComponents = components.filter(hasSplitMarks);
+  if (!splitComponents.length) {
+    return `<td>${escapeHtml(formatCell(cell.marks))}</td>`;
+  }
+
+  const theory = splitComponents.reduce((sum, component) => sum + Number(component.theory_marks || 0), 0);
+  const practical = splitComponents.reduce((sum, component) => sum + Number(component.practical_marks || 0), 0);
+
+  return `
+    <td class="split-mark-cell">
+      <div><span>Theory</span><span>-</span><span>${escapeHtml(formatCell(theory))}</span></div>
+      <div><span>Practical</span><span>-</span><span>${escapeHtml(formatCell(practical))}</span></div>
+      <div><span>Total</span><span>-</span><span>${escapeHtml(formatCell(cell.marks))}</span></div>
+    </td>`;
+}
+
 function renderGradeSecuredRows(activities = [], mockGrades = []) {
   const items = [
     ...activities.map((activity) => ({
@@ -216,7 +247,7 @@ export async function generateFinalMarksheetPdf(report) {
       const examCells = exams
         .map((exam) => {
           const cell = subject.exams?.[exam.id];
-          return `<td>${cell ? escapeHtml(formatCell(cell.marks)) : ""}</td>`;
+          return renderFinalMarkCell(cell);
         });
       const marksSecuredCells = insertBeforeLast(
         examCells,

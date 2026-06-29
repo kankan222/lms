@@ -269,7 +269,28 @@ function weightedContribution(marks, maxMarks, weight) {
 }
 
 async function formatFinalReport(scope, rows) {
-  const displayRows = rows.filter(
+  const rowsWithComponents = await repo.attachComponentsToExamSubjects(rows);
+  const examSubjectIds = [
+    ...new Set(
+      rowsWithComponents
+        .filter((row) => row.components?.length)
+        .map((row) => Number(row.exam_subject_id))
+        .filter(Boolean)
+    ),
+  ];
+  const componentMarksRows = examSubjectIds.length
+    ? await Promise.all(
+        examSubjectIds.map((examSubjectId) =>
+          repo.getComponentMarksByStudentIds(examSubjectId, [Number(scope.student_id)])
+        )
+      )
+    : [];
+  const componentMarksBySubject = new Map();
+  componentMarksRows.flat().forEach((row) => {
+    componentMarksBySubject.set(`${Number(row.exam_subject_id)}:${Number(row.component_id)}`, row);
+  });
+
+  const displayRows = rowsWithComponents.filter(
     (row) => !FINAL_MARKSHEET_EXCLUDED_TYPES.has(String(row.final_calculation_type || "").trim().toLowerCase())
   );
   const examMap = new Map();
@@ -316,7 +337,31 @@ async function formatFinalReport(scope, rows) {
     }
 
     const subject = subjectMap.get(subjectKey);
-    subject.exams[examId] = { marks, max_marks: maxMarks };
+    subject.exams[examId] = {
+      marks,
+      max_marks: maxMarks,
+      components: (row.components || []).map((component) => {
+        const componentMarks = componentMarksBySubject.get(
+          `${Number(row.exam_subject_id)}:${Number(component.id)}`
+        );
+        return {
+          name: component.name,
+          mark_pattern: String(component.mark_pattern || "single").trim().toLowerCase(),
+          marks: componentMarks ? Number(componentMarks.marks || 0) : null,
+          max_marks: Number(component.max_marks || 0),
+          theory_marks:
+            componentMarks?.theory_marks === null || componentMarks?.theory_marks === undefined
+              ? null
+              : Number(componentMarks.theory_marks),
+          practical_marks:
+            componentMarks?.practical_marks === null || componentMarks?.practical_marks === undefined
+              ? null
+              : Number(componentMarks.practical_marks),
+          theory_max: component.theory_max === null ? null : Number(component.theory_max),
+          practical_max: component.practical_max === null ? null : Number(component.practical_max),
+        };
+      }),
+    };
     subject.total += marks;
     subject.max_total += maxMarks;
   });

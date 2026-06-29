@@ -65,6 +65,11 @@ Update this file after every meaningful implementation change.
 - Updated payment CSV bulk upload to follow the student bulk entry
   pattern, using student/session/class/section/fee item information
   instead of requiring internal student fee IDs.
+- Added theory/practical/total split mark display in final marksheet
+  exam cells when a subject has component marks, matching the
+  `marksheet.md` Computer example.
+- Fixed report and mark statement native dropdown styling so select
+  controls and options use dark-mode-safe background and text colors.
 
 ## In Progress
 

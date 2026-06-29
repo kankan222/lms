@@ -56,6 +56,8 @@ const EMPTY_SELF_FILTERS = {
 };
 
 const APPROVED_RECORDS_PAGE_SIZE = 25;
+const SELECT_CLASSNAME =
+  "w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground shadow-xs outline-none transition-colors focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] disabled:cursor-not-allowed disabled:opacity-60 dark:bg-input/30 [&>option]:bg-background [&>option]:text-foreground";
 
 function statusVariant(status) {
   if (status === "approved") return "default";
@@ -1404,7 +1406,7 @@ export default function Reports() {
               <div className="grid gap-2">
                 <Label>Scope</Label>
                 <select
-                  className="w-full rounded-md border px-3 py-2"
+                  className={SELECT_CLASSNAME}
                   value={filters.class_scope}
                   onChange={(e) =>
                     setFilters((prev) => ({
@@ -1427,7 +1429,7 @@ export default function Reports() {
               <div className="grid gap-2">
                 <Label>Exam</Label>
                 <select
-                  className="w-full rounded-md border px-3 py-2"
+                  className={SELECT_CLASSNAME}
                   value={filters.exam_id}
                   onChange={(e) =>
                     setFilters((prev) => ({ ...prev, exam_id: e.target.value }))
@@ -1445,7 +1447,7 @@ export default function Reports() {
               <div className="grid gap-2">
                 <Label>Class</Label>
                 <select
-                  className="w-full rounded-md border px-3 py-2"
+                  className={SELECT_CLASSNAME}
                   value={filters.class_id}
                   onChange={(e) =>
                     setFilters((prev) => ({
@@ -1469,7 +1471,7 @@ export default function Reports() {
               <div className="grid gap-2">
                 <Label>Section (Medium)</Label>
                 <select
-                  className="w-full rounded-md border px-3 py-2"
+                  className={SELECT_CLASSNAME}
                   value={filters.section_id}
                   onChange={(e) => {
                     const nextSectionId = e.target.value;
@@ -1495,7 +1497,7 @@ export default function Reports() {
               <div className="grid gap-2">
                 <Label>Subject</Label>
                 <select
-                  className="w-full rounded-md border px-3 py-2"
+                  className={SELECT_CLASSNAME}
                   value={filters.subject_id}
                   onChange={(e) =>
                     setFilters((prev) => ({ ...prev, subject_id: e.target.value }))
@@ -1528,7 +1530,7 @@ export default function Reports() {
                 <div className="grid gap-2">
                   <Label>Status</Label>
                   <select
-                    className="min-w-[180px] rounded-md border px-3 py-2"
+                    className={`${SELECT_CLASSNAME} min-w-[180px]`}
                     value={filters.approval_status}
                     onChange={(e) =>
                       setFilters((prev) => ({ ...prev, approval_status: e.target.value }))
@@ -2163,7 +2165,7 @@ export default function Reports() {
               <div className="grid gap-2">
                 <Label>Exam</Label>
                 <select
-                  className="w-full rounded-md border px-3 py-2"
+                  className={SELECT_CLASSNAME}
                   value={selfFilters.exam_id}
                   onChange={(e) =>
                     setSelfFilters((prev) => ({ ...prev, exam_id: e.target.value }))
@@ -2182,7 +2184,7 @@ export default function Reports() {
                 <div className="grid gap-2">
                   <Label>Student</Label>
                   <select
-                    className="w-full rounded-md border px-3 py-2"
+                    className={SELECT_CLASSNAME}
                     value={selfFilters.student_id}
                     onChange={(e) =>
                       setSelfFilters((prev) => ({ ...prev, student_id: e.target.value }))

@@ -1,18 +1,11 @@
-SUBJECT                 MARKS         MARKS OBTAINED
-Physics                 100             80
-    Theory               80             65
-    Practical            20             15
+SCHOLASTIC AREA                   MARKS SECURED IN                                                   CRITERIA FOR PROMOTION
+                    1st Unit Test  |  Half Yearly Exam | 2nd Unit Test | Total of Unit Test | Annual Exam
 
-Chemistry               100             80
-    Theory               80             65
-    Practical            20             15
+Assamese                40                  80                  45              90
+English I               35                  75                  40              62      
+Computer                45              Theory    - 45          40              Theory    - 65
+                                        Practical - 15                          Practical - 15
+                                        Total     - 60          40              Total     - 80
 
-Biology                 100             60
-    Zoology             50              30
-        Theory          35              20
-        Practical       15              10
-    Botany              50              30
-        Theory          35              20
-        Practical       15              10
 
-        TOTAL MARKS   300      GRAND TOTAL - 220
+                                        
