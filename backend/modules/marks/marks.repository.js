@@ -1352,8 +1352,26 @@ export async function getFinalReportRows({ studentId, sessionId, classId, sectio
   const classScopeExpr = buildClassScopeExpression(hasScopesTable);
   const subjectSchema = await getExamSubjectSplitSchemaStatus();
   const subjectOfferingExpr = subjectSchema.hasSubjectOfferingId ? "es.subject_offering_id" : "NULL";
-  const subjectGroupExpr = subjectSchema.hasSubjectOfferingId ? "so.subject_group" : "NULL";
-  const subjectGroupOrderExpr = subjectSchema.hasSubjectOfferingId ? "COALESCE(so.subject_group, 'zz')" : "'zz'";
+  const finalCurrentSubjectGroupExpr = subjectSchema.hasSubjectOfferingId
+    ? `(SELECT so_current.subject_group
+        FROM subject_offerings so_current
+        WHERE so_current.is_active = TRUE
+          AND so_current.subject_id = es.subject_id
+          AND so_current.class_id = se.class_id
+          AND (so_current.section_id IS NULL OR so_current.section_id = se.section_id)
+          AND (so_current.stream_id IS NULL OR so_current.stream_id <=> se.stream_id)
+        ORDER BY
+          so_current.section_id IS NULL ASC,
+          so_current.stream_id IS NULL ASC,
+          so_current.id DESC
+        LIMIT 1)`
+    : "NULL";
+  const subjectGroupExpr = subjectSchema.hasSubjectOfferingId
+    ? `COALESCE(so.subject_group, ${finalCurrentSubjectGroupExpr})`
+    : "NULL";
+  const subjectGroupOrderExpr = subjectSchema.hasSubjectOfferingId
+    ? `COALESCE(so.subject_group, ${finalCurrentSubjectGroupExpr}, 'zz')`
+    : "'zz'";
   const subjectOfferingJoin = subjectSchema.hasSubjectOfferingId
     ? "LEFT JOIN subject_offerings so ON so.id = es.subject_offering_id"
     : "";
@@ -1477,6 +1495,29 @@ export async function getStudentReportRows(examId, studentId, onlyApproved = tru
   const practicalPassExpr = supportsSplitSubjectSchema ? "es.practical_pass" : "NULL";
   const theoryMarksExpr = supportsSplitMarksSchema ? "me.theory_marks" : "NULL";
   const practicalMarksExpr = supportsSplitMarksSchema ? "me.practical_marks" : "NULL";
+  const currentSubjectGroupExpr = hasSubjectOfferingId
+    ? `(SELECT so_current.subject_group
+        FROM subject_offerings so_current
+        WHERE so_current.is_active = TRUE
+          AND so_current.subject_id = es.subject_id
+          AND so_current.class_id = se.class_id
+          AND (so_current.section_id IS NULL OR so_current.section_id = se.section_id)
+          AND (so_current.stream_id IS NULL OR so_current.stream_id <=> se.stream_id)
+        ORDER BY
+          so_current.section_id IS NULL ASC,
+          so_current.stream_id IS NULL ASC,
+          so_current.id DESC
+        LIMIT 1)`
+    : "NULL";
+  const subjectGroupExpr = hasSubjectOfferingId
+    ? `COALESCE(so.subject_group, ${currentSubjectGroupExpr})`
+    : "NULL";
+  const subjectGroupOrderExpr = hasSubjectOfferingId
+    ? `COALESCE(so.subject_group, ${currentSubjectGroupExpr}, 'zz')`
+    : "'zz'";
+  const subjectOfferingJoin = hasSubjectOfferingId
+    ? "LEFT JOIN subject_offerings so ON so.id = es.subject_offering_id"
+    : "";
   const offeredSubjectMatchSql = (offeringAlias) =>
     hasSubjectOfferingId
       ? `(es.subject_offering_id IS NOT NULL AND ${offeringAlias}.id = es.subject_offering_id)
@@ -1549,6 +1590,7 @@ export async function getStudentReportRows(examId, studentId, onlyApproved = tru
       se.roll_number,
       es.id AS exam_subject_id,
       sub.name AS subject_name,
+      ${subjectGroupExpr} AS subject_group,
       ${markPatternExpr} AS mark_pattern,
       es.max_marks,
       es.pass_marks,
@@ -1579,6 +1621,7 @@ export async function getStudentReportRows(examId, studentId, onlyApproved = tru
      JOIN sections sec ON sec.id = se.section_id
      JOIN exam_subjects es ON es.exam_id = e.id
      JOIN subjects sub ON sub.id = es.subject_id
+     ${subjectOfferingJoin}
      LEFT JOIN marks_entries me
        ON me.exam_id = e.id
       AND me.subject_id = es.subject_id
@@ -1594,7 +1637,14 @@ export async function getStudentReportRows(examId, studentId, onlyApproved = tru
        ${approvalClause}
        ${registeredSubjectFilterSql}
        ${studentSubjectFilterSql}
-     ORDER BY sub.name ASC`,
+     ORDER BY
+       CASE ${subjectGroupOrderExpr}
+         WHEN 'compulsory' THEN 1
+         WHEN 'elective' THEN 2
+         WHEN 'optional' THEN 3
+         ELSE 9
+       END,
+       sub.name ASC`,
     [studentId, examId]
   );
 }

@@ -81,6 +81,9 @@ Update this file after every meaningful implementation change.
 - Added independent Single Total vs Theory + Practical setup and marks
   entry for Botany/Zoology Biology branches, and updated marksheet
   aggregation so single branch totals roll into the Biology theory line.
+- Aligned single marksheet subject ordering with final marksheet order:
+  compulsory subjects first, then elective, then optional, with subject
+  group fallback from current class subject assignments for older exams.
 
 ## In Progress
 
