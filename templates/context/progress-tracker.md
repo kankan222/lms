@@ -90,6 +90,12 @@ Update this file after every meaningful implementation change.
 - Added marksheet language-priority sorting inside each subject group:
   English/English I/English II first, then Assamese, Hindi, MIL Hindi,
   MIL Bengali, MIL Assamese, followed by other subjects alphabetically.
+- Added a manual pending Review tab in Reports beside the existing
+  Auto Review queue so admins can select exam/class/section/subject and
+  load pending marks without automatic queue navigation.
+- Added a filtered/all student CSV export in the Students tab using the
+  same columns as the student bulk-entry CSV, including parent and photo
+  fields where available.
 
 ## In Progress
 

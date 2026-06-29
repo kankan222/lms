@@ -148,6 +148,32 @@ const columns = [
   }
 ];
 
+const STUDENT_BULK_CSV_HEADERS = [
+  "admission_no",
+  "name",
+  "dob",
+  "gender",
+  "mobile",
+  "date_of_admission",
+  "session",
+  "class",
+  "section",
+  "medium",
+  "stream",
+  "roll_number",
+  "father_name",
+  "father_mobile",
+  "father_email",
+  "father_occupation",
+  "father_qualification",
+  "mother_name",
+  "mother_mobile",
+  "mother_email",
+  "mother_occupation",
+  "mother_qualification",
+  "photo_url"
+];
+
 function streamBadgeClass(stream) {
   const value = String(stream || "").trim().toLowerCase();
 
@@ -621,31 +647,6 @@ export default function Student() {
   }
 
   function downloadCsvTemplate() {
-    const headers = [
-      "admission_no",
-      "name",
-      "dob",
-      "gender",
-      "mobile",
-      "date_of_admission",
-      "session",
-      "class",
-      "section",
-      "medium",
-      "stream",
-      "roll_number",
-      "father_name",
-      "father_mobile",
-      "father_email",
-      "father_occupation",
-      "father_qualification",
-      "mother_name",
-      "mother_mobile",
-      "mother_email",
-      "mother_occupation",
-      "mother_qualification",
-      "photo_url"
-    ];
     const schoolSample = [
       "ADM-2026-001",
       "Rahul Das",
@@ -697,7 +698,7 @@ export default function Student() {
       "/uploads/students/sample-hs.jpg"
     ];
 
-    const csv = `${headers.join(",")}\n${schoolSample.join(",")}\n${hsSample.join(",")}\n`;
+    const csv = `${STUDENT_BULK_CSV_HEADERS.join(",")}\n${schoolSample.join(",")}\n${hsSample.join(",")}\n`;
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -719,6 +720,59 @@ export default function Student() {
       return `"${str.replace(/"/g, "\"\"")}"`;
     }
     return str;
+  }
+
+  function downloadStudentDataCsv() {
+    const exportRows = students.map((student) => ({
+      admission_no: student.admission_no || "",
+      name: student.name || "",
+      dob: student.dob || "",
+      gender: student.gender || "",
+      mobile: student.phone || student.mobile || "",
+      date_of_admission: student.date_of_admission || "",
+      session: student.session_name && student.session_name !== "-" ? student.session_name : "",
+      class: student.class || student.class_name || "",
+      section: student.section || student.section_name || "",
+      medium: student.medium && student.medium !== "-" ? student.medium : "",
+      stream: student.stream_name && student.stream_name !== "-" ? student.stream_name : "",
+      roll_number: student.roll_number || "",
+      father_name: student.father_name || "",
+      father_mobile: student.father_mobile || "",
+      father_email: student.father_email || "",
+      father_occupation: student.father_occupation || "",
+      father_qualification: student.father_qualification || "",
+      mother_name: student.mother_name || "",
+      mother_mobile: student.mother_mobile || "",
+      mother_email: student.mother_email || "",
+      mother_occupation: student.mother_occupation || "",
+      mother_qualification: student.mother_qualification || "",
+      photo_url: student.photo_url || ""
+    }));
+
+    const csv = [
+      STUDENT_BULK_CSV_HEADERS.join(","),
+      ...exportRows.map((row) => (
+        STUDENT_BULK_CSV_HEADERS.map((header) => csvEscape(row[header])).join(",")
+      ))
+    ].join("\n");
+    const selectedClass = classes.find((item) => String(item.id) === String(classId));
+    const selectedSection = (selectedClass?.sections || []).find(
+      (item) => String(item.id) === String(sectionId)
+    );
+    const scopeName = [selectedClass?.name, selectedSection?.name]
+      .filter(Boolean)
+      .map(normalizeName)
+      .join("-");
+    const today = new Date().toISOString().slice(0, 10);
+
+    const blob = new Blob([`${csv}\n`], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = scopeName ? `students-${scopeName}-${today}.csv` : `students-all-${today}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+    showNotice("Download Started", `${exportRows.length} student record(s) exported.`);
   }
 
   function isNumericId(value) {
@@ -1076,6 +1130,13 @@ export default function Student() {
             </Popover>
             {canManageStudents ? (
               <>
+                <Button
+                  variant="outline"
+                  onClick={downloadStudentDataCsv}
+                  disabled={!students.length}
+                >
+                  Download Student Data
+                </Button>
                 <Button variant="outline" onClick={downloadCsvTemplate}>
                   Download CSV Format
                 </Button>

@@ -30,13 +30,13 @@
 
 
 # **#UPDATE TEACHER PASSWORD **
-node -e "import('bcrypt').then(async b => console.log(await b.hash('123456', 10)))"
-$2b$10$kvxPr/c6kN9olKdYm.FFcOuQ9DH7pzsSOCNjB0AFAU0xuithTGNCK
+node -e "import('bcrypt').then(async b => console.log(await b.hash('ABCDEF', 10)))"
+$2b$10$ONGuTIhuuyhlXLDO.9l.Cur/Hr/Ar8HDXMROUX4eyb8gvzGcAWQTW
 
 UPDATE users u
   JOIN user_roles ur ON ur.user_id = u.id
   JOIN roles r ON r.id = ur.role_id
-  SET u.password_hash = '$2b$10$kvxPr/c6kN9olKdYm.FFcOuQ9DH7pzsSOCNjB0AFAU0xuithTGNCK'
+  SET u.password_hash = '$2b$10$ONGuTIhuuyhlXLDO.9l.Cur/Hr/Ar8HDXMROUX4eyb8gvzGcAWQTW'
   WHERE r.name = 'teacher';
 
    -- Force OTP again after the password reset
@@ -67,8 +67,8 @@ UPDATE users u
   WHERE r.name = 'teacher';
 
 #**UPDATE PARENT PASSWORD**
-node -e "import('bcrypt').then(async b => console.log(await b.hash('ABCDEF', 10)))"
-  $2b$10$lvHXmwYqvTnLq78hMzb/R.bUoR9wybeQ.83Yyyt4mpCkvP3VbT2Zq
+node -e "import('bcrypt').then(async b => console.log(await b.hash('123456', 10)))"
+  $2b$10$p65a0SH66NpRZ.oJd.ia0OqdNSIy/0c3QkbbISs49vs2I4nqmeihO
 
   SELECT COUNT(DISTINCT u.id) AS parent_users
   FROM users u
@@ -79,7 +79,7 @@ node -e "import('bcrypt').then(async b => console.log(await b.hash('ABCDEF', 10)
   UPDATE users u
   JOIN user_roles ur ON ur.user_id = u.id
   JOIN roles r ON r.id = ur.role_id
-  SET u.password_hash = '$2b$10$lvHXmwYqvTnLq78hMzb/R.bUoR9wybeQ.83Yyyt4mpCkvP3VbT2Zq'
+  SET u.password_hash = '$2b$10$p65a0SH66NpRZ.oJd.ia0OqdNSIy/0c3QkbbISs49vs2I4nqmeihO'
   WHERE r.name = 'parent';
 
    UPDATE auth_trusted_devices td
@@ -145,3 +145,21 @@ node -e "import('bcrypt').then(async b => console.log(await b.hash('ABCDEF', 10)
       AND se.status = 'active'
   ) x
   WHERE rn > 1;
+
+
+
+  • To remove all marks from all exams for all students, run this on the main server database after taking a backup:
+
+  START TRANSACTION;
+
+  SELECT COUNT(*) AS component_marks FROM exam_subject_component_marks;
+  SELECT COUNT(*) AS exam_marks FROM marks_entries;
+  SELECT COUNT(*) AS activity_marks FROM marksheet_activity_marks;
+  SELECT COUNT(*) AS publications FROM exam_report_publications;
+
+  DELETE FROM exam_subject_component_marks;
+  DELETE FROM marksheet_activity_marks;
+  DELETE FROM exam_report_publications;
+  DELETE FROM marks_entries;
+
+  COMMIT;

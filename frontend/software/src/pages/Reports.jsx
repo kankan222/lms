@@ -763,7 +763,11 @@ export default function Reports() {
     if (editMode || gridLoading) return;
 
     const nextStatus =
-      activeTab === "pending" ? "pending" : activeTab === "approved" ? "approved" : "";
+      activeTab === "pending" || activeTab === "manual-review"
+        ? "pending"
+        : activeTab === "approved"
+          ? "approved"
+          : "";
     const currentStatus = String(filters.approval_status || "");
     const activeStatus = currentStatus || nextStatus;
     const gridHasRows = Array.isArray(grid?.rows) && grid.rows.length > 0;
@@ -814,6 +818,7 @@ export default function Reports() {
 
   const autoLoadScopedGridEvent = useEffectEvent(() => {
     if (loading || selfViewOnly) return;
+    if (activeTab === "manual-review") return;
     if (!filters.exam_id || !filters.class_id || !filters.section_id || !filters.subject_id) return;
     if (editMode) return;
     handleLoadGrid();
@@ -1445,6 +1450,7 @@ export default function Reports() {
       ...prev,
       approval_status:
         nextTab === "pending"
+          || nextTab === "manual-review"
           ? "pending"
           : nextTab === "approved"
             ? "approved"
@@ -1601,7 +1607,14 @@ export default function Reports() {
                   }
                 />
               </div>
-              {isAdmin ? (
+              {isAdmin && activeTab === "manual-review" ? (
+                <div className="grid gap-2">
+                  <Label>Status</Label>
+                  <div className="min-w-[180px] rounded-md border border-input bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
+                    Pending
+                  </div>
+                </div>
+              ) : isAdmin ? (
                 <div className="grid gap-2">
                   <Label>Status</Label>
                   <select
@@ -2383,7 +2396,7 @@ export default function Reports() {
               {isAdmin ? (
                 <TabsTrigger value="pending">
                   <span className="inline-flex items-center gap-2">
-                    <span>Review</span>
+                    <span>Auto Review</span>
                     {displayedPendingQueue.total_pending > 0 ? (
                       <span className="inline-flex min-w-5 items-center justify-center rounded-full bg-amber-500 px-1.5 py-0.5 text-[10px] font-semibold leading-none text-white">
                         {displayedPendingQueue.total_pending}
@@ -2392,6 +2405,7 @@ export default function Reports() {
                   </span>
                 </TabsTrigger>
               ) : null}
+              {isAdmin ? <TabsTrigger value="manual-review">Review</TabsTrigger> : null}
               <TabsTrigger value="entry">Entry</TabsTrigger>
               <TabsTrigger value="approved">Published</TabsTrigger>
               {canViewAdminReportSections ? <TabsTrigger value="records">Records</TabsTrigger> : null}
@@ -2400,6 +2414,13 @@ export default function Reports() {
 
             {isAdmin ? (
               <TabsContent value="pending" className="grid gap-4">
+                {renderFilterPanel()}
+                {renderGridPanel({ mode: "pending" })}
+              </TabsContent>
+            ) : null}
+
+            {isAdmin ? (
+              <TabsContent value="manual-review" className="grid gap-4">
                 {renderFilterPanel()}
                 {renderGridPanel({ mode: "pending" })}
               </TabsContent>

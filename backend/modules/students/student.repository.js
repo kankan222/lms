@@ -252,6 +252,13 @@ export async function getStreamByName(name) {
 }
 
 export async function getStudents(filters = {}) {
+  const supportsRoleNameColumns = await supportsGuardianRoleNameColumns(pool);
+  const fatherNameExpr = supportsRoleNameColumns
+    ? "COALESCE(MAX(NULLIF(sp.father_name, '')), MAX(CASE WHEN LOWER(sp.relationship) = 'father' THEN p.name END))"
+    : "MAX(CASE WHEN LOWER(sp.relationship) = 'father' THEN p.name END)";
+  const motherNameExpr = supportsRoleNameColumns
+    ? "COALESCE(MAX(NULLIF(sp.mother_name, '')), MAX(CASE WHEN LOWER(sp.relationship) = 'mother' THEN p.name END))"
+    : "MAX(CASE WHEN LOWER(sp.relationship) = 'mother' THEN p.name END)";
   const classId = filters.class_id ?? filters.classId;
   const sectionId = filters.section_id ?? filters.sectionId;
   const studentIds = Array.isArray(filters.student_ids) ? filters.student_ids : [];
@@ -289,6 +296,7 @@ export async function getStudents(filters = {}) {
       s.gender,
       s.dob,
       s.date_of_admission,
+      s.photo_url,
       se.session_id,
       se.roll_number,
       se.class_id,
@@ -298,7 +306,17 @@ export async function getStudents(filters = {}) {
       c.class_scope,
       sec.name AS section,
       sec.medium AS medium,
-      str.name AS stream_name
+      str.name AS stream_name,
+      parent_summary.father_name,
+      parent_summary.father_mobile,
+      parent_summary.father_email,
+      parent_summary.father_occupation,
+      parent_summary.father_qualification,
+      parent_summary.mother_name,
+      parent_summary.mother_mobile,
+      parent_summary.mother_email,
+      parent_summary.mother_occupation,
+      parent_summary.mother_qualification
      FROM students s
      LEFT JOIN student_enrollments se
        ON s.id = se.student_id AND se.status='active'
@@ -308,6 +326,25 @@ export async function getStudents(filters = {}) {
        ON se.section_id = sec.id
      LEFT JOIN streams str
        ON se.stream_id = str.id
+     LEFT JOIN (
+       SELECT
+         sp.student_id,
+         ${fatherNameExpr} AS father_name,
+         MAX(CASE WHEN LOWER(sp.relationship) = 'father' THEN u.phone END) AS father_mobile,
+         MAX(CASE WHEN LOWER(sp.relationship) = 'father' THEN u.email END) AS father_email,
+         MAX(CASE WHEN LOWER(sp.relationship) = 'father' THEN p.occupation END) AS father_occupation,
+         MAX(CASE WHEN LOWER(sp.relationship) = 'father' THEN p.qualification END) AS father_qualification,
+         ${motherNameExpr} AS mother_name,
+         MAX(CASE WHEN LOWER(sp.relationship) = 'mother' THEN u.phone END) AS mother_mobile,
+         MAX(CASE WHEN LOWER(sp.relationship) = 'mother' THEN u.email END) AS mother_email,
+         MAX(CASE WHEN LOWER(sp.relationship) = 'mother' THEN p.occupation END) AS mother_occupation,
+         MAX(CASE WHEN LOWER(sp.relationship) = 'mother' THEN p.qualification END) AS mother_qualification
+       FROM student_parents sp
+       JOIN parents p ON p.id = sp.parent_id
+       JOIN users u ON u.id = p.user_id
+       GROUP BY sp.student_id
+     ) parent_summary
+       ON parent_summary.student_id = s.id
      ${whereClause}`;
 
   const [rows] = hasPagination
