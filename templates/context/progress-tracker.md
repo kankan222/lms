@@ -78,6 +78,9 @@ Update this file after every meaningful implementation change.
   the Subject column stays on one subject row, matching `marksheet.md`.
 - Merged Botany and Zoology in the single marksheet PDF display into one
   Biology row with summed theory, practical, total, and max marks.
+- Added independent Single Total vs Theory + Practical setup and marks
+  entry for Botany/Zoology Biology branches, and updated marksheet
+  aggregation so single branch totals roll into the Biology theory line.
 
 ## In Progress
 

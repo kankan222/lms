@@ -103,12 +103,18 @@ function hasSplitMarks(component) {
   );
 }
 
+function isBiologyPartComponent(component) {
+  const name = String(component?.name || "").trim().toLowerCase();
+  return name === "botany" || name === "zoology";
+}
+
 function renderFinalMarkCell(cell) {
   if (!cell) return "<td></td>";
 
   const components = Array.isArray(cell.components) ? cell.components : [];
   const splitComponents = components.filter(hasSplitMarks);
-  if (!splitComponents.length) {
+  const shouldBreakDown = components.some(isBiologyPartComponent) || splitComponents.length > 0;
+  if (!shouldBreakDown) {
     const isDirectSplit =
       String(cell.mark_pattern || "").trim().toLowerCase() === "split" ||
       (cell.theory_marks !== null && cell.theory_marks !== undefined) ||
@@ -126,8 +132,18 @@ function renderFinalMarkCell(cell) {
     return `<td>${escapeHtml(formatCell(cell.marks))}</td>`;
   }
 
-  const theory = splitComponents.reduce((sum, component) => sum + Number(component.theory_marks || 0), 0);
-  const practical = splitComponents.reduce((sum, component) => sum + Number(component.practical_marks || 0), 0);
+  const theory = components.reduce(
+    (sum, component) =>
+      sum +
+      (hasSplitMarks(component)
+        ? Number(component.theory_marks || 0)
+        : Number(component.marks || 0)),
+    0
+  );
+  const practical = components.reduce(
+    (sum, component) => sum + (hasSplitMarks(component) ? Number(component.practical_marks || 0) : 0),
+    0
+  );
 
   return `
     <td class="split-mark-cell">

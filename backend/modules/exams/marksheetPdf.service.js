@@ -112,6 +112,11 @@ function isBiologyPartSubject(subject) {
   return name === "botany" || name === "zoology";
 }
 
+function isBiologyPartComponent(component) {
+  const name = normalizedSubjectName(component?.name);
+  return name === "botany" || name === "zoology";
+}
+
 function sumNullable(items, key) {
   const values = items
     .map((item) => item?.[key])
@@ -158,14 +163,20 @@ function renderMarksheetSubjectRows(subject) {
   let marksObtained = escapeHtml(formatCell(subject.marks));
 
   if (components.length) {
-    const splitComponents = components.filter(hasSplitMarks);
-    if (splitComponents.length) {
-      const theoryMarks = splitComponents.reduce(
-        (sum, component) => sum + Number(component.theory_marks || 0),
+    const biologyComponents = components.some(isBiologyPartComponent);
+    const shouldBreakDown = biologyComponents || components.some(hasSplitMarks);
+    if (shouldBreakDown) {
+      const theoryMarks = components.reduce(
+        (sum, component) =>
+          sum +
+          (hasSplitMarks(component)
+            ? Number(component.theory_marks || 0)
+            : Number(component.marks || 0)),
         0
       );
-      const practicalMarks = splitComponents.reduce(
-        (sum, component) => sum + Number(component.practical_marks || 0),
+      const practicalMarks = components.reduce(
+        (sum, component) =>
+          sum + (hasSplitMarks(component) ? Number(component.practical_marks || 0) : 0),
         0
       );
       marksObtained = renderSplitMarksObtained(theoryMarks, practicalMarks, subject.marks);

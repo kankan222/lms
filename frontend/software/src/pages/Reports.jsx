@@ -1947,6 +1947,8 @@ export default function Reports() {
                         {(grid.subject.components || []).map((component) => {
                           const editedComponent =
                             editedMarks?.[row.student_id]?.components?.[component.id] || {};
+                          const componentSplit =
+                            String(component.mark_pattern || "single").trim().toLowerCase() === "split";
                           return (
                             <div
                               key={`${row.student_id}-${component.id}`}
@@ -1958,42 +1960,64 @@ export default function Reports() {
                                   Max {component.max_marks}
                                 </span>
                               </div>
-                              <div className="flex flex-wrap items-center gap-2">
-                                <span className="w-5 text-[11px] text-muted-foreground">T</span>
-                                <Input
-                                  type="number"
-                                  min="0"
-                                  max={component.theory_max ?? component.max_marks ?? 100}
-                                  className="w-20"
-                                  value={editedComponent.theory_marks ?? ""}
-                                  onChange={(e) =>
-                                    updateComponentMarksValue(
-                                      row.student_id,
-                                      component.id,
-                                      "theory_marks",
-                                      e.target.value
-                                    )
-                                  }
-                                  onWheel={(e) => e.currentTarget.blur()}
-                                />
-                                <span className="w-5 text-[11px] text-muted-foreground">P</span>
-                                <Input
-                                  type="number"
-                                  min="0"
-                                  max={component.practical_max ?? component.max_marks ?? 100}
-                                  className="w-20"
-                                  value={editedComponent.practical_marks ?? ""}
-                                  onChange={(e) =>
-                                    updateComponentMarksValue(
-                                      row.student_id,
-                                      component.id,
-                                      "practical_marks",
-                                      e.target.value
-                                    )
-                                  }
-                                  onWheel={(e) => e.currentTarget.blur()}
-                                />
-                              </div>
+                              {componentSplit ? (
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <span className="w-5 text-[11px] text-muted-foreground">T</span>
+                                  <Input
+                                    type="number"
+                                    min="0"
+                                    max={component.theory_max ?? component.max_marks ?? 100}
+                                    className="w-20"
+                                    value={editedComponent.theory_marks ?? ""}
+                                    onChange={(e) =>
+                                      updateComponentMarksValue(
+                                        row.student_id,
+                                        component.id,
+                                        "theory_marks",
+                                        e.target.value
+                                      )
+                                    }
+                                    onWheel={(e) => e.currentTarget.blur()}
+                                  />
+                                  <span className="w-5 text-[11px] text-muted-foreground">P</span>
+                                  <Input
+                                    type="number"
+                                    min="0"
+                                    max={component.practical_max ?? component.max_marks ?? 100}
+                                    className="w-20"
+                                    value={editedComponent.practical_marks ?? ""}
+                                    onChange={(e) =>
+                                      updateComponentMarksValue(
+                                        row.student_id,
+                                        component.id,
+                                        "practical_marks",
+                                        e.target.value
+                                      )
+                                    }
+                                    onWheel={(e) => e.currentTarget.blur()}
+                                  />
+                                </div>
+                              ) : (
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <span className="w-12 text-[11px] text-muted-foreground">Marks</span>
+                                  <Input
+                                    type="number"
+                                    min="0"
+                                    max={component.max_marks ?? 100}
+                                    className="w-24"
+                                    value={editedComponent.marks ?? ""}
+                                    onChange={(e) =>
+                                      updateComponentMarksValue(
+                                        row.student_id,
+                                        component.id,
+                                        "marks",
+                                        e.target.value
+                                      )
+                                    }
+                                    onWheel={(e) => e.currentTarget.blur()}
+                                  />
+                                </div>
+                              )}
                             </div>
                           );
                         })}
@@ -2002,10 +2026,14 @@ export default function Reports() {
                           {(grid.subject.components || []).reduce((sum, component) => {
                             const editedComponent =
                               editedMarks?.[row.student_id]?.components?.[component.id] || {};
+                            const componentSplit =
+                              String(component.mark_pattern || "single").trim().toLowerCase() === "split";
                             return (
                               sum +
-                              toNumberOrZero(editedComponent.theory_marks) +
-                              toNumberOrZero(editedComponent.practical_marks)
+                              (componentSplit
+                                ? toNumberOrZero(editedComponent.theory_marks) +
+                                  toNumberOrZero(editedComponent.practical_marks)
+                                : toNumberOrZero(editedComponent.marks))
                             );
                           }, 0)}
                         </div>

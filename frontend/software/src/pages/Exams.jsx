@@ -110,24 +110,24 @@ function makeDefaultBiologyComponents(subject) {
   return [
     {
       name: "Botany",
-      mark_pattern: "split",
-      theory_max: Math.max(0, halfMax - Math.min(10, halfMax)),
-      theory_pass: halfPass,
-      practical_max: Math.min(10, halfMax),
-      practical_pass: 0,
+      mark_pattern: "single",
       max_marks: halfMax,
       pass_marks: halfPass,
+      theory_max: 0,
+      theory_pass: 0,
+      practical_max: 0,
+      practical_pass: 0,
       sort_order: 0,
     },
     {
       name: "Zoology",
-      mark_pattern: "split",
-      theory_max: Math.max(0, secondMax - Math.min(10, secondMax)),
-      theory_pass: secondPass,
-      practical_max: Math.min(10, secondMax),
-      practical_pass: 0,
+      mark_pattern: "single",
       max_marks: secondMax,
       pass_marks: secondPass,
+      theory_max: 0,
+      theory_pass: 0,
+      practical_max: 0,
+      practical_pass: 0,
       sort_order: 1,
     },
   ];
@@ -624,6 +624,67 @@ export default function Exams() {
     }));
   }
 
+  function setSubjectComponentPattern(subjectId, componentIndex, pattern) {
+    setForm((prev) => ({
+      ...prev,
+      subjects: prev.subjects.map((subject) => {
+        if (Number(subject.subject_id) !== Number(subjectId)) return subject;
+        const components = (subject.components || []).map((component, index) => {
+          if (index !== componentIndex) return component;
+
+          if (pattern === "split") {
+            const baseMax = toWholeNumber(component.max_marks, 50);
+            const practicalMax =
+              component.practical_max !== null && component.practical_max !== undefined
+                ? toWholeNumber(component.practical_max, 0)
+                : Math.min(10, baseMax);
+            const theoryMax =
+              component.theory_max !== null && component.theory_max !== undefined
+                ? toWholeNumber(component.theory_max, 0)
+                : Math.max(baseMax - practicalMax, 0);
+            const totalMax = theoryMax + practicalMax;
+
+            return {
+              ...component,
+              mark_pattern: "split",
+              theory_max: theoryMax,
+              theory_pass: toWholeNumber(component.theory_pass, 0),
+              practical_max: practicalMax,
+              practical_pass: toWholeNumber(component.practical_pass, 0),
+              max_marks: totalMax,
+              pass_marks: Math.min(toWholeNumber(component.pass_marks, 0), totalMax),
+            };
+          }
+
+          const maxMarks = Math.max(
+            1,
+            toWholeNumber(component.theory_max, 0) +
+              toWholeNumber(component.practical_max, 0) ||
+              toWholeNumber(component.max_marks, 50)
+          );
+          const passMarks = Math.min(
+            maxMarks,
+            toWholeNumber(component.theory_pass, 0) +
+              toWholeNumber(component.practical_pass, 0) ||
+              toWholeNumber(component.pass_marks, 0)
+          );
+
+          return {
+            ...component,
+            mark_pattern: "single",
+            max_marks: maxMarks,
+            pass_marks: passMarks,
+            theory_max: 0,
+            theory_pass: 0,
+            practical_max: 0,
+            practical_pass: 0,
+          };
+        });
+        return rollupSubjectComponents({ ...subject, components });
+      }),
+    }));
+  }
+
   async function onSubmit(e) {
     e.preventDefault();
     setFormError("");
@@ -646,20 +707,26 @@ export default function Exams() {
       if (!subjectId) continue;
 
       if (hasSubjectComponents(subject)) {
-        const cleanComponents = [];
-        for (const [index, component] of subject.components.entries()) {
-          const name = String(component.name || "").trim();
-          if (!name) {
-            setFormError(`Component ${index + 1} name is required for '${subject.subject_name}'.`);
-            return;
-          }
+          const cleanComponents = [];
+          for (const [index, component] of subject.components.entries()) {
+            const name = String(component.name || "").trim();
+            if (!name) {
+              setFormError(`Component ${index + 1} name is required for '${subject.subject_name}'.`);
+              return;
+            }
 
-          const theoryMax = toWholeNumber(component.theory_max, 0);
-          const practicalMax = toWholeNumber(component.practical_max, 0);
-          const theoryPass = toWholeNumber(component.theory_pass, 0);
-          const practicalPass = toWholeNumber(component.practical_pass, 0);
-          const maxMarks = theoryMax + practicalMax;
-          const passMarks = theoryPass + practicalPass;
+          const componentPattern = String(component.mark_pattern || "single").trim().toLowerCase();
+          const isComponentSplit = componentPattern === "split";
+          const theoryMax = isComponentSplit ? toWholeNumber(component.theory_max, 0) : 0;
+          const practicalMax = isComponentSplit ? toWholeNumber(component.practical_max, 0) : 0;
+          const theoryPass = isComponentSplit ? toWholeNumber(component.theory_pass, 0) : 0;
+          const practicalPass = isComponentSplit ? toWholeNumber(component.practical_pass, 0) : 0;
+          const maxMarks = isComponentSplit
+            ? theoryMax + practicalMax
+            : toWholeNumber(component.max_marks, 0);
+          const passMarks = isComponentSplit
+            ? theoryPass + practicalPass
+            : toWholeNumber(component.pass_marks, 0);
 
           if (maxMarks <= 0) {
             setFormError(`${name} max marks for '${subject.subject_name}' must be greater than 0.`);
@@ -672,7 +739,7 @@ export default function Exams() {
 
           cleanComponents.push({
             name,
-            mark_pattern: "split",
+            mark_pattern: isComponentSplit ? "split" : "single",
             max_marks: maxMarks,
             pass_marks: passMarks,
             theory_max: theoryMax,
@@ -1207,17 +1274,23 @@ export default function Exams() {
                                   {componentMode ? (
                                     <div className="space-y-3">
                                       {(subject.components || []).map((component, componentIndex) => {
+                                        const componentSplit =
+                                          String(component.mark_pattern || "single").trim().toLowerCase() === "split";
                                         const componentMax =
-                                          toWholeNumber(component.theory_max, 0) + toWholeNumber(component.practical_max, 0);
+                                          componentSplit
+                                            ? toWholeNumber(component.theory_max, 0) + toWholeNumber(component.practical_max, 0)
+                                            : toWholeNumber(component.max_marks, 0);
                                         const componentPass =
-                                          toWholeNumber(component.theory_pass, 0) + toWholeNumber(component.practical_pass, 0);
+                                          componentSplit
+                                            ? toWholeNumber(component.theory_pass, 0) + toWholeNumber(component.practical_pass, 0)
+                                            : toWholeNumber(component.pass_marks, 0);
 
                                         return (
                                           <div
                                             key={`${subject.subject_id}-${componentIndex}`}
                                             className="rounded-xl border border-border bg-background p-3"
                                           >
-                                            <div className="mb-2 grid gap-2 sm:grid-cols-[1fr_auto]">
+                                            <div className="mb-2 grid gap-2 sm:grid-cols-[1fr_auto_auto]">
                                               <Input
                                                 className="rounded-xl"
                                                 value={component.name}
@@ -1231,92 +1304,151 @@ export default function Exams() {
                                                 }
                                                 placeholder="Branch Name"
                                               />
+                                              <select
+                                                className={`${FIELD_CLASSNAME} h-9 w-auto min-w-40 rounded-xl py-1.5`}
+                                                value={component.mark_pattern || "single"}
+                                                onChange={(e) =>
+                                                  setSubjectComponentPattern(
+                                                    subject.subject_id,
+                                                    componentIndex,
+                                                    e.target.value
+                                                  )
+                                                }
+                                              >
+                                                <option value="single">Single Total</option>
+                                                <option value="split">Theory + Practical</option>
+                                              </select>
                                               <Badge variant="outline" className="w-fit rounded-full px-2 py-1 text-[11px]">
                                                 Total {componentMax} / Pass {componentPass}
                                               </Badge>
                                             </div>
-                                            <div className="grid grid-cols-2 gap-2">
-                                              <label className="space-y-1 text-xs font-medium text-muted-foreground">
-                                                <span>Theory maximum</span>
-                                                <Input
-                                                  className="rounded-xl"
-                                                  type="number"
-                                                  min="0"
-                                                  step="1"
-                                                  value={component.theory_max}
-                                                  onWheel={preventNumberWheel}
-                                                  onChange={(e) =>
-                                                    updateSubjectComponentField(
-                                                      subject.subject_id,
-                                                      componentIndex,
-                                                      "theory_max",
-                                                      e.target.value
-                                                    )
-                                                  }
-                                                  placeholder="Enter theory max"
-                                                />
-                                              </label>
-                                              <label className="space-y-1 text-xs font-medium text-muted-foreground">
-                                                <span>Theory pass</span>
-                                                <Input
-                                                  className="rounded-xl"
-                                                  type="number"
-                                                  min="0"
-                                                  step="1"
-                                                  value={component.theory_pass}
-                                                  onWheel={preventNumberWheel}
-                                                  onChange={(e) =>
-                                                    updateSubjectComponentField(
-                                                      subject.subject_id,
-                                                      componentIndex,
-                                                      "theory_pass",
-                                                      e.target.value
-                                                    )
-                                                  }
-                                                  placeholder="Enter theory pass"
-                                                />
-                                              </label>
-                                              <label className="space-y-1 text-xs font-medium text-muted-foreground">
-                                                <span>Practical maximum</span>
-                                                <Input
-                                                  className="rounded-xl"
-                                                  type="number"
-                                                  min="0"
-                                                  step="1"
-                                                  value={component.practical_max}
-                                                  onWheel={preventNumberWheel}
-                                                  onChange={(e) =>
-                                                    updateSubjectComponentField(
-                                                      subject.subject_id,
-                                                      componentIndex,
-                                                      "practical_max",
-                                                      e.target.value
-                                                    )
-                                                  }
-                                                  placeholder="Enter practical max"
-                                                />
-                                              </label>
-                                              <label className="space-y-1 text-xs font-medium text-muted-foreground">
-                                                <span>Practical pass</span>
-                                                <Input
-                                                  className="rounded-xl"
-                                                  type="number"
-                                                  min="0"
-                                                  step="1"
-                                                  value={component.practical_pass}
-                                                  onWheel={preventNumberWheel}
-                                                  onChange={(e) =>
-                                                    updateSubjectComponentField(
-                                                      subject.subject_id,
-                                                      componentIndex,
-                                                      "practical_pass",
-                                                      e.target.value
-                                                    )
-                                                  }
-                                                  placeholder="Enter practical pass"
-                                                />
-                                              </label>
-                                            </div>
+                                            {componentSplit ? (
+                                              <div className="grid grid-cols-2 gap-2">
+                                                <label className="space-y-1 text-xs font-medium text-muted-foreground">
+                                                  <span>Theory maximum</span>
+                                                  <Input
+                                                    className="rounded-xl"
+                                                    type="number"
+                                                    min="0"
+                                                    step="1"
+                                                    value={component.theory_max}
+                                                    onWheel={preventNumberWheel}
+                                                    onChange={(e) =>
+                                                      updateSubjectComponentField(
+                                                        subject.subject_id,
+                                                        componentIndex,
+                                                        "theory_max",
+                                                        e.target.value
+                                                      )
+                                                    }
+                                                    placeholder="Enter theory max"
+                                                  />
+                                                </label>
+                                                <label className="space-y-1 text-xs font-medium text-muted-foreground">
+                                                  <span>Theory pass</span>
+                                                  <Input
+                                                    className="rounded-xl"
+                                                    type="number"
+                                                    min="0"
+                                                    step="1"
+                                                    value={component.theory_pass}
+                                                    onWheel={preventNumberWheel}
+                                                    onChange={(e) =>
+                                                      updateSubjectComponentField(
+                                                        subject.subject_id,
+                                                        componentIndex,
+                                                        "theory_pass",
+                                                        e.target.value
+                                                      )
+                                                    }
+                                                    placeholder="Enter theory pass"
+                                                  />
+                                                </label>
+                                                <label className="space-y-1 text-xs font-medium text-muted-foreground">
+                                                  <span>Practical maximum</span>
+                                                  <Input
+                                                    className="rounded-xl"
+                                                    type="number"
+                                                    min="0"
+                                                    step="1"
+                                                    value={component.practical_max}
+                                                    onWheel={preventNumberWheel}
+                                                    onChange={(e) =>
+                                                      updateSubjectComponentField(
+                                                        subject.subject_id,
+                                                        componentIndex,
+                                                        "practical_max",
+                                                        e.target.value
+                                                      )
+                                                    }
+                                                    placeholder="Enter practical max"
+                                                  />
+                                                </label>
+                                                <label className="space-y-1 text-xs font-medium text-muted-foreground">
+                                                  <span>Practical pass</span>
+                                                  <Input
+                                                    className="rounded-xl"
+                                                    type="number"
+                                                    min="0"
+                                                    step="1"
+                                                    value={component.practical_pass}
+                                                    onWheel={preventNumberWheel}
+                                                    onChange={(e) =>
+                                                      updateSubjectComponentField(
+                                                        subject.subject_id,
+                                                        componentIndex,
+                                                        "practical_pass",
+                                                        e.target.value
+                                                      )
+                                                    }
+                                                    placeholder="Enter practical pass"
+                                                  />
+                                                </label>
+                                              </div>
+                                            ) : (
+                                              <div className="grid grid-cols-2 gap-2">
+                                                <label className="space-y-1 text-xs font-medium text-muted-foreground">
+                                                  <span>Total maximum</span>
+                                                  <Input
+                                                    className="rounded-xl"
+                                                    type="number"
+                                                    min="1"
+                                                    step="1"
+                                                    value={component.max_marks}
+                                                    onWheel={preventNumberWheel}
+                                                    onChange={(e) =>
+                                                      updateSubjectComponentField(
+                                                        subject.subject_id,
+                                                        componentIndex,
+                                                        "max_marks",
+                                                        e.target.value
+                                                      )
+                                                    }
+                                                    placeholder="Enter total max marks"
+                                                  />
+                                                </label>
+                                                <label className="space-y-1 text-xs font-medium text-muted-foreground">
+                                                  <span>Total pass</span>
+                                                  <Input
+                                                    className="rounded-xl"
+                                                    type="number"
+                                                    min="0"
+                                                    step="1"
+                                                    value={component.pass_marks}
+                                                    onWheel={preventNumberWheel}
+                                                    onChange={(e) =>
+                                                      updateSubjectComponentField(
+                                                        subject.subject_id,
+                                                        componentIndex,
+                                                        "pass_marks",
+                                                        e.target.value
+                                                      )
+                                                    }
+                                                    placeholder="Enter total pass marks"
+                                                  />
+                                                </label>
+                                              </div>
+                                            )}
                                           </div>
                                         );
                                       })}
