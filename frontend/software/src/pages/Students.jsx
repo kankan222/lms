@@ -10,7 +10,7 @@ import {
   deleteStudent,
   bulkUploadStudents
 } from "../api/students.api";
-import { getClassStructure, getSessions } from "../api/academic.api";
+import { getClassStructure, getSessions, getStreams } from "../api/academic.api";
 import StudentForm from "./student/StudentForm";
 
 import { Button } from "../components/ui/button";
@@ -344,6 +344,7 @@ export default function Student() {
   const [students, setStudents] = useState([]);
   const [classes, setClasses] = useState([]);
   const [sessions, setSessions] = useState([]);
+  const [streams, setStreams] = useState([]);
   const [classId, setClassId] = useState(() => readStoredString(STUDENTS_FILTER_CLASS_KEY));
   const [sectionId, setSectionId] = useState(() => readStoredString(STUDENTS_FILTER_SECTION_KEY));
   const [tablePage, setTablePage] = useState(() =>
@@ -373,12 +374,6 @@ export default function Student() {
     location.state?.focusStudentId ? String(location.state.focusStudentId) : ""
   );
 
-  const STREAM_OPTIONS = [
-    { value: "Arts", label: "Arts" },
-    { value: "Commerce", label: "Commerce" },
-    { value: "Science", label: "Science" },
-  ];
-
   function showNotice(title, message, variant = "success") {
     setNotice({ title, message, variant });
   }
@@ -404,10 +399,15 @@ export default function Student() {
     let cancelled = false;
 
     async function run() {
-      const [classRes, sessionRes] = await Promise.all([getClassStructure(), getSessions()]);
+      const [classRes, sessionRes, streamRes] = await Promise.all([
+        getClassStructure(),
+        getSessions(),
+        getStreams(),
+      ]);
       if (cancelled) return;
       setClasses(classRes?.data || []);
       setSessions(sessionRes?.data || []);
+      setStreams(streamRes?.data || []);
     }
 
     run();
@@ -602,6 +602,13 @@ export default function Student() {
     setErrors(localErrors);
     if (Object.keys(localErrors).length > 0) return;
 
+    const selectedStream = streams.find(
+      (stream) =>
+        String(stream.id) === String(editingStudent.stream_id || "") ||
+        String(stream.name || "").trim().toLowerCase() ===
+          String(editingStudent.stream_name || "").trim().toLowerCase()
+    );
+
     try {
       await updateStudent(editingStudent.id, {
         name: editingStudent.name,
@@ -613,7 +620,8 @@ export default function Student() {
         class_id: editingStudent.class_id,
         section_id: editingStudent.section_id,
         roll_number: editingStudent.roll_number,
-        stream: editingStudent.raw_class_scope === "hs" ? editingStudent.stream_name : "",
+        stream_id: editingStudent.raw_class_scope === "hs" ? selectedStream?.id || editingStudent.stream_id : "",
+        stream: editingStudent.raw_class_scope === "hs" ? selectedStream?.name || editingStudent.stream_name : "",
       });
       await refreshStudents();
       setEditingStudent(null);
@@ -1020,6 +1028,14 @@ export default function Student() {
   const sections = selectedClass?.sections || [];
   const editingSelectedClass = classes.find((c) => String(c.id) === String(editingStudent?.class_id));
   const editingSections = editingSelectedClass?.sections || [];
+  const editingStreamValue =
+    editingStudent?.stream_id ||
+    streams.find(
+      (stream) =>
+        String(stream.name || "").trim().toLowerCase() ===
+        String(editingStudent?.stream_name || "").trim().toLowerCase()
+    )?.id ||
+    "";
   const activeFilterCount = [classId, sectionId].filter(Boolean).length;
 
   return (
@@ -1444,19 +1460,20 @@ export default function Student() {
                     <Label>Stream *</Label>
                     <select
                       className={FIELD_CLASSNAME}
-                      value={editingStudent?.stream_name || ""}
-                      onChange={(e) =>
+                      value={editingStreamValue}
+                      onChange={(e) => {
+                        const selectedStream = streams.find((stream) => String(stream.id) === String(e.target.value));
                         setEditingStudent((prev) => ({
                           ...prev,
-                          stream_name: e.target.value,
-                          stream_id: "",
-                        }))
-                      }
+                          stream_id: e.target.value,
+                          stream_name: selectedStream?.name || "",
+                        }));
+                      }}
                     >
                       <option value="">Select</option>
-                      {STREAM_OPTIONS.map((item) => (
-                        <option key={item.value} value={item.value}>
-                          {item.label}
+                      {streams.map((item) => (
+                        <option key={item.id} value={item.id}>
+                          {item.name}
                         </option>
                       ))}
                     </select>

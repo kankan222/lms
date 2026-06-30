@@ -302,6 +302,10 @@ Update this file after every meaningful implementation change.
 - Reorganized the Students table so class, section, stream, and medium render as
   distinct readable columns while phone stacks under the student name and
   session stacks under the class scope to reduce table overflow.
+- Fixed student edit stream updates by making backend enrollment updates prefer
+  newly submitted stream values over the existing `stream_id`, and by loading
+  real stream records in the Students edit dialog instead of using hard-coded
+  stream options.
 - Added value-based badge colors for Students table stream and medium fields so
   Science/Commerce/Arts and language media are visually distinct.
 - Updated the Students filter popover so class options show only class names,

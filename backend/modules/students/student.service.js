@@ -628,7 +628,9 @@ export async function updateStudent(id, data) {
       stream_id:
         data.stream_id !== undefined
           ? normalizeOptionalId(data.stream_id)
-          : existing.stream_id ?? null,
+          : data.stream !== undefined
+            ? null
+            : existing.stream_id ?? null,
       stream: data.stream !== undefined ? normalizeOptionalText(data.stream) : existing.stream,
     };
 
