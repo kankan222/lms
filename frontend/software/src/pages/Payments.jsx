@@ -451,7 +451,7 @@ export default function Payments() {
 
   function handleDownloadCsvFormat() {
     const csv = [
-      "session (required),class (required),section (required),stream (optional),admission_no (required if student_name not unique),student_name (required if admission_no blank),roll_number (optional),fee_type (required),installment_name (required for installment),amount_paid (required),remarks (optional)",
+      "session,class,section,stream,admission_no,student_name,roll_number,fee_type,installment_name,amount_paid,remarks",
       "2025-2026,X,A,,ADM001,Student Name,12,installment,April,500,Monthly fee payment",
       "2025-2026,X,A,,ADM001,Student Name,12,admission,,1000,Admission fee payment",
     ].join("\n");

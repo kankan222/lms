@@ -17,7 +17,9 @@ function normalizeCsvHeader(header) {
 }
 
 function mapPaymentCsvHeader(header) {
-  const normalized = normalizeCsvHeader(header).replace(/_(required|optional|req|opt)$/g, "");
+  const normalized = normalizeCsvHeader(header)
+    .replace(/_(required|optional|req|opt)(_.+)?$/g, "")
+    .replace(/_if_.+$/g, "");
   if (normalized === "amount" || normalized === "paid_amount" || normalized === "amountpaid") {
     return "amount_paid";
   }

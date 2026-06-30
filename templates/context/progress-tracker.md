@@ -65,6 +65,10 @@ Update this file after every meaningful implementation change.
 - Updated payment CSV bulk upload to follow the student bulk entry
   pattern, using student/session/class/section/fee item information
   instead of requiring internal student fee IDs.
+- Fixed payment CSV bulk upload header handling so descriptive required/
+  optional header labels from older templates still map to the expected
+  fields, and updated the downloaded payment upload format to use exact
+  import headers.
 - Added theory/practical/total split mark display in final marksheet
   exam cells when a subject has component marks, matching the
   `marksheet.md` Computer example.
