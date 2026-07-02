@@ -1053,10 +1053,23 @@ export async function getPaymentReceipt(paymentId){
     ,sf.status AS fee_status
     ,sf.amount AS fee_amount
     ,fi.installment_name
+    ,COALESCE((
+      SELECT SUM(pp.amount_paid)
+      FROM payments pp
+      WHERE pp.student_fee_id = sf.id
+        AND (
+          pp.created_at < p.created_at
+          OR (pp.created_at = p.created_at AND pp.id < p.id)
+        )
+    ),0) AS previous_payment
     ,(sf.amount - COALESCE((
       SELECT SUM(pp.amount_paid)
       FROM payments pp
       WHERE pp.student_fee_id = sf.id
+        AND (
+          pp.created_at < p.created_at
+          OR (pp.created_at = p.created_at AND pp.id <= p.id)
+        )
     ),0)) AS remaining_amount
   FROM payments p
   JOIN student_fees sf ON p.student_fee_id = sf.id

@@ -9,9 +9,13 @@ const __dirname = path.dirname(__filename);
 
 function money(value) {
   return Number(value || 0).toLocaleString("en-IN", {
-    minimumFractionDigits: 2,
+    minimumFractionDigits: 0,
     maximumFractionDigits: 2,
   });
+}
+
+function rupees(value) {
+  return `Rs ${money(value)}`;
 }
 
 function escapeHtml(value) {
@@ -122,7 +126,7 @@ export async function generateReceiptPdf(paymentId) {
   const signatureFile = isHs ? "collegeCollector.jpg" : "schoolCollector.png";
   const signatureMime = isHs ? "image/jpeg" : "image/png";
   const signatureDataUri = await imageDataUri(
-    path.join(__dirname, "..", "reports", "templates", signatureFile),
+    path.join(__dirname, "templates", signatureFile),
     signatureMime
   );
   const logoDataUri = await imageDataUri(
@@ -133,18 +137,20 @@ export async function generateReceiptPdf(paymentId) {
   html = replaceReceiptTokens(html, {
     receiptId: escapeHtml(payment.receipt_serial || `PAY-${String(payment.id).padStart(6, "0")}`),
     receiptDate: escapeHtml(new Date(payment.created_at).toLocaleDateString("en-IN")),
-    paymentStatus: escapeHtml(receiptValue(String(payment.fee_status || payment.status || "").toUpperCase())),
     studentName: escapeHtml(receiptValue(payment.name)),
     className: escapeHtml(receiptValue(payment.class_name)),
     sectionName: escapeHtml(receiptValue(payment.section_name)),
-    streamName: escapeHtml(receiptValue(payment.stream_name)),
+    streamField: isHs
+      ? `<span class="label">Stream</span><span class="value">${escapeHtml(receiptValue(payment.stream_name))}</span>`
+      : "",
     rollNo: escapeHtml(receiptValue(payment.roll_number)),
     sessionName: escapeHtml(receiptValue(payment.session_name)),
     feeItem: escapeHtml(receiptValue(feeItem)),
     installmentLabel: escapeHtml(installmentLabel),
-    feeAmount: escapeHtml(money(payment.fee_amount)),
-    amountPaid: escapeHtml(money(payment.amount_paid)),
-    remainingAmount: escapeHtml(money(payment.remaining_amount)),
+    feeAmount: escapeHtml(rupees(payment.fee_amount)),
+    previousPayment: escapeHtml(rupees(payment.previous_payment)),
+    amountPaid: escapeHtml(rupees(payment.amount_paid)),
+    remainingAmount: escapeHtml(rupees(payment.remaining_amount)),
     amountWords: escapeHtml(amountInWords(payment.amount_paid)),
     remarks: escapeHtml(receiptValue(payment.remarks, "")),
     schoolLogo: logoDataUri,
