@@ -32,16 +32,13 @@ function signaturePath(scope) {
 }
 
 function detailLine(doc, label, value, x, y, width, options = {}) {
-  const labelWidth = options.labelWidth || 88;
   const fontSize = options.fontSize || 10.5;
-  const valueFont = options.valueFont || "Helvetica-Bold";
-  doc.font("Helvetica").fontSize(fontSize).fillColor("#111827").text(label, x, y, {
-    width: labelWidth,
-    continued: true,
-  });
-  doc.font(valueFont).fontSize(fontSize).text(safeText(value) || "...", {
-    width: Math.max(width - labelWidth, 30),
-    continued: false,
+  doc.font("Helvetica").fontSize(fontSize).fillColor("#111827");
+  const labelWidth = doc.widthOfString(label);
+  doc.text(label, x, y, { width: labelWidth, lineBreak: false });
+  doc.font("Helvetica-Bold").fontSize(fontSize).text(safeText(value) || "...", x + labelWidth + 4, y, {
+    width: Math.max(width - labelWidth - 4, 30),
+    lineBreak: false,
   });
 }
 
@@ -83,28 +80,22 @@ function drawAdmitCard(doc, { exam, scope, student, x, y, width, height }) {
   const secondCol = detailLeft + colWidth + colGap;
 
   detailLine(doc, "Student's Name -", student.student_name, detailLeft, detailsTop, detailWidth, {
-    labelWidth: 104,
     fontSize: 12,
   });
   detailLine(doc, "Guardian's Name -", student.guardian_name, detailLeft, detailsTop + 24, detailWidth, {
-    labelWidth: 112,
-    fontSize: 10.5,
+    fontSize: 12,
   });
   detailLine(doc, "Class -", scope?.class_name, detailLeft, detailsTop + 55, colWidth, {
-    labelWidth: 48,
-    fontSize: 10.5,
+    fontSize: 12,
   });
   detailLine(doc, "Roll No. -", student.roll_number, secondCol, detailsTop + 55, colWidth, {
-    labelWidth: 65,
-    fontSize: 10.5,
+    fontSize: 12,
   });
   detailLine(doc, "Section -", student.section_name || scope?.section_name, detailLeft, detailsTop + 80, colWidth, {
-    labelWidth: 62,
-    fontSize: 10.5,
+    fontSize: 12,
   });
   detailLine(doc, "Medium -", student.medium || scope?.medium, secondCol, detailsTop + 80, colWidth, {
-    labelWidth: 63,
-    fontSize: 10.5,
+    fontSize: 12,
   });
 
   const signPath = signaturePath(classScope);
@@ -133,24 +124,21 @@ export async function generateAdmitCardPdf({ exam, scope, students }) {
   const pageWidth = doc.page.width - doc.page.margins.left - doc.page.margins.right;
   const pageHeight = doc.page.height - doc.page.margins.top - doc.page.margins.bottom;
   const left = doc.page.margins.left;
-  const rowGap = 18;
-  const colGap = 20;
+  const rowGap = 22;
   const cardHeight = (pageHeight - rowGap) / 2;
-  const cardWidth = (pageWidth - colGap) / 2;
+  const cardWidth = pageWidth;
   const top = doc.page.margins.top;
 
   const cards = rows.length ? rows : [{ student_name: "", roll_number: "", medium: scope?.medium }];
 
   cards.forEach((student, index) => {
-    if (index > 0 && index % 4 === 0) doc.addPage();
-    const slot = index % 4;
-    const row = Math.floor(slot / 2);
-    const col = slot % 2;
+    if (index > 0 && index % 2 === 0) doc.addPage();
+    const row = index % 2;
     drawAdmitCard(doc, {
       exam,
       scope,
       student,
-      x: left + col * (cardWidth + colGap),
+      x: left,
       y: top + row * (cardHeight + rowGap),
       width: cardWidth,
       height: cardHeight,
