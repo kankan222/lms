@@ -78,6 +78,11 @@ function drawAdmitCard(doc, { exam, scope, student, x, y, width, height }) {
   const colGap = 18;
   const colWidth = (detailWidth - colGap) / 2;
   const secondCol = detailLeft + colWidth + colGap;
+  const isHigherSecondary = String(classScope).toLowerCase() === "hs";
+  const thirdRowGap = 14;
+  const thirdRowColWidth = isHigherSecondary ? (detailWidth - thirdRowGap * 2) / 3 : colWidth;
+  const thirdRowSecondCol = detailLeft + thirdRowColWidth + thirdRowGap;
+  const thirdRowThirdCol = thirdRowSecondCol + thirdRowColWidth + thirdRowGap;
 
   detailLine(doc, "Student's Name -", student.student_name, detailLeft, detailsTop, detailWidth, {
     fontSize: 12,
@@ -91,12 +96,17 @@ function drawAdmitCard(doc, { exam, scope, student, x, y, width, height }) {
   detailLine(doc, "Roll No. -", student.roll_number, secondCol, detailsTop + 55, colWidth, {
     fontSize: 12,
   });
-  detailLine(doc, "Section -", student.section_name || scope?.section_name, detailLeft, detailsTop + 80, colWidth, {
+  detailLine(doc, "Section -", student.section_name || scope?.section_name, detailLeft, detailsTop + 80, thirdRowColWidth, {
     fontSize: 12,
   });
-  detailLine(doc, "Medium -", student.medium || scope?.medium, secondCol, detailsTop + 80, colWidth, {
+  detailLine(doc, "Medium -", student.medium || scope?.medium, thirdRowSecondCol, detailsTop + 80, thirdRowColWidth, {
     fontSize: 12,
   });
+  if (isHigherSecondary) {
+    detailLine(doc, "Stream -", student.stream_name, thirdRowThirdCol, detailsTop + 80, thirdRowColWidth, {
+      fontSize: 12,
+    });
+  }
 
   const signPath = signaturePath(classScope);
   const signX = x + width - 168;

@@ -722,6 +722,8 @@ export async function getStudentsForScope({ examId, classId, sectionId, medium, 
       se.roll_number,
       sec.name AS section_name,
       sec.medium,
+      se.stream_id,
+      streams.name AS stream_name,
       guardians.guardian_name
      FROM exams e
      JOIN exam_scopes sc
@@ -735,6 +737,7 @@ export async function getStudentsForScope({ examId, classId, sectionId, medium, 
       AND se.session_id = e.session_id
       AND se.status = 'active'
      JOIN students st ON st.id = se.student_id
+     LEFT JOIN streams ON streams.id = se.stream_id
      LEFT JOIN (
        SELECT
          sp.student_id,
