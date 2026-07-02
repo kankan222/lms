@@ -620,6 +620,7 @@ export async function getStudentsForScope({ examId, classId, sectionId, medium, 
   const hasSubjectRegistrations = await supportsSubjectRegistrationTables();
   const examSubjectSchema = await getExamSubjectSplitSchemaStatus();
   const hasSubjectOfferingId = examSubjectSchema.hasSubjectOfferingId;
+  const guardianExpr = await guardianNameExpression();
   const params = [classId, sectionId, sectionId, examId];
   const where = [];
 
@@ -719,7 +720,9 @@ export async function getStudentsForScope({ examId, classId, sectionId, medium, 
       st.id AS student_id,
       st.name AS student_name,
       se.roll_number,
-      sec.medium
+      sec.name AS section_name,
+      sec.medium,
+      guardians.guardian_name
      FROM exams e
      JOIN exam_scopes sc
        ON sc.exam_id = e.id
@@ -732,6 +735,14 @@ export async function getStudentsForScope({ examId, classId, sectionId, medium, 
       AND se.session_id = e.session_id
       AND se.status = 'active'
      JOIN students st ON st.id = se.student_id
+     LEFT JOIN (
+       SELECT
+         sp.student_id,
+         ${guardianExpr} AS guardian_name
+       FROM student_parents sp
+       JOIN parents p ON p.id = sp.parent_id
+       GROUP BY sp.student_id
+     ) guardians ON guardians.student_id = st.id
      WHERE e.id = ?
        ${extraWhere}
      ORDER BY se.roll_number ASC, st.name ASC`,

@@ -253,7 +253,7 @@ export default function AdmitCard() {
         </div>
       </div>
 
-      <TopBar title="Admit Card" subTitle="Download exam admit cards two per page" />
+      <TopBar title="Admit Card" subTitle="Download exam admit cards four per page" />
       {loading ? <p>Loading...</p> : null}
 
       {!loading ? (
@@ -353,7 +353,7 @@ export default function AdmitCard() {
           <Card>
             <CardHeader>
               <CardTitle>Admit Cards</CardTitle>
-              <CardDescription>Generate two admit cards per PDF page for the selected exam scope.</CardDescription>
+              <CardDescription>Generate four landscape admit cards per PDF page for the selected exam scope.</CardDescription>
             </CardHeader>
             <CardContent className="flex flex-wrap items-center justify-between gap-4">
               <div className="flex flex-wrap gap-2 text-sm text-muted-foreground">
