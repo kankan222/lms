@@ -62,5 +62,10 @@ router.get(
   requirePermission("marks.approve"),
   controller.downloadMarkStatement
 );
+router.get(
+  "/admit-cards/pdf",
+  requirePermission("marks.approve"),
+  controller.downloadAdmitCards
+);
 
 export default router;

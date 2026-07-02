@@ -135,3 +135,7 @@ export function downloadFinalMarksheet(params = {}) {
 export function downloadMarkStatement(params = {}) {
   return fetchAuthorizedBlob(`/marks/statement/pdf${buildQuery(params)}`);
 }
+
+export function downloadAdmitCards(params = {}) {
+  return fetchAuthorizedBlob(`/marks/admit-cards/pdf${buildQuery(params)}`);
+}

@@ -439,6 +439,7 @@ export async function getClassSectionScope(classId, sectionId) {
     `SELECT
        c.id AS class_id,
        c.name AS class_name,
+       COALESCE(c.class_scope, 'school') AS class_scope,
        sec.id AS section_id,
        sec.name AS section_name,
        sec.medium

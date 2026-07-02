@@ -1,6 +1,7 @@
 import { pool } from "../../database/pool.js";
 import AppError from "../../core/errors/AppError.js";
 import { generateMarkStatementPdf } from "./markStatementPdf.service.js";
+import { generateAdmitCardPdf } from "./admitCardPdf.service.js";
 import { generateFinalMarksheetPdf } from "../exams/finalMarksheetPdf.service.js";
 import { generateMarksheetPdf } from "../exams/marksheetPdf.service.js";
 import * as marksheetRepo from "../marksheet/marksheet.repository.js";
@@ -1255,6 +1256,45 @@ export async function downloadMarkStatement(query, userId) {
   return {
     buffer,
     fileName: `marks-statement-exam-${examId}-class-${classId}-section-${sectionId}-subject-${subjectId}.pdf`,
+  };
+}
+
+export async function downloadAdmitCards(query, userId) {
+  const examId = normalizeNumber(query.exam_id ?? query.examId, "exam_id");
+  const classId = normalizeNumber(query.class_id ?? query.classId, "class_id");
+  const sectionId = normalizeNumber(query.section_id ?? query.sectionId, "section_id");
+  const medium = String(query.medium || "").trim().toLowerCase() || null;
+  const [exam, userCtx] = await Promise.all([
+    repo.getExamById(examId),
+    getUserContext(userId),
+  ]);
+
+  if (!exam) throw new AppError("Exam not found", 404);
+  if (!userCtx.roles.includes("super_admin") && !userCtx.roles.includes("admin") && !canManageExamCatalog(userCtx)) {
+    throw new AppError("Not authorized to download admit cards", 403);
+  }
+
+  const [scope, students] = await Promise.all([
+    repo.getClassSectionScope(classId, sectionId),
+    repo.getStudentsForScope({
+      examId,
+      classId,
+      sectionId,
+      medium,
+    }),
+  ]);
+
+  if (!scope) throw new AppError("Class section not found", 404);
+
+  const buffer = await generateAdmitCardPdf({
+    exam,
+    scope,
+    students,
+  });
+
+  return {
+    buffer,
+    fileName: `admit-cards-exam-${examId}-class-${classId}-section-${sectionId}.pdf`,
   };
 }
 

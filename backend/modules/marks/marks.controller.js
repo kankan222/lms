@@ -204,3 +204,17 @@ export async function downloadMarkStatement(req, res, next) {
     next(err);
   }
 }
+
+export async function downloadAdmitCards(req, res, next) {
+  try {
+    const { buffer, fileName } = await service.downloadAdmitCards(
+      req.query || {},
+      req.user.userId
+    );
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `attachment; filename=${fileName}`);
+    res.send(buffer);
+  } catch (err) {
+    next(err);
+  }
+}
