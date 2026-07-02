@@ -59,22 +59,25 @@ function drawAdmitCard(doc, { exam, scope, student, x, y, width, height }) {
     .fillColor("#1f2937")
     .text(safeText(exam?.name), x + 12, contentTop + 68, { width: width - 24, align: "center" });
 
-  const detailsTop = contentTop + 96;
-  doc.font("Helvetica-Bold").fontSize(8.5).fillColor("#1f2937");
-  doc.text(`Name of the Student- ${safeText(student.student_name)}`, x + 58, detailsTop, {
-    width: width - 116,
+  const detailsTop = contentTop + 94;
+  const detailLeft = x + 38;
+  const detailWidth = width - 76;
+  doc.font("Helvetica-Bold").fontSize(10).fillColor("#1f2937");
+  doc.text(`Name of the Student- ${safeText(student.student_name)}`, detailLeft, detailsTop, {
+    width: detailWidth,
     align: "left",
   });
-  doc.text(`Class- ${safeText(scope?.class_name)}`, x + 58, detailsTop + 23, {
-    width: 130,
+  doc.font("Helvetica-Bold").fontSize(9.5);
+  doc.text(`Class- ${safeText(scope?.class_name)}`, detailLeft, detailsTop + 28, {
+    width: 115,
     align: "left",
   });
-  doc.text(`Medium - ${safeText(student.medium || scope?.medium)}`, center + 5, detailsTop + 23, {
-    width: 130,
+  doc.text(`Medium - ${safeText(student.medium || scope?.medium)}`, center - 3, detailsTop + 28, {
+    width: 135,
     align: "left",
   });
-  doc.text(`Roll No.- ${safeText(student.roll_number)}`, x + 58, detailsTop + 46, {
-    width: 130,
+  doc.text(`Roll No.- ${safeText(student.roll_number)}`, detailLeft, detailsTop + 56, {
+    width: 135,
     align: "left",
   });
 
