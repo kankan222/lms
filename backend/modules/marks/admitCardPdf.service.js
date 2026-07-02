@@ -40,55 +40,55 @@ function drawAdmitCard(doc, { exam, scope, student, x, y, width, height }) {
 
   doc
     .font("Helvetica-Bold")
-    .fontSize(15)
+    .fontSize(14)
     .fillColor("#0f3440")
     .text("KALONG KAPILI VIDYAPITH", x + 12, contentTop, { width: width - 24, align: "center" });
 
   doc
-    .fontSize(9)
+    .fontSize(8.5)
     .fillColor("#1f2937")
     .text(`(${sectionLabel(classScope)})`, x + 12, contentTop + 24, { width: width - 24, align: "center" });
 
   doc
-    .fontSize(10)
+    .fontSize(9)
     .fillColor("#b91c1c")
     .text("ADMIT CARD", x + 12, contentTop + 44, { width: width - 24, align: "center" });
 
   doc
-    .fontSize(12)
+    .fontSize(11)
     .fillColor("#1f2937")
     .text(safeText(exam?.name), x + 12, contentTop + 68, { width: width - 24, align: "center" });
 
-  const detailsTop = contentTop + 102;
-  doc.font("Helvetica-Bold").fontSize(9).fillColor("#1f2937");
-  doc.text(`Name of the Student- ${safeText(student.student_name)}`, x + 70, detailsTop, {
-    width: width - 140,
+  const detailsTop = contentTop + 96;
+  doc.font("Helvetica-Bold").fontSize(8.5).fillColor("#1f2937");
+  doc.text(`Name of the Student- ${safeText(student.student_name)}`, x + 58, detailsTop, {
+    width: width - 116,
     align: "left",
   });
-  doc.text(`Class- ${safeText(scope?.class_name)}`, x + 70, detailsTop + 24, {
-    width: 150,
+  doc.text(`Class- ${safeText(scope?.class_name)}`, x + 58, detailsTop + 23, {
+    width: 130,
     align: "left",
   });
-  doc.text(`Medium - ${safeText(student.medium || scope?.medium)}`, center + 5, detailsTop + 24, {
-    width: 150,
+  doc.text(`Medium - ${safeText(student.medium || scope?.medium)}`, center + 5, detailsTop + 23, {
+    width: 130,
     align: "left",
   });
-  doc.text(`Roll No.- ${safeText(student.roll_number)}`, x + 70, detailsTop + 48, {
-    width: 150,
+  doc.text(`Roll No.- ${safeText(student.roll_number)}`, x + 58, detailsTop + 46, {
+    width: 130,
     align: "left",
   });
 
   const signPath = signaturePath(classScope);
   const signX = x + width - 162;
-  const signY = y + height - 70;
+  const signY = y + height - 52;
   try {
-    doc.image(signPath, signX + 36, signY - 20, { width: 72, height: 30, fit: [72, 30] });
+    doc.image(signPath, signX + 40, signY - 20, { width: 62, height: 24, fit: [62, 24] });
   } catch {
     // Keep generating the admit card even if the signature asset is missing.
   }
   doc
     .font("Helvetica-Bold")
-    .fontSize(9)
+    .fontSize(8)
     .fillColor("#1f2937")
     .text(signatureLabel(classScope), signX, signY + 20, { width: 140, align: "center" });
 }
@@ -103,22 +103,25 @@ export async function generateAdmitCardPdf({ exam, scope, students }) {
   const rows = Array.isArray(students) ? students : [];
   const pageWidth = doc.page.width - doc.page.margins.left - doc.page.margins.right;
   const left = doc.page.margins.left;
-  const gap = 28;
-  const cardHeight = (doc.page.height - doc.page.margins.top - doc.page.margins.bottom - gap) / 2;
-  const cardWidth = pageWidth;
+  const rowGap = 22;
+  const colGap = 24;
+  const cardHeight = (doc.page.height - doc.page.margins.top - doc.page.margins.bottom - rowGap) / 2;
+  const cardWidth = (pageWidth - colGap) / 2;
   const top = doc.page.margins.top;
 
   const cards = rows.length ? rows : [{ student_name: "", roll_number: "", medium: scope?.medium }];
 
   cards.forEach((student, index) => {
-    if (index > 0 && index % 2 === 0) doc.addPage();
-    const slot = index % 2;
+    if (index > 0 && index % 4 === 0) doc.addPage();
+    const slot = index % 4;
+    const row = Math.floor(slot / 2);
+    const col = slot % 2;
     drawAdmitCard(doc, {
       exam,
       scope,
       student,
-      x: left,
-      y: top + slot * (cardHeight + gap),
+      x: left + col * (cardWidth + colGap),
+      y: top + row * (cardHeight + rowGap),
       width: cardWidth,
       height: cardHeight,
     });
