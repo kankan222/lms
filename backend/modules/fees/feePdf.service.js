@@ -125,6 +125,10 @@ export async function generateReceiptPdf(paymentId) {
     path.join(__dirname, "..", "reports", "templates", signatureFile),
     signatureMime
   );
+  const logoDataUri = await imageDataUri(
+    path.join(__dirname, "..", "..", "..", "frontend", "website", "public", "assets", "site", "logo.png"),
+    "image/png"
+  );
 
   html = replaceReceiptTokens(html, {
     receiptId: escapeHtml(payment.receipt_serial || `PAY-${String(payment.id).padStart(6, "0")}`),
@@ -143,6 +147,7 @@ export async function generateReceiptPdf(paymentId) {
     remainingAmount: escapeHtml(money(payment.remaining_amount)),
     amountWords: escapeHtml(amountInWords(payment.amount_paid)),
     remarks: escapeHtml(receiptValue(payment.remarks, "")),
+    schoolLogo: logoDataUri,
     collectorSignature: signatureDataUri,
   });
 
