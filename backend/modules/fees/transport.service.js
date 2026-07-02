@@ -153,7 +153,7 @@ function normalizeStopPayload(data = {}, existing = null) {
 }
 
 export function formatTransportMonth(month, year) {
-  return `${MONTH_NAMES[Number(month)] || month} ${year}`;
+  return `${MONTH_NAMES[Number(month)] || month}, ${year}`;
 }
 
 export async function listRoutes() {
