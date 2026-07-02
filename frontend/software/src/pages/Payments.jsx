@@ -49,6 +49,11 @@ import { formatReadableDate } from "../lib/dateTime";
 
 const columns = [
   {
+    header: "Sl. No.",
+    accessor: "receipt_serial",
+    className: "min-w-[120px]",
+  },
+  {
     header: "Date",
     accessor: "payment_date",
     cell: (row) => formatReadableDate(row.payment_date),
@@ -64,6 +69,13 @@ const columns = [
   { header: "Status", accessor: "display_status" },
 ];
 const PAYMENTS_ROWS_PER_PAGE_OPTIONS = [10, 20, 50, 100];
+const PAYMENTS_TABLE_PAGE_KEY = "payments.table.page";
+const PAYMENTS_TABLE_ROWS_KEY = "payments.table.rows";
+const PAYMENTS_FILTER_SCOPE_KEY = "payments.filter.scope";
+const PAYMENTS_FILTER_CLASS_KEY = "payments.filter.classId";
+const PAYMENTS_FILTER_SECTION_KEY = "payments.filter.sectionId";
+const PAYMENTS_FILTER_STREAM_KEY = "payments.filter.streamId";
+const PAYMENTS_FILTER_DATE_KEY = "payments.filter.paymentDate";
 
 function formatStatus(status) {
   const value = String(status || "").trim().toLowerCase();
@@ -88,6 +100,72 @@ function preventWheelNumberChange(event) {
   event.currentTarget.blur();
 }
 
+function readStoredNumber(key, fallback, allowed = null) {
+  if (typeof window === "undefined") return fallback;
+
+  const parsed = Number(window.sessionStorage.getItem(key));
+  if (!Number.isInteger(parsed) || parsed <= 0) return fallback;
+
+  if (Array.isArray(allowed) && allowed.length > 0 && !allowed.includes(parsed)) {
+    return fallback;
+  }
+
+  return parsed;
+}
+
+function readStoredString(key, fallback = "") {
+  if (typeof window === "undefined") return fallback;
+  const value = String(window.sessionStorage.getItem(key) || "").trim();
+  return value || fallback;
+}
+
+function enrichPaymentRows(rows = []) {
+  return rows.map((row) => ({
+    ...row,
+    medium: row.medium || "-",
+    payment_date: row.payment_date || row.created_at || "-",
+    scope_label: formatScope(row.class_scope),
+    stream_name: row.stream_name || "-",
+    display_status: formatStatus(row.fee_status || row.status),
+  }));
+}
+
+async function fetchPaymentsData({
+  classId,
+  sectionId,
+  streamId,
+  scope,
+  paymentDate,
+  classes,
+  page,
+  limit,
+}) {
+  const selectedFilterClass = classes.find((c) => String(c.id) === String(classId));
+  const effectiveFilterStreamId =
+    resolveClassScope(selectedFilterClass?.class_scope) === "hs" ? streamId : "";
+  const res = await getPayments({
+    class_id: classId || undefined,
+    section_id: sectionId || undefined,
+    stream_id: effectiveFilterStreamId || undefined,
+    scope: scope || undefined,
+    payment_date: paymentDate || undefined,
+    page,
+    limit,
+  });
+  const rows = Array.isArray(res) ? res : (res?.data || []);
+  const pagination = res?.pagination || {
+    page,
+    limit,
+    total: rows.length,
+    totalPages: 1,
+  };
+
+  return {
+    rows: enrichPaymentRows(rows),
+    pagination,
+  };
+}
+
 export default function Payments() {
   const navigate = useNavigate();
 
@@ -97,11 +175,30 @@ export default function Payments() {
   const [feeOptions, setFeeOptions] = useState([]);
   const [payments, setPayments] = useState([]);
 
-  const [classId, setClassId] = useState("");
-  const [sectionId, setSectionId] = useState("");
-  const [streamId, setStreamId] = useState("");
-  const [scope, setScope] = useState("");
-  const [paymentDate, setPaymentDate] = useState("");
+  const [classId, setClassId] = useState(() => readStoredString(PAYMENTS_FILTER_CLASS_KEY));
+  const [sectionId, setSectionId] = useState(() => readStoredString(PAYMENTS_FILTER_SECTION_KEY));
+  const [streamId, setStreamId] = useState(() => readStoredString(PAYMENTS_FILTER_STREAM_KEY));
+  const [scope, setScope] = useState(() => readStoredString(PAYMENTS_FILTER_SCOPE_KEY));
+  const [paymentDate, setPaymentDate] = useState(() => readStoredString(PAYMENTS_FILTER_DATE_KEY));
+  const [tablePage, setTablePage] = useState(() =>
+    readStoredNumber(PAYMENTS_TABLE_PAGE_KEY, 1)
+  );
+  const [tableRowsPerPage, setTableRowsPerPage] = useState(() =>
+    readStoredNumber(
+      PAYMENTS_TABLE_ROWS_KEY,
+      PAYMENTS_ROWS_PER_PAGE_OPTIONS[0],
+      PAYMENTS_ROWS_PER_PAGE_OPTIONS
+    )
+  );
+  const [paymentPagination, setPaymentPagination] = useState({
+    page: tablePage,
+    limit: tableRowsPerPage,
+    total: 0,
+    totalPages: 1,
+  });
+  const [refreshing, setRefreshing] = useState(false);
+  const [lastUpdatedAt, setLastUpdatedAt] = useState(null);
+  const [hasLoadedPayments, setHasLoadedPayments] = useState(false);
 
   const [openCreate, setOpenCreate] = useState(false);
   const [editingPayment, setEditingPayment] = useState(null);
@@ -146,27 +243,26 @@ export default function Payments() {
   }
 
   async function loadPayments() {
-    const selectedFilterClass = classes.find((c) => String(c.id) === String(classId));
-    const effectiveFilterStreamId =
-      resolveClassScope(selectedFilterClass?.class_scope) === "hs" ? streamId : "";
-    const res = await getPayments({
-      class_id: classId || undefined,
-      section_id: sectionId || undefined,
-      stream_id: effectiveFilterStreamId || undefined,
-      scope: scope || undefined,
-      payment_date: paymentDate || undefined,
-    });
-    const rows = res?.data || [];
-    setPayments(
-      rows.map((row) => ({
-        ...row,
-        medium: row.medium || "-",
-        payment_date: row.payment_date || row.created_at || "-",
-        scope_label: formatScope(row.class_scope),
-        stream_name: row.stream_name || "-",
-        display_status: formatStatus(row.fee_status || row.status),
-      }))
-    );
+    if (!classes.length) return;
+    setRefreshing(true);
+    try {
+      const result = await fetchPaymentsData({
+        classId,
+        sectionId,
+        streamId,
+        scope,
+        paymentDate,
+        classes,
+        page: tablePage,
+        limit: tableRowsPerPage,
+      });
+      setPayments(result.rows);
+      setPaymentPagination(result.pagination);
+      setHasLoadedPayments(true);
+      setLastUpdatedAt(new Date().toISOString());
+    } finally {
+      setRefreshing(false);
+    }
   }
 
   async function loadStudentsForCreate() {
@@ -213,6 +309,10 @@ export default function Payments() {
   });
 
   const loadFilteredPayments = useEffectEvent(() => {
+    loadPayments();
+  });
+
+  const refreshPaymentsEvent = useEffectEvent(() => {
     loadPayments();
   });
 
@@ -270,7 +370,27 @@ export default function Payments() {
 
   useEffect(() => {
     loadFilteredPayments();
-  }, [classId, sectionId, streamId, scope, paymentDate]);
+  }, [classId, sectionId, streamId, scope, paymentDate, classes, tablePage, tableRowsPerPage]);
+
+  useEffect(() => {
+    function handleWindowFocus() {
+      refreshPaymentsEvent();
+    }
+
+    function handleVisibilityChange() {
+      if (document.visibilityState === "visible") {
+        refreshPaymentsEvent();
+      }
+    }
+
+    window.addEventListener("focus", handleWindowFocus);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      window.removeEventListener("focus", handleWindowFocus);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, []);
 
   useEffect(() => {
     loadScopedStudents();
@@ -291,6 +411,26 @@ export default function Payments() {
     }, 3500);
     return () => window.clearTimeout(timeoutId);
   }, [notice]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.sessionStorage.setItem(PAYMENTS_TABLE_PAGE_KEY, String(tablePage));
+    window.sessionStorage.setItem(PAYMENTS_TABLE_ROWS_KEY, String(tableRowsPerPage));
+  }, [tablePage, tableRowsPerPage]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.sessionStorage.setItem(PAYMENTS_FILTER_SCOPE_KEY, String(scope || ""));
+    window.sessionStorage.setItem(PAYMENTS_FILTER_CLASS_KEY, String(classId || ""));
+    window.sessionStorage.setItem(PAYMENTS_FILTER_SECTION_KEY, String(sectionId || ""));
+    window.sessionStorage.setItem(PAYMENTS_FILTER_STREAM_KEY, String(streamId || ""));
+    window.sessionStorage.setItem(PAYMENTS_FILTER_DATE_KEY, String(paymentDate || ""));
+  }, [scope, classId, sectionId, streamId, paymentDate]);
+
+  useEffect(() => {
+    if (!hasLoadedPayments) return;
+    setTablePage((prev) => Math.min(prev, Math.max(1, Number(paymentPagination.totalPages) || 1)));
+  }, [hasLoadedPayments, paymentPagination.totalPages]);
 
   async function handleCreatePayment(e) {
     e.preventDefault();
@@ -543,6 +683,9 @@ export default function Payments() {
         subTitle="Record and manage fee payments"
         action={
           <div className="flex flex-wrap gap-2">
+            <Button variant="outline" onClick={loadPayments} disabled={refreshing}>
+              {refreshing ? "Refreshing..." : "Refresh"}
+            </Button>
             <Popover>
               <PopoverTrigger asChild>
                 <Button variant="outline">
@@ -566,7 +709,10 @@ export default function Payments() {
                       id="payments-filter-scope"
                       className="border rounded p-2"
                       value={scope}
-                      onChange={(e) => setScope(e.target.value)}
+                      onChange={(e) => {
+                        setScope(e.target.value);
+                        setTablePage(1);
+                      }}
                     >
                       <option value="">All Scope</option>
                       <option value="school">School</option>
@@ -584,6 +730,7 @@ export default function Payments() {
                         setClassId(e.target.value);
                         setSectionId("");
                         setStreamId("");
+                        setTablePage(1);
                       }}
                     >
                       <option value="">All Classes</option>
@@ -601,7 +748,10 @@ export default function Payments() {
                       id="payments-filter-stream"
                       className="border rounded p-2"
                       value={effectiveFilterStreamId}
-                      onChange={(e) => setStreamId(e.target.value)}
+                      onChange={(e) => {
+                        setStreamId(e.target.value);
+                        setTablePage(1);
+                      }}
                       disabled={!classId || selectedClassScope !== "hs"}
                     >
                       <option value="">
@@ -621,7 +771,10 @@ export default function Payments() {
                       id="payments-filter-section"
                       className="border rounded p-2"
                       value={sectionId}
-                      onChange={(e) => setSectionId(e.target.value)}
+                      onChange={(e) => {
+                        setSectionId(e.target.value);
+                        setTablePage(1);
+                      }}
                       disabled={!classId}
                     >
                       <option value="">All Sections</option>
@@ -639,7 +792,10 @@ export default function Payments() {
                       id="payments-filter-date"
                       type="date"
                       value={paymentDate}
-                      onChange={(e) => setPaymentDate(e.target.value)}
+                      onChange={(e) => {
+                        setPaymentDate(e.target.value);
+                        setTablePage(1);
+                      }}
                     />
                   </div>
                 </div>
@@ -655,6 +811,7 @@ export default function Payments() {
                     setSectionId("");
                     setStreamId("");
                     setPaymentDate("");
+                    setTablePage(1);
                   }}
                 >
                   Reset Filters
@@ -971,11 +1128,35 @@ export default function Payments() {
         </div>
       </div>
 
+      {lastUpdatedAt ? (
+        <p className="mb-3 text-sm text-muted-foreground">
+          Last refreshed: {new Date(lastUpdatedAt).toLocaleString()}
+        </p>
+      ) : null}
+
       <DataTable
         columns={columns}
         data={payments}
         rowsPerPageOptions={PAYMENTS_ROWS_PER_PAGE_OPTIONS}
-        rowsPerPage={PAYMENTS_ROWS_PER_PAGE_OPTIONS[0]}
+        paginationMode="server"
+        page={paymentPagination.page}
+        totalPages={paymentPagination.totalPages}
+        totalRows={paymentPagination.total}
+        rowsPerPage={paymentPagination.limit}
+        onPageChange={(nextPage) => {
+          const parsed = Number(nextPage);
+          setTablePage(Number.isInteger(parsed) && parsed > 0 ? parsed : 1);
+        }}
+        onRowsPerPageChange={(nextRows) => {
+          const parsed = Number(nextRows);
+          const safeRows = PAYMENTS_ROWS_PER_PAGE_OPTIONS.includes(parsed)
+            ? parsed
+            : PAYMENTS_ROWS_PER_PAGE_OPTIONS[0];
+          setTableRowsPerPage(safeRows);
+          setTablePage(1);
+        }}
+        tableClassName="min-w-[980px]"
+        tableWrapperClassName="sidebar-primary-scrollbar overflow-x-auto"
         onEdit={handleEditPayment}
         onDelete={setDeletingPayment}
         onRowClick={(row) => navigate(`/students/${row.student_id}`)}

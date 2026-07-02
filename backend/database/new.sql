@@ -57,6 +57,7 @@ CREATE TABLE student_fees (
 
 CREATE TABLE payments (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    receipt_serial VARCHAR(50) UNIQUE,
 
     student_fee_id BIGINT NOT NULL,
     amount_paid DECIMAL(10,2),

@@ -366,6 +366,7 @@ DROP TABLE IF EXISTS `payments`;
 /*!50503 SET character_set_client = utf8mb4 */;
 CREATE TABLE `payments` (
   `id` bigint NOT NULL AUTO_INCREMENT,
+  `receipt_serial` varchar(50) DEFAULT NULL,
   `student_fee_id` bigint NOT NULL,
   `amount_paid` decimal(10,2) DEFAULT NULL,
   `remarks` text,
@@ -375,6 +376,7 @@ CREATE TABLE `payments` (
   `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
   `approved_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_payments_receipt_serial` (`receipt_serial`),
   KEY `student_fee_id` (`student_fee_id`),
   CONSTRAINT `payments_ibfk_1` FOREIGN KEY (`student_fee_id`) REFERENCES `student_fees` (`id`)
 ) ENGINE=InnoDB AUTO_INCREMENT=13 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;

@@ -689,6 +689,7 @@ export async function exportPaymentsCsv(filters = {}) {
 
   const headers = [
     "payment_id",
+    "receipt_serial",
     "payment_date",
     "student_name",
     "class_name",
@@ -708,6 +709,7 @@ export async function exportPaymentsCsv(filters = {}) {
     ...rows.map((row) =>
       [
         row.id,
+        row.receipt_serial || `PAY-${String(row.id).padStart(6, "0")}`,
         row.payment_date || (row.created_at ? String(row.created_at).slice(0, 10) : ""),
         row.student_name,
         row.class_name,

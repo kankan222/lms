@@ -464,7 +464,17 @@ export async function insertPayment(data) {
     data.created_by ?? null
   ];
 
-  return execute(sql, params);
+  const result = await execute(sql, params);
+  const paymentId = Number(result?.insertId || 0);
+  if (paymentId > 0) {
+    await execute(
+      `UPDATE payments
+       SET receipt_serial = CONCAT('PAY-', LPAD(id, 6, '0'))
+       WHERE id = ? AND receipt_serial IS NULL`,
+      [paymentId]
+    );
+  }
+  return result;
 }
 export async function approvePayment(paymentId, adminId) {
 
@@ -1016,17 +1026,27 @@ export async function getStreamById(id) {
   return rows[0] || null;
 }
 export async function getPaymentReceipt(paymentId){
+  const hasScopesTable = await supportsScopesTable();
+  const classScopeExpr = buildClassScopeExpression(hasScopesTable);
 
   const sql = `
   SELECT
     p.id,
+    COALESCE(p.receipt_serial, CONCAT('PAY-', LPAD(p.id, 6, '0'))) AS receipt_serial,
     p.amount_paid,
     p.remarks,
     p.status,
     p.created_at,
     s.id AS student_id,
     s.name,
+    s.admission_no,
     c.name AS class_name
+    ,e.roll_number
+    ,e.session_id
+    ,ses.name AS session_name
+    ,e.stream_id
+    ,st.name AS stream_name
+    ,${classScopeExpr} AS class_scope
     ,sec.name AS section_name
     ,sec.medium AS medium
     ,sf.fee_type
@@ -1043,6 +1063,9 @@ export async function getPaymentReceipt(paymentId){
   JOIN student_enrollments e ON sf.enrollment_id = e.id
   JOIN students s ON e.student_id = s.id
   JOIN classes c ON e.class_id = c.id
+  ${hasScopesTable ? "LEFT JOIN scopes sc ON sc.id = c.scope_id" : ""}
+  LEFT JOIN streams st ON st.id = e.stream_id
+  LEFT JOIN academic_sessions ses ON ses.id = e.session_id
   JOIN sections sec ON e.section_id = sec.id
   LEFT JOIN fee_installments fi ON sf.installment_id = fi.id
   WHERE p.id = ?
@@ -1125,6 +1148,7 @@ export async function getPayments(filters = {}) {
   const sql = `
     SELECT
       p.id,
+      COALESCE(p.receipt_serial, CONCAT('PAY-', LPAD(p.id, 6, '0'))) AS receipt_serial,
       p.student_fee_id,
       p.amount_paid,
       p.remarks,
@@ -1160,6 +1184,7 @@ export async function getPaymentsPaginated(filters = {}, options = {}) {
   const sql = `
     SELECT
       p.id,
+      COALESCE(p.receipt_serial, CONCAT('PAY-', LPAD(p.id, 6, '0'))) AS receipt_serial,
       p.student_fee_id,
       p.amount_paid,
       p.remarks,

@@ -95,6 +95,8 @@ export function getPayments(params = {}) {
   if (params.payment_date) query.set("payment_date", params.payment_date);
   if (params.date_from) query.set("date_from", params.date_from);
   if (params.date_to) query.set("date_to", params.date_to);
+  if (params.page) query.set("page", params.page);
+  if (params.limit) query.set("limit", params.limit);
   const suffix = query.toString() ? `?${query.toString()}` : "";
   return apiRequest(`/fees/payments${suffix}`);
 }
