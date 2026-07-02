@@ -62,9 +62,9 @@ function drawAdmitCard(doc, { exam, scope, student, x, y, width, height }) {
 
   doc
     .font("Helvetica-Bold")
-    .fontSize(9)
+    .fontSize(13)
     .fillColor("#b91c1c")
-    .text("ADMIT CARD", x + 16, contentTop + 43, { width: width - 32, align: "center" });
+    .text("ADMIT CARD", x + 16, contentTop + 41, { width: width - 32, align: "center" });
 
   doc
     .font("Helvetica-Bold")
