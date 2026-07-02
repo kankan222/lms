@@ -1,6 +1,6 @@
-import PDFDocument from "pdfkit";
 import AppError from "../../core/errors/AppError.js";
 import { pool } from "../../database/pool.js";
+import { renderFeeReceiptPdf } from "./feePdf.service.js";
 import * as repo from "./transport.repository.js";
 
 const MONTH_NAMES = [
@@ -384,50 +384,30 @@ export async function generateReceipt(paymentId) {
   const receipt = await repo.getPaymentReceipt(parsePositiveInt(paymentId, "payment_id"));
   if (!receipt) throw new AppError("Transportation payment not found", 404);
 
-  const doc = new PDFDocument({ margin: 48 });
-  const chunks = [];
-  doc.on("data", (chunk) => chunks.push(chunk));
+  const allocations = receipt.allocations || [];
+  const feeAmount = allocations.reduce((sum, item) => sum + Number(item.due_amount || 0), 0);
+  const previousPayment = allocations.reduce((sum, item) => sum + Number(item.previous_paid || 0), 0);
+  const remainingAmount = Math.max(0, feeAmount - previousPayment - Number(receipt.amount_paid || 0));
+  const coveredMonths = allocations
+    .map((allocation) => formatTransportMonth(allocation.due_month, allocation.due_year))
+    .join(", ");
 
-  doc.fontSize(16).font("Helvetica-Bold").text("KALONG KAPILI VIDYAPITH", { align: "center" });
-  doc.moveDown(0.3);
-  doc.fontSize(13).text("Transportation Fee Receipt", { align: "center" });
-  doc.moveDown(1);
-
-  doc.font("Helvetica").fontSize(10);
-  doc.text(`Receipt No: ${receipt.receipt_no || `TR-${String(receipt.id).padStart(6, "0")}`}`);
-  doc.text(`Date: ${new Date(receipt.created_at).toLocaleDateString("en-IN")}`);
-  doc.moveDown(0.8);
-
-  doc.text(`Student: ${receipt.student_name}`);
-  doc.text(`Admission No: ${receipt.admission_no || "-"}`);
-  doc.text(`Session: ${receipt.session_name}`);
-  doc.text(`Route: ${receipt.route_name || "-"}`);
-  doc.text(`Pickup Point: ${receipt.stop_name || "-"}`);
-  doc.moveDown(1);
-
-  doc.font("Helvetica-Bold").text("Covered Months");
-  doc.moveDown(0.4);
-  doc.font("Helvetica");
-  for (const allocation of receipt.allocations || []) {
-    doc.text(
-      `${formatTransportMonth(allocation.due_month, allocation.due_year)} - Rs ${Number(allocation.amount_applied).toFixed(2)}`
-    );
-  }
-
-  doc.moveDown(1);
-  doc.font("Helvetica-Bold").fontSize(12).text(`Total Paid: Rs ${Number(receipt.amount_paid).toFixed(2)}`);
-  if (receipt.payment_method) {
-    doc.font("Helvetica").fontSize(10).text(`Payment Method: ${receipt.payment_method}`);
-  }
-  if (receipt.remarks) {
-    doc.text(`Remarks: ${receipt.remarks}`);
-  }
-
-  doc.moveDown(3);
-  doc.text("Authorized Signature", { align: "right" });
-  const done = new Promise((resolve) => doc.on("end", resolve));
-  doc.end();
-
-  await done;
-  return Buffer.concat(chunks);
+  return renderFeeReceiptPdf({
+    receipt_serial: receipt.receipt_no || `TR-${String(receipt.id).padStart(6, "0")}`,
+    created_at: receipt.created_at,
+    student_name: receipt.student_name,
+    class_name: receipt.class_name,
+    section_name: receipt.section_name,
+    stream_name: receipt.stream_name,
+    class_scope: receipt.class_scope,
+    roll_number: receipt.roll_number,
+    session_name: receipt.session_name,
+    fee_item: "Bus/Van Fee",
+    installment_label: coveredMonths,
+    fee_amount: feeAmount,
+    previous_payment: previousPayment,
+    amount_paid: receipt.amount_paid,
+    remaining_amount: remainingAmount,
+    remarks: receipt.remarks || receipt.payment_method || "",
+  });
 }

@@ -504,6 +504,12 @@ export async function getPaymentReceipt(paymentId) {
             s.name AS student_name,
             s.admission_no,
             ses.name AS session_name,
+            c.name AS class_name,
+            sec.name AS section_name,
+            se.roll_number,
+            se.stream_id,
+            st_stream.name AS stream_name,
+            COALESCE(c.class_scope, 'school') AS class_scope,
             (
               SELECT COALESCE(r.name, 'Student Specific')
               FROM transport_payment_allocations pa
@@ -527,6 +533,13 @@ export async function getPaymentReceipt(paymentId) {
      FROM transport_payments p
      JOIN students s ON s.id = p.student_id
      JOIN academic_sessions ses ON ses.id = p.session_id
+     LEFT JOIN student_enrollments se
+       ON se.student_id = s.id
+      AND se.session_id = p.session_id
+      AND se.status = 'active'
+     LEFT JOIN classes c ON c.id = se.class_id
+     LEFT JOIN sections sec ON sec.id = se.section_id
+     LEFT JOIN streams st_stream ON st_stream.id = se.stream_id
      LEFT JOIN transport_receipts tr ON tr.payment_id = p.id
      WHERE p.id = ?
      LIMIT 1`,
@@ -540,9 +553,20 @@ export async function getPaymentReceipt(paymentId) {
     `SELECT pa.amount_applied,
             d.due_month,
             d.due_year,
-            d.amount AS due_amount
+            d.amount AS due_amount,
+            COALESCE((
+              SELECT SUM(pa2.amount_applied)
+              FROM transport_payment_allocations pa2
+              JOIN transport_payments p2 ON p2.id = pa2.payment_id
+              WHERE pa2.transport_due_id = d.id
+                AND (
+                  p2.created_at < p.created_at
+                  OR (p2.created_at = p.created_at AND p2.id < p.id)
+                )
+            ), 0) AS previous_paid
      FROM transport_payment_allocations pa
      JOIN student_transport_fee_dues d ON d.id = pa.transport_due_id
+     JOIN transport_payments p ON p.id = pa.payment_id
      WHERE pa.payment_id = ?
      ORDER BY d.due_year ASC, d.due_month ASC`,
     [paymentId]

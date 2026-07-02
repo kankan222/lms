@@ -107,22 +107,11 @@ function amountInWords(value) {
   return `${parts.join(" ")} Rupees Only`;
 }
 
-export async function generateReceiptPdf(paymentId) {
-  const payment = await repo.getPaymentReceipt(paymentId);
-  if (!payment) throw new Error("Payment not found");
-
+export async function renderFeeReceiptPdf(data) {
   const templatePath = path.join(__dirname, "templates", "receipt.html");
   let html = await fs.readFile(templatePath, "utf8");
 
-  const feeItem =
-    payment.fee_type === "admission"
-      ? "Admission Fee"
-      : "Session Fees";
-  const installmentLabel =
-    payment.fee_type === "admission"
-      ? ""
-      : receiptValue(payment.installment_name || "Installment Fee", "");
-  const isHs = String(payment.class_scope || "").toLowerCase() === "hs";
+  const isHs = String(data.class_scope || "").toLowerCase() === "hs";
   const signatureFile = isHs ? "collegeCollector.jpg" : "schoolCollector.png";
   const signatureMime = isHs ? "image/jpeg" : "image/png";
   const signatureDataUri = await imageDataUri(
@@ -135,24 +124,24 @@ export async function generateReceiptPdf(paymentId) {
   );
 
   html = replaceReceiptTokens(html, {
-    receiptId: escapeHtml(payment.receipt_serial || `PAY-${String(payment.id).padStart(6, "0")}`),
-    receiptDate: escapeHtml(new Date(payment.created_at).toLocaleDateString("en-IN")),
-    studentName: escapeHtml(receiptValue(payment.name)),
-    className: escapeHtml(receiptValue(payment.class_name)),
-    sectionName: escapeHtml(receiptValue(payment.section_name)),
+    receiptId: escapeHtml(data.receipt_serial),
+    receiptDate: escapeHtml(new Date(data.created_at).toLocaleDateString("en-IN")),
+    studentName: escapeHtml(receiptValue(data.student_name)),
+    className: escapeHtml(receiptValue(data.class_name)),
+    sectionName: escapeHtml(receiptValue(data.section_name)),
     streamField: isHs
-      ? `<span class="label">Stream</span><span class="value">${escapeHtml(receiptValue(payment.stream_name))}</span>`
+      ? `<span class="label">Stream</span><span class="value">${escapeHtml(receiptValue(data.stream_name))}</span>`
       : "",
-    rollNo: escapeHtml(receiptValue(payment.roll_number)),
-    sessionName: escapeHtml(receiptValue(payment.session_name)),
-    feeItem: escapeHtml(receiptValue(feeItem)),
-    installmentLabel: escapeHtml(installmentLabel),
-    feeAmount: escapeHtml(rupees(payment.fee_amount)),
-    previousPayment: escapeHtml(rupees(payment.previous_payment)),
-    amountPaid: escapeHtml(rupees(payment.amount_paid)),
-    remainingAmount: escapeHtml(rupees(payment.remaining_amount)),
-    amountWords: escapeHtml(amountInWords(payment.amount_paid)),
-    remarks: escapeHtml(receiptValue(payment.remarks, "")),
+    rollNo: escapeHtml(receiptValue(data.roll_number)),
+    sessionName: escapeHtml(receiptValue(data.session_name)),
+    feeItem: escapeHtml(receiptValue(data.fee_item)),
+    installmentLabel: escapeHtml(receiptValue(data.installment_label, "")),
+    feeAmount: escapeHtml(rupees(data.fee_amount)),
+    previousPayment: escapeHtml(rupees(data.previous_payment)),
+    amountPaid: escapeHtml(rupees(data.amount_paid)),
+    remainingAmount: escapeHtml(rupees(data.remaining_amount)),
+    amountWords: escapeHtml(amountInWords(data.amount_paid)),
+    remarks: escapeHtml(receiptValue(data.remarks, "")),
     schoolLogo: logoDataUri,
     collectorSignature: signatureDataUri,
   });
@@ -179,4 +168,28 @@ export async function generateReceiptPdf(paymentId) {
   } finally {
     await browser.close();
   }
+}
+
+export async function generateReceiptPdf(paymentId) {
+  const payment = await repo.getPaymentReceipt(paymentId);
+  if (!payment) throw new Error("Payment not found");
+
+  return renderFeeReceiptPdf({
+    receipt_serial: payment.receipt_serial || `PAY-${String(payment.id).padStart(6, "0")}`,
+    created_at: payment.created_at,
+    student_name: payment.name,
+    class_name: payment.class_name,
+    section_name: payment.section_name,
+    stream_name: payment.stream_name,
+    class_scope: payment.class_scope,
+    roll_number: payment.roll_number,
+    session_name: payment.session_name,
+    fee_item: payment.fee_type === "admission" ? "Admission Fee" : "Session Fees",
+    installment_label: payment.fee_type === "admission" ? "" : receiptValue(payment.installment_name || "Installment Fee", ""),
+    fee_amount: payment.fee_amount,
+    previous_payment: payment.previous_payment,
+    amount_paid: payment.amount_paid,
+    remaining_amount: payment.remaining_amount,
+    remarks: payment.remarks,
+  });
 }
