@@ -34,8 +34,8 @@ function signaturePath(scope) {
 function detailLine(doc, label, value, x, y, width, options = {}) {
   const labelWidth = options.labelWidth || 88;
   const fontSize = options.fontSize || 10.5;
-  const valueFont = options.valueFont || "Helvetica";
-  doc.font("Helvetica-Bold").fontSize(fontSize).fillColor("#111827").text(label, x, y, {
+  const valueFont = options.valueFont || "Helvetica-Bold";
+  doc.font("Helvetica").fontSize(fontSize).fillColor("#111827").text(label, x, y, {
     width: labelWidth,
     continued: true,
   });
@@ -85,7 +85,6 @@ function drawAdmitCard(doc, { exam, scope, student, x, y, width, height }) {
   detailLine(doc, "Student's Name -", student.student_name, detailLeft, detailsTop, detailWidth, {
     labelWidth: 104,
     fontSize: 12,
-    valueFont: "Helvetica-Bold",
   });
   detailLine(doc, "Guardian's Name -", student.guardian_name, detailLeft, detailsTop + 24, detailWidth, {
     labelWidth: 112,
