@@ -171,3 +171,134 @@ export function deletePayment(paymentId) {
     method: "DELETE",
   });
 }
+
+export function getTransportSummary() {
+  return apiRequest("/fees/transport/summary");
+}
+
+export function getTransportRoutes() {
+  return apiRequest("/fees/transport/routes");
+}
+
+export function createTransportRoute(data) {
+  return apiRequest("/fees/transport/routes", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+export function updateTransportRoute(id, data) {
+  return apiRequest(`/fees/transport/routes/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(data),
+  });
+}
+
+export function getTransportStops(params = {}) {
+  const query = new URLSearchParams();
+  if (params.route_id) query.set("route_id", params.route_id);
+  const suffix = query.toString() ? `?${query.toString()}` : "";
+  return apiRequest(`/fees/transport/stops${suffix}`);
+}
+
+export function createTransportStop(data) {
+  return apiRequest("/fees/transport/stops", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+export function updateTransportStop(id, data) {
+  return apiRequest(`/fees/transport/stops/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(data),
+  });
+}
+
+export function searchTransportStudents(params = "") {
+  const query = new URLSearchParams();
+  if (typeof params === "string") {
+    if (params) query.set("search", params);
+  } else {
+    if (params.search) query.set("search", params.search);
+    if (params.session_id) query.set("session_id", params.session_id);
+    if (params.class_id) query.set("class_id", params.class_id);
+    if (params.section_id) query.set("section_id", params.section_id);
+    if (params.stream_id) query.set("stream_id", params.stream_id);
+    if (params.medium) query.set("medium", params.medium);
+  }
+  const suffix = query.toString() ? `?${query.toString()}` : "";
+  return apiRequest(`/fees/transport/students${suffix}`);
+}
+
+export function getTransportAssignments(params = {}) {
+  const query = new URLSearchParams();
+  if (params.student_id) query.set("student_id", params.student_id);
+  if (params.session_id) query.set("session_id", params.session_id);
+  if (params.status) query.set("status", params.status);
+  const suffix = query.toString() ? `?${query.toString()}` : "";
+  return apiRequest(`/fees/transport/assignments${suffix}`);
+}
+
+export function createTransportAssignment(data) {
+  return apiRequest("/fees/transport/assignments", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+export function endTransportAssignment(id, data) {
+  return apiRequest(`/fees/transport/assignments/${id}/end`, {
+    method: "PUT",
+    body: JSON.stringify(data),
+  });
+}
+
+export function getTransportDues(params = {}) {
+  const query = new URLSearchParams();
+  if (params.student_id) query.set("student_id", params.student_id);
+  if (params.session_id) query.set("session_id", params.session_id);
+  if (params.status) query.set("status", params.status);
+  if (params.month) query.set("month", params.month);
+  if (params.year) query.set("year", params.year);
+  if (params.route_id) query.set("route_id", params.route_id);
+  if (params.stop_id) query.set("stop_id", params.stop_id);
+  const suffix = query.toString() ? `?${query.toString()}` : "";
+  return apiRequest(`/fees/transport/dues${suffix}`);
+}
+
+export function createTransportPayment(data) {
+  return apiRequest("/fees/transport/payments", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+export function getTransportPayments(params = {}) {
+  const query = new URLSearchParams();
+  if (params.student_id) query.set("student_id", params.student_id);
+  if (params.session_id) query.set("session_id", params.session_id);
+  const suffix = query.toString() ? `?${query.toString()}` : "";
+  return apiRequest(`/fees/transport/payments${suffix}`);
+}
+
+export async function downloadTransportReceipt(paymentId) {
+  const token = localStorage.getItem("accessToken");
+  const baseUrl = import.meta.env.VITE_API_URL || "http://localhost:5000/api/v1";
+  const response = await fetch(`${baseUrl}/fees/transport/receipt/${paymentId}`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+
+  if (!response.ok) {
+    let message = "Failed to download transportation receipt.";
+    try {
+      const data = await response.json();
+      message = data?.message || message;
+    } catch {
+      // Keep the fallback message.
+    }
+    throw new Error(message);
+  }
+
+  return response.blob();
+}

@@ -611,3 +611,15 @@ Update this file after every meaningful implementation change.
   split subjects and nested branch/component rows, such as Botany/Zoology with
   their own theory and practical marks, while preserving the existing Marksheet
   title and Marks column label.
+- Added the first Transportation Fee implementation unit: route and pickup-point
+  setup, per-student monthly transport assignments with start-month due
+  generation, month-wise transport dues, multi-month transport payments,
+  separate transport receipt PDFs, and an internal web Transportation Fee page
+  under the Student fee navigation.
+- Updated the Transportation Fee page visual language with colored stat cards
+  and dark-mode-safe transport type, status, amount, and receipt badges to
+  match the newer academic/admin page styling.
+- Revised Transportation Fee from route/pickup-point assignment to a practical
+  student-specific monthly fee model: assign students by session/class/section/
+  medium/stream filters, set start month/year and monthly fee directly, and
+  manage the same enable/disable workflow from Student Details.

@@ -109,6 +109,15 @@
 - The system must generate payment receipts.
 - Authorized users must be able to export payment data as CSV.
 - The system must support scheduled fee-reminder processing.
+- The system must support student-specific transportation fee management from
+  Student Details and the Transportation Fee page.
+- Transportation fees must be assignable per student and academic session,
+  starting from the student's actual service start month with a per-student
+  monthly amount.
+- Transportation fees must generate month-wise dues and allow one payment to
+  cover multiple selected months.
+- Transportation fee payments and receipts must remain separate from normal
+  admission/installment fee payments and receipts.
 
 ### 9. Messaging
 
@@ -349,4 +358,3 @@
   testing before broad production rollout.
 - Production releases must preserve existing data, conversations, package
   identifiers, and compatible client behavior.
-

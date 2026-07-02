@@ -47,8 +47,9 @@
   trusted devices, failed-login tracking, academic structure, subject
   offerings, student subject registrations, students, parents,
   teachers, attendance, exams, marks, approvals, fees, payments,
-  messages, notifications, staff records, contact submissions, and
-  sync events.
+  optional transportation routes/pickup points, student-specific transport
+  assignments, transport dues/payments/receipts, messages, notifications, staff
+  records, contact submissions, and sync events.
 - **Local file storage**: uploaded student, teacher, and staff media
   served by Express through `/uploads`; messaging media may use the
   local storage driver in development.

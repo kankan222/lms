@@ -4,10 +4,16 @@ import TopBar from "../../components/TopBar";
 import { getStudent, updateStudent as updateStudentApi } from "../../api/students.api";
 import { getStudentAttendanceSessions } from "../../api/attendance.api";
 import {
+  createTransportAssignment,
+  downloadTransportReceipt,
+  endTransportAssignment,
   getMyPayments,
   getMyStudentFeeOptions,
   getStudentFeeOptions,
-  getPayments
+  getPayments,
+  getTransportAssignments,
+  getTransportDues,
+  getTransportPayments
 } from "../../api/fee.api";
 import {
   getExams,
@@ -29,7 +35,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
-import { ArrowLeft, BookOpen, CalendarDays, CreditCard, IdCard, Phone, UserRound } from "lucide-react";
+import { ArrowLeft, BookOpen, Bus, CalendarDays, CreditCard, Download, IdCard, Phone, UserRound } from "lucide-react";
 import {
   Table,
   TableBody,
@@ -157,6 +163,26 @@ const EMPTY_PARENT = {
   qualification: "",
 };
 
+const TRANSPORT_MONTHS = [
+  ["1", "January"],
+  ["2", "February"],
+  ["3", "March"],
+  ["4", "April"],
+  ["5", "May"],
+  ["6", "June"],
+  ["7", "July"],
+  ["8", "August"],
+  ["9", "September"],
+  ["10", "October"],
+  ["11", "November"],
+  ["12", "December"],
+];
+
+function formatTransportMonth(month, year) {
+  const found = TRANSPORT_MONTHS.find(([value]) => Number(value) === Number(month));
+  return `${found?.[1] || month} ${year || ""}`.trim();
+}
+
 const StudentDetails = () => {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -166,6 +192,8 @@ const StudentDetails = () => {
   const isStudentUser = hasRole("student");
   const isSelfResultViewer = isParent || isStudentUser;
   const canEditParents = !isParent && can("student.update");
+  const canViewTransportation = !isParent && !isStudentUser && can("fee.view");
+  const canEditTransportation = !isParent && !isStudentUser && can("fee.create");
   const [student, setStudent] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -173,6 +201,19 @@ const StudentDetails = () => {
   const [feeItems, setFeeItems] = useState([]);
   const [payments, setPayments] = useState([]);
   const [financeError, setFinanceError] = useState("");
+  const [transportAssignments, setTransportAssignments] = useState([]);
+  const [transportDues, setTransportDues] = useState([]);
+  const [transportPayments, setTransportPayments] = useState([]);
+  const [transportError, setTransportError] = useState("");
+  const [transportMessage, setTransportMessage] = useState("");
+  const [transportSaving, setTransportSaving] = useState(false);
+  const [transportDownloadingId, setTransportDownloadingId] = useState(null);
+  const [transportForm, setTransportForm] = useState({
+    enabled: false,
+    monthly_fee: "",
+    start_month: "4",
+    start_year: String(new Date().getFullYear()),
+  });
 
   const [exams, setExams] = useState([]);
   const [selectedExamId, setSelectedExamId] = useState("");
@@ -219,6 +260,7 @@ const StudentDetails = () => {
       if (payload?.id) {
         await Promise.all([
           loadFinance(payload.id),
+          canViewTransportation ? loadTransport(payload.id) : Promise.resolve(),
           loadExams(payload),
         ]);
       }
@@ -363,6 +405,35 @@ const StudentDetails = () => {
       }
 
       setFinanceError(err?.message || "Failed to load fees and payments.");
+    }
+  }
+
+  async function loadTransport(studentId) {
+    setTransportError("");
+    setTransportMessage("");
+    try {
+      const [assignmentRes, dueRes, paymentRes] = await Promise.all([
+        getTransportAssignments({ student_id: studentId }),
+        getTransportDues({ student_id: studentId }),
+        getTransportPayments({ student_id: studentId }),
+      ]);
+      const assignmentRows = assignmentRes?.data || [];
+      const activeAssignment = assignmentRows.find((item) => String(item.status).toLowerCase() === "active");
+      setTransportAssignments(assignmentRows);
+      setTransportDues(dueRes?.data || []);
+      setTransportPayments(paymentRes?.data || []);
+      setTransportForm((prev) => ({
+        ...prev,
+        enabled: Boolean(activeAssignment),
+        monthly_fee: activeAssignment?.monthly_fee ? String(activeAssignment.monthly_fee) : prev.monthly_fee,
+        start_month: activeAssignment?.start_month ? String(activeAssignment.start_month) : prev.start_month,
+        start_year: activeAssignment?.start_year ? String(activeAssignment.start_year) : prev.start_year,
+      }));
+    } catch (err) {
+      setTransportAssignments([]);
+      setTransportDues([]);
+      setTransportPayments([]);
+      setTransportError(err?.message || "Failed to load transportation fee details.");
     }
   }
 
@@ -602,6 +673,77 @@ const StudentDetails = () => {
     }
   }
 
+  const activeTransportAssignment = transportAssignments.find(
+    (item) => String(item.status).toLowerCase() === "active"
+  );
+
+  async function handleSaveTransport() {
+    if (!student?.id || transportSaving || !canEditTransportation) return;
+
+    setTransportSaving(true);
+    setTransportError("");
+    setTransportMessage("");
+
+    try {
+      if (transportForm.enabled) {
+        if (!student.session_id) {
+          throw new Error("Student must have an active academic session before transportation fee can be enabled.");
+        }
+        if (!transportForm.monthly_fee || Number(transportForm.monthly_fee) <= 0) {
+          throw new Error("Monthly transportation fee is required.");
+        }
+
+        await createTransportAssignment({
+          student_id: student.id,
+          session_id: student.session_id,
+          start_month: Number(transportForm.start_month),
+          start_year: Number(transportForm.start_year),
+          monthly_fee: Number(transportForm.monthly_fee),
+        });
+        setTransportMessage("Transportation fee enabled for this student.");
+      } else if (activeTransportAssignment) {
+        const today = new Date();
+        await endTransportAssignment(activeTransportAssignment.id, {
+          end_month: today.getMonth() + 1,
+          end_year: today.getFullYear(),
+        });
+        setTransportMessage("Transportation fee disabled for this student.");
+      }
+
+      await loadTransport(student.id);
+    } catch (err) {
+      setTransportError(err?.message || "Failed to save transportation fee.");
+    } finally {
+      setTransportSaving(false);
+    }
+  }
+
+  async function handleTransportReceipt(paymentId) {
+    if (!paymentId) return;
+    setTransportDownloadingId(paymentId);
+    setTransportError("");
+    try {
+      const blob = await downloadTransportReceipt(paymentId);
+      if (!blob || blob.size === 0) {
+        throw new Error("Downloaded file is empty");
+      }
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `transport-receipt-${paymentId}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.setTimeout(() => {
+        window.URL.revokeObjectURL(url);
+      }, 5000);
+    } catch (err) {
+      setTransportError(err?.message || "Failed to download transportation receipt.");
+    } finally {
+      setTransportDownloadingId(null);
+    }
+  }
+
   function handleCancelParentEdit() {
     setIsEditingParents(false);
     setParentSaveError("");
@@ -752,12 +894,15 @@ const StudentDetails = () => {
       </div>
 
       <Tabs defaultValue="overview" className="mt-5">
-        <TabsList className="grid w-full grid-cols-2 md:grid-cols-6">
+        <TabsList className="grid w-full grid-cols-2 md:grid-cols-7">
           <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="parents">Parents</TabsTrigger>
           <TabsTrigger value="subjects">Subject Selection</TabsTrigger>
           <TabsTrigger value="attendance">Attendance</TabsTrigger>
           <TabsTrigger value="fees">Fees & Payments</TabsTrigger>
+          {canViewTransportation ? (
+            <TabsTrigger value="transportation">Transportation</TabsTrigger>
+          ) : null}
           <TabsTrigger value="reports">Reports</TabsTrigger>
         </TabsList>
 
@@ -1268,6 +1413,224 @@ const StudentDetails = () => {
                   <TableRow>
                     <TableCell colSpan={7} className="text-center text-muted-foreground">
                       No payment history found for this student.
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </div>
+        </TabsContent>
+
+        <TabsContent value="transportation" className="mt-4 space-y-4">
+          {transportError ? (
+            <p className="text-sm text-red-700 dark:text-red-200">{transportError}</p>
+          ) : null}
+          {transportMessage ? (
+            <p className="text-sm text-emerald-700 dark:text-emerald-200">{transportMessage}</p>
+          ) : null}
+
+          <div className="rounded-xl border bg-card p-4 space-y-4">
+            <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+              <div>
+                <h3 className="font-semibold flex items-center gap-2">
+                  <Bus size={16} /> Transportation Fee
+                </h3>
+                <p className="text-sm text-muted-foreground">
+                  Student-specific monthly transportation fee for the active academic session.
+                </p>
+              </div>
+              {activeTransportAssignment ? (
+                <Badge
+                  variant="outline"
+                  className="w-fit rounded-full border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/15 dark:text-emerald-200"
+                >
+                  Active
+                </Badge>
+              ) : (
+                <Badge
+                  variant="outline"
+                  className="w-fit rounded-full border-slate-200 bg-slate-50 text-slate-700 dark:border-slate-500/30 dark:bg-slate-500/15 dark:text-slate-200"
+                >
+                  Not Enabled
+                </Badge>
+              )}
+            </div>
+
+            <label
+              className={`flex items-start gap-3 rounded-xl border px-3 py-3 ${
+                canEditTransportation
+                  ? "cursor-pointer bg-background hover:bg-muted/40"
+                  : "cursor-default bg-muted/20"
+              }`}
+            >
+              <input
+                type="checkbox"
+                checked={transportForm.enabled}
+                disabled={!canEditTransportation || transportSaving}
+                className="mt-1 size-4 rounded border-border accent-stone-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:opacity-60 dark:accent-stone-300 dark:focus-visible:ring-offset-background"
+                onChange={(event) =>
+                  setTransportForm((prev) => ({ ...prev, enabled: event.target.checked }))
+                }
+              />
+              <span>
+                <span className="font-medium">Enable transportation fee</span>
+                <span className="mt-1 block text-sm text-muted-foreground">
+                  This creates monthly transportation dues from the selected start month.
+                </span>
+              </span>
+            </label>
+
+            <div className="grid gap-3 md:grid-cols-3">
+              <div className="grid gap-2">
+                <label className="text-sm font-medium">Monthly Fee</label>
+                <Input
+                  inputMode="numeric"
+                  value={transportForm.monthly_fee}
+                  disabled={!canEditTransportation || !transportForm.enabled || transportSaving}
+                  onChange={(event) =>
+                    setTransportForm((prev) => ({
+                      ...prev,
+                      monthly_fee: event.target.value.replace(/[^\d.]/g, ""),
+                    }))
+                  }
+                />
+              </div>
+              <div className="grid gap-2">
+                <label className="text-sm font-medium">Start Month</label>
+                <select
+                  value={transportForm.start_month}
+                  disabled={!canEditTransportation || !transportForm.enabled || transportSaving}
+                  onChange={(event) =>
+                    setTransportForm((prev) => ({ ...prev, start_month: event.target.value }))
+                  }
+                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground shadow-xs outline-none transition-colors focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] disabled:cursor-not-allowed disabled:opacity-60 dark:bg-input/30"
+                >
+                  {TRANSPORT_MONTHS.map(([value, label]) => (
+                    <option key={value} value={value}>{label}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="grid gap-2">
+                <label className="text-sm font-medium">Start Year</label>
+                <Input
+                  inputMode="numeric"
+                  value={transportForm.start_year}
+                  disabled={!canEditTransportation || !transportForm.enabled || transportSaving}
+                  onChange={(event) =>
+                    setTransportForm((prev) => ({
+                      ...prev,
+                      start_year: event.target.value.replace(/\D/g, "").slice(0, 4),
+                    }))
+                  }
+                />
+              </div>
+            </div>
+
+            {activeTransportAssignment ? (
+              <div className="grid gap-3 md:grid-cols-3">
+                <div className="rounded-md border p-3">
+                  <p className="text-sm text-muted-foreground">Current Monthly Fee</p>
+                  <p className="font-medium">{formatCurrency(activeTransportAssignment.monthly_fee)}</p>
+                </div>
+                <div className="rounded-md border p-3">
+                  <p className="text-sm text-muted-foreground">Started From</p>
+                  <p className="font-medium">
+                    {formatTransportMonth(activeTransportAssignment.start_month, activeTransportAssignment.start_year)}
+                  </p>
+                </div>
+                <div className="rounded-md border p-3">
+                  <p className="text-sm text-muted-foreground">Pending Months</p>
+                  <p className="font-medium">{activeTransportAssignment.pending_count || 0}</p>
+                </div>
+              </div>
+            ) : null}
+
+            {canEditTransportation ? (
+              <Button onClick={handleSaveTransport} disabled={transportSaving}>
+                {transportSaving ? "Saving..." : "Save Transportation Fee"}
+              </Button>
+            ) : null}
+          </div>
+
+          <div className="rounded-xl border bg-card p-4">
+            <h3 className="font-semibold mb-2 flex items-center gap-2">
+              <CreditCard size={16} /> Transportation Dues
+            </h3>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Month</TableHead>
+                  <TableHead>Total</TableHead>
+                  <TableHead>Paid</TableHead>
+                  <TableHead>Remaining</TableHead>
+                  <TableHead>Status</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {transportDues.map((due) => (
+                  <TableRow key={due.id}>
+                    <TableCell>{formatTransportMonth(due.due_month, due.due_year)}</TableCell>
+                    <TableCell>{formatCurrency(due.amount)}</TableCell>
+                    <TableCell>{formatCurrency(due.paid)}</TableCell>
+                    <TableCell>{formatCurrency(due.remaining)}</TableCell>
+                    <TableCell>
+                      <span className={`px-3 py-1 text-xs rounded-full font-medium capitalize ${feeStatusColor(due.status)}`}>
+                        {normalizeFeeStatus(due.status)}
+                      </span>
+                    </TableCell>
+                  </TableRow>
+                ))}
+                {transportDues.length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={5} className="text-center text-muted-foreground">
+                      No transportation dues found for this student.
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </div>
+
+          <div className="rounded-xl border bg-card p-4">
+            <h3 className="font-semibold mb-2 flex items-center gap-2">
+              <BookOpen size={16} /> Transportation Payment History
+            </h3>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Receipt</TableHead>
+                  <TableHead>Date</TableHead>
+                  <TableHead>Months</TableHead>
+                  <TableHead>Amount</TableHead>
+                  <TableHead>Method</TableHead>
+                  <TableHead className="text-right">Action</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {transportPayments.map((payment) => (
+                  <TableRow key={payment.id}>
+                    <TableCell>{payment.receipt_no || `TR-${String(payment.id).padStart(6, "0")}`}</TableCell>
+                    <TableCell>{formatReadableDate(payment.created_at)}</TableCell>
+                    <TableCell>{payment.covered_months || "-"}</TableCell>
+                    <TableCell>{formatCurrency(payment.amount_paid)}</TableCell>
+                    <TableCell>{payment.payment_method || "-"}</TableCell>
+                    <TableCell className="text-right">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => handleTransportReceipt(payment.id)}
+                        disabled={transportDownloadingId === payment.id}
+                      >
+                        <Download size={14} />
+                        {transportDownloadingId === payment.id ? "Downloading..." : "Receipt"}
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+                {transportPayments.length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={6} className="text-center text-muted-foreground">
+                      No transportation payment history found for this student.
                     </TableCell>
                   </TableRow>
                 )}

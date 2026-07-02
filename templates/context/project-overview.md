@@ -59,6 +59,8 @@ one Express/MySQL backend.
 
 - Fee structures, installments, student ledgers, payments,
   approvals, receipts, exports, and parent-visible payment data.
+- Student-specific transportation fee assignments with per-student monthly
+  amounts, month-wise dues, separate payments, and transportation receipts.
 
 ### Communication
 

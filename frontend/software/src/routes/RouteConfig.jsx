@@ -20,6 +20,7 @@ import {
   ClipboardPenLine,
   Trophy,
   SlidersHorizontal,
+  Bus,
 } from "lucide-react";
 import { lazy } from "react";
 
@@ -34,6 +35,7 @@ const Teachers = lazy(() => import("../pages/teacher/Teachers"));
 const TeacherDetails = lazy(() => import("../pages/teacher/TeacherDetails"));
 const Fees = lazy(() => import("../pages/Fees"));
 const Payments = lazy(() => import("../pages/Payments"));
+const TransportationFee = lazy(() => import("../pages/TransportationFee"));
 const Attendance = lazy(() => import("../pages/Attendance"));
 const TeacherDeviceMapping = lazy(() => import("../pages/TeacherDeviceMapping"));
 const Messaging = lazy(() => import("../pages/Messaging"));
@@ -156,6 +158,15 @@ export const appRoutes = [
       protected : true,
       permission: "payment.view",
       hideForRoles: ["teacher"],
+    },
+    {
+      title: "Transportation Fee",
+      icon: Bus,
+      path: "/transportation-fee",
+      element: <TransportationFee />,
+      protected: true,
+      permission: "fee.view",
+      hideForRoles: ["teacher", "parent"],
     },
     // {
     //   title: "Timetable",
@@ -331,6 +342,10 @@ export const navSections = [
       navEntry("/payments", {
         title: "Payment",
         icon: IndianRupee,
+      }),
+      navEntry("/transportation-fee", {
+        title: "Transportation Fee",
+        icon: Bus,
       }),
     ],
   },

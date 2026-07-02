@@ -1,5 +1,6 @@
 import express from "express";
 import * as feeController from "./fee.controller.js";
+import * as transportController from "./transport.controller.js";
 import { requirePermission } from "../../core/rbac/rbac.middleware.js";
 import { uploadPaymentFile } from "./fee.middleware.js";
 
@@ -19,6 +20,82 @@ function requireAnyPermission(permissions) {
     });
   };
 }
+
+router.get(
+  "/transport/summary",
+  requirePermission("fee.view"),
+  transportController.getSummary,
+);
+router.get(
+  "/transport/routes",
+  requirePermission("fee.view"),
+  transportController.listRoutes,
+);
+router.post(
+  "/transport/routes",
+  requirePermission("fee.create"),
+  transportController.createRoute,
+);
+router.put(
+  "/transport/routes/:id",
+  requirePermission("fee.create"),
+  transportController.updateRoute,
+);
+router.get(
+  "/transport/stops",
+  requirePermission("fee.view"),
+  transportController.listStops,
+);
+router.post(
+  "/transport/stops",
+  requirePermission("fee.create"),
+  transportController.createStop,
+);
+router.put(
+  "/transport/stops/:id",
+  requirePermission("fee.create"),
+  transportController.updateStop,
+);
+router.get(
+  "/transport/students",
+  requirePermission("payment.view"),
+  transportController.searchStudents,
+);
+router.get(
+  "/transport/assignments",
+  requirePermission("fee.view"),
+  transportController.listAssignments,
+);
+router.post(
+  "/transport/assignments",
+  requirePermission("fee.create"),
+  transportController.createAssignment,
+);
+router.put(
+  "/transport/assignments/:id/end",
+  requirePermission("fee.create"),
+  transportController.endAssignment,
+);
+router.get(
+  "/transport/dues",
+  requirePermission("fee.view"),
+  transportController.listDues,
+);
+router.post(
+  "/transport/payments",
+  requirePermission("payment.create"),
+  transportController.createPayment,
+);
+router.get(
+  "/transport/payments",
+  requirePermission("payment.view"),
+  transportController.listPayments,
+);
+router.get(
+  "/transport/receipt/:paymentId",
+  requireAnyPermission(["payment.view", "fee.view"]),
+  transportController.downloadReceipt,
+);
 
 router.post(
   "/structure",
