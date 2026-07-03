@@ -334,23 +334,35 @@ export async function createPayment(data, user) {
     }
 
     const total = payableDues.reduce((sum, due) => sum + due.remaining, 0);
+    const requestedAmount =
+      data.amount_paid === undefined || data.amount_paid === null || String(data.amount_paid).trim() === ""
+        ? total
+        : parseMoney(data.amount_paid, "amount_paid");
+    if (requestedAmount > total) {
+      throw new AppError("amount_paid cannot exceed selected due remaining amount", 400);
+    }
+
     const result = await repo.createPayment(conn, {
       student_id: Number([...studentIds][0]),
       session_id: Number([...sessionIds][0]),
-      amount_paid: total,
+      amount_paid: requestedAmount,
       payment_method: String(data.payment_method || "").trim() || null,
       remarks: String(data.remarks || "").trim() || null,
       created_by: user?.userId ?? null,
     });
     const paymentId = Number(result.insertId);
 
+    let remainingPayment = requestedAmount;
     for (const due of payableDues) {
+      if (remainingPayment <= 0) break;
+      const amountApplied = Math.min(due.remaining, remainingPayment);
       await repo.createAllocation(conn, {
         payment_id: paymentId,
         transport_due_id: Number(due.id),
-        amount_applied: due.remaining,
+        amount_applied: amountApplied,
       });
       await repo.updateDueStatus(conn, Number(due.id));
+      remainingPayment -= amountApplied;
     }
 
     const receiptNo = await repo.createReceipt(conn, paymentId);
@@ -359,7 +371,7 @@ export async function createPayment(data, user) {
       message: "Transportation payment recorded",
       payment_id: paymentId,
       receipt_no: receiptNo,
-      amount_paid: total,
+      amount_paid: requestedAmount,
     };
   } catch (err) {
     await conn.rollback();

@@ -1,10 +1,9 @@
-import { useEffect, useEffectEvent, useMemo, useState } from "react";
+import { useEffect, useEffectEvent, useState } from "react";
 import TopBar from "../components/TopBar";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -37,6 +36,7 @@ import {
   getTransportSummary,
   searchTransportStudents,
 } from "../api/fee.api";
+import { formatReadableDate } from "../lib/dateTime";
 
 const MONTHS = [
   ["1", "January"],
@@ -52,6 +52,8 @@ const MONTHS = [
   ["11", "November"],
   ["12", "December"],
 ];
+
+const TABLE_ROWS_PER_PAGE_OPTIONS = [10, 20, 50, 100];
 
 const statTones = {
   sky: {
@@ -82,6 +84,7 @@ const badgeClasses = {
   pending: "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-300",
   partial: "border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-900/60 dark:bg-sky-950/30 dark:text-sky-300",
   paid: "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/60 dark:bg-emerald-950/30 dark:text-emerald-300",
+  unpaid: "border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-900/60 dark:bg-rose-950/30 dark:text-rose-300",
   student: "border-violet-200 bg-violet-50 text-violet-700 dark:border-violet-900/60 dark:bg-violet-950/30 dark:text-violet-300",
   receipt: "border-punch-200 bg-punch-50 text-punch-700 dark:border-punch-900/60 dark:bg-punch-950/30 dark:text-punch-200",
 };
@@ -93,6 +96,13 @@ function money(value) {
 function monthLabel(month, year) {
   const found = MONTHS.find(([value]) => Number(value) === Number(month));
   return `${found?.[1] || month} ${year}`;
+}
+
+function formatScope(scope) {
+  const value = String(scope || "").trim().toLowerCase();
+  if (value === "hs") return "Higher Secondary";
+  if (value === "school") return "School";
+  return scope || "-";
 }
 
 function ColorBadge({ tone = "inactive", children }) {
@@ -152,14 +162,19 @@ export default function TransportationFee() {
   const [streams, setStreams] = useState([]);
   const [sessions, setSessions] = useState([]);
   const [students, setStudents] = useState([]);
+  const [paymentStudents, setPaymentStudents] = useState([]);
+  const [paymentDues, setPaymentDues] = useState([]);
   const [assignments, setAssignments] = useState([]);
-  const [dues, setDues] = useState([]);
   const [payments, setPayments] = useState([]);
   const [notice, setNotice] = useState(null);
   const [assignmentOpen, setAssignmentOpen] = useState(false);
   const [paymentOpen, setPaymentOpen] = useState(false);
-  const [selectedDueIds, setSelectedDueIds] = useState([]);
+  const [assignmentPage, setAssignmentPage] = useState(1);
+  const [assignmentRowsPerPage, setAssignmentRowsPerPage] = useState(TABLE_ROWS_PER_PAGE_OPTIONS[0]);
+  const [paymentPage, setPaymentPage] = useState(1);
+  const [paymentRowsPerPage, setPaymentRowsPerPage] = useState(TABLE_ROWS_PER_PAGE_OPTIONS[0]);
   const [studentFilters, setStudentFilters] = useState(() => emptyFilters());
+  const [paymentFilters, setPaymentFilters] = useState(() => emptyFilters());
   const [assignmentForm, setAssignmentForm] = useState({
     student_id: "",
     session_id: "",
@@ -168,7 +183,12 @@ export default function TransportationFee() {
     monthly_fee: "",
     remarks: "",
   });
-  const [paymentForm, setPaymentForm] = useState({ payment_method: "", remarks: "" });
+  const [paymentForm, setPaymentForm] = useState({
+    student_id: "",
+    due_id: "",
+    amount_paid: "",
+    remarks: "",
+  });
 
   function showNotice(title, message, variant = "success") {
     setNotice({ title, message, variant });
@@ -181,7 +201,6 @@ export default function TransportationFee() {
       classesRes,
       streamsRes,
       assignmentsRes,
-      duesRes,
       paymentsRes,
     ] = await Promise.all([
       getTransportSummary(),
@@ -189,7 +208,6 @@ export default function TransportationFee() {
       getClassStructure(),
       getStreams(),
       getTransportAssignments(),
-      getTransportDues({ status: "pending" }),
       getTransportPayments(),
     ]);
     setSummary(summaryRes?.data || {});
@@ -197,7 +215,6 @@ export default function TransportationFee() {
     setClasses(classesRes?.data || []);
     setStreams(streamsRes?.data || []);
     setAssignments(assignmentsRes?.data || []);
-    setDues(duesRes?.data || []);
     setPayments(paymentsRes?.data || []);
   }
 
@@ -218,6 +235,19 @@ export default function TransportationFee() {
   async function handleStudentSearch() {
     const res = await searchTransportStudents(studentFilters);
     setStudents(res?.data || []);
+  }
+
+  async function loadPaymentDues(studentId, sessionId = "") {
+    if (!studentId) {
+      setPaymentDues([]);
+      return;
+    }
+    const res = await getTransportDues({
+      student_id: studentId,
+      session_id: sessionId || undefined,
+      status: "pending",
+    });
+    setPaymentDues(res?.data || []);
   }
 
   async function handleCreateAssignment(event) {
@@ -250,13 +280,21 @@ export default function TransportationFee() {
   async function handleCreatePayment(event) {
     event.preventDefault();
     try {
+      if (!paymentForm.student_id) throw new Error("Select student.");
+      if (!paymentForm.due_id) throw new Error("Select due item.");
+      const selectedDue = paymentDues.find((due) => String(due.id) === String(paymentForm.due_id));
+      const amountPaid = Number(paymentForm.amount_paid);
+      if (!Number.isFinite(amountPaid) || amountPaid <= 0) throw new Error("Enter a valid amount.");
+      if (selectedDue && amountPaid > Number(selectedDue.remaining || 0)) {
+        throw new Error("Amount cannot exceed remaining due.");
+      }
       const res = await createTransportPayment({
-        due_ids: selectedDueIds,
-        payment_method: paymentForm.payment_method,
+        due_ids: [Number(paymentForm.due_id)],
+        amount_paid: amountPaid,
         remarks: paymentForm.remarks,
       });
-      setSelectedDueIds([]);
-      setPaymentForm({ payment_method: "", remarks: "" });
+      setPaymentForm({ student_id: "", due_id: "", amount_paid: "", remarks: "" });
+      setPaymentDues([]);
       setPaymentOpen(false);
       await loadAll();
       showNotice("Payment Recorded", `Receipt ${res?.data?.receipt_no || ""} created.`);
@@ -279,13 +317,67 @@ export default function TransportationFee() {
     }
   }
 
-  const selectedDues = useMemo(
-    () => dues.filter((due) => selectedDueIds.includes(Number(due.id))),
-    [dues, selectedDueIds]
-  );
-  const selectedTotal = selectedDues.reduce((sum, due) => sum + Number(due.remaining || 0), 0);
-  const selectedStudentIds = new Set(selectedDues.map((due) => Number(due.student_id)));
+  const selectedPaymentDue = paymentDues.find((due) => String(due.id) === String(paymentForm.due_id));
   const selectClassName = "w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground shadow-xs outline-none transition-colors focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] dark:bg-input/30";
+  const activeSession = sessions.find((session) => session.is_active || String(session.status || "").toLowerCase() === "active") || sessions[0];
+  const paymentSelectedClass = classes.find((item) => String(item.id) === String(paymentFilters.class_id));
+  const paymentRequiresStream = String(paymentSelectedClass?.class_scope || "").toLowerCase() === "hs";
+  const assignmentTotalPages = Math.max(1, Math.ceil(assignments.length / assignmentRowsPerPage));
+  const paymentTotalPages = Math.max(1, Math.ceil(payments.length / paymentRowsPerPage));
+  const paginatedAssignments = assignments.slice(
+    (assignmentPage - 1) * assignmentRowsPerPage,
+    assignmentPage * assignmentRowsPerPage
+  );
+  const paginatedPayments = payments.slice(
+    (paymentPage - 1) * paymentRowsPerPage,
+    paymentPage * paymentRowsPerPage
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadPaymentStudents() {
+      if (!paymentFilters.class_id || !paymentFilters.section_id || (paymentRequiresStream && !paymentFilters.stream_id)) {
+        setPaymentStudents([]);
+        setPaymentDues([]);
+        setPaymentForm((prev) => ({ ...prev, student_id: "", due_id: "", amount_paid: "" }));
+        return;
+      }
+
+      try {
+        const res = await searchTransportStudents({
+          search: paymentFilters.search,
+          session_id: activeSession?.id || "",
+          class_id: paymentFilters.class_id,
+          section_id: paymentFilters.section_id,
+          stream_id: paymentRequiresStream ? paymentFilters.stream_id : "",
+        });
+        if (!cancelled) setPaymentStudents(res?.data || []);
+      } catch (err) {
+        if (!cancelled) showNotice("Load Failed", err?.message || "Could not load students.", "error");
+      }
+    }
+
+    loadPaymentStudents();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    activeSession?.id,
+    paymentFilters.class_id,
+    paymentFilters.section_id,
+    paymentFilters.stream_id,
+    paymentFilters.search,
+    paymentRequiresStream,
+  ]);
+
+  useEffect(() => {
+    setAssignmentPage((prev) => Math.min(prev, assignmentTotalPages));
+  }, [assignmentTotalPages]);
+
+  useEffect(() => {
+    setPaymentPage((prev) => Math.min(prev, paymentTotalPages));
+  }, [paymentTotalPages]);
 
   return (
     <>
@@ -294,69 +386,191 @@ export default function TransportationFee() {
         title="Transportation Fee"
         subTitle="Manage student-specific transportation fees, monthly dues, and separate receipts."
         action={
-          <Dialog open={assignmentOpen} onOpenChange={setAssignmentOpen}>
-            <DialogTrigger asChild>
-              <Button><Bus className="size-4" /> Assign Student</Button>
-            </DialogTrigger>
-            <DialogContent className="max-h-[85vh] overflow-y-auto">
-              <form onSubmit={handleCreateAssignment} className="space-y-4">
-                <DialogHeader>
-                  <DialogTitle>Assign Transportation</DialogTitle>
-                  <DialogDescription>
-                    Filter students by class, section, medium, and stream, then set the monthly fee.
-                  </DialogDescription>
-                </DialogHeader>
+          <div className="flex flex-wrap gap-2">
+            <Dialog open={paymentOpen} onOpenChange={(open) => {
+              setPaymentOpen(open);
+              if (!open) {
+                setPaymentForm({ student_id: "", due_id: "", amount_paid: "", remarks: "" });
+                setPaymentDues([]);
+              }
+            }}>
+              <DialogTrigger asChild>
+                <Button variant="outline"><IndianRupee className="size-4" /> Record Payment</Button>
+              </DialogTrigger>
+              <DialogContent className="max-h-[85vh] overflow-y-auto">
+                <form onSubmit={handleCreatePayment} className="space-y-4">
+                  <DialogHeader>
+                    <DialogTitle>Transportation Payment</DialogTitle>
+                    <DialogDescription>Select class, section, student, due item, and payment details.</DialogDescription>
+                  </DialogHeader>
 
-                <StudentFilters
-                  classes={classes}
-                  streams={streams}
-                  sessions={sessions}
-                  filters={studentFilters}
-                  setFilters={setStudentFilters}
-                  selectClassName={selectClassName}
-                />
-
-                <Button type="button" variant="outline" onClick={handleStudentSearch}>
-                  Load Students
-                </Button>
-
-                <div className="grid gap-2">
-                  <Label>Student</Label>
-                  <select
-                    className={selectClassName}
-                    value={assignmentForm.student_id}
-                    onChange={(event) => {
-                      const student = students.find((item) => String(item.id) === event.target.value);
-                      setAssignmentForm((prev) => ({
-                        ...prev,
-                        student_id: event.target.value,
-                        session_id: String(student?.session_id || studentFilters.session_id || prev.session_id),
-                      }));
+                  <PaymentFilters
+                    classes={classes}
+                    streams={streams}
+                    filters={paymentFilters}
+                    setFilters={setPaymentFilters}
+                    selectClassName={selectClassName}
+                    onResetPayment={() => {
+                      setPaymentForm((prev) => ({ ...prev, student_id: "", due_id: "", amount_paid: "" }));
+                      setPaymentDues([]);
                     }}
-                    required
-                  >
-                    <option value="">Select Student</option>
-                    {students.map((student) => (
-                      <option key={student.id} value={student.id}>
-                        {student.name} {student.admission_no ? `(${student.admission_no})` : ""}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                  />
 
-                <AssignmentFields
-                  form={assignmentForm}
-                  setForm={setAssignmentForm}
-                  sessions={sessions}
-                  selectClassName={selectClassName}
-                />
+                  <div className="grid gap-2">
+                    <Label>Student</Label>
+                    <select
+                      className={selectClassName}
+                      value={paymentForm.student_id}
+                      onChange={async (event) => {
+                        const studentId = event.target.value;
+                        const student = paymentStudents.find((item) => String(item.id) === String(studentId));
+                        setPaymentForm((prev) => ({
+                          ...prev,
+                          student_id: studentId,
+                          due_id: "",
+                          amount_paid: "",
+                        }));
+                        await loadPaymentDues(studentId, student?.session_id || activeSession?.id);
+                      }}
+                      disabled={!paymentStudents.length}
+                      required
+                    >
+                      <option value="">Select Student</option>
+                      {paymentStudents.map((student) => (
+                        <option key={student.id} value={student.id}>
+                          {student.name}
+                          {student.roll_number ? ` - Roll ${student.roll_number}` : ""}
+                          {student.stream_name ? ` (${student.stream_name})` : ""}
+                        </option>
+                      ))}
+                    </select>
+                    {paymentFilters.class_id && paymentFilters.section_id && !paymentStudents.length ? (
+                      <p className="text-xs text-muted-foreground">No students found for the selected filters.</p>
+                    ) : null}
+                  </div>
 
-                <DialogFooter showCloseButton>
-                  <Button type="submit">Assign</Button>
-                </DialogFooter>
-              </form>
-            </DialogContent>
-          </Dialog>
+                  <div className="grid gap-2">
+                    <Label>Due Item</Label>
+                    <select
+                      className={selectClassName}
+                      value={paymentForm.due_id}
+                      onChange={(event) => {
+                        const due = paymentDues.find((item) => String(item.id) === event.target.value);
+                        setPaymentForm((prev) => ({
+                          ...prev,
+                          due_id: event.target.value,
+                          amount_paid: due ? String(due.remaining || "") : "",
+                        }));
+                      }}
+                      disabled={!paymentForm.student_id}
+                      required
+                    >
+                      <option value="">Select Due Item</option>
+                      {paymentDues.map((due) => (
+                        <option key={due.id} value={due.id}>
+                          {monthLabel(due.due_month, due.due_year)} - Remaining: {money(due.remaining)}
+                        </option>
+                      ))}
+                    </select>
+                    {paymentForm.student_id && !paymentDues.length ? (
+                      <p className="text-xs text-muted-foreground">No pending transportation dues for this student.</p>
+                    ) : null}
+                  </div>
+
+                  <div className="grid gap-2">
+                    <Label>Amount</Label>
+                    <Input
+                      inputMode="numeric"
+                      value={paymentForm.amount_paid}
+                      onChange={(event) =>
+                        setPaymentForm((prev) => ({
+                          ...prev,
+                          amount_paid: event.target.value.replace(/[^\d.]/g, ""),
+                        }))
+                      }
+                      disabled={!paymentForm.due_id}
+                      required
+                    />
+                    {selectedPaymentDue ? (
+                      <p className="text-xs text-muted-foreground">
+                        Due Amount: {money(selectedPaymentDue.amount)} | Paid: {money(selectedPaymentDue.paid)} | Remaining: {money(selectedPaymentDue.remaining)}
+                      </p>
+                    ) : null}
+                  </div>
+
+                  <div className="grid gap-2">
+                    <Label>Remarks</Label>
+                    <Input value={paymentForm.remarks} onChange={(event) => setPaymentForm((prev) => ({ ...prev, remarks: event.target.value }))} />
+                  </div>
+                  <DialogFooter showCloseButton><Button type="submit">Save Payment</Button></DialogFooter>
+                </form>
+              </DialogContent>
+            </Dialog>
+
+            <Dialog open={assignmentOpen} onOpenChange={setAssignmentOpen}>
+              <DialogTrigger asChild>
+                <Button><Bus className="size-4" /> Assign Student</Button>
+              </DialogTrigger>
+              <DialogContent className="max-h-[85vh] overflow-y-auto">
+                <form onSubmit={handleCreateAssignment} className="space-y-4">
+                  <DialogHeader>
+                    <DialogTitle>Assign Transportation</DialogTitle>
+                    <DialogDescription>
+                      Filter students by class, section, medium, and stream, then set the monthly fee.
+                    </DialogDescription>
+                  </DialogHeader>
+
+                  <StudentFilters
+                    classes={classes}
+                    streams={streams}
+                    sessions={sessions}
+                    filters={studentFilters}
+                    setFilters={setStudentFilters}
+                    selectClassName={selectClassName}
+                  />
+
+                  <Button type="button" variant="outline" onClick={handleStudentSearch}>
+                    Load Students
+                  </Button>
+
+                  <div className="grid gap-2">
+                    <Label>Student</Label>
+                    <select
+                      className={selectClassName}
+                      value={assignmentForm.student_id}
+                      onChange={(event) => {
+                        const student = students.find((item) => String(item.id) === event.target.value);
+                        setAssignmentForm((prev) => ({
+                          ...prev,
+                          student_id: event.target.value,
+                          session_id: String(student?.session_id || studentFilters.session_id || prev.session_id),
+                        }));
+                      }}
+                      required
+                    >
+                      <option value="">Select Student</option>
+                      {students.map((student) => (
+                        <option key={student.id} value={student.id}>
+                          {student.name} {student.admission_no ? `(${student.admission_no})` : ""}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <AssignmentFields
+                    form={assignmentForm}
+                    setForm={setAssignmentForm}
+                    sessions={sessions}
+                    selectClassName={selectClassName}
+                  />
+
+                  <DialogFooter showCloseButton>
+                    <Button type="submit">Assign</Button>
+                  </DialogFooter>
+                </form>
+              </DialogContent>
+            </Dialog>
+          </div>
         }
       />
 
@@ -368,9 +582,8 @@ export default function TransportationFee() {
       </div>
 
       <Tabs defaultValue="assignments" className="mt-4">
-        <TabsList className="grid w-full max-w-2xl grid-cols-3">
+        <TabsList variant="line" className="grid w-full grid-cols-2">
           <TabsTrigger value="assignments">Assignments</TabsTrigger>
-          <TabsTrigger value="dues">Dues</TabsTrigger>
           <TabsTrigger value="payments">Payments</TabsTrigger>
         </TabsList>
 
@@ -448,7 +661,7 @@ export default function TransportationFee() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {assignments.length ? assignments.map((assignment) => (
+                    {paginatedAssignments.length ? paginatedAssignments.map((assignment) => (
                       <TableRow key={assignment.id}>
                         <TableCell>
                           <p className="font-medium">{assignment.student_name}</p>
@@ -469,84 +682,18 @@ export default function TransportationFee() {
                   </TableBody>
                 </Table>
               </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="dues" className="mt-4">
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between gap-3">
-              <CardTitle className="text-base">Pending Monthly Dues</CardTitle>
-              <Dialog open={paymentOpen} onOpenChange={setPaymentOpen}>
-                <DialogTrigger asChild>
-                  <Button disabled={!selectedDueIds.length || selectedStudentIds.size > 1}>Record Payment</Button>
-                </DialogTrigger>
-                <DialogContent>
-                  <form onSubmit={handleCreatePayment} className="space-y-4">
-                    <DialogHeader>
-                      <DialogTitle>Transportation Payment</DialogTitle>
-                      <DialogDescription>Record one payment for the selected months. Selected months must belong to one student.</DialogDescription>
-                    </DialogHeader>
-                    <div className="rounded-lg border border-border bg-muted/30 p-3 text-sm">
-                      <p className="font-medium">Selected Amount: {money(selectedTotal)}</p>
-                      <p className="mt-1 text-muted-foreground">{selectedDues.map((due) => monthLabel(due.due_month, due.due_year)).join(", ")}</p>
-                    </div>
-                    <div className="grid gap-2">
-                      <Label>Payment Method</Label>
-                      <Input value={paymentForm.payment_method} onChange={(event) => setPaymentForm((prev) => ({ ...prev, payment_method: event.target.value }))} placeholder="Cash, UPI, Bank" />
-                    </div>
-                    <div className="grid gap-2">
-                      <Label>Remarks</Label>
-                      <Input value={paymentForm.remarks} onChange={(event) => setPaymentForm((prev) => ({ ...prev, remarks: event.target.value }))} />
-                    </div>
-                    <DialogFooter showCloseButton><Button type="submit">Save Payment</Button></DialogFooter>
-                  </form>
-                </DialogContent>
-              </Dialog>
-            </CardHeader>
-            <CardContent>
-              <div className="overflow-x-auto rounded-lg border border-border">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead className="w-12"></TableHead>
-                      <TableHead>Student</TableHead>
-                      <TableHead>Month</TableHead>
-                      <TableHead>Type</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead className="text-right">Remaining</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {dues.length ? dues.map((due) => (
-                      <TableRow key={due.id}>
-                        <TableCell>
-                          <Checkbox
-                            checked={selectedDueIds.includes(Number(due.id))}
-                            onCheckedChange={(checked) => {
-                              setSelectedDueIds((prev) => checked ? [...prev, Number(due.id)] : prev.filter((dueId) => dueId !== Number(due.id)));
-                            }}
-                          />
-                        </TableCell>
-                        <TableCell>
-                          <p className="font-medium">{due.student_name}</p>
-                          <p className="text-xs text-muted-foreground">{due.admission_no || ""}</p>
-                        </TableCell>
-                        <TableCell><ColorBadge tone="partial">{monthLabel(due.due_month, due.due_year)}</ColorBadge></TableCell>
-                        <TableCell><ColorBadge tone="student">Student Specific</ColorBadge></TableCell>
-                        <TableCell><ColorBadge tone={due.status}>{due.status}</ColorBadge></TableCell>
-                        <TableCell className="text-right"><ColorBadge tone="pending">{money(due.remaining)}</ColorBadge></TableCell>
-                      </TableRow>
-                    )) : (
-                      <TableRow>
-                        <TableCell colSpan={6} className="py-8 text-center text-muted-foreground">
-                          No pending transportation dues.
-                        </TableCell>
-                      </TableRow>
-                    )}
-                  </TableBody>
-                </Table>
-              </div>
+              <TablePagination
+                page={assignmentPage}
+                totalPages={assignmentTotalPages}
+                totalRows={assignments.length}
+                rowsPerPage={assignmentRowsPerPage}
+                rowsPerPageOptions={TABLE_ROWS_PER_PAGE_OPTIONS}
+                onPageChange={setAssignmentPage}
+                onRowsPerPageChange={(value) => {
+                  setAssignmentRowsPerPage(value);
+                  setAssignmentPage(1);
+                }}
+              />
             </CardContent>
           </Card>
         </TabsContent>
@@ -559,20 +706,40 @@ export default function TransportationFee() {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Receipt</TableHead>
+                      <TableHead>Sl. No.</TableHead>
+                      <TableHead>Date</TableHead>
                       <TableHead>Student</TableHead>
-                      <TableHead>Months</TableHead>
-                      <TableHead className="text-right">Amount</TableHead>
-                      <TableHead className="text-right">Action</TableHead>
+                      <TableHead>Scope</TableHead>
+                      <TableHead>Class</TableHead>
+                      <TableHead>Stream</TableHead>
+                      <TableHead>Section</TableHead>
+                      <TableHead>Medium</TableHead>
+                      <TableHead>Fee Type</TableHead>
+                      <TableHead className="text-right">Amount Paid</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead className="text-right">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {payments.length ? payments.map((payment) => (
+                    {paginatedPayments.length ? paginatedPayments.map((payment) => (
                       <TableRow key={payment.id}>
-                        <TableCell><ColorBadge tone="receipt">{payment.receipt_no || `TR-${String(payment.id).padStart(6, "0")}`}</ColorBadge></TableCell>
-                        <TableCell>{payment.student_name}</TableCell>
-                        <TableCell>{payment.covered_months ? <ColorBadge tone="partial">{payment.covered_months}</ColorBadge> : "-"}</TableCell>
+                        <TableCell><ColorBadge tone="receipt">{payment.receipt_serial || payment.receipt_no || `TR-${String(payment.id).padStart(6, "0")}`}</ColorBadge></TableCell>
+                        <TableCell>{formatReadableDate(payment.created_at)}</TableCell>
+                        <TableCell>
+                          <p className="font-medium">{payment.student_name}</p>
+                          <p className="text-xs text-muted-foreground">{payment.admission_no || ""}</p>
+                        </TableCell>
+                        <TableCell>{formatScope(payment.class_scope)}</TableCell>
+                        <TableCell>{payment.class_name || "-"}</TableCell>
+                        <TableCell>{payment.stream_name || "-"}</TableCell>
+                        <TableCell>{payment.section_name || "-"}</TableCell>
+                        <TableCell>{payment.medium || "-"}</TableCell>
+                        <TableCell>
+                          <p className="font-medium">Bus/Van Fee</p>
+                          <p className="text-xs text-muted-foreground">{payment.covered_months || "-"}</p>
+                        </TableCell>
                         <TableCell className="text-right"><ColorBadge tone="paid">{money(payment.amount_paid)}</ColorBadge></TableCell>
+                        <TableCell><ColorBadge tone={payment.fee_status || "unpaid"}>{payment.fee_status || "unpaid"}</ColorBadge></TableCell>
                         <TableCell className="text-right">
                           <Button size="sm" variant="outline" onClick={() => handleReceipt(payment.id)}>
                             <Download className="size-4" /> Receipt
@@ -581,7 +748,7 @@ export default function TransportationFee() {
                       </TableRow>
                     )) : (
                       <TableRow>
-                        <TableCell colSpan={5} className="py-8 text-center text-muted-foreground">
+                        <TableCell colSpan={12} className="py-8 text-center text-muted-foreground">
                           No transportation payments recorded yet.
                         </TableCell>
                       </TableRow>
@@ -589,11 +756,156 @@ export default function TransportationFee() {
                   </TableBody>
                 </Table>
               </div>
+              <TablePagination
+                page={paymentPage}
+                totalPages={paymentTotalPages}
+                totalRows={payments.length}
+                rowsPerPage={paymentRowsPerPage}
+                rowsPerPageOptions={TABLE_ROWS_PER_PAGE_OPTIONS}
+                onPageChange={setPaymentPage}
+                onRowsPerPageChange={(value) => {
+                  setPaymentRowsPerPage(value);
+                  setPaymentPage(1);
+                }}
+              />
             </CardContent>
           </Card>
         </TabsContent>
       </Tabs>
     </>
+  );
+}
+
+function TablePagination({
+  page,
+  totalPages,
+  totalRows,
+  rowsPerPage,
+  rowsPerPageOptions,
+  onPageChange,
+  onRowsPerPageChange,
+}) {
+  const safePage = Math.min(Math.max(Number(page) || 1, 1), Math.max(Number(totalPages) || 1, 1));
+  const firstRow = totalRows ? (safePage - 1) * rowsPerPage + 1 : 0;
+  const lastRow = Math.min(safePage * rowsPerPage, totalRows);
+
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-3 border-x border-b border-border px-4 py-3 text-sm">
+      <p className="text-muted-foreground">
+        Showing {firstRow}-{lastRow} of {totalRows}
+      </p>
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="flex items-center gap-2">
+          <span className="text-muted-foreground">Rows per page</span>
+          <select
+            className="rounded-md border border-input bg-background px-2 py-1 text-sm"
+            value={rowsPerPage}
+            onChange={(event) => onRowsPerPageChange(Number(event.target.value))}
+          >
+            {rowsPerPageOptions.map((option) => (
+              <option key={option} value={option}>{option}</option>
+            ))}
+          </select>
+        </div>
+        <span className="text-muted-foreground">Page {safePage} of {totalPages}</span>
+        <div className="flex gap-2">
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            disabled={safePage <= 1}
+            onClick={() => onPageChange(Math.max(safePage - 1, 1))}
+          >
+            Prev
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            disabled={safePage >= totalPages}
+            onClick={() => onPageChange(Math.min(safePage + 1, totalPages))}
+          >
+            Next
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PaymentFilters({ classes, streams, filters, setFilters, selectClassName, onResetPayment }) {
+  const selectedClass = classes.find((item) => String(item.id) === String(filters.class_id));
+  const sections = selectedClass?.sections || [];
+  const showStream = String(selectedClass?.class_scope || "").toLowerCase() === "hs";
+
+  function updateFilters(updater) {
+    setFilters(updater);
+    onResetPayment?.();
+  }
+
+  return (
+    <div className="grid gap-3 md:grid-cols-2">
+      <div className="grid gap-2">
+        <Label>Class</Label>
+        <select
+          className={selectClassName}
+          value={filters.class_id}
+          onChange={(event) =>
+            updateFilters((prev) => ({
+              ...prev,
+              class_id: event.target.value,
+              section_id: "",
+              stream_id: "",
+              search: "",
+            }))
+          }
+        >
+          <option value="">Select Class</option>
+          {classes.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+        </select>
+      </div>
+
+      <div className="grid gap-2">
+        <Label>Section</Label>
+        <select
+          className={selectClassName}
+          value={filters.section_id}
+          onChange={(event) => updateFilters((prev) => ({ ...prev, section_id: event.target.value }))}
+          disabled={!filters.class_id}
+        >
+          <option value="">Select Section</option>
+          {sections.map((section) => (
+            <option key={section.id} value={section.id}>
+              {section.name} {section.medium ? `(${section.medium})` : ""}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {showStream ? (
+        <div className="grid gap-2">
+          <Label>Stream</Label>
+          <select
+            className={selectClassName}
+            value={filters.stream_id}
+            onChange={(event) => updateFilters((prev) => ({ ...prev, stream_id: event.target.value }))}
+          >
+            <option value="">Select Stream</option>
+            {streams.map((stream) => <option key={stream.id} value={stream.id}>{stream.name}</option>)}
+          </select>
+        </div>
+      ) : null}
+
+      <div className="grid gap-2">
+        <Label>Search</Label>
+        <Input
+          value={filters.search}
+          onChange={(event) => updateFilters((prev) => ({ ...prev, search: event.target.value }))}
+          placeholder="Search by student name"
+          disabled={!filters.class_id || !filters.section_id || (showStream && !filters.stream_id)}
+        />
+      </div>
+    </div>
   );
 }
 

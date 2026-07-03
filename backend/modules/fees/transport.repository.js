@@ -114,6 +114,7 @@ export async function getStudentById(id) {
   const rows = await query(
     `SELECT s.id, s.name, s.admission_no, se.roll_number,
             c.name AS class_name, sec.name AS section_name, sec.medium,
+            streams.name AS stream_name,
             ses.id AS session_id, ses.name AS session_name
      FROM students s
      LEFT JOIN student_enrollments se
@@ -121,6 +122,7 @@ export async function getStudentById(id) {
       AND se.status = 'active'
      LEFT JOIN classes c ON c.id = se.class_id
      LEFT JOIN sections sec ON sec.id = se.section_id
+     LEFT JOIN streams ON streams.id = se.stream_id
      LEFT JOIN academic_sessions ses ON ses.id = se.session_id
      WHERE s.id = ?
      ORDER BY se.id DESC
@@ -168,6 +170,7 @@ export async function searchStudents(filters = {}) {
   return query(
     `SELECT s.id, s.name, s.admission_no, se.roll_number,
             c.name AS class_name, sec.name AS section_name, sec.medium,
+            streams.name AS stream_name,
             ses.id AS session_id, ses.name AS session_name
      FROM students s
      LEFT JOIN student_enrollments se
@@ -175,6 +178,7 @@ export async function searchStudents(filters = {}) {
       AND se.status = 'active'
      LEFT JOIN classes c ON c.id = se.class_id
      LEFT JOIN sections sec ON sec.id = se.section_id
+     LEFT JOIN streams ON streams.id = se.stream_id
      LEFT JOIN academic_sessions ses ON ses.id = se.session_id
      WHERE ${where.join(" AND ")}
      ORDER BY s.name ASC, s.id ASC
@@ -466,14 +470,34 @@ export async function listPayments(filters = {}) {
 
   return query(
     `SELECT p.*,
+            COALESCE(tr.receipt_no, CONCAT('TR-', LPAD(p.id, 6, '0'))) AS receipt_serial,
             s.name AS student_name,
             s.admission_no,
             ses.name AS session_name,
             tr.receipt_no,
+            c.name AS class_name,
+            sec.name AS section_name,
+            sec.medium,
+            se.stream_id,
+            st_stream.name AS stream_name,
+            COALESCE(c.class_scope, 'school') AS class_scope,
+            CASE
+              WHEN COUNT(d.id) = 0 THEN 'unpaid'
+              WHEN SUM(CASE WHEN d.status = 'paid' THEN 1 ELSE 0 END) = COUNT(d.id) THEN 'paid'
+              WHEN SUM(CASE WHEN d.status IN ('paid', 'partial') THEN 1 ELSE 0 END) > 0 THEN 'partial'
+              ELSE 'unpaid'
+            END AS fee_status,
             GROUP_CONCAT(CONCAT(d.due_month, '/', d.due_year) ORDER BY d.due_year, d.due_month SEPARATOR ', ') AS covered_months
      FROM transport_payments p
      JOIN students s ON s.id = p.student_id
      JOIN academic_sessions ses ON ses.id = p.session_id
+     LEFT JOIN student_enrollments se
+       ON se.student_id = s.id
+      AND se.session_id = p.session_id
+      AND se.status = 'active'
+     LEFT JOIN classes c ON c.id = se.class_id
+     LEFT JOIN sections sec ON sec.id = se.section_id
+     LEFT JOIN streams st_stream ON st_stream.id = se.stream_id
      LEFT JOIN transport_receipts tr ON tr.payment_id = p.id
      LEFT JOIN transport_payment_allocations pa ON pa.payment_id = p.id
      LEFT JOIN student_transport_fee_dues d ON d.id = pa.transport_due_id
@@ -492,7 +516,13 @@ export async function listPayments(filters = {}) {
        s.name,
        s.admission_no,
        ses.name,
-       tr.receipt_no
+       tr.receipt_no,
+       c.name,
+       sec.name,
+       sec.medium,
+       se.stream_id,
+       st_stream.name,
+       c.class_scope
      ORDER BY p.created_at DESC`,
     params
   );
