@@ -53,7 +53,7 @@ function drawAdmitCard(doc, { exam, scope, student, x, y, width, height }) {
   doc.rect(x, y, width, height).stroke();
 
   try {
-    doc.image(logoPath(), x + width / 2 - 18, contentTop, { width: 36, height: 36, fit: [36, 36] });
+    doc.image(logoPath(), x + width / 2 - 24, contentTop, { width: 48, height: 48, fit: [48, 48] });
   } catch {
     // Keep generating the admit card even if the logo asset is missing.
   }
@@ -62,27 +62,27 @@ function drawAdmitCard(doc, { exam, scope, student, x, y, width, height }) {
     .font("Helvetica-Bold")
     .fontSize(14)
     .fillColor("#0f3440")
-    .text("KALONG KAPILI VIDYAPITH", x + 12, contentTop + 40, { width: width - 24, align: "center" });
+    .text("KALONG KAPILI VIDYAPITH", x + 12, contentTop + 52, { width: width - 24, align: "center" });
 
   doc
     .font("Helvetica")
     .fontSize(8)
     .fillColor("#1f2937")
-    .text(`(${sectionLabel(classScope)})`, x + 12, contentTop + 59, { width: width - 24, align: "center" });
+    .text(`(${sectionLabel(classScope)})`, x + 12, contentTop + 71, { width: width - 24, align: "center" });
 
   doc
     .font("Helvetica-Bold")
     .fontSize(12)
     .fillColor("#b91c1c")
-    .text("ADMIT CARD", x + 12, contentTop + 78, { width: width - 24, align: "center" });
+    .text("ADMIT CARD", x + 12, contentTop + 90, { width: width - 24, align: "center" });
 
   doc
     .font("Helvetica-Bold")
     .fontSize(10)
     .fillColor("#1f2937")
-    .text(safeText(exam?.name) || "...", x + 12, contentTop + 101, { width: width - 24, align: "center" });
+    .text(safeText(exam?.name) || "...", x + 12, contentTop + 113, { width: width - 24, align: "center" });
 
-  const detailsTop = contentTop + 138;
+  const detailsTop = contentTop + 146;
   const detailLeft = x + 22;
   const detailWidth = width - 44;
   const colGap = 12;
@@ -144,22 +144,22 @@ export async function generateAdmitCardPdf({ exam, scope, students }) {
   const pageWidth = doc.page.width - doc.page.margins.left - doc.page.margins.right;
   const pageHeight = doc.page.height - doc.page.margins.top - doc.page.margins.bottom;
   const left = doc.page.margins.left;
-  const colGap = 20;
-  const cardHeight = pageHeight;
-  const cardWidth = (pageWidth - colGap) / 2;
+  const rowGap = 22;
+  const cardHeight = (pageHeight - rowGap) / 2;
+  const cardWidth = pageWidth;
   const top = doc.page.margins.top;
 
   const cards = rows.length ? rows : [{ student_name: "", roll_number: "", medium: scope?.medium }];
 
   cards.forEach((student, index) => {
     if (index > 0 && index % 2 === 0) doc.addPage();
-    const col = index % 2;
+    const row = index % 2;
     drawAdmitCard(doc, {
       exam,
       scope,
       student,
-      x: left + col * (cardWidth + colGap),
-      y: top,
+      x: left,
+      y: top + row * (cardHeight + rowGap),
       width: cardWidth,
       height: cardHeight,
     });
