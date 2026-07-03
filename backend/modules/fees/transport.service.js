@@ -205,6 +205,7 @@ export async function searchStudents(filters = {}) {
     section_id: filters.section_id ? parsePositiveInt(filters.section_id, "section_id") : null,
     stream_id: filters.stream_id ? parsePositiveInt(filters.stream_id, "stream_id") : null,
     medium: filters.medium ? String(filters.medium).trim() : null,
+    assigned_only: normalizeBool(filters.assigned_only, false),
   });
 }
 
@@ -386,6 +387,98 @@ export async function listPayments(filters = {}) {
     student_id: filters.student_id ? parsePositiveInt(filters.student_id, "student_id") : null,
     session_id: filters.session_id ? parsePositiveInt(filters.session_id, "session_id") : null,
   });
+}
+
+function allocateTransportAmount(paymentId, allocations, amount) {
+  const rows = [];
+  let remainingPayment = amount;
+
+  for (const allocation of allocations) {
+    if (remainingPayment <= 0) break;
+    const available = Number(allocation.available_amount ?? allocation.remaining ?? 0);
+    const amountApplied = Math.min(available, remainingPayment);
+    if (amountApplied > 0) {
+      rows.push({
+        payment_id: paymentId,
+        transport_due_id: Number(allocation.transport_due_id ?? allocation.id),
+        amount_applied: amountApplied,
+      });
+      remainingPayment -= amountApplied;
+    }
+  }
+
+  return rows;
+}
+
+export async function updatePayment(paymentId, data) {
+  const id = parsePositiveInt(paymentId, "payment_id");
+  const amountPaid = parseMoney(data.amount_paid, "amount_paid");
+
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    const payment = await repo.getPaymentForUpdate(conn, id);
+    if (!payment) throw new AppError("Transportation payment not found", 404);
+
+    const allocations = await repo.getPaymentAllocationsForUpdate(conn, id);
+    if (!allocations.length) throw new AppError("Payment allocation not found", 400);
+
+    const maxAllowed = allocations.reduce((sum, row) => sum + Number(row.available_amount || 0), 0);
+    if (amountPaid > maxAllowed) {
+      throw new AppError("amount_paid cannot exceed selected due remaining amount", 400);
+    }
+
+    const dueIds = allocations.map((row) => Number(row.transport_due_id));
+    await repo.updatePaymentRecord(conn, id, {
+      amount_paid: amountPaid,
+      remarks: String(data.remarks || "").trim() || null,
+    });
+    await repo.deletePaymentAllocations(conn, id);
+
+    const nextAllocations = allocateTransportAmount(id, allocations, amountPaid);
+    for (const allocation of nextAllocations) {
+      await repo.createAllocation(conn, allocation);
+    }
+    for (const dueId of dueIds) {
+      await repo.updateDueStatus(conn, dueId);
+    }
+
+    await conn.commit();
+    return { message: "Transportation payment updated" };
+  } catch (err) {
+    await conn.rollback();
+    throw err;
+  } finally {
+    conn.release();
+  }
+}
+
+export async function deletePayment(paymentId) {
+  const id = parsePositiveInt(paymentId, "payment_id");
+
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    const payment = await repo.getPaymentForUpdate(conn, id);
+    if (!payment) throw new AppError("Transportation payment not found", 404);
+
+    const allocations = await repo.getPaymentAllocationsForUpdate(conn, id);
+    const dueIds = allocations.map((row) => Number(row.transport_due_id));
+    await repo.deleteReceipt(conn, id);
+    await repo.deletePaymentAllocations(conn, id);
+    await repo.deletePaymentRecord(conn, id);
+    for (const dueId of dueIds) {
+      await repo.updateDueStatus(conn, dueId);
+    }
+
+    await conn.commit();
+    return { message: "Transportation payment deleted" };
+  } catch (err) {
+    await conn.rollback();
+    throw err;
+  } finally {
+    conn.release();
+  }
 }
 
 export async function getSummary() {

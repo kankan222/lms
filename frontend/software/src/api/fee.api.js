@@ -228,6 +228,7 @@ export function searchTransportStudents(params = "") {
     if (params.section_id) query.set("section_id", params.section_id);
     if (params.stream_id) query.set("stream_id", params.stream_id);
     if (params.medium) query.set("medium", params.medium);
+    if (params.assigned_only) query.set("assigned_only", params.assigned_only);
   }
   const suffix = query.toString() ? `?${query.toString()}` : "";
   return apiRequest(`/fees/transport/students${suffix}`);
@@ -282,6 +283,19 @@ export function getTransportPayments(params = {}) {
   if (params.session_id) query.set("session_id", params.session_id);
   const suffix = query.toString() ? `?${query.toString()}` : "";
   return apiRequest(`/fees/transport/payments${suffix}`);
+}
+
+export function updateTransportPayment(paymentId, data) {
+  return apiRequest(`/fees/transport/payments/${paymentId}`, {
+    method: "PUT",
+    body: JSON.stringify(data),
+  });
+}
+
+export function deleteTransportPayment(paymentId) {
+  return apiRequest(`/fees/transport/payments/${paymentId}`, {
+    method: "DELETE",
+  });
 }
 
 export async function downloadTransportReceipt(paymentId) {

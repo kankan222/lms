@@ -91,6 +91,16 @@ router.get(
   requirePermission("payment.view"),
   transportController.listPayments,
 );
+router.put(
+  "/transport/payments/:id",
+  requirePermission("payment.create"),
+  transportController.updatePayment,
+);
+router.delete(
+  "/transport/payments/:id",
+  requirePermission("payment.delete"),
+  transportController.deletePayment,
+);
 router.get(
   "/transport/receipt/:paymentId",
   requireAnyPermission(["payment.view", "fee.view"]),

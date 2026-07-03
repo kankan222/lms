@@ -166,6 +166,15 @@ export async function searchStudents(filters = {}) {
     where.push("LOWER(sec.medium) = LOWER(?)");
     params.push(filters.medium);
   }
+  if (filters.assigned_only) {
+    where.push(`EXISTS (
+      SELECT 1
+      FROM student_transport_assignments sta
+      WHERE sta.student_id = s.id
+        AND sta.session_id = se.session_id
+        AND sta.status = 'active'
+    )`);
+  }
 
   return query(
     `SELECT s.id, s.name, s.admission_no, se.roll_number,
@@ -453,6 +462,72 @@ export async function createReceipt(conn, paymentId) {
     [receiptNo, paymentId]
   );
   return receiptNo;
+}
+
+export async function getPaymentForUpdate(conn, paymentId) {
+  const [rows] = await conn.execute(
+    `SELECT *
+     FROM transport_payments
+     WHERE id = ?
+     FOR UPDATE`,
+    [paymentId]
+  );
+  return rows[0] || null;
+}
+
+export async function getPaymentAllocationsForUpdate(conn, paymentId) {
+  const [rows] = await conn.execute(
+    `SELECT
+       pa.transport_due_id,
+       pa.amount_applied,
+       d.amount AS due_amount,
+       COALESCE(other_paid.paid, 0) AS other_paid,
+       (d.amount - COALESCE(other_paid.paid, 0)) AS available_amount
+     FROM transport_payment_allocations pa
+     JOIN student_transport_fee_dues d ON d.id = pa.transport_due_id
+     LEFT JOIN (
+       SELECT transport_due_id, SUM(amount_applied) AS paid
+       FROM transport_payment_allocations
+       WHERE payment_id <> ?
+       GROUP BY transport_due_id
+     ) other_paid ON other_paid.transport_due_id = d.id
+     WHERE pa.payment_id = ?
+     FOR UPDATE`,
+    [paymentId, paymentId]
+  );
+  return rows;
+}
+
+export async function updatePaymentRecord(conn, paymentId, data) {
+  await conn.execute(
+    `UPDATE transport_payments
+     SET amount_paid = ?,
+         remarks = ?,
+         status = 'approved'
+     WHERE id = ?`,
+    [data.amount_paid, data.remarks ?? null, paymentId]
+  );
+}
+
+export async function deletePaymentAllocations(conn, paymentId) {
+  await conn.execute(
+    `DELETE FROM transport_payment_allocations WHERE payment_id = ?`,
+    [paymentId]
+  );
+}
+
+export async function deleteReceipt(conn, paymentId) {
+  await conn.execute(
+    `DELETE FROM transport_receipts WHERE payment_id = ?`,
+    [paymentId]
+  );
+}
+
+export async function deletePaymentRecord(conn, paymentId) {
+  await conn.execute(
+    `DELETE FROM transport_payments WHERE id = ?`,
+    [paymentId]
+  );
 }
 
 export async function listPayments(filters = {}) {

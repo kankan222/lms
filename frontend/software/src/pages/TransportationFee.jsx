@@ -5,6 +5,16 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -24,17 +34,19 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Bus, Download, IndianRupee, ReceiptText, Users } from "lucide-react";
+import { Bus, Download, IndianRupee, Pencil, ReceiptText, Trash2, Users } from "lucide-react";
 import { getClassStructure, getSessions, getStreams } from "../api/academic.api";
 import {
   createTransportAssignment,
   createTransportPayment,
+  deleteTransportPayment,
   downloadTransportReceipt,
   getTransportAssignments,
   getTransportDues,
   getTransportPayments,
   getTransportSummary,
   searchTransportStudents,
+  updateTransportPayment,
 } from "../api/fee.api";
 import { formatReadableDate } from "../lib/dateTime";
 
@@ -169,6 +181,9 @@ export default function TransportationFee() {
   const [notice, setNotice] = useState(null);
   const [assignmentOpen, setAssignmentOpen] = useState(false);
   const [paymentOpen, setPaymentOpen] = useState(false);
+  const [editingPayment, setEditingPayment] = useState(null);
+  const [deletingPayment, setDeletingPayment] = useState(null);
+  const [editError, setEditError] = useState("");
   const [assignmentPage, setAssignmentPage] = useState(1);
   const [assignmentRowsPerPage, setAssignmentRowsPerPage] = useState(TABLE_ROWS_PER_PAGE_OPTIONS[0]);
   const [paymentPage, setPaymentPage] = useState(1);
@@ -303,6 +318,49 @@ export default function TransportationFee() {
     }
   }
 
+  function handleEditPayment(payment) {
+    setEditError("");
+    setEditingPayment({
+      ...payment,
+      amount_paid: String(payment.amount_paid || ""),
+      remarks: payment.remarks || "",
+    });
+  }
+
+  async function handleUpdatePayment(event) {
+    event.preventDefault();
+    setEditError("");
+    const amountPaid = Number(editingPayment?.amount_paid);
+    if (!Number.isFinite(amountPaid) || amountPaid <= 0) {
+      setEditError("Enter a valid payment amount.");
+      return;
+    }
+
+    try {
+      await updateTransportPayment(editingPayment.id, {
+        amount_paid: amountPaid,
+        remarks: editingPayment.remarks || "",
+      });
+      setEditingPayment(null);
+      await loadAll();
+      showNotice("Payment Updated", "Transportation payment updated successfully.");
+    } catch (err) {
+      setEditError(err?.message || "Failed to update transportation payment.");
+    }
+  }
+
+  async function handleDeletePayment() {
+    if (!deletingPayment?.id) return;
+    try {
+      await deleteTransportPayment(deletingPayment.id);
+      setDeletingPayment(null);
+      await loadAll();
+      showNotice("Payment Deleted", "Transportation payment deleted successfully.");
+    } catch (err) {
+      showNotice("Delete Failed", err?.message || "Could not delete transportation payment.", "error");
+    }
+  }
+
   async function handleReceipt(paymentId) {
     try {
       const blob = await downloadTransportReceipt(paymentId);
@@ -351,6 +409,7 @@ export default function TransportationFee() {
           class_id: paymentFilters.class_id,
           section_id: paymentFilters.section_id,
           stream_id: paymentRequiresStream ? paymentFilters.stream_id : "",
+          assigned_only: "1",
         });
         if (!cancelled) setPaymentStudents(res?.data || []);
       } catch (err) {
@@ -741,9 +800,17 @@ export default function TransportationFee() {
                         <TableCell className="text-right"><ColorBadge tone="paid">{money(payment.amount_paid)}</ColorBadge></TableCell>
                         <TableCell><ColorBadge tone={payment.fee_status || "unpaid"}>{payment.fee_status || "unpaid"}</ColorBadge></TableCell>
                         <TableCell className="text-right">
-                          <Button size="sm" variant="outline" onClick={() => handleReceipt(payment.id)}>
-                            <Download className="size-4" /> Receipt
-                          </Button>
+                          <div className="flex flex-wrap justify-end gap-2">
+                            <Button size="sm" variant="outline" onClick={() => handleEditPayment(payment)}>
+                              <Pencil className="size-4" /> Edit
+                            </Button>
+                            <Button size="sm" variant="outline" onClick={() => handleReceipt(payment.id)}>
+                              <Download className="size-4" /> Receipt
+                            </Button>
+                            <Button size="sm" variant="destructive" onClick={() => setDeletingPayment(payment)}>
+                              <Trash2 className="size-4" /> Delete
+                            </Button>
+                          </div>
                         </TableCell>
                       </TableRow>
                     )) : (
@@ -772,6 +839,87 @@ export default function TransportationFee() {
           </Card>
         </TabsContent>
       </Tabs>
+
+      <Dialog open={!!editingPayment} onOpenChange={(open) => {
+        if (!open) {
+          setEditingPayment(null);
+          setEditError("");
+        }
+      }}>
+        <DialogContent>
+          <form onSubmit={handleUpdatePayment} className="space-y-4">
+            <DialogHeader>
+              <DialogTitle>Edit Transportation Payment</DialogTitle>
+              <DialogDescription>Update the paid amount or remarks for this payment record.</DialogDescription>
+            </DialogHeader>
+
+            {editingPayment ? (
+              <p className="text-xs text-muted-foreground">
+                {editingPayment.student_name} - {editingPayment.class_name || "-"}
+                {editingPayment.stream_name ? ` / ${editingPayment.stream_name}` : ""}
+                {editingPayment.section_name ? ` / ${editingPayment.section_name}` : ""}
+              </p>
+            ) : null}
+
+            <div className="grid gap-2">
+              <Label>Amount Paid</Label>
+              <Input
+                inputMode="numeric"
+                value={editingPayment?.amount_paid || ""}
+                onChange={(event) =>
+                  setEditingPayment((prev) => ({
+                    ...prev,
+                    amount_paid: event.target.value.replace(/[^\d.]/g, ""),
+                  }))
+                }
+                required
+              />
+            </div>
+
+            <div className="grid gap-2">
+              <Label>Remarks</Label>
+              <Input
+                value={editingPayment?.remarks || ""}
+                onChange={(event) =>
+                  setEditingPayment((prev) => ({
+                    ...prev,
+                    remarks: event.target.value,
+                  }))
+                }
+              />
+            </div>
+            {editError ? <p className="text-sm text-red-600">{editError}</p> : null}
+
+            <DialogFooter showCloseButton>
+              <Button type="submit">Update</Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      <AlertDialog
+        open={!!deletingPayment}
+        onOpenChange={(open) => {
+          if (!open) setDeletingPayment(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete payment?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {deletingPayment
+                ? `This will delete the transportation payment for ${deletingPayment.student_name}.`
+                : "This action cannot be undone."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction variant="destructive" onClick={handleDeletePayment}>
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   );
 }

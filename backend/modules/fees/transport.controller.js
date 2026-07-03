@@ -134,6 +134,22 @@ export async function listPayments(req, res) {
   }
 }
 
+export async function updatePayment(req, res) {
+  try {
+    return sendData(res, await transportService.updatePayment(req.params.id, req.body || {}, req.user));
+  } catch (err) {
+    return mapTransportError(err, res);
+  }
+}
+
+export async function deletePayment(req, res) {
+  try {
+    return sendData(res, await transportService.deletePayment(req.params.id, req.user));
+  } catch (err) {
+    return mapTransportError(err, res);
+  }
+}
+
 export async function getSummary(req, res) {
   try {
     return sendData(res, await transportService.getSummary());
