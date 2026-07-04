@@ -594,6 +594,7 @@ export async function getAllowedTeacherScopes(userId, examId) {
     `SELECT DISTINCT
       sc.class_id,
       tca.section_id,
+      tca.subject_id,
       ${classScopeExpr} AS class_scope,
       c.name AS class_name,
       s.name AS section_name,

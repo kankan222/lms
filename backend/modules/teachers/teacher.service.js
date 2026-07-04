@@ -261,6 +261,13 @@ export async function updateTeacher(id, data) {
 
   if (!affected)
     throw new AppError("Teacher not found", 404);
+
+  if (existing.user_id) {
+    await repo.updateTeacherUserContact(existing.user_id, {
+      email: data.email ?? existing.email ?? null,
+      phone: data.phone ?? existing.phone ?? null,
+    });
+  }
 }
 
 export async function deleteTeacher(id) {

@@ -141,6 +141,7 @@ export const appRoutes = [
       element: <Attendance/>,
       protected : true,
       permission: "attendance.take",
+      hideForRoles: ["parent"],
     },
     {
       title: "Fees",
@@ -201,20 +202,6 @@ export const appRoutes = [
       permission: "exams.view",
       hideForRoles: ["teacher"],
     },
-    // {
-    //   title: "Class Tests",
-    //   icon: FileStack,
-    //   element: "/class-tests",
-    // },
-    {
-      title: "Reports",
-      icon: NotebookTabs,
-      path: "/reports",
-      element: <Reports/>,
-      protected : true,
-      permission: "marks.view",
-      hideForRoles: ["parent"],
-    },
     {
       title: "Mark Statement",
       icon: FileText,
@@ -232,6 +219,20 @@ export const appRoutes = [
       protected: true,
       permission: "marks.approve",
       hideForRoles: ["teacher", "parent"],
+    },
+    // {
+    //   title: "Class Tests",
+    //   icon: FileStack,
+    //   element: "/class-tests",
+    // },
+    {
+      title: "Reports",
+      icon: NotebookTabs,
+      path: "/reports",
+      element: <Reports/>,
+      protected : true,
+      permission: "marks.view",
+      hideForRoles: ["parent"],
     },
     {
       title: "Activity Marks",
@@ -344,9 +345,15 @@ export const navSections = [
         title: "Student Attendance",
         icon: Hand,
         to: "/attendance?tab=student-attendance",
+        hideForRoles: ["parent"],
       }),
+    ],
+  },
+  {
+    title: "Fee",
+    items: [
       navEntry("/fees", {
-        title: "Fee",
+        title: "Fee Setup",
         icon: BriefcaseBusinessIcon,
       }),
       navEntry("/payments", {
@@ -382,6 +389,14 @@ export const navSections = [
         title: "Exam Setup",
         icon: FileSpreadsheet,
       }),
+      navEntry("/mark-report", {
+        title: "Mark Statement",
+        icon: FileText,
+      }),
+      navEntry("/admit-card", {
+        title: "Admit Card",
+        icon: FileText,
+      }),
     ],
   },
   {
@@ -400,14 +415,6 @@ export const navSections = [
       navEntry("/reports", {
         title: "Exam Report",
         icon: NotebookTabs,
-      }),
-      navEntry("/mark-report", {
-        title: "Mark Statement",
-        icon: FileText,
-      }),
-      navEntry("/admit-card", {
-        title: "Admit Card",
-        icon: FileText,
       }),
       navEntry("/activity-marks", {
         title: "Activity Marks",

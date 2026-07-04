@@ -211,6 +211,7 @@ export default function Attendance() {
   const tabParam = searchParams.get("tab");
   const { can, hasRole } = usePermissions();
   const isTeacher = hasRole("teacher");
+  const canTakeStudentAttendance = can("student_attendance.take") || can("attendance.take");
   const canViewTeacherLogs = can("teacher.view");
   const canManageDeviceMappings = can("teacher.assign");
   const canReviewStudentAttendance = can("student_attendance.review") || can("marks.approve");
@@ -1383,7 +1384,11 @@ export default function Attendance() {
           : "border-slate-200 bg-slate-50 text-slate-700";
 
   const studentAttendanceTabs = useMemo(() => {
-    const tabs = ["student-attendance"];
+    const tabs = [];
+
+    if (canTakeStudentAttendance) {
+      tabs.push("student-attendance");
+    }
 
     if (isTeacher) {
       tabs.push("teacher-approved", "daily-data");
@@ -1396,7 +1401,7 @@ export default function Attendance() {
     }
 
     return tabs;
-  }, [canNotifyParents, canReviewStudentAttendance, isTeacher]);
+  }, [canNotifyParents, canReviewStudentAttendance, canTakeStudentAttendance, isTeacher]);
 
   const teacherAttendanceTabs = useMemo(() => {
     const tabs = [];

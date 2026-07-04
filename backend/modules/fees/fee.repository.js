@@ -4,6 +4,7 @@ import { pool } from "../../database/pool.js";
 let supportsFeeStructuresStreamIdCache;
 let supportsScopesTableCache;
 let feeStructuresStreamSchemaStatusCache;
+let supportsPaymentReceiptSerialCache;
 
 export async function supportsFeeStructuresStreamId() {
   if (typeof supportsFeeStructuresStreamIdCache === "boolean") {
@@ -80,6 +81,33 @@ async function supportsScopesTable() {
 
   supportsScopesTableCache = Number(rows[0]?.total || 0) > 0;
   return supportsScopesTableCache;
+}
+
+async function supportsPaymentReceiptSerial() {
+  if (typeof supportsPaymentReceiptSerialCache === "boolean") {
+    return supportsPaymentReceiptSerialCache;
+  }
+
+  const rows = await query(
+    `
+      SELECT COUNT(*) AS total
+      FROM information_schema.COLUMNS
+      WHERE TABLE_SCHEMA = DATABASE()
+        AND TABLE_NAME = 'payments'
+        AND COLUMN_NAME = 'receipt_serial'
+    `
+  );
+
+  supportsPaymentReceiptSerialCache = Number(rows[0]?.total || 0) > 0;
+  return supportsPaymentReceiptSerialCache;
+}
+
+function buildReceiptSerialExpression(hasReceiptSerial, paymentAlias = "p") {
+  if (hasReceiptSerial) {
+    return `COALESCE(${paymentAlias}.receipt_serial, CONCAT('PAY-', LPAD(${paymentAlias}.id, 6, '0')))`;
+  }
+
+  return `CONCAT('PAY-', LPAD(${paymentAlias}.id, 6, '0'))`;
 }
 
 function buildClassScopeExpression(hasScopesTable, classAlias = "c", scopeAlias = "sc") {
@@ -449,6 +477,7 @@ GROUP BY sf.id
   return rows;
 }
 export async function insertPayment(data) {
+  const hasReceiptSerial = await supportsPaymentReceiptSerial();
 
   const sql = `
   INSERT INTO payments
@@ -466,7 +495,7 @@ export async function insertPayment(data) {
 
   const result = await execute(sql, params);
   const paymentId = Number(result?.insertId || 0);
-  if (paymentId > 0) {
+  if (hasReceiptSerial && paymentId > 0) {
     await execute(
       `UPDATE payments
        SET receipt_serial = CONCAT('PAY-', LPAD(id, 6, '0'))
@@ -1027,12 +1056,14 @@ export async function getStreamById(id) {
 }
 export async function getPaymentReceipt(paymentId){
   const hasScopesTable = await supportsScopesTable();
+  const hasReceiptSerial = await supportsPaymentReceiptSerial();
   const classScopeExpr = buildClassScopeExpression(hasScopesTable);
+  const receiptSerialExpr = buildReceiptSerialExpression(hasReceiptSerial);
 
   const sql = `
   SELECT
     p.id,
-    COALESCE(p.receipt_serial, CONCAT('PAY-', LPAD(p.id, 6, '0'))) AS receipt_serial,
+    ${receiptSerialExpr} AS receipt_serial,
     p.amount_paid,
     p.remarks,
     p.status,
@@ -1155,13 +1186,15 @@ function buildPaymentsBaseSql(hasScopesTable, whereClause = "") {
 
 export async function getPayments(filters = {}) {
   const hasScopesTable = await supportsScopesTable();
+  const hasReceiptSerial = await supportsPaymentReceiptSerial();
   const classScopeExpr = buildClassScopeExpression(hasScopesTable);
+  const receiptSerialExpr = buildReceiptSerialExpression(hasReceiptSerial);
   const { whereClause, params } = buildPaymentsWhereClause(filters, classScopeExpr);
 
   const sql = `
     SELECT
       p.id,
-      COALESCE(p.receipt_serial, CONCAT('PAY-', LPAD(p.id, 6, '0'))) AS receipt_serial,
+      ${receiptSerialExpr} AS receipt_serial,
       p.student_fee_id,
       p.amount_paid,
       p.remarks,
@@ -1188,7 +1221,9 @@ export async function getPayments(filters = {}) {
 
 export async function getPaymentsPaginated(filters = {}, options = {}) {
   const hasScopesTable = await supportsScopesTable();
+  const hasReceiptSerial = await supportsPaymentReceiptSerial();
   const classScopeExpr = buildClassScopeExpression(hasScopesTable);
+  const receiptSerialExpr = buildReceiptSerialExpression(hasReceiptSerial);
   const { whereClause, params } = buildPaymentsWhereClause(filters, classScopeExpr);
   const page = Math.max(1, Number.isFinite(Number(options.page)) ? Math.trunc(Number(options.page)) : 1);
   const limit = Math.min(100, Math.max(1, Number.isFinite(Number(options.limit)) ? Math.trunc(Number(options.limit)) : 30));
@@ -1197,7 +1232,7 @@ export async function getPaymentsPaginated(filters = {}, options = {}) {
   const sql = `
     SELECT
       p.id,
-      COALESCE(p.receipt_serial, CONCAT('PAY-', LPAD(p.id, 6, '0'))) AS receipt_serial,
+      ${receiptSerialExpr} AS receipt_serial,
       p.student_fee_id,
       p.amount_paid,
       p.remarks,

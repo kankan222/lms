@@ -199,6 +199,20 @@ export function updateTeacher(id, data) {
   });
 }
 
+export function updateTeacherUserContact(userId, data) {
+  return query(
+    `UPDATE users
+     SET email = ?,
+         phone = ?
+     WHERE id = ?`,
+    [
+      data.email ?? null,
+      data.phone ?? null,
+      userId,
+    ]
+  );
+}
+
 export function getClassById(classId) {
   return query(
     `

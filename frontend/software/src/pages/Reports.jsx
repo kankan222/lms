@@ -514,10 +514,23 @@ export default function Reports() {
     const hasScopedOfferings = filters.class_id && scopedSubjectOfferings.length > 0;
     const scopedSubjectIds = new Set(scopedSubjectOfferings.map((item) => String(item.subject_id)));
     const scopedOfferingIds = new Set(scopedSubjectOfferings.map((item) => String(item.id)));
+    const teacherScopeSubjectIds = new Set(
+      (examScopes || [])
+        .filter((scope) => {
+          const classMatches = String(scope.class_id || "") === String(filters.class_id || "");
+          const sectionId = String(scope.section_id || "");
+          const sectionMatches =
+            !filters.section_id || !sectionId || sectionId === String(filters.section_id);
+          return classMatches && sectionMatches && scope.subject_id;
+        })
+        .map((scope) => String(scope.subject_id))
+    );
+    const hasTeacherSubjectScope = teacherScopeSubjectIds.size > 0;
 
     return subjects.filter((subject) => {
       const subjectId = String(subject.id);
       if (examSubjectRows.length && !examSubjectIds.has(subjectId)) return false;
+      if (hasTeacherSubjectScope && !teacherScopeSubjectIds.has(subjectId)) return false;
       if (!hasScopedOfferings) return true;
 
       return examSubjectRows.some((examSubject) => {
@@ -526,7 +539,7 @@ export default function Reports() {
         return offeringId ? scopedOfferingIds.has(offeringId) : scopedSubjectIds.has(subjectId);
       });
     });
-  }, [examSubjects, filters.class_id, scopedSubjectOfferings, subjects]);
+  }, [examScopes, examSubjects, filters.class_id, filters.section_id, scopedSubjectOfferings, subjects]);
   const selectedExam = useMemo(
     () => exams.find((item) => String(item.id) === String(filters.exam_id)) || null,
     [exams, filters.exam_id]

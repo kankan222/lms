@@ -446,10 +446,20 @@ export async function listExams(filters, userId) {
 
       return {
         ...exam,
-        subjects,
+        subjects: isTeacher ? filterSubjectsByTeacherScopes(subjects, scopes) : subjects,
         scopes,
       };
     })
+  );
+}
+
+function filterSubjectsByTeacherScopes(subjects, scopes) {
+  const allowedSubjectIds = new Set(
+    (scopes || []).map((scope) => String(scope.subject_id || "")).filter(Boolean)
+  );
+  if (!allowedSubjectIds.size) return subjects;
+  return (subjects || []).filter((subject) =>
+    allowedSubjectIds.has(String(subject.subject_id || subject.id || ""))
   );
 }
 
@@ -466,8 +476,9 @@ export async function getExamById(id, userId) {
 
   const { isTeacher } = await getUserFlags(userId);
   const scopes = isTeacher ? await repo.getAllowedTeacherScopes(userId, examId) : allScopes;
+  const scopedSubjects = isTeacher ? filterSubjectsByTeacherScopes(subjects, scopes) : subjects;
 
-  return { ...exam, subjects, scopes, student_subjects: studentSubjects };
+  return { ...exam, subjects: scopedSubjects, scopes, student_subjects: studentSubjects };
 }
 
 export async function updateExam(id, data) {

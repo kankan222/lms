@@ -765,6 +765,16 @@ export async function getAccessibleExams(userId) {
   return repo.getOwnedStudentAccessibleExams([]);
 }
 
+function filterSubjectsByTeacherScopes(subjects, scopes) {
+  const allowedSubjectIds = new Set(
+    (scopes || []).map((scope) => String(scope.subject_id || "")).filter(Boolean)
+  );
+  if (!allowedSubjectIds.size) return subjects;
+  return (subjects || []).filter((subject) =>
+    allowedSubjectIds.has(String(subject.subject_id || subject.id || ""))
+  );
+}
+
 export async function getAccessibleExamById(examIdValue, userId) {
   const examId = normalizeNumber(examIdValue, "exam_id");
   const userCtx = await getUserContext(userId);
@@ -799,7 +809,7 @@ export async function getAccessibleExamById(examIdValue, userId) {
   ]);
   return {
     ...exam,
-    subjects,
+    subjects: userCtx.isTeacher ? filterSubjectsByTeacherScopes(subjects, scopes) : subjects,
     scopes,
   };
 }
