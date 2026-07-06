@@ -9,18 +9,23 @@ import {
   View,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
+import type { RootStackParamList } from "../navigation/AppNavigator";
 import { useAuthStore } from "../store/authStore";
 import { DashboardSummary, getDashboardSummary } from "../services/dashboardService";
 import { useAppTheme } from "../theme/AppThemeProvider";
 import DashboardTab from "./tabs/DashboardTab";
 import ClassesTab from "./tabs/ClassesTab";
 import SubjectsTab from "./tabs/SubjectsTab";
+import ActivitiesTab from "./tabs/ActivitiesTab";
 import StudentsTab from "./tabs/StudentsTab";
 import TeachersTab from "./tabs/TeachersTab";
 import AttendanceTab from "./tabs/AttendanceTab";
+import TeacherAttendanceTab from "./tabs/TeacherAttendanceTab";
 import FeesTab from "./tabs/FeesTab";
 import PaymentsTab from "./tabs/PaymentsTab";
+import TransportationFeeTab from "./tabs/TransportationFeeTab";
 import ExamsTab from "./tabs/ExamsTab";
 import MessagingTab from "./tabs/MessagingTab";
 import ProfileTab from "./tabs/ProfileTab";
@@ -34,11 +39,14 @@ type TabKey =
   | "dashboard"
   | "classes"
   | "subjects"
+  | "activities"
   | "students"
   | "teachers"
   | "attendance"
+  | "teacherAttendance"
   | "fees"
   | "payments"
+  | "transportationFee"
   | "messaging"
   | "exams"
   | "reports"
@@ -52,13 +60,16 @@ type TabItem = {
 
 const TABS: TabItem[] = [
   { key: "dashboard", label: "Dashboard", icon: "grid-outline" },
-  { key: "classes", label: "Classes", icon: "school-outline" },
+  { key: "classes", label: "Class", icon: "school-outline" },
   { key: "subjects", label: "Subjects", icon: "book-outline" },
+  { key: "activities", label: "Activities", icon: "sparkles-outline" },
   { key: "students", label: "Students", icon: "people-outline" },
   { key: "teachers", label: "Teachers", icon: "person-outline" },
-  { key: "attendance", label: "Attendance", icon: "calendar-outline" },
+  { key: "attendance", label: "Student Attendance", icon: "calendar-outline" },
+  { key: "teacherAttendance", label: "Teacher Attendance", icon: "finger-print-outline" },
   { key: "fees", label: "Fees", icon: "wallet-outline" },
   { key: "payments", label: "Payments", icon: "card-outline" },
+  { key: "transportationFee", label: "Transportation Fee", icon: "bus-outline" },
   { key: "messaging", label: "Messaging", icon: "chatbubble-ellipses-outline" },
   { key: "exams", label: "Exams", icon: "document-text-outline" },
   { key: "reports", label: "Reports", icon: "bar-chart-outline" },
@@ -71,13 +82,18 @@ type NavTab = {
   icon: keyof typeof Ionicons.glyphMap;
 };
 
+type Props = NativeStackScreenProps<RootStackParamList, "AppShell">;
+
 const MemoClassesTab = memo(ClassesTab);
 const MemoSubjectsTab = memo(SubjectsTab);
+const MemoActivitiesTab = memo(ActivitiesTab);
 const MemoStudentsTab = memo(StudentsTab);
 const MemoTeachersTab = memo(TeachersTab);
 const MemoAttendanceTab = memo(AttendanceTab);
+const MemoTeacherAttendanceTab = memo(TeacherAttendanceTab);
 const MemoFeesTab = memo(FeesTab);
 const MemoPaymentsTab = memo(PaymentsTab);
+const MemoTransportationFeeTab = memo(TransportationFeeTab);
 const MemoExamsTab = memo(ExamsTab);
 const MemoReportsTab = memo(ReportsTab);
 const MemoProfileTab = memo(ProfileTab);
@@ -86,42 +102,62 @@ function hasAny(permissions: string[], list: string[]) {
   return list.some((permission) => permissions.includes(permission));
 }
 
+function hasRole(roles: string[], role: string) {
+  return roles.some((value) => String(value).toLowerCase() === role);
+}
+
 function canViewTab(tabKey: TabKey, roles: string[], permissions: string[]) {
-  const isSuperAdmin = roles.includes("super_admin");
+  const isSuperAdmin = hasRole(roles, "super_admin");
   if (isSuperAdmin) return true;
+  const isParent = hasRole(roles, "parent");
+  const isTeacher = hasRole(roles, "teacher");
 
   switch (tabKey) {
     case "dashboard":
+      if (isTeacher) return false;
       return permissions.includes("dashboard.view");
     case "classes":
+      if (isTeacher) return false;
       return hasAny(permissions, ["academic.create", "academic.update", "academic.delete", "dashboard.view"]);
     case "subjects":
+      if (isTeacher) return false;
       return hasAny(permissions, ["subjects.view", "subjects.assign"]);
+    case "activities":
+      if (isTeacher) return false;
+      return hasAny(permissions, ["academic.view", "academic.create", "academic.update", "academic.delete"]);
     case "students":
+      if (isTeacher) return false;
       return permissions.includes("student.view");
     case "teachers":
       return permissions.includes("teacher.view");
     case "attendance":
-      if (roles.includes("parent")) return false;
+      if (isParent) return false;
       return hasAny(permissions, [
         "attendance.take",
         "student_attendance.take",
         "student_attendance.view",
         "student_attendance.review",
         "student_attendance.notify",
-        "teacher.view",
       ]);
+    case "teacherAttendance":
+      if (isParent) return false;
+      return permissions.includes("teacher.view");
     case "fees":
-      if (roles.includes("parent")) return false;
+      if (isParent || isTeacher) return false;
       return hasAny(permissions, ["fee.view", "fee.create"]);
     case "payments":
+      if (isParent || isTeacher) return false;
       return hasAny(permissions, ["payment.view", "payment.create", "payment.update", "payment.delete", "fee.view"]);
+    case "transportationFee":
+      if (isParent || isTeacher) return false;
+      return hasAny(permissions, ["fee.view", "fee.create", "payment.view", "payment.create"]);
     case "messaging":
       return hasAny(permissions, ["messages.view", "messages.send"]);
     case "exams":
+      if (isTeacher) return false;
       return hasAny(permissions, ["exams.view", "exams.create", "exams.update", "exams.delete"]);
     case "reports":
-      if (roles.includes("parent")) return false;
+      if (isParent) return false;
       return hasAny(permissions, ["marks.view", "marks.enter", "marks.approve"]);
     case "users":
       return true;
@@ -131,11 +167,11 @@ function canViewTab(tabKey: TabKey, roles: string[], permissions: string[]) {
 }
 
 function buildPrimaryTabs(roles: string[], permissions: string[]): NavTab[] {
-  const isSuperAdmin = roles.includes("super_admin");
-  const isTeacher = roles.includes("teacher");
-  const isParent = roles.includes("parent");
-  const isStaff = roles.includes("staff");
-  const isAccounts = roles.includes("accounts");
+  const isSuperAdmin = hasRole(roles, "super_admin");
+  const isTeacher = hasRole(roles, "teacher");
+  const isParent = hasRole(roles, "parent");
+  const isStaff = hasRole(roles, "staff");
+  const isAccounts = hasRole(roles, "accounts");
 
   if (isSuperAdmin) {
     return [
@@ -148,9 +184,9 @@ function buildPrimaryTabs(roles: string[], permissions: string[]): NavTab[] {
 
   if (isTeacher) {
     return [
-      { key: "attendance", label: "Attendance", icon: "calendar-outline" },
+      { key: "attendance", label: "Student Att.", icon: "calendar-outline" },
+      { key: "teacherAttendance", label: "Teacher Att.", icon: "finger-print-outline" },
       { key: "reports", label: "Reports", icon: "bar-chart-outline" },
-      { key: "users", label: "Profile", icon: "person-circle-outline" },
       { key: "more", label: "More", icon: "apps-outline" },
     ];
   }
@@ -176,6 +212,7 @@ function buildPrimaryTabs(roles: string[], permissions: string[]): NavTab[] {
   if (isAccounts) {
     return [
       { key: "payments", label: "Payments", icon: "card-outline" },
+      { key: "transportationFee", label: "Transport", icon: "bus-outline" },
       { key: "messaging", label: "Messaging", icon: "chatbubble-ellipses-outline" },
       { key: "users", label: "Profile", icon: "person-circle-outline" },
       { key: "more", label: "More", icon: "apps-outline" },
@@ -200,16 +237,16 @@ function buildPrimaryTabs(roles: string[], permissions: string[]): NavTab[] {
 }
 
 function resolveDefaultTab(roles: string[], permissions: string[], visibleTabs: TabKey[]) {
-  const preferredOrder = roles.includes("super_admin")
+  const preferredOrder = hasRole(roles, "super_admin")
     ? (["dashboard", "messaging", "students", "reports", "users"] as TabKey[])
-    : roles.includes("teacher")
-      ? (["attendance", "reports", "messaging", "teachers", "students", "users"] as TabKey[])
-      : roles.includes("parent")
+    : hasRole(roles, "teacher")
+      ? (["attendance", "teacherAttendance", "reports", "messaging", "teachers", "students", "users"] as TabKey[])
+      : hasRole(roles, "parent")
         ? (["students", "messaging", "users"] as TabKey[])
-        : roles.includes("staff")
+        : hasRole(roles, "staff")
           ? (["reports", "messaging", "attendance", "users"] as TabKey[])
-          : roles.includes("accounts")
-            ? (["payments", "messaging", "fees", "users"] as TabKey[])
+          : hasRole(roles, "accounts")
+            ? (["payments", "transportationFee", "messaging", "fees", "users"] as TabKey[])
           : permissions.includes("dashboard.view")
             ? (["dashboard", "reports", "students", "messaging", "users"] as TabKey[])
             : (["users", "reports", "messaging"] as TabKey[]);
@@ -217,7 +254,7 @@ function resolveDefaultTab(roles: string[], permissions: string[], visibleTabs: 
   return preferredOrder.find((tab) => visibleTabs.includes(tab)) ?? visibleTabs[0] ?? "users";
 }
 
-export default function AppShellScreen() {
+export default function AppShellScreen({ navigation, route }: Props) {
   const user = useAuthStore((state) => state.user);
   const insets = useSafeAreaInsets();
   const { theme, isDark, toggleTheme } = useAppTheme();
@@ -239,7 +276,6 @@ export default function AppShellScreen() {
 
   const [activeTab, setActiveTab] = useState<TabKey>(defaultTab);
   const [mountedTabs, setMountedTabs] = useState<TabKey[]>([defaultTab]);
-  const [isMoreOpen, setIsMoreOpen] = useState(false);
   const [isMessagingConversationOpen, setIsMessagingConversationOpen] = useState(false);
   const [parentConversationIntent, setParentConversationIntent] = useState<ParentConversationIntent | null>(null);
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
@@ -251,6 +287,16 @@ export default function AppShellScreen() {
       setActiveTab(defaultTab);
     }
   }, [activeTab, defaultTab, visibleTabs]);
+
+  useEffect(() => {
+    const requestedTab = route.params?.tab;
+    if (!requestedTab || !visibleTabs.includes(requestedTab as TabKey)) return;
+    setActiveTab(requestedTab as TabKey);
+    if (requestedTab !== "messaging") {
+      setIsMessagingConversationOpen(false);
+    }
+    navigation.setParams({ tab: undefined });
+  }, [navigation, route.params?.tab, visibleTabs]);
 
   useEffect(() => {
     setMountedTabs((prev) => {
@@ -266,7 +312,7 @@ export default function AppShellScreen() {
   }, [activeTab, visibleTabs]);
 
   useEffect(() => {
-    if (!permissions.includes("dashboard.view") && !roles.includes("super_admin")) {
+    if (!permissions.includes("dashboard.view") && !hasRole(roles, "super_admin")) {
       setSummary(null);
       setError(null);
       setIsLoading(false);
@@ -300,24 +346,23 @@ export default function AppShellScreen() {
     const current = TABS.find((tab) => tab.key === activeTab);
     return current?.label ?? "Profile";
   }, [activeTab]);
-  const headerBrand = roles.includes("parent")
+  const headerBrand = hasRole(roles, "parent")
     ? "Parent Portal"
-    : roles.includes("teacher")
+    : hasRole(roles, "teacher")
       ? "Teacher Portal"
-    : roles.includes("accounts")
+    : hasRole(roles, "accounts")
       ? "Accounts Portal"
       : "KKV";
-  const headerSubtitle = roles.includes("parent")
+  const headerSubtitle = hasRole(roles, "parent")
     ? "Student Access"
-    : roles.includes("teacher")
+    : hasRole(roles, "teacher")
       ? title
-    : roles.includes("accounts")
+    : hasRole(roles, "accounts")
       ? "Finance Access"
       : title;
 
   function selectTab(next: TabKey) {
     setActiveTab(next);
-    setIsMoreOpen(false);
     if (next !== "messaging") {
       setIsMessagingConversationOpen(false);
     }
@@ -333,7 +378,6 @@ export default function AppShellScreen() {
       sectionId: payload.sectionId ?? null,
     });
     setActiveTab("messaging");
-    setIsMoreOpen(false);
   }, []);
 
   const startTeacherConversation = useCallback((payload: TeacherConversationRequest) => {
@@ -346,11 +390,10 @@ export default function AppShellScreen() {
       sectionId: payload.sectionId ?? null,
     });
     setActiveTab("messaging");
-    setIsMoreOpen(false);
   }, []);
 
   const refreshDashboard = useCallback(async () => {
-    if (!permissions.includes("dashboard.view") && !roles.includes("super_admin")) return;
+    if (!permissions.includes("dashboard.view") && !hasRole(roles, "super_admin")) return;
     setIsLoading(true);
     setError(null);
     try {
@@ -379,16 +422,22 @@ export default function AppShellScreen() {
         return <MemoClassesTab />;
       case "subjects":
         return <MemoSubjectsTab />;
+      case "activities":
+        return <MemoActivitiesTab />;
       case "students":
         return <MemoStudentsTab onStartParentMessage={startParentConversation} />;
       case "teachers":
         return <MemoTeachersTab onStartTeacherMessage={startTeacherConversation} />;
       case "attendance":
         return <MemoAttendanceTab />;
+      case "teacherAttendance":
+        return <MemoTeacherAttendanceTab />;
       case "fees":
         return <MemoFeesTab />;
       case "payments":
         return <MemoPaymentsTab />;
+      case "transportationFee":
+        return <MemoTransportationFeeTab />;
       case "messaging":
         return (
           <MessagingTab
@@ -410,10 +459,6 @@ export default function AppShellScreen() {
         return <ModulePlaceholderTab title="Module" subtitle="No data available." stats={[]} />;
     }
   }
-
-  const moreTabs = TABS.filter(
-    (tab) => visibleTabs.includes(tab.key) && !primaryTabs.some((item) => item.key === tab.key),
-  );
 
   return (
     <SafeAreaView edges={["left", "right", "bottom"]} style={[styles.safeArea, { backgroundColor: theme.bg }]}>
@@ -456,66 +501,12 @@ export default function AppShellScreen() {
                 borderColor: theme.border,
               },
             ]}
-            onPress={() => setIsMoreOpen((prev) => !prev)}
+            onPress={() => navigation.navigate("More")}
           >
             <Ionicons name="apps-outline" size={18} color={theme.icon} />
           </Pressable>
         </View>
       </View>
-
-      {isMoreOpen && moreTabs.length ? (
-        <>
-          <Pressable
-            style={[styles.inlineBackdrop, { bottom: Math.max(insets.bottom, 10) + 82 }]}
-            onPress={() => setIsMoreOpen(false)}
-          />
-          <View
-            style={[
-              styles.moreSheet,
-              {
-                backgroundColor: theme.card,
-                borderColor: theme.border,
-                bottom: Math.max(insets.bottom, 10) + 82,
-              },
-            ]}
-          >
-            <View style={styles.moreHeader}>
-              <View>
-                <Text style={[styles.drawerTitle, { color: theme.text }]}>More</Text>
-                <Text style={[styles.moreSubtitle, { color: theme.subText }]}>Open any available module from here.</Text>
-              </View>
-            </View>
-            <View style={styles.moreGrid}>
-              {moreTabs.map((tab) => {
-                const isActive = tab.key === activeTab;
-                return (
-                  <Pressable
-                    key={tab.key}
-                    style={[
-                      styles.moreItem,
-                      {
-                        backgroundColor: isActive ? theme.cardMuted : theme.bg,
-                        borderColor: isActive ? theme.icon : theme.border,
-                      },
-                    ]}
-                    onPress={() => selectTab(tab.key)}
-                  >
-                    <Ionicons name={tab.icon} size={20} color={isActive ? theme.text : theme.subText} />
-                    <Text
-                      style={[
-                        styles.moreItemText,
-                        { color: isActive ? theme.text : theme.subText, fontWeight: isActive ? "700" : "500" },
-                      ]}
-                    >
-                      {tab.label}
-                    </Text>
-                  </Pressable>
-                );
-              })}
-            </View>
-          </View>
-        </>
-      ) : null}
 
       <View style={styles.contentStatic}>
         {mountedTabs.map((tab) => {
@@ -567,7 +558,7 @@ export default function AppShellScreen() {
                   style={styles.floatingNavItem}
                   onPress={() => {
                     if (isMore) {
-                      setIsMoreOpen((prev) => !prev);
+                      navigation.navigate("More");
                       return;
                     }
                     selectTab(tab.key as TabKey);
@@ -640,66 +631,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
-  },
-  inlineBackdrop: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    backgroundColor: "transparent",
-    zIndex: 15,
-  },
-  moreSheet: {
-    position: "absolute",
-    alignSelf: "center",
-    width: "92%",
-    borderRadius: 34,
-    borderWidth: 1,
-    paddingHorizontal: 12,
-    paddingTop: 12,
-    paddingBottom: 12,
-    shadowColor: "#0f172a",
-    shadowOpacity: 0.16,
-    shadowRadius: 24,
-    shadowOffset: { width: 0, height: 10 },
-    elevation: 10,
-    zIndex: 20,
-  },
-  moreHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "flex-start",
-    marginBottom: 10,
-  },
-  drawerTitle: {
-    fontSize: 18,
-    fontWeight: "800",
-  },
-  moreSubtitle: {
-    fontSize: 12,
-    marginTop: 4,
-  },
-  moreGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
-    justifyContent: "flex-start",
-  },
-  moreItem: {
-    width: "31%",
-    minWidth: 88,
-    aspectRatio: 1.02,
-    borderRadius: 14,
-    borderWidth: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 4,
-    paddingHorizontal: 10,
-    paddingVertical: 10,
-  },
-  moreItemText: {
-    fontSize: 11,
-    textAlign: "center",
   },
   content: {
     flex: 1,

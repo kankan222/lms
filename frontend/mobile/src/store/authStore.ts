@@ -55,27 +55,36 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
 
   async hydrate() {
-    const [accessToken, refreshToken, rawUser] = await Promise.all([
-      SecureStore.getItemAsync(ACCESS_TOKEN_KEY),
-      SecureStore.getItemAsync(REFRESH_TOKEN_KEY),
-      SecureStore.getItemAsync(USER_KEY),
-    ]);
+    try {
+      const [accessToken, refreshToken, rawUser] = await Promise.all([
+        SecureStore.getItemAsync(ACCESS_TOKEN_KEY),
+        SecureStore.getItemAsync(REFRESH_TOKEN_KEY),
+        SecureStore.getItemAsync(USER_KEY),
+      ]);
 
-    let user: AuthUser | null = null;
-    if (rawUser) {
-      try {
-        user = JSON.parse(rawUser) as AuthUser;
-      } catch {
-        user = null;
+      let user: AuthUser | null = null;
+      if (rawUser) {
+        try {
+          user = JSON.parse(rawUser) as AuthUser;
+        } catch {
+          user = null;
+        }
       }
-    }
 
-    set({
-      accessToken: accessToken ?? null,
-      refreshToken: refreshToken ?? null,
-      user,
-      isHydrated: true,
-    });
+      set({
+        accessToken: accessToken ?? null,
+        refreshToken: refreshToken ?? null,
+        user,
+        isHydrated: true,
+      });
+    } catch {
+      set({
+        accessToken: null,
+        refreshToken: null,
+        user: null,
+        isHydrated: true,
+      });
+    }
   },
 
   async logout() {

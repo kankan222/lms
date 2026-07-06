@@ -4,7 +4,7 @@ import type { ExpoConfig } from "expo/config";
 const config: ExpoConfig = {
   name: "Kalong Kapili Vidyapith",
   slug: "kalong-kapili-vidyapith",
-  version: "1.0.7",
+  version: "1.0.9",
   orientation: "portrait",
   icon: "./assets/splash-icon.png",
   userInterfaceStyle: "light",

@@ -18,9 +18,7 @@ import DateField from "../../components/form/DateField";
 import SelectField from "../../components/form/SelectField";
 import {
   AbsenceMessageTemplate,
-  downloadTeacherAttendanceMatrixPdf,
   getAbsenceMessageTemplates,
-  getAllTeacherAttendance,
   getPendingStudentAttendance,
   getStudentAttendanceEntryScopes,
   getStudentAttendanceRoster,
@@ -32,10 +30,9 @@ import {
   StudentAttendanceSessionItem,
   StudentAttendanceStatus,
   submitStudentAttendance,
-  TeacherAttendanceItem,
 } from "../../services/attendanceService";
 
-type AttendanceTabKey = "take" | "approved" | "history" | "review" | "notify" | "logs";
+type AttendanceTabKey = "student-attendance" | "approved" | "history" | "review" | "notify";
 type RangePreset = "today" | "week" | "month" | "custom";
 type DateRange = { from: string; to: string };
 
@@ -84,16 +81,6 @@ function resolvePresetRange(preset: Exclude<RangePreset, "custom">): DateRange {
     start.setDate(start.getDate() - 29);
   }
   return { from: normalizeDateInput(start), to: normalizeDateInput(end) };
-}
-
-function startOfDate(value: string) {
-  const date = new Date(`${value}T00:00:00`);
-  return Number.isNaN(date.getTime()) ? null : date;
-}
-
-function endOfDate(value: string) {
-  const date = new Date(`${value}T23:59:59.999`);
-  return Number.isNaN(date.getTime()) ? null : date;
 }
 
 function formatDate(value?: string | null) {
@@ -183,7 +170,6 @@ export default function AttendanceTab() {
   const canTakeAttendance = permissions.includes("attendance.take") || permissions.includes("student_attendance.take");
   const canReviewAttendance = permissions.includes("student_attendance.review");
   const canNotifyParents = permissions.includes("student_attendance.notify");
-  const canViewTeacherLogs = permissions.includes("teacher.view");
   const isTeacherOnly =
     Array.isArray(user?.roles) &&
     user.roles.includes("teacher") &&
@@ -193,18 +179,17 @@ export default function AttendanceTab() {
 
   const tabs = useMemo(() => {
     const next: Array<{ key: AttendanceTabKey; label: string }> = [];
-    if (canTakeAttendance) next.push({ key: "take", label: "Take" });
+    if (canTakeAttendance) next.push({ key: "student-attendance", label: "Student Attendance" });
     if (isTeacherOnly) {
       next.push({ key: "approved", label: "Approved" });
       next.push({ key: "history", label: "History" });
     }
     if (canReviewAttendance) next.push({ key: "review", label: "Review" });
     if (canNotifyParents) next.push({ key: "notify", label: "Notify" });
-    if (canViewTeacherLogs) next.push({ key: "logs", label: isTeacherOnly ? "My Logs" : "Logs" });
     return next;
-  }, [canTakeAttendance, isTeacherOnly, canReviewAttendance, canNotifyParents, canViewTeacherLogs]);
+  }, [canTakeAttendance, isTeacherOnly, canReviewAttendance, canNotifyParents]);
 
-  const [activeTab, setActiveTab] = useState<AttendanceTabKey>("take");
+  const [activeTab, setActiveTab] = useState<AttendanceTabKey>("student-attendance");
   const [refreshing, setRefreshing] = useState(false);
   const [notice, setNotice] = useState<{ title: string; message: string; tone: "success" | "error" } | null>(null);
 
@@ -252,14 +237,6 @@ export default function AttendanceTab() {
   const [notifyForm, setNotifyForm] = useState({ template_key: "", message: "", student_ids: [] as number[] });
   const [messageTemplates, setMessageTemplates] = useState<AbsenceMessageTemplate[]>([]);
   const [notifyLoading, setNotifyLoading] = useState(false);
-
-  const [teacherLogs, setTeacherLogs] = useState<TeacherAttendanceItem[]>([]);
-  const [teacherLogsLoading, setTeacherLogsLoading] = useState(false);
-  const [teacherSearch, setTeacherSearch] = useState("");
-  const [teacherLogPreset, setTeacherLogPreset] = useState<RangePreset>("today");
-  const [teacherLogDraftRange, setTeacherLogDraftRange] = useState<DateRange>(() => resolvePresetRange("today"));
-  const [teacherLogAppliedRange, setTeacherLogAppliedRange] = useState<DateRange>(() => resolvePresetRange("today"));
-  const [teacherPdfDownloading, setTeacherPdfDownloading] = useState(false);
 
   const availableClasses = useMemo(() => {
     if (!entryScopes.restricted) return classes;
@@ -325,25 +302,6 @@ export default function AttendanceTab() {
 
   const shouldShowSessionPicker = !isTeacherOnly && sessionOptions.length > 1;
 
-  const filteredTeacherLogs = useMemo(() => {
-    const q = teacherSearch.trim().toLowerCase();
-    const fromBoundary = startOfDate(teacherLogAppliedRange.from);
-    const toBoundary = endOfDate(teacherLogAppliedRange.to);
-    const fromTime = fromBoundary?.getTime() ?? null;
-    const toTime = toBoundary?.getTime() ?? null;
-
-    return [...teacherLogs]
-      .filter((row) => {
-        const punchDate = new Date(row.punch_time);
-        if (Number.isNaN(punchDate.getTime())) return false;
-        const punchTime = punchDate.getTime();
-        if (fromTime !== null && punchTime < fromTime) return false;
-        if (toTime !== null && punchTime > toTime) return false;
-        if (q && !String(row.teacher || "").toLowerCase().includes(q)) return false;
-        return true;
-      })
-      .sort((a, b) => new Date(b.punch_time).getTime() - new Date(a.punch_time).getTime());
-  }, [teacherLogs, teacherSearch, teacherLogAppliedRange.from, teacherLogAppliedRange.to]);
   const notifyFilterClassOptions = useMemo(() => {
     const classMap = new Map<string, { label: string; value: string }>();
     approvedRows.forEach((row) => {
@@ -415,7 +373,6 @@ export default function AttendanceTab() {
     if (activeTab === "review" && canReviewAttendance) loadPending();
     if (activeTab === "notify" && canNotifyParents) loadApproved(notifyAppliedRange);
     if ((activeTab === "approved" || activeTab === "history") && isTeacherOnly) loadApproved();
-    if (activeTab === "logs" && canViewTeacherLogs) loadTeacherLogs();
   }, [activeTab]);
 
   useEffect(() => {
@@ -450,7 +407,7 @@ export default function AttendanceTab() {
 
   useEffect(() => {
     if (
-      activeTab !== "take" ||
+      activeTab !== "student-attendance" ||
       !isTeacherOnly ||
       !singleAssignedScope ||
       !form.class_id ||
@@ -472,15 +429,13 @@ export default function AttendanceTab() {
   async function refreshCurrentTab() {
     setRefreshing(true);
     try {
-      if (activeTab === "take") {
+      if (activeTab === "student-attendance") {
         await Promise.all([loadEntryScopes(), loadClassStructure()]);
         if (form.class_id && form.section_id) await loadRoster();
       } else if (activeTab === "review") {
         await loadPending();
       } else if (activeTab === "notify" || activeTab === "approved" || activeTab === "history") {
         await loadApproved(activeTab === "notify" ? notifyAppliedRange : undefined);
-      } else if (activeTab === "logs") {
-        await loadTeacherLogs();
       }
     } finally {
       setRefreshing(false);
@@ -609,66 +564,6 @@ export default function AttendanceTab() {
       Alert.alert("Load failed", getErrorMessage(err, "Could not load attendance sessions."));
     } finally {
       setApprovedLoading(false);
-    }
-  }
-
-  async function loadTeacherLogs() {
-    setTeacherLogsLoading(true);
-    try {
-      setTeacherLogs(await getAllTeacherAttendance());
-    } catch (err: unknown) {
-      setTeacherLogs([]);
-      Alert.alert("Load failed", getErrorMessage(err, "Could not load teacher attendance."));
-    } finally {
-      setTeacherLogsLoading(false);
-    }
-  }
-
-  function applyTeacherLogPreset(preset: Exclude<RangePreset, "custom">) {
-    const range = resolvePresetRange(preset);
-    setTeacherLogPreset(preset);
-    setTeacherLogDraftRange(range);
-    setTeacherLogAppliedRange(range);
-  }
-
-  function handleViewTeacherLogRange() {
-    const from = String(teacherLogDraftRange.from || "");
-    const to = String(teacherLogDraftRange.to || "");
-    if (!from || !to) {
-      Alert.alert("Validation", "Select both start and end dates.");
-      return;
-    }
-    if (from > to) {
-      Alert.alert("Validation", "Start date cannot be later than end date.");
-      return;
-    }
-    setTeacherLogPreset("custom");
-    setTeacherLogAppliedRange({ from, to });
-  }
-
-  async function handleDownloadTeacherLogsPdf() {
-    const from = String(teacherLogAppliedRange.from || "");
-    const to = String(teacherLogAppliedRange.to || "");
-    if (!from || !to) {
-      Alert.alert("Validation", "Select both start and end dates.");
-      return;
-    }
-
-    setTeacherPdfDownloading(true);
-    try {
-      await downloadTeacherAttendanceMatrixPdf({
-        startDate: from,
-        endDate: to,
-      });
-      setNotice({
-        title: "Teacher Logs Downloaded",
-        message: "Teacher attendance matrix PDF has been downloaded.",
-        tone: "success",
-      });
-    } catch (err: unknown) {
-      Alert.alert("Download failed", getErrorMessage(err, "Could not download teacher attendance PDF."));
-    } finally {
-      setTeacherPdfDownloading(false);
     }
   }
 
@@ -814,8 +709,8 @@ export default function AttendanceTab() {
       <View style={styles.heroCard}>
         <View style={styles.heroCopy}>
           <Text style={styles.heroEyebrow}>Overview</Text>
-          <Text style={styles.title}>Attendance</Text>
-          <Text style={styles.subtitle}>Record student attendance, review sessions, notify parents, and track teacher logs.</Text>
+          <Text style={styles.title}>Student Attendance</Text>
+          <Text style={styles.subtitle}>Record class and section attendance, review submitted sessions, notify parents, and keep teacher logs separate.</Text>
         </View>
       </View>
 
@@ -823,14 +718,14 @@ export default function AttendanceTab() {
         {tabs.map((tab) => <Pressable key={tab.key} style={[styles.tabBtn, activeTab === tab.key && styles.tabBtnActive]} onPress={() => setActiveTab(tab.key)}><Text style={[styles.tabBtnText, activeTab === tab.key && styles.tabBtnTextActive]}>{tab.label}</Text></Pressable>)}
       </View>
 
-      {activeTab === "take" ? <>
+      {activeTab === "student-attendance" ? <>
         <View style={styles.statsGrid}>
           <SummaryCard label="Students" value={rosterSummary.total} />
           <SummaryCard label="Present" value={rosterSummary.present} tone="green" />
           <SummaryCard label="Absent" value={rosterSummary.absent} tone="red" />
         </View>
 
-        <SectionCard title="Take Attendance" hint={rosterMeta.existing_approval_status ? `Status: ${rosterMeta.existing_approval_status}` : "New entry"}>
+        <SectionCard title="Attendance Entry" hint={rosterMeta.existing_approval_status ? `Status: ${rosterMeta.existing_approval_status}` : "New entry"}>
           <DateField
             label="Attendance Date"
             value={form.date}
@@ -874,15 +769,18 @@ export default function AttendanceTab() {
             disabled={!selectedClass}
           />
           <View style={styles.rowActions}>
-            <Pressable style={styles.secondaryBtn} onPress={() => bulkMark("present")}><Text style={styles.secondaryBtnText}>Mark All Present</Text></Pressable>
-            <Pressable style={styles.secondaryBtn} onPress={loadRoster}><Text style={styles.secondaryBtnText}>Load Roster</Text></Pressable>
+            <Pressable style={styles.secondaryBtn} onPress={loadRoster} disabled={rosterLoading}><Text style={styles.secondaryBtnText}>{rosterLoading ? "Loading..." : "Load Students"}</Text></Pressable>
+            <Pressable style={styles.secondaryBtn} onPress={() => bulkMark("present")} disabled={!roster.length || (Boolean(rosterMeta.existing_session_id) && rosterMeta.existing_approval_status !== "rejected")}><Text style={styles.secondaryBtnText}>Mark All Present</Text></Pressable>
+          </View>
+          <View style={styles.rowActions}>
+            <Pressable style={styles.secondaryBtn} onPress={() => bulkMark("absent")} disabled={!roster.length || (Boolean(rosterMeta.existing_session_id) && rosterMeta.existing_approval_status !== "rejected")}><Text style={styles.secondaryBtnText}>Mark All Absent</Text></Pressable>
+            <Pressable style={[styles.successBtn, styles.actionSubmitBtn]} onPress={handleSubmitAttendance} disabled={submitting || !roster.length || (Boolean(rosterMeta.existing_session_id) && rosterMeta.existing_approval_status !== "rejected")}><Text style={styles.successBtnText}>{submitting ? "Submitting..." : (rosterMeta.existing_session_id && rosterMeta.existing_approval_status !== "rejected") ? "Attendance Locked" : rosterMeta.existing_approval_status === "rejected" ? "Resubmit Attendance" : "Submit Attendance"}</Text></Pressable>
           </View>
           {rosterMeta.existing_session_id ? <View style={styles.infoCard}><Text style={styles.infoTitle}>Existing Session</Text><Text style={styles.infoText}>Submitted by {rosterMeta.existing_submitted_by_username || "-"} on {formatDateTime(rosterMeta.existing_submitted_at)}</Text><Text style={styles.infoText}>Approval: {rosterMeta.existing_approval_status || "-"}</Text>{rosterMeta.existing_approval_status === "rejected" ? <Text style={styles.infoText}>This session was rejected. Update the attendance and submit it again.</Text> : null}{rosterMeta.existing_reviewed_by_username ? <Text style={styles.infoText}>Reviewed by {rosterMeta.existing_reviewed_by_username}</Text> : null}{rosterMeta.existing_review_remarks ? <Text style={styles.infoText}>Remarks: {rosterMeta.existing_review_remarks}</Text> : null}</View> : null}
         </SectionCard>
 
         <SectionCard title="Student Roster" hint={roster.length ? `${roster.length} loaded` : "No roster"}>
           {rosterLoading ? <ActivityIndicator size="large" color="#0f172a" /> : roster.length ? roster.map((student) => <View key={student.student_id} style={styles.studentCard}><View style={styles.rosterHeader}><View style={styles.rosterCopy}><Text style={styles.studentName}>{student.name}</Text><Text style={styles.detailText}>Roll: {student.roll_number || "-"}{student.medium ? ` | ${student.medium}` : ""}</Text></View><View style={styles.scopePill}><Text style={styles.scopePillText}>{scopeLabel(student.class_scope)}</Text></View></View><View style={styles.statusRow}>{STATUS_OPTIONS.map((status) => { const active = student.status === status; return <Pressable key={`${student.student_id}-${status}`} style={[styles.statusChip, active && statusChipActiveStyle(status)]} onPress={() => updateStudentStatus(student.student_id, status)}><Text style={[styles.statusChipText, active && statusChipTextActiveStyle(status)]}>{capitalize(status)}</Text></Pressable>; })}</View></View>) : <Text style={styles.emptyText}>Choose class and section, then load the roster.</Text>}
-          <Pressable style={[styles.successBtn, styles.submitBtn]} onPress={handleSubmitAttendance} disabled={submitting || (Boolean(rosterMeta.existing_session_id) && rosterMeta.existing_approval_status !== "rejected")}><Text style={styles.successBtnText}>{submitting ? "Submitting..." : (rosterMeta.existing_session_id && rosterMeta.existing_approval_status !== "rejected") ? "Attendance Locked" : rosterMeta.existing_approval_status === "rejected" ? "Resubmit Attendance" : "Submit Attendance"}</Text></Pressable>
         </SectionCard>
       </> : null}
 
@@ -1045,77 +943,6 @@ export default function AttendanceTab() {
         </SectionCard>
       </> : null}
 
-      {activeTab === "logs" ? (
-        <SectionCard title="Teacher Logs" hint={`${filteredTeacherLogs.length} records`}>
-          <View style={styles.filterRow}>
-            <Pressable
-              style={[styles.filterChip, teacherLogPreset === "today" && styles.filterChipActive]}
-              onPress={() => applyTeacherLogPreset("today")}
-            >
-              <Text style={[styles.filterChipText, teacherLogPreset === "today" && styles.filterChipTextActive]}>Today</Text>
-            </Pressable>
-            <Pressable
-              style={[styles.filterChip, teacherLogPreset === "week" && styles.filterChipActive]}
-              onPress={() => applyTeacherLogPreset("week")}
-            >
-              <Text style={[styles.filterChipText, teacherLogPreset === "week" && styles.filterChipTextActive]}>Week</Text>
-            </Pressable>
-            <Pressable
-              style={[styles.filterChip, teacherLogPreset === "month" && styles.filterChipActive]}
-              onPress={() => applyTeacherLogPreset("month")}
-            >
-              <Text style={[styles.filterChipText, teacherLogPreset === "month" && styles.filterChipTextActive]}>Month</Text>
-            </Pressable>
-            <Pressable
-              style={[styles.filterChip, teacherLogPreset === "custom" && styles.filterChipActive]}
-              onPress={() => setTeacherLogPreset("custom")}
-            >
-              <Text style={[styles.filterChipText, teacherLogPreset === "custom" && styles.filterChipTextActive]}>Custom</Text>
-            </Pressable>
-          </View>
-
-          <View style={styles.filterGrid}>
-            <DateField
-              label="From"
-              value={teacherLogDraftRange.from}
-              onChange={(value) => {
-                setTeacherLogPreset("custom");
-                setTeacherLogDraftRange((prev) => ({ ...prev, from: value }));
-              }}
-              placeholder="From date"
-            />
-            <DateField
-              label="To"
-              value={teacherLogDraftRange.to}
-              onChange={(value) => {
-                setTeacherLogPreset("custom");
-                setTeacherLogDraftRange((prev) => ({ ...prev, to: value }));
-              }}
-              placeholder="To date"
-            />
-          </View>
-
-          <View style={styles.rowActions}>
-            <Pressable style={styles.secondaryBtn} onPress={handleViewTeacherLogRange}>
-              <Text style={styles.secondaryBtnText}>View Range</Text>
-            </Pressable>
-            <Pressable
-              style={[styles.successBtn, teacherPdfDownloading && styles.btnDisabled]}
-              onPress={handleDownloadTeacherLogsPdf}
-              disabled={teacherPdfDownloading}
-            >
-              <Text style={styles.successBtnText}>{teacherPdfDownloading ? "Downloading..." : "Download PDF"}</Text>
-            </Pressable>
-          </View>
-
-          <TextInput style={styles.input} value={teacherSearch} onChangeText={setTeacherSearch} placeholder="Search teacher name" placeholderTextColor="#94a3b8" />
-          <Text style={styles.detailText}>
-            Showing {filteredTeacherLogs.length} record{filteredTeacherLogs.length === 1 ? "" : "s"} for{" "}
-            {teacherLogAppliedRange.from} to {teacherLogAppliedRange.to}.
-          </Text>
-          {teacherLogsLoading ? <ActivityIndicator size="large" color="#0f172a" /> : filteredTeacherLogs.length ? filteredTeacherLogs.map((row) => <View key={row.id} style={styles.sessionCard}><View style={styles.rowBetween}><Text style={styles.sessionTitle}>{row.teacher}</Text><StatusBadge status={row.punch_type} /></View><Text style={styles.detailText}>Punch Time: {formatDateTime(row.punch_time)}</Text><Text style={styles.detailText}>Device: {row.device_name || row.device_code || "-"}</Text><Text style={styles.detailText}>Location: {row.location || "-"}</Text></View>) : <Text style={styles.emptyText}>No teacher attendance records found.</Text>}
-        </SectionCard>
-      ) : null}
       </View>
     </ScrollView>
     </View>
@@ -1182,6 +1009,7 @@ return StyleSheet.create({
   notifyResetBtn: { flex: 0, alignSelf: "flex-start" },
   successBtn: { backgroundColor: theme.success, borderWidth: 1, borderColor: theme.successBorder, paddingHorizontal: 14, paddingVertical: 11, borderRadius: 12, alignItems: "center", justifyContent: "center" },
   successBtnText: { color: theme.successText, fontWeight: "700" },
+  actionSubmitBtn: { flex: 1 },
   deleteBtn: { backgroundColor: theme.dangerSoft, borderWidth: 1, borderColor: theme.dangerBorder, paddingHorizontal: 14, paddingVertical: 11, borderRadius: 12, alignItems: "center", justifyContent: "center" },
   deleteBtnText: { color: theme.danger, fontWeight: "700" },
   btnDisabled: { opacity: 0.55 },
@@ -1198,7 +1026,6 @@ return StyleSheet.create({
   statusRow: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
   statusChip: { borderWidth: 1, borderColor: theme.border, borderRadius: 10, paddingHorizontal: 10, paddingVertical: 7, backgroundColor: theme.card },
   statusChipText: { color: theme.text, fontWeight: "700", fontSize: 12 },
-  submitBtn: { marginTop: 4 },
   sessionCard: { borderWidth: 1, borderColor: theme.border, borderRadius: 16, backgroundColor: theme.cardMuted, padding: 12, gap: 5 },
   sessionTitle: { color: theme.text, fontWeight: "700" },
   sessionCardSelected: { borderColor: theme.primary, backgroundColor: theme.isDark ? "#1e293b" : theme.card },

@@ -88,7 +88,7 @@ export async function searchStudents(req, res) {
 
 export async function listAssignments(req, res) {
   try {
-    return sendData(res, await transportService.listAssignments(req.query || {}));
+    return sendData(res, await transportService.listAssignments(req.query || {}, req.user));
   } catch (err) {
     return mapTransportError(err, res);
   }
@@ -112,7 +112,7 @@ export async function endAssignment(req, res) {
 
 export async function listDues(req, res) {
   try {
-    return sendData(res, await transportService.listDues(req.query || {}));
+    return sendData(res, await transportService.listDues(req.query || {}, req.user));
   } catch (err) {
     return mapTransportError(err, res);
   }
@@ -128,7 +128,7 @@ export async function createPayment(req, res) {
 
 export async function listPayments(req, res) {
   try {
-    return sendData(res, await transportService.listPayments(req.query || {}));
+    return sendData(res, await transportService.listPayments(req.query || {}, req.user));
   } catch (err) {
     return mapTransportError(err, res);
   }
@@ -160,7 +160,7 @@ export async function getSummary(req, res) {
 
 export async function downloadReceipt(req, res) {
   try {
-    const pdfBuffer = await transportService.generateReceipt(req.params.paymentId);
+    const pdfBuffer = await transportService.generateReceipt(req.params.paymentId, req.user);
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader(
       "Content-Disposition",

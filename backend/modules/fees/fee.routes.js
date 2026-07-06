@@ -63,7 +63,7 @@ router.get(
 );
 router.get(
   "/transport/assignments",
-  requirePermission("fee.view"),
+  requireAnyPermission(["fee.view"]),
   transportController.listAssignments,
 );
 router.post(
@@ -78,7 +78,7 @@ router.put(
 );
 router.get(
   "/transport/dues",
-  requirePermission("fee.view"),
+  requireAnyPermission(["fee.view"]),
   transportController.listDues,
 );
 router.post(
@@ -88,7 +88,7 @@ router.post(
 );
 router.get(
   "/transport/payments",
-  requirePermission("payment.view"),
+  requireAnyPermission(["payment.view", "fee.view"]),
   transportController.listPayments,
 );
 router.put(

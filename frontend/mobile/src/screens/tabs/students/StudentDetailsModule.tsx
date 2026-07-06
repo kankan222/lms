@@ -1,32 +1,71 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { ActivityIndicator, Alert, Image, Linking, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { getStudentById, updateStudent, type StudentDetails } from "../../../services/studentsService";
-import { getMyPayments, getMyStudentFeeOptions, getPayments, getStudentFeeOptions, type PaymentItem, type StudentFeeOption } from "../../../services/paymentsService";
+import {
+  createTransportAssignment,
+  downloadAndShareReceipt,
+  downloadAndShareTransportReceipt,
+  endTransportAssignment,
+  getMyPayments,
+  getMyStudentFeeOptions,
+  getPayments,
+  getStudentFeeOptions,
+  getTransportAssignments,
+  getTransportDues,
+  getTransportPayments,
+  type PaymentItem,
+  type StudentFeeOption,
+  type TransportAssignment,
+  type TransportDue,
+  type TransportPayment,
+} from "../../../services/paymentsService";
 import { downloadMyMarksheet, downloadStudentMarksheet, getAccessibleExams, getMyResults, getStudentReport, type StudentReport } from "../../../services/reportsService";
 import { getStudentAttendanceSessions, type StudentAttendanceSessionItem } from "../../../services/attendanceService";
+import {
+  getStudentSubjectRegistrations,
+  replaceStudentSubjectRegistrations,
+  type StudentSubjectRegistrationDetails,
+} from "../../../services/subjectsService";
 import { useAuthStore } from "../../../store/authStore";
 import { useAppTheme } from "../../../theme/AppThemeProvider";
 import { formatDateLabel } from "../../../utils/format";
 import DateField from "../../../components/form/DateField";
 import TopNotice from "../../../components/feedback/TopNotice";
 
-type TabKey = "overview" | "parents" | "attendance" | "fees" | "reports";
+type TabKey = "overview" | "parents" | "subjects" | "attendance" | "fees" | "transportation" | "reports";
 type ExamOption = { id: number; name: string };
 type Props = { studentId: number | null; exams: ExamOption[] };
 type Notice = { title: string; message: string; tone: "success" | "error" } | null;
 type ParentRole = "father" | "mother";
 type ParentField = "name" | "mobile" | "email" | "occupation" | "qualification";
 type ParentDraft = Record<ParentRole, Record<ParentField, string>>;
+type TransportForm = { enabled: boolean; monthly_fee: string; start_month: string; start_year: string };
 
 const EMPTY_PARENT_DRAFT: ParentDraft = {
   father: { name: "", mobile: "", email: "", occupation: "", qualification: "" },
   mother: { name: "", mobile: "", email: "", occupation: "", qualification: "" },
 };
+const TRANSPORT_MONTHS = [
+  ["1", "January"],
+  ["2", "February"],
+  ["3", "March"],
+  ["4", "April"],
+  ["5", "May"],
+  ["6", "June"],
+  ["7", "July"],
+  ["8", "August"],
+  ["9", "September"],
+  ["10", "October"],
+  ["11", "November"],
+  ["12", "December"],
+];
 
 const fmtScope = (value?: string | null) => String(value || "").trim().toLowerCase() === "hs" ? "Higher Secondary" : "School";
 const fmtCurrency = (value?: number | string | null) => new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 }).format(Number(value || 0));
 const norm = (value?: string | null, fallback = "-") => String(value || "").trim().toLowerCase() || fallback;
 const title = (value: string) => value ? value.charAt(0).toUpperCase() + value.slice(1) : "";
+const tabLabel = (value: TabKey) => value === "subjects" ? "Subject Selection" : value === "fees" ? "Fees & Payments" : title(value);
+const formatTransportMonth = (month?: number | string | null, year?: number | string | null) => `${TRANSPORT_MONTHS.find(([value]) => Number(value) === Number(month))?.[1] || month || "-"}${year ? ` ${year}` : ""}`;
 const resolvePhoto = (photoUrl?: string | null) => !photoUrl ? null : /^https?:\/\//i.test(photoUrl) ? photoUrl : `https://kalongkapilividyapith.com${String(photoUrl).startsWith("/") ? photoUrl : `/${photoUrl}`}`;
 const toDialablePhone = (value?: string | null) => {
   const raw = String(value || "").trim();
@@ -42,6 +81,10 @@ const toDialablePhone = (value?: string | null) => {
 
   if (!/^\d{7,15}$/.test(digitsOnly)) return null;
   return normalized;
+};
+const toMailAddress = (value?: string | null) => {
+  const email = String(value || "").trim();
+  return /^\S+@\S+\.\S+$/.test(email) ? email : null;
 };
 
 function getErrorMessage(err: unknown, fallback: string) {
@@ -136,7 +179,11 @@ export default function StudentDetailsModule({ studentId, exams }: Props) {
   const { theme } = useAppTheme();
   const user = useAuthStore((state) => state.user);
   const isParent = Boolean(user?.roles?.includes("parent"));
+  const isStudentUser = Boolean(user?.roles?.includes("student"));
+  const canViewTransportation = !isStudentUser && Boolean(user?.permissions?.includes("fee.view"));
+  const canEditTransportation = !isParent && !isStudentUser && Boolean(user?.permissions?.includes("fee.create"));
   const canEditParents = !isParent && Boolean(user?.permissions?.includes("student.update"));
+  const canEditSubjectSelection = !isParent && Boolean(user?.permissions?.includes("student.update"));
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<Notice>(null);
@@ -159,6 +206,26 @@ export default function StudentDetailsModule({ studentId, exams }: Props) {
   const [parentSaveError, setParentSaveError] = useState<string>("");
   const [parentSaveMessage, setParentSaveMessage] = useState<string>("");
   const [savingParents, setSavingParents] = useState(false);
+  const [subjectSelection, setSubjectSelection] = useState<StudentSubjectRegistrationDetails>({ enrollment: null, offerings: [] });
+  const [selectedOfferingIds, setSelectedOfferingIds] = useState<number[]>([]);
+  const [subjectSelectionLoading, setSubjectSelectionLoading] = useState(false);
+  const [subjectSelectionSaving, setSubjectSelectionSaving] = useState(false);
+  const [subjectSelectionError, setSubjectSelectionError] = useState("");
+  const [subjectSelectionMessage, setSubjectSelectionMessage] = useState("");
+  const [transportAssignments, setTransportAssignments] = useState<TransportAssignment[]>([]);
+  const [transportDues, setTransportDues] = useState<TransportDue[]>([]);
+  const [transportPayments, setTransportPayments] = useState<TransportPayment[]>([]);
+  const [transportError, setTransportError] = useState("");
+  const [transportMessage, setTransportMessage] = useState("");
+  const [transportSaving, setTransportSaving] = useState(false);
+  const [transportDownloadingId, setTransportDownloadingId] = useState<number | null>(null);
+  const [paymentReceiptDownloadingId, setPaymentReceiptDownloadingId] = useState<number | null>(null);
+  const [transportForm, setTransportForm] = useState<TransportForm>({
+    enabled: false,
+    monthly_fee: "",
+    start_month: "4",
+    start_year: String(new Date().getFullYear()),
+  });
 
   useEffect(() => { if (!notice) return undefined; const timer = setTimeout(() => setNotice(null), 3200); return () => clearTimeout(timer); }, [notice]);
 
@@ -177,6 +244,10 @@ export default function StudentDetailsModule({ studentId, exams }: Props) {
         if (ignore) return;
         setStudent(detail);
         setReportExams((examRows || []).map((item) => ({ id: Number(item.id), name: item.name })));
+        await Promise.all([
+          loadSubjectSelection(detail.id),
+          canViewTransportation ? loadTransport(detail.id) : Promise.resolve(),
+        ]);
       } catch (err: unknown) {
         if (!ignore) {
           setStudent(null);
@@ -311,13 +382,78 @@ export default function StudentDetailsModule({ studentId, exams }: Props) {
   const approvedAttendance = useMemo(() => attendanceRows.filter((row) => norm(row.approval_status, "") === "approved").length, [attendanceRows]);
   const attendanceTotal = attendanceRows.length;
   const paymentTotal = totalPaid + totalDue;
+  const activeTransportAssignment = useMemo(
+    () => transportAssignments.find((item) => norm(item.status, "") === "active") || null,
+    [transportAssignments]
+  );
+  const tabs = useMemo<TabKey[]>(
+    () => ["overview", "parents", "subjects", "attendance", "fees", ...(canViewTransportation ? (["transportation"] as TabKey[]) : []), "reports"],
+    [canViewTransportation]
+  );
+
+  async function loadSubjectSelection(nextStudentId: number | string) {
+    setSubjectSelectionLoading(true);
+    setSubjectSelectionError("");
+    setSubjectSelectionMessage("");
+    try {
+      const data = await getStudentSubjectRegistrations(nextStudentId);
+      const offerings = Array.isArray(data.offerings) ? data.offerings : [];
+      setSubjectSelection({ enrollment: data.enrollment || null, offerings });
+      setSelectedOfferingIds(
+        offerings
+          .filter((offering) => Boolean(offering.auto_required) || Boolean(offering.registration_id))
+          .map((offering) => Number(offering.id))
+          .filter((offeringId) => Number.isFinite(offeringId))
+      );
+    } catch (err: unknown) {
+      setSubjectSelection({ enrollment: null, offerings: [] });
+      setSelectedOfferingIds([]);
+      setSubjectSelectionError(getErrorMessage(err, "Failed to load subject choices."));
+    } finally {
+      setSubjectSelectionLoading(false);
+    }
+  }
+
+  async function loadTransport(nextStudentId: number | string) {
+    setTransportError("");
+    setTransportMessage("");
+    try {
+      const [assignmentRows, dueRows] = await Promise.all([
+        getTransportAssignments({ student_id: nextStudentId }),
+        getTransportDues({ student_id: nextStudentId }),
+      ]);
+      let paymentRows: TransportPayment[] = [];
+      try {
+        paymentRows = await getTransportPayments({ student_id: nextStudentId });
+      } catch {
+        paymentRows = [];
+      }
+      const activeAssignment = assignmentRows.find((item) => norm(item.status, "") === "active");
+      setTransportAssignments(assignmentRows);
+      setTransportDues(dueRows);
+      setTransportPayments(paymentRows);
+      setTransportForm((prev) => ({
+        ...prev,
+        enabled: Boolean(activeAssignment),
+        monthly_fee: activeAssignment?.monthly_fee ? String(activeAssignment.monthly_fee) : prev.monthly_fee,
+        start_month: activeAssignment?.start_month ? String(activeAssignment.start_month) : prev.start_month,
+        start_year: activeAssignment?.start_year ? String(activeAssignment.start_year) : prev.start_year,
+      }));
+    } catch (err: unknown) {
+      setTransportAssignments([]);
+      setTransportDues([]);
+      setTransportPayments([]);
+      setTransportError(getErrorMessage(err, "Failed to load transportation fee details."));
+    }
+  }
 
   function updateParentDraft(role: ParentRole, field: ParentField, value: string) {
+    const nextValue = field === "mobile" ? value.replace(/\D/g, "").slice(0, 10) : value;
     setParentDraft((prev) => ({
       ...prev,
       [role]: {
         ...prev[role],
-        [field]: value,
+        [field]: nextValue,
       },
     }));
   }
@@ -400,6 +536,101 @@ export default function StudentDetailsModule({ studentId, exams }: Props) {
     }
   }
 
+  function toggleSubjectOffering(offeringId: number, disabled: boolean) {
+    if (disabled || !Number.isFinite(offeringId)) return;
+    setSubjectSelectionMessage("");
+    setSubjectSelectionError("");
+    setSelectedOfferingIds((prev) =>
+      prev.includes(offeringId) ? prev.filter((id) => id !== offeringId) : [...prev, offeringId]
+    );
+  }
+
+  async function handleSaveSubjectSelection() {
+    if (!student?.id || subjectSelectionSaving || !canEditSubjectSelection) return;
+    setSubjectSelectionSaving(true);
+    setSubjectSelectionError("");
+    setSubjectSelectionMessage("");
+    try {
+      await replaceStudentSubjectRegistrations(student.id, { offering_ids: selectedOfferingIds });
+      await loadSubjectSelection(student.id);
+      setSubjectSelectionMessage("Subject selection updated.");
+      setNotice({ title: "Subjects Updated", message: "Subject choices have been saved.", tone: "success" });
+    } catch (err: unknown) {
+      setSubjectSelectionError(getErrorMessage(err, "Failed to save subject selection."));
+    } finally {
+      setSubjectSelectionSaving(false);
+    }
+  }
+
+  async function handleSaveTransport() {
+    if (!student?.id || transportSaving || !canEditTransportation) return;
+    setTransportSaving(true);
+    setTransportError("");
+    setTransportMessage("");
+    try {
+      if (transportForm.enabled) {
+        if (!student.session_id) {
+          throw new Error("Student must have an active academic session before transportation fee can be enabled.");
+        }
+        if (!transportForm.monthly_fee || Number(transportForm.monthly_fee) <= 0) {
+          throw new Error("Monthly transportation fee is required.");
+        }
+        await createTransportAssignment({
+          student_id: student.id,
+          session_id: student.session_id,
+          start_month: Number(transportForm.start_month),
+          start_year: Number(transportForm.start_year),
+          monthly_fee: Number(transportForm.monthly_fee),
+        });
+        setTransportMessage("Transportation fee enabled for this student.");
+      } else if (activeTransportAssignment) {
+        const today = new Date();
+        await endTransportAssignment(activeTransportAssignment.id, {
+          end_month: today.getMonth() + 1,
+          end_year: today.getFullYear(),
+        });
+        setTransportMessage("Transportation fee disabled for this student.");
+      }
+      await loadTransport(student.id);
+    } catch (err: unknown) {
+      setTransportError(getErrorMessage(err, "Failed to save transportation fee."));
+    } finally {
+      setTransportSaving(false);
+    }
+  }
+
+  async function handleTransportReceipt(paymentId: number) {
+    if (!paymentId) return;
+    setTransportDownloadingId(paymentId);
+    setTransportError("");
+    try {
+      await downloadAndShareTransportReceipt(paymentId);
+      setNotice({ title: "Receipt Ready", message: "Transportation receipt is ready for sharing.", tone: "success" });
+    } catch (err: unknown) {
+      const message = getErrorMessage(err, "Failed to download transportation receipt.");
+      setTransportError(message);
+      Alert.alert("Download failed", message);
+    } finally {
+      setTransportDownloadingId(null);
+    }
+  }
+
+  async function handlePaymentReceipt(payment: PaymentItem) {
+    if (!payment?.id) return;
+    setPaymentReceiptDownloadingId(payment.id);
+    try {
+      const receiptSerial = payment.receipt_serial || `PAY-${String(payment.id).padStart(6, "0")}`;
+      await downloadAndShareReceipt(payment.id, receiptSerial);
+      setNotice({ title: "Receipt Ready", message: "Payment receipt is ready for sharing.", tone: "success" });
+    } catch (err: unknown) {
+      const message = getErrorMessage(err, "Failed to download payment receipt.");
+      setNotice({ title: "Download failed", message, tone: "error" });
+      Alert.alert("Download failed", message);
+    } finally {
+      setPaymentReceiptDownloadingId(null);
+    }
+  }
+
   function handleCancelParentEdit() {
     setIsEditingParents(false);
     setParentSaveError("");
@@ -429,6 +660,16 @@ export default function StudentDetailsModule({ studentId, exams }: Props) {
       await Linking.openURL(`tel:${dialable}`);
     } catch {
       Alert.alert("Call failed", "Could not open the phone dialer.");
+    }
+  }
+
+  async function handleEmailPress(email?: string | null) {
+    const mailAddress = toMailAddress(email);
+    if (!mailAddress) return;
+    try {
+      await Linking.openURL(`mailto:${mailAddress}`);
+    } catch {
+      Alert.alert("Email failed", "Could not open the email app.");
     }
   }
 
@@ -477,7 +718,7 @@ export default function StudentDetailsModule({ studentId, exams }: Props) {
       </View>
 
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tabsRow}>
-        {(["overview", "parents", "attendance", "fees", "reports"] as TabKey[]).map((tab) => <FilterChip key={tab} label={title(tab)} active={activeTab === tab} onPress={() => setActiveTab(tab)} />)}
+        {tabs.map((tab) => <FilterChip key={tab} label={tabLabel(tab)} active={activeTab === tab} onPress={() => setActiveTab(tab)} />)}
       </ScrollView>
 
       {activeTab === "overview" ? (
@@ -541,6 +782,7 @@ export default function StudentDetailsModule({ studentId, exams }: Props) {
                   placeholder="10-digit phone"
                   placeholderTextColor={theme.mutedText}
                   keyboardType="phone-pad"
+                  maxLength={10}
                 />
                 <Text style={styles.inputLabel}>Email</Text>
                 <TextInput
@@ -577,7 +819,11 @@ export default function StudentDetailsModule({ studentId, exams }: Props) {
                   value={fatherDisplay?.mobile || "-"}
                   onPress={toDialablePhone(fatherDisplay?.mobile) ? () => handleCallPress(fatherDisplay?.mobile) : undefined}
                 />
-                <InfoRow label="Email" value={fatherDisplay?.email || "-"} />
+                <InfoRow
+                  label="Email"
+                  value={fatherDisplay?.email || "-"}
+                  onPress={toMailAddress(fatherDisplay?.email) ? () => handleEmailPress(fatherDisplay?.email) : undefined}
+                />
                 <InfoRow label="Occupation" value={fatherDisplay?.occupation || "-"} />
                 <InfoRow label="Qualification" value={fatherDisplay?.qualification || "-"} />
               </>
@@ -602,6 +848,7 @@ export default function StudentDetailsModule({ studentId, exams }: Props) {
                   placeholder="10-digit phone"
                   placeholderTextColor={theme.mutedText}
                   keyboardType="phone-pad"
+                  maxLength={10}
                 />
                 <Text style={styles.inputLabel}>Email</Text>
                 <TextInput
@@ -638,13 +885,75 @@ export default function StudentDetailsModule({ studentId, exams }: Props) {
                   value={motherDisplay?.mobile || "-"}
                   onPress={toDialablePhone(motherDisplay?.mobile) ? () => handleCallPress(motherDisplay?.mobile) : undefined}
                 />
-                <InfoRow label="Email" value={motherDisplay?.email || "-"} />
+                <InfoRow
+                  label="Email"
+                  value={motherDisplay?.email || "-"}
+                  onPress={toMailAddress(motherDisplay?.email) ? () => handleEmailPress(motherDisplay?.email) : undefined}
+                />
                 <InfoRow label="Occupation" value={motherDisplay?.occupation || "-"} />
                 <InfoRow label="Qualification" value={motherDisplay?.qualification || "-"} />
               </>
             )}
           </SectionCard>
         </View>
+      ) : null}
+
+      {activeTab === "subjects" ? (
+        <SectionCard title="Subject Selection" hint={`${subjectSelection.offerings.length} subjects`}>
+          {subjectSelection.enrollment ? (
+            <View style={styles.metaPillRow}>
+              <StatusChip value={subjectSelection.enrollment.class_name || student.class || "-"} />
+              <StatusChip value={subjectSelection.enrollment.section_name || student.section || "-"} />
+              <StatusChip value={subjectSelection.enrollment.medium || student.medium || "-"} />
+              {subjectSelection.enrollment.stream_name ? <StatusChip value={subjectSelection.enrollment.stream_name} /> : null}
+            </View>
+          ) : null}
+          {subjectSelectionError ? <Text style={styles.errorText}>{subjectSelectionError}</Text> : null}
+          {subjectSelectionMessage ? <Text style={styles.successText}>{subjectSelectionMessage}</Text> : null}
+          {subjectSelectionLoading ? <ActivityIndicator color={theme.text} /> : null}
+          {!subjectSelectionLoading && !subjectSelection.offerings.length ? (
+            <Text style={styles.emptyText}>No subjects are available for this student.</Text>
+          ) : (
+            <View style={styles.subjectSelectionList}>
+              {subjectSelection.offerings.map((offering) => {
+                const offeringId = Number(offering.id);
+                const isRequired = Boolean(offering.auto_required);
+                const checked = isRequired || selectedOfferingIds.includes(offeringId);
+                const disabled = isRequired || !canEditSubjectSelection;
+                return (
+                  <Pressable
+                    key={offering.id}
+                    style={[
+                      styles.checkRow,
+                      { borderColor: checked ? theme.primary : theme.border, backgroundColor: checked ? theme.cardMuted : theme.card },
+                      disabled && styles.btnDisabled,
+                    ]}
+                    onPress={() => toggleSubjectOffering(offeringId, disabled)}
+                  >
+                    <View style={[styles.checkboxBox, { borderColor: checked ? theme.primary : theme.border, backgroundColor: checked ? theme.primary : "transparent" }]} />
+                    <View style={styles.listCopy}>
+                      <Text style={[styles.listTitle, { color: theme.text }]}>
+                        {offering.subject_name}{offering.subject_code ? ` (${offering.subject_code})` : ""}
+                      </Text>
+                      <Text style={[styles.listMeta, { color: theme.subText }]}>
+                        {title(String(offering.subject_group || "subject"))}{isRequired ? " | Required" : " | Optional"}
+                      </Text>
+                    </View>
+                  </Pressable>
+                );
+              })}
+            </View>
+          )}
+          {canEditSubjectSelection ? (
+            <Pressable
+              style={[styles.primaryBtn, { backgroundColor: theme.primary }, (subjectSelectionSaving || subjectSelectionLoading) && styles.btnDisabled]}
+              onPress={handleSaveSubjectSelection}
+              disabled={subjectSelectionSaving || subjectSelectionLoading}
+            >
+              <Text style={[styles.primaryBtnText, { color: theme.primaryText }]}>{subjectSelectionSaving ? "Saving..." : "Save Subjects"}</Text>
+            </Pressable>
+          ) : null}
+        </SectionCard>
       ) : null}
 
       {activeTab === "attendance" ? (
@@ -737,8 +1046,121 @@ export default function StudentDetailsModule({ studentId, exams }: Props) {
                   <Text style={[styles.listMeta, { color: theme.subText }]}>{payment.class_name || "-"} / {payment.section_name || "-"}</Text>
                   <Text style={[styles.listMeta, { color: theme.subText }]}>Remarks: {payment.remarks || "-"}</Text>
                 </View>
+                <View style={styles.actionRow}>
+                  <Pressable
+                    style={[styles.secondaryBtn, paymentReceiptDownloadingId === payment.id && styles.btnDisabled]}
+                    onPress={() => handlePaymentReceipt(payment)}
+                    disabled={paymentReceiptDownloadingId === payment.id}
+                  >
+                    <Text style={styles.secondaryBtnText}>{paymentReceiptDownloadingId === payment.id ? "Downloading..." : "Receipt"}</Text>
+                  </Pressable>
+                </View>
               </View>
             )) : <Text style={styles.emptyText}>No payment history found for this student.</Text>}
+          </SectionCard>
+        </>
+      ) : null}
+
+      {activeTab === "transportation" && canViewTransportation ? (
+        <>
+          {isParent && transportError ? <Text style={styles.errorText}>{transportError}</Text> : null}
+          {!isParent ? (
+          <SectionCard title="Transportation Fee" hint={activeTransportAssignment ? "Active" : "Not enabled"}>
+            {transportError ? <Text style={styles.errorText}>{transportError}</Text> : null}
+            {transportMessage ? <Text style={styles.successText}>{transportMessage}</Text> : null}
+            <Pressable
+              style={[
+                styles.checkRow,
+                { borderColor: transportForm.enabled ? theme.primary : theme.border, backgroundColor: theme.cardMuted },
+                (!canEditTransportation || transportSaving) && styles.btnDisabled,
+              ]}
+              onPress={() => canEditTransportation && !transportSaving ? setTransportForm((prev) => ({ ...prev, enabled: !prev.enabled })) : undefined}
+            >
+              <View style={[styles.checkboxBox, { borderColor: transportForm.enabled ? theme.primary : theme.border, backgroundColor: transportForm.enabled ? theme.primary : "transparent" }]} />
+              <View style={styles.listCopy}>
+                <Text style={[styles.listTitle, { color: theme.text }]}>Enable transportation fee</Text>
+                <Text style={[styles.listMeta, { color: theme.subText }]}>Creates monthly transportation dues from the selected start month.</Text>
+              </View>
+            </Pressable>
+            <Text style={styles.inputLabel}>Monthly Fee</Text>
+            <TextInput
+              style={[styles.input, { borderColor: theme.border, backgroundColor: theme.inputBg, color: theme.text }, (!canEditTransportation || !transportForm.enabled || transportSaving) && styles.btnDisabled]}
+              value={transportForm.monthly_fee}
+              onChangeText={(value) => setTransportForm((prev) => ({ ...prev, monthly_fee: value.replace(/[^\d.]/g, "") }))}
+              keyboardType="numeric"
+              editable={canEditTransportation && transportForm.enabled && !transportSaving}
+              placeholder="Monthly fee"
+              placeholderTextColor={theme.mutedText}
+            />
+            <Text style={styles.inputLabel}>Start Month</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterWrap}>
+              {TRANSPORT_MONTHS.map(([value, label]) => (
+                <FilterChip
+                  key={value}
+                  label={label}
+                  active={transportForm.start_month === value}
+                  onPress={() => canEditTransportation && transportForm.enabled && !transportSaving ? setTransportForm((prev) => ({ ...prev, start_month: value })) : undefined}
+                />
+              ))}
+            </ScrollView>
+            <Text style={styles.inputLabel}>Start Year</Text>
+            <TextInput
+              style={[styles.input, { borderColor: theme.border, backgroundColor: theme.inputBg, color: theme.text }, (!canEditTransportation || !transportForm.enabled || transportSaving) && styles.btnDisabled]}
+              value={transportForm.start_year}
+              onChangeText={(value) => setTransportForm((prev) => ({ ...prev, start_year: value.replace(/\D/g, "").slice(0, 4) }))}
+              keyboardType="numeric"
+              editable={canEditTransportation && transportForm.enabled && !transportSaving}
+              placeholder="Start year"
+              placeholderTextColor={theme.mutedText}
+            />
+            {activeTransportAssignment ? (
+              <View style={styles.summaryGrid}>
+                <SummaryCard label="Monthly Fee" value={fmtCurrency(activeTransportAssignment.monthly_fee)} tone="green" />
+                <SummaryCard label="Started From" value={formatTransportMonth(activeTransportAssignment.start_month, activeTransportAssignment.start_year)} tone="blue" />
+                <SummaryCard label="Pending Months" value={activeTransportAssignment.pending_count || 0} tone="violet" />
+              </View>
+            ) : null}
+            {canEditTransportation ? (
+              <Pressable style={[styles.primaryBtn, { backgroundColor: theme.primary }, transportSaving && styles.btnDisabled]} onPress={handleSaveTransport} disabled={transportSaving}>
+                <Text style={[styles.primaryBtnText, { color: theme.primaryText }]}>{transportSaving ? "Saving..." : "Save Transportation Fee"}</Text>
+              </Pressable>
+            ) : null}
+          </SectionCard>
+          ) : null}
+          <SectionCard title="Transportation Dues" hint={`${transportDues.length} rows`}>
+            {transportDues.length ? transportDues.map((due) => (
+              <View key={due.id} style={[styles.listCard, { borderColor: theme.border, backgroundColor: theme.cardMuted }]}>
+                <View style={styles.rowBetween}>
+                  <View style={styles.listCopy}>
+                    <Text style={[styles.listTitle, { color: theme.text }]}>{formatTransportMonth(due.due_month, due.due_year)}</Text>
+                    <Text style={[styles.listMeta, { color: theme.subText }]}>Total {fmtCurrency(due.amount)} | Paid {fmtCurrency(due.paid)} | Remaining {fmtCurrency(due.remaining)}</Text>
+                  </View>
+                  <StatusChip value={norm(due.status)} />
+                </View>
+              </View>
+            )) : <Text style={styles.emptyText}>No transportation dues found for this student.</Text>}
+          </SectionCard>
+          <SectionCard title="Transportation Payment History" hint={`${transportPayments.length} entries`}>
+            {transportPayments.length ? transportPayments.map((payment) => (
+              <View key={payment.id} style={[styles.listCard, { borderColor: theme.border, backgroundColor: theme.cardMuted }]}>
+                <View style={styles.rowBetween}>
+                  <View style={styles.listCopy}>
+                    <Text style={[styles.listTitle, { color: theme.text }]}>{payment.receipt_no || `TR-${String(payment.id).padStart(6, "0")}`}</Text>
+                    <Text style={[styles.listMeta, { color: theme.subText }]}>{formatDateLabel(payment.created_at)} | {payment.covered_months || "-"}</Text>
+                  </View>
+                  <Text style={[styles.listAmount, { color: theme.text }]}>{fmtCurrency(payment.amount_paid)}</Text>
+                </View>
+                <View style={styles.actionRow}>
+                  <Pressable
+                    style={[styles.secondaryBtn, transportDownloadingId === payment.id && styles.btnDisabled]}
+                    onPress={() => handleTransportReceipt(payment.id)}
+                    disabled={transportDownloadingId === payment.id}
+                  >
+                    <Text style={styles.secondaryBtnText}>{transportDownloadingId === payment.id ? "Downloading..." : "Receipt"}</Text>
+                  </Pressable>
+                </View>
+              </View>
+            )) : <Text style={styles.emptyText}>No transportation payment history found for this student.</Text>}
           </SectionCard>
         </>
       ) : null}
@@ -842,6 +1264,9 @@ const styles = StyleSheet.create({
   input: { borderWidth: 1, borderColor: "#cbd5e1", borderRadius: 14, backgroundColor: "#ffffff", paddingHorizontal: 12, paddingVertical: 11, color: "#0f172a" },
   inputHalf: { flex: 1 },
   filterWrap: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  subjectSelectionList: { gap: 8 },
+  checkRow: { flexDirection: "row", alignItems: "flex-start", gap: 10, borderWidth: 1, borderRadius: 14, paddingHorizontal: 12, paddingVertical: 11 },
+  checkboxBox: { width: 18, height: 18, borderRadius: 5, borderWidth: 1, marginTop: 1 },
   secondaryBtn: { alignSelf: "flex-start", borderWidth: 1, borderColor: "#cbd5e1", backgroundColor: "#ffffff", paddingHorizontal: 14, paddingVertical: 11, borderRadius: 12, alignItems: "center", justifyContent: "center" },
   secondaryBtnText: { color: "#334155", fontWeight: "700" },
   primaryBtn: { backgroundColor: "#0f172a", paddingHorizontal: 16, paddingVertical: 11, borderRadius: 12, alignItems: "center", justifyContent: "center" },

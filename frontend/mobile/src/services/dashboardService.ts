@@ -30,6 +30,7 @@ export type DashboardClassOverview = {
   class_name: string;
   section_id: number;
   section_name: string;
+  class_scope?: "school" | "hs" | string | null;
   students: number;
   present_today: number;
 };
@@ -45,10 +46,20 @@ export type DashboardTrendPoint = {
   absent?: number;
   late?: number;
   half_day?: number;
+  class_scope?: "school" | "hs" | string | null;
+  school?: number;
+  hs?: number;
+  school_present?: number;
+  school_absent?: number;
+  school_late?: number;
+  hs_present?: number;
+  hs_absent?: number;
+  hs_late?: number;
 };
 
 export type DashboardFeeStatus = {
   status: string;
+  class_scope?: "school" | "hs" | string | null;
   total_items: number;
   total_amount: number;
   paid_amount: number;
@@ -74,6 +85,24 @@ export type DashboardSummary = {
     studentAttendanceTrend: DashboardTrendPoint[];
     teacherAttendanceTrend: DashboardTrendPoint[];
     feeStatusBreakdown: DashboardFeeStatus[];
+    studentClassStats?: Array<{
+      class_id: number;
+      class_name: string;
+      class_scope?: "school" | "hs" | string | null;
+      total: number;
+    }>;
+    studentScopeStats?: Array<{
+      class_scope: "school" | "hs" | string;
+      total: number;
+    }>;
+    paymentCollectionTrendByScope?: DashboardTrendPoint[];
+    feeStatusBreakdownByScope?: DashboardFeeStatus[];
+    studentAttendanceTodayByScope?: Array<{
+      class_scope?: "school" | "hs" | string | null;
+      status: string;
+      total: number;
+    }>;
+    studentAttendanceTrendByScope?: DashboardTrendPoint[];
   };
   upcomingExams: DashboardExam[];
   recentActivities: DashboardActivity[];

@@ -173,7 +173,7 @@ export default function ClassesTab() {
         setHasMore(mappedRows.length >= CLASS_PAGE_SIZE);
       }
     } catch (err: unknown) {
-      setError(getErrorMessage(err, "Could not load classes."));
+      setError(getErrorMessage(err, "Could not load class records."));
     } finally {
       if (mode === "loadMore") {
         setLoadingMore(false);
@@ -208,7 +208,7 @@ export default function ClassesTab() {
     const higherSecondaryCount = rows.filter((row) => row.class_scope === "hs").length;
     return [
       {
-        label: "Total Classes",
+        label: "Class Records",
         value: totalClasses,
         accent: theme.infoSoft,
         border: theme.infoBorder,
@@ -399,9 +399,9 @@ export default function ClassesTab() {
             <View style={styles.heroCard}>
               <View style={styles.heroCopy}>
                 <Text style={[styles.heroEyebrow, { color: theme.subText }]}>Overview</Text>
-                <Text style={[styles.title, { color: theme.text }]}>Classes</Text>
+                <Text style={[styles.title, { color: theme.text }]}>Class</Text>
                 <Text style={[styles.subtitle, { color: theme.subText }]}>
-                  Manage classes, sections, and scope with the live academic structure.
+                  Manage class records, sections, and scope with the live academic structure.
                 </Text>
               </View>
             </View>
@@ -464,19 +464,19 @@ export default function ClassesTab() {
 
             {showEmptyState ? (
               <View style={[styles.emptyCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
-                <Text style={[styles.emptyTitle, { color: theme.text }]}>No classes found</Text>
+                <Text style={[styles.emptyTitle, { color: theme.text }]}>No class records found</Text>
                 <Text style={[styles.emptyText, { color: theme.subText }]}>
                   {scopeFilter === "all"
-                    ? "Add your first class to start building the academic structure."
-                    : "No classes are available for the selected scope."}
+                    ? "Add your first class record to start building the academic structure."
+                    : "No class records are available for the selected scope."}
                 </Text>
               </View>
             ) : null}
 
             {showFilteredEmptyState ? (
               <View style={[styles.emptyCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
-                <Text style={[styles.emptyTitle, { color: theme.text }]}>No matching classes yet</Text>
-                <Text style={[styles.emptyText, { color: theme.subText }]}>Keep loading more classes to continue searching in this scope.</Text>
+                <Text style={[styles.emptyTitle, { color: theme.text }]}>No matching class records yet</Text>
+                <Text style={[styles.emptyText, { color: theme.subText }]}>Keep loading more class records to continue searching in this scope.</Text>
               </View>
             ) : null}
           </View>
@@ -602,7 +602,7 @@ export default function ClassesTab() {
             </View>
             <Text style={[styles.confirmTitle, { color: theme.text }]}>Delete Class</Text>
             <Text style={[styles.confirmMessage, { color: theme.subText }]}>
-              {deleteTarget ? `This will remove ${deleteTarget.name} from the active classes list.` : ""}
+              {deleteTarget ? `This will remove ${deleteTarget.name} from the active class records list.` : ""}
             </Text>
             <View style={styles.modalFooter}>
               <Pressable
@@ -745,6 +745,15 @@ function ClassFormModal({
                 {sectionErrors[index]?.medium ? (
                   <Text style={[styles.fieldError, { color: theme.danger }]}>{sectionErrors[index]?.medium}</Text>
                 ) : null}
+                <Pressable
+                  style={[styles.removeSectionBtn, { borderColor: theme.dangerBorder, backgroundColor: theme.dangerSoft }]}
+                  onPress={() => {
+                    const nextSections = form.sections.filter((_, sectionIndex) => sectionIndex !== index);
+                    onChange({ ...form, sections: nextSections });
+                  }}
+                >
+                  <Text style={[styles.removeSectionBtnText, { color: theme.danger }]}>Remove Section</Text>
+                </Pressable>
               </View>
             ))}
 
@@ -1218,6 +1227,18 @@ const styles = StyleSheet.create({
   },
   addSectionBtnText: {
     color: "#334155",
+    fontWeight: "700",
+  },
+  removeSectionBtn: {
+    alignSelf: "flex-start",
+    marginTop: 2,
+    borderWidth: 1,
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+  },
+  removeSectionBtnText: {
+    fontSize: 12,
     fontWeight: "700",
   },
   mediumRow: {

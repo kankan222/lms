@@ -8,6 +8,22 @@ import { authenticate } from "../auth/auth.middleware.js";
 
 const router = express.Router();
 
+function requireAnyPermission(permissions) {
+  return (req, res, next) => {
+    if (!req.user) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    const granted = permissions.some((permission) => req.user.permissions?.includes(permission));
+    const parentSubjectRead = req.user.roles?.includes("parent") && permissions.includes("student.view");
+    if (!granted && !parentSubjectRead) {
+      return res.status(403).json({ message: "Forbidden" });
+    }
+
+    next();
+  };
+}
+
 router.get(
   "/",
   authenticate,
@@ -47,7 +63,7 @@ router.get(
   "/student-registrations/:studentId",
   authenticate,
   attachPermissions,
-  requirePermission("subjects.view"),
+  requireAnyPermission(["subjects.view", "student.view"]),
   controller.getStudentSubjectRegistrations,
 );
 router.put(

@@ -27,11 +27,55 @@ type SessionItem = { id: number; name: string; is_active?: number | boolean };
 type StudentScope = "school" | "hs";
 type Notice = { title: string; message: string; tone: "success" | "error" } | null;
 type DeleteTarget = { id: number; name: string } | null;
-type CreateForm = { admission_no: string; name: string; mobile: string; gender: string; dob: string; date_of_admission: string; session_id: number | null; class_id: number | null; section_id: number | null; roll_number: string; stream: string; father_name: string; father_mobile: string; mother_name: string; mother_mobile: string };
+type CreateForm = {
+  admission_no: string;
+  name: string;
+  mobile: string;
+  gender: string;
+  dob: string;
+  date_of_admission: string;
+  session_id: number | null;
+  class_id: number | null;
+  section_id: number | null;
+  roll_number: string;
+  stream: string;
+  father_name: string;
+  father_mobile: string;
+  father_email: string;
+  father_occupation: string;
+  father_qualification: string;
+  mother_name: string;
+  mother_mobile: string;
+  mother_email: string;
+  mother_occupation: string;
+  mother_qualification: string;
+};
 type CreateErrorKey = keyof CreateForm | "parent_mobile";
 type EditForm = { id: number | null; admission_no: string; name: string; mobile: string; gender: string; dob: string; date_of_admission: string; session_id: number | null; class_id: number | null; section_id: number | null; roll_number: string; stream: string; class_scope: StudentScope };
 
-const EMPTY_CREATE: CreateForm = { admission_no: "", name: "", mobile: "", gender: "", dob: "", date_of_admission: "", session_id: null, class_id: null, section_id: null, roll_number: "", stream: "", father_name: "", father_mobile: "", mother_name: "", mother_mobile: "" };
+const EMPTY_CREATE: CreateForm = {
+  admission_no: "",
+  name: "",
+  mobile: "",
+  gender: "",
+  dob: "",
+  date_of_admission: "",
+  session_id: null,
+  class_id: null,
+  section_id: null,
+  roll_number: "",
+  stream: "",
+  father_name: "",
+  father_mobile: "",
+  father_email: "",
+  father_occupation: "",
+  father_qualification: "",
+  mother_name: "",
+  mother_mobile: "",
+  mother_email: "",
+  mother_occupation: "",
+  mother_qualification: "",
+};
 const EMPTY_EDIT: EditForm = { id: null, admission_no: "", name: "", mobile: "", gender: "", dob: "", date_of_admission: "", session_id: null, class_id: null, section_id: null, roll_number: "", stream: "", class_scope: "school" };
 const STREAM_OPTIONS = ["Arts", "Commerce", "Science"] as const;
 const STUDENTS_PAGE_SIZE = 30;
@@ -221,8 +265,10 @@ export default function StudentsTab({ onStartParentMessage }: Props) {
     if (!form.father_mobile.trim() && !form.mother_mobile.trim()) e.parent_mobile = "Enter at least one parent phone number.";
     if (form.father_mobile.trim() && !form.father_name.trim()) e.father_name = "Father name is required when father phone is entered.";
     if (form.father_mobile.trim() && !/^\d{10}$/.test(form.father_mobile.trim())) e.father_mobile = "Father phone must be 10 digits.";
+    if (form.father_email.trim() && !/^\S+@\S+\.\S+$/.test(form.father_email.trim())) e.father_email = "Father email is invalid.";
     if (form.mother_mobile.trim() && !form.mother_name.trim()) e.mother_name = "Mother name is required when mother phone is entered.";
     if (form.mother_mobile.trim() && !/^\d{10}$/.test(form.mother_mobile.trim())) e.mother_mobile = "Mother phone must be 10 digits.";
+    if (form.mother_email.trim() && !/^\S+@\S+\.\S+$/.test(form.mother_email.trim())) e.mother_email = "Mother email is invalid.";
     return e;
   }
 
@@ -263,8 +309,20 @@ export default function StudentsTab({ onStartParentMessage }: Props) {
           roll_number: createForm.roll_number.trim(),
           stream: createForm.stream.trim() || undefined,
         },
-        father: { name: createForm.father_name.trim() || undefined, mobile: createForm.father_mobile.trim() || undefined },
-        mother: { name: createForm.mother_name.trim() || undefined, mobile: createForm.mother_mobile.trim() || undefined },
+        father: {
+          name: createForm.father_name.trim() || undefined,
+          mobile: createForm.father_mobile.trim() || undefined,
+          email: createForm.father_email.trim() || undefined,
+          occupation: createForm.father_occupation.trim() || undefined,
+          qualification: createForm.father_qualification.trim() || undefined,
+        },
+        mother: {
+          name: createForm.mother_name.trim() || undefined,
+          mobile: createForm.mother_mobile.trim() || undefined,
+          email: createForm.mother_email.trim() || undefined,
+          occupation: createForm.mother_occupation.trim() || undefined,
+          qualification: createForm.mother_qualification.trim() || undefined,
+        },
       });
       setCreateOpen(false);
       setCreateForm(EMPTY_CREATE);
@@ -443,6 +501,11 @@ export default function StudentsTab({ onStartParentMessage }: Props) {
     }
   }
 
+  const selectedStudent = useMemo(
+    () => students.find((student) => Number(student.id) === Number(selectedStudentId)) ?? null,
+    [selectedStudentId, students],
+  );
+
   function closeDetails() {
     setDetailOpen(false);
     setSelectedStudentId(null);
@@ -461,6 +524,32 @@ export default function StudentsTab({ onStartParentMessage }: Props) {
     setClassId(null);
     setSectionId(null);
     setSearch("");
+  }
+
+  if (detailOpen) {
+    return (
+      <View style={[styles.screen, { backgroundColor: theme.bg }]}>
+        <TopNotice notice={notice} style={styles.topNoticeOverlay} />
+        <View style={[styles.detailHeader, { backgroundColor: theme.bg, borderBottomColor: theme.border }]}>
+          <Pressable style={[styles.detailBackBtn, { borderColor: theme.border, backgroundColor: theme.card }]} onPress={closeDetails}>
+            <Ionicons name="arrow-back" size={18} color={theme.icon} />
+          </Pressable>
+          <View style={styles.detailHeaderCopy}>
+            <Text style={[styles.detailHeaderTitle, { color: theme.text }]} numberOfLines={1}>Student Details</Text>
+            <Text style={[styles.detailHeaderSubtitle, { color: theme.subText }]} numberOfLines={1}>
+              {selectedStudent?.name || "Detailed record, marks, and linked data"}
+            </Text>
+          </View>
+        </View>
+        <ScrollView
+          style={styles.detailScreenBody}
+          contentContainerStyle={styles.detailScreenContent}
+          showsVerticalScrollIndicator={false}
+        >
+          <StudentDetailsModule studentId={selectedStudentId} exams={exams} />
+        </ScrollView>
+      </View>
+    );
   }
 
   return (
@@ -687,8 +776,14 @@ export default function StudentsTab({ onStartParentMessage }: Props) {
           <FormLabel label="Roll number *" /><TextInput style={[styles.input, { borderColor: theme.border, backgroundColor: theme.inputBg, color: theme.text }]} value={createForm.roll_number} onChangeText={(v) => setCreateForm((p) => ({ ...p, roll_number: v }))} placeholderTextColor={theme.mutedText} /><FieldError message={createErrors.roll_number} />
           <FormLabel label="Father name" /><TextInput style={[styles.input, { borderColor: theme.border, backgroundColor: theme.inputBg, color: theme.text }]} value={createForm.father_name} onChangeText={(v) => setCreateForm((p) => ({ ...p, father_name: v }))} placeholderTextColor={theme.mutedText} /><FieldError message={createErrors.father_name} />
           <FormLabel label="Father phone" /><TextInput style={[styles.input, { borderColor: theme.border, backgroundColor: theme.inputBg, color: theme.text }]} value={createForm.father_mobile} onChangeText={(v) => setCreateForm((p) => ({ ...p, father_mobile: v }))} keyboardType="phone-pad" placeholderTextColor={theme.mutedText} /><FieldError message={createErrors.father_mobile} />
+          <FormLabel label="Father email" /><TextInput style={[styles.input, { borderColor: theme.border, backgroundColor: theme.inputBg, color: theme.text }]} value={createForm.father_email} onChangeText={(v) => setCreateForm((p) => ({ ...p, father_email: v }))} keyboardType="email-address" autoCapitalize="none" placeholderTextColor={theme.mutedText} /><FieldError message={createErrors.father_email} />
+          <FormLabel label="Father occupation" /><TextInput style={[styles.input, { borderColor: theme.border, backgroundColor: theme.inputBg, color: theme.text }]} value={createForm.father_occupation} onChangeText={(v) => setCreateForm((p) => ({ ...p, father_occupation: v }))} placeholderTextColor={theme.mutedText} />
+          <FormLabel label="Father qualification" /><TextInput style={[styles.input, { borderColor: theme.border, backgroundColor: theme.inputBg, color: theme.text }]} value={createForm.father_qualification} onChangeText={(v) => setCreateForm((p) => ({ ...p, father_qualification: v }))} placeholderTextColor={theme.mutedText} />
           <FormLabel label="Mother name" /><TextInput style={[styles.input, { borderColor: theme.border, backgroundColor: theme.inputBg, color: theme.text }]} value={createForm.mother_name} onChangeText={(v) => setCreateForm((p) => ({ ...p, mother_name: v }))} placeholderTextColor={theme.mutedText} /><FieldError message={createErrors.mother_name} />
           <FormLabel label="Mother phone" /><TextInput style={[styles.input, { borderColor: theme.border, backgroundColor: theme.inputBg, color: theme.text }]} value={createForm.mother_mobile} onChangeText={(v) => setCreateForm((p) => ({ ...p, mother_mobile: v }))} keyboardType="phone-pad" placeholderTextColor={theme.mutedText} /><FieldError message={createErrors.mother_mobile} /><FieldError message={createErrors.parent_mobile} />
+          <FormLabel label="Mother email" /><TextInput style={[styles.input, { borderColor: theme.border, backgroundColor: theme.inputBg, color: theme.text }]} value={createForm.mother_email} onChangeText={(v) => setCreateForm((p) => ({ ...p, mother_email: v }))} keyboardType="email-address" autoCapitalize="none" placeholderTextColor={theme.mutedText} /><FieldError message={createErrors.mother_email} />
+          <FormLabel label="Mother occupation" /><TextInput style={[styles.input, { borderColor: theme.border, backgroundColor: theme.inputBg, color: theme.text }]} value={createForm.mother_occupation} onChangeText={(v) => setCreateForm((p) => ({ ...p, mother_occupation: v }))} placeholderTextColor={theme.mutedText} />
+          <FormLabel label="Mother qualification" /><TextInput style={[styles.input, { borderColor: theme.border, backgroundColor: theme.inputBg, color: theme.text }]} value={createForm.mother_qualification} onChangeText={(v) => setCreateForm((p) => ({ ...p, mother_qualification: v }))} placeholderTextColor={theme.mutedText} />
           <SelectField label="Session *" value={createForm.session_id === null ? "" : String(createForm.session_id)} onChange={(value) => setCreateForm((p) => ({ ...p, session_id: value ? Number(value) : null }))} options={sessions.map((item) => ({ label: item.name, value: String(item.id) }))} placeholder="Choose session" /><FieldError message={createErrors.session_id} />
           <SelectField label="Class *" value={createForm.class_id === null ? "" : String(createForm.class_id)} onChange={(value) => setCreateForm((p) => ({ ...p, class_id: value ? Number(value) : null, section_id: null, stream: "" }))} options={classes.map((item) => ({ label: item.name, value: String(item.id) }))} placeholder="Choose class" /><FieldError message={createErrors.class_id} />
           <SelectField label="Section (Optional)" value={createForm.section_id === null ? "" : String(createForm.section_id)} onChange={(value) => setCreateForm((p) => ({ ...p, section_id: value ? Number(value) : null }))} options={(createClass?.sections || []).map((section) => ({ label: `${section.name}${section.medium ? ` (${section.medium})` : ""}`, value: String(section.id) }))} placeholder="Choose section" disabled={!createClass} />
@@ -715,12 +810,6 @@ export default function StudentsTab({ onStartParentMessage }: Props) {
           <FormLabel label="Roll number *" /><TextInput style={[styles.input, { borderColor: theme.border, backgroundColor: theme.inputBg, color: theme.text }]} value={editForm.roll_number} onChangeText={(v) => setEditForm((p) => ({ ...p, roll_number: v }))} placeholderTextColor={theme.mutedText} /><FieldError message={editErrors.roll_number} />
           {editForm.class_scope === "hs" ? <><SelectField label="Stream *" value={editForm.stream} onChange={(value) => setEditForm((p) => ({ ...p, stream: value }))} options={STREAM_OPTIONS.map((item) => ({ label: item, value: item }))} placeholder="Choose stream" /><FieldError message={editErrors.stream} /></> : null}
           <View style={styles.rowActions}><Pressable style={[styles.secondaryBtn, { borderColor: theme.border, backgroundColor: theme.card }]} onPress={() => setEditOpen(false)}><Text style={[styles.secondaryBtnText, { color: theme.text }]}>Cancel</Text></Pressable><Pressable style={[styles.successBtn, { backgroundColor: theme.success, borderColor: theme.successBorder }]} onPress={handleUpdate} disabled={saving}><Text style={[styles.successBtnText, { color: theme.successText }]}>{saving ? "Saving..." : "Update"}</Text></Pressable></View>
-        </Sheet>
-      </Modal>
-
-      <Modal visible={detailOpen} transparent animationType="slide" onRequestClose={closeDetails}>
-        <Sheet title="Student Details" subtitle="Detailed record, marks, and linked data." onClose={closeDetails}>
-          <StudentDetailsModule studentId={selectedStudentId} exams={exams} />
         </Sheet>
       </Modal>
 
@@ -754,6 +843,13 @@ const styles = StyleSheet.create({
   screen: { flex: 1 },
   root: { flex: 1 },
   content: { gap: 14, paddingBottom: 120 },
+  detailHeader: { minHeight: 62, paddingHorizontal: 14, paddingVertical: 10, borderBottomWidth: 1, flexDirection: "row", alignItems: "center", gap: 10 },
+  detailBackBtn: { width: 40, height: 40, borderRadius: 12, borderWidth: 1, alignItems: "center", justifyContent: "center" },
+  detailHeaderCopy: { flex: 1, minWidth: 0 },
+  detailHeaderTitle: { fontSize: 18, fontWeight: "800" },
+  detailHeaderSubtitle: { fontSize: 12, fontWeight: "600", marginTop: 2 },
+  detailScreenBody: { flex: 1 },
+  detailScreenContent: { gap: 14, paddingHorizontal: 14, paddingTop: 12, paddingBottom: 120 },
   innerContent: { gap: 14, paddingHorizontal: 14, paddingTop: 10 },
   topNoticeOverlay: { position: "absolute", top: 0, left: 14, right: 14, zIndex: 20 },
   heroCard: { borderRadius: 24, paddingVertical: 0, gap: 8 },

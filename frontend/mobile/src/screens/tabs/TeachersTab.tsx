@@ -1,13 +1,30 @@
 import { ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, Alert, FlatList, Image, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { useNavigation } from "@react-navigation/native";
+import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import * as ImagePicker from "expo-image-picker";
 import TopNotice from "../../components/feedback/TopNotice";
+import type { RootStackParamList } from "../../navigation/AppNavigator";
 import { useAuthStore } from "../../store/authStore";
-import { assignTeacher, createTeacher, deleteTeacher, getTeacherAssignments, getTeachers, removeAssignment, resolveTeacherPhotoUrl, TeacherAssignment, TeacherItem, updateTeacher } from "../../services/teachersService";
+import {
+  assignTeacher,
+  createTeacher,
+  deleteTeacher,
+  getAttendanceDevices,
+  getAttendanceDeviceUsers,
+  getTeacherAssignments,
+  getTeachers,
+  removeAssignment,
+  resolveTeacherPhotoUrl,
+  TeacherAssignment,
+  TeacherItem,
+  updateTeacher,
+  upsertAttendanceDeviceUser,
+  type AttendanceDevice,
+} from "../../services/teachersService";
 import { ClassStructureItem, getClassStructure, getScopes, getSessions, SessionItem } from "../../services/classesService";
 import { getTargets } from "../../services/messagingService";
-import TeacherDetailsModule from "./teachers/TeacherDetailsModule";
 import { useAppTheme } from "../../theme/AppThemeProvider";
 
 type TeacherScope = "school" | "hs";
@@ -16,7 +33,7 @@ type ScopeOption = { code: TeacherScope; name: string };
 type Notice = { title: string; message: string; tone: "success" | "error" } | null;
 type DeleteTarget = { id: number; name: string } | null;
 type TeacherPhoto = { uri: string; name?: string; type?: string } | null;
-type TeacherForm = { id?: number | null; employee_id: string; name: string; phone: string; email: string; class_scope: TeacherScope; password?: string; photo: TeacherPhoto; photo_preview: string | null };
+type TeacherForm = { id?: number | null; employee_id: string; name: string; phone: string; email: string; class_scope: TeacherScope; password?: string; device_id: string; device_user_id: string; photo: TeacherPhoto; photo_preview: string | null };
 type AssignmentForm = { class_id: number | null; section_id: number | null; subject_id: number | null; session_id: number | null };
 type AssignmentSelections = { sections: number[]; subjects: number[] };
 export type TeacherConversationRequest = {
@@ -33,14 +50,21 @@ const DEFAULT_SCOPE_OPTIONS: ScopeOption[] = [
   { code: "school", name: "School" },
   { code: "hs", name: "Higher Secondary" },
 ];
-const EMPTY_CREATE: TeacherForm = { employee_id: "", name: "", phone: "", email: "", class_scope: "school", password: "", photo: null, photo_preview: null };
-const EMPTY_EDIT: TeacherForm = { id: null, employee_id: "", name: "", phone: "", email: "", class_scope: "school", photo: null, photo_preview: null };
+const EMPTY_CREATE: TeacherForm = { employee_id: "", name: "", phone: "", email: "", class_scope: "school", password: "", device_id: "", device_user_id: "", photo: null, photo_preview: null };
+const EMPTY_EDIT: TeacherForm = { id: null, employee_id: "", name: "", phone: "", email: "", class_scope: "school", password: "", device_id: "", device_user_id: "", photo: null, photo_preview: null };
 const EMPTY_ASSIGNMENT: AssignmentForm = { class_id: null, section_id: null, subject_id: null, session_id: null };
 const TEACHERS_PAGE_SIZE = 30;
 
 const getErrorMessage = (err: unknown, fallback: string) => typeof err === "object" && err && "response" in err ? ((err as { response?: { data?: { message?: string; error?: string } } }).response?.data?.error || (err as { response?: { data?: { message?: string; error?: string } } }).response?.data?.message || fallback) : fallback;
 const normalizePhone = (value?: string | null) => String(value || "").replace(/\D/g, "");
 const normalizeText = (value?: string | null) => String(value || "").trim().toLowerCase();
+function normalizeMachineUserId(value?: string | null) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  if (!/^\d+$/.test(raw)) return raw;
+  const normalized = raw.replace(/^0+(?=\d)/, "");
+  return normalized || "0";
+}
 function resolveScopeCode(scopeCode?: string | null, scopeName?: string | null): TeacherScope {
   const code = String(scopeCode || "").trim().toLowerCase();
   if (code === "hs" || code === "school") return code;
@@ -77,6 +101,10 @@ function validateTeacher(form: TeacherForm, allowedScopeCodes: TeacherScope[], r
   if (email && !/^\S+@\S+\.\S+$/.test(email)) return "Valid email required.";
   if (!allowedScopeCodes.includes(resolveScopeCode(form.class_scope))) return "Class scope is required.";
   if (requirePassword && String(form.password || "").length < 6) return "Password must be at least 6 characters.";
+  const deviceId = String(form.device_id || "").trim();
+  const deviceUserId = normalizeMachineUserId(form.device_user_id);
+  if ((deviceId && !deviceUserId) || (!deviceId && deviceUserId)) return "Select both device and machine user ID for mapping.";
+  if (deviceUserId && !/^\d+$/.test(deviceUserId)) return "Machine user ID must be numeric.";
   return null;
 }
 
@@ -130,9 +158,11 @@ function CardAction({ icon, label, onPress, tone = "default" }: { icon: keyof ty
 
 export default function TeachersTab({ onStartTeacherMessage }: Props) {
   const { theme } = useAppTheme();
+  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const user = useAuthStore((state) => state.user);
   const permissions = user?.permissions || [];
   const canManageTeachers = permissions.includes("teacher.update");
+  const canManageDeviceMappings = permissions.includes("teacher.assign");
   const canSendMessages = permissions.includes("messages.send");
   const [teachers, setTeachers] = useState<TeacherItem[]>([]);
   const [teachersPage, setTeachersPage] = useState(1);
@@ -141,6 +171,7 @@ export default function TeachersTab({ onStartTeacherMessage }: Props) {
   const [loadingMore, setLoadingMore] = useState(false);
   const [classStructure, setClassStructure] = useState<ClassStructureItem[]>([]);
   const [sessions, setSessions] = useState<SessionItem[]>([]);
+  const [attendanceDevices, setAttendanceDevices] = useState<AttendanceDevice[]>([]);
   const [scopeOptions, setScopeOptions] = useState<ScopeOption[]>(DEFAULT_SCOPE_OPTIONS);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -151,7 +182,6 @@ export default function TeachersTab({ onStartTeacherMessage }: Props) {
   const [createOpen, setCreateOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [assignmentOpen, setAssignmentOpen] = useState(false);
-  const [detailsOpen, setDetailsOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [scopeFilter, setScopeFilter] = useState<ScopeFilter>("all");
   const [createForm, setCreateForm] = useState<TeacherForm>(EMPTY_CREATE);
@@ -160,7 +190,6 @@ export default function TeachersTab({ onStartTeacherMessage }: Props) {
   const [selectedAssignmentSections, setSelectedAssignmentSections] = useState<number[]>([]);
   const [selectedAssignmentSubjects, setSelectedAssignmentSubjects] = useState<number[]>([]);
   const [selectedTeacher, setSelectedTeacher] = useState<TeacherItem | null>(null);
-  const [selectedTeacherId, setSelectedTeacherId] = useState<number | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget>(null);
   const [assignments, setAssignments] = useState<TeacherAssignment[]>([]);
 
@@ -254,7 +283,12 @@ export default function TeachersTab({ onStartTeacherMessage }: Props) {
     }
 
     try {
-      const [structureRows, sessionRows, scopeRows] = await Promise.all([getClassStructure(), getSessions(), getScopes()]);
+      const [structureRows, sessionRows, scopeRows, deviceRows] = await Promise.all([
+        getClassStructure(),
+        getSessions(),
+        getScopes(),
+        canManageDeviceMappings ? getAttendanceDevices() : Promise.resolve([]),
+      ]);
       const mappedScopeOptions = Array.from(
         new Map(
           scopeRows
@@ -270,6 +304,7 @@ export default function TeachersTab({ onStartTeacherMessage }: Props) {
       setScopeOptions(mappedScopeOptions.length ? mappedScopeOptions : DEFAULT_SCOPE_OPTIONS);
       setClassStructure(structureRows);
       setSessions(sessionRows);
+      setAttendanceDevices(deviceRows);
     } catch (err: unknown) {
       setScopeOptions(DEFAULT_SCOPE_OPTIONS);
       setError(getErrorMessage(err, "Could not load teacher filters."));
@@ -325,12 +360,74 @@ export default function TeachersTab({ onStartTeacherMessage }: Props) {
     }
   }
 
+  async function validateDeviceMapping(form: TeacherForm, currentTeacherId?: number | null) {
+    if (!canManageDeviceMappings) return null;
+    const selectedDeviceId = String(form.device_id || "").trim();
+    const selectedDeviceUserId = normalizeMachineUserId(form.device_user_id);
+    if (!selectedDeviceId || !selectedDeviceUserId) return null;
+
+    const rows = await getAttendanceDeviceUsers({ device_id: selectedDeviceId });
+    const conflict = rows.find(
+      (row) =>
+        normalizeMachineUserId(row.device_user_id) === selectedDeviceUserId &&
+        (!currentTeacherId || Number(row.teacher_id) !== Number(currentTeacherId)),
+    );
+    return conflict ? `Machine User ID already mapped to ${conflict.teacher_name || "another teacher"}.` : null;
+  }
+
+  async function resolveCreatedTeacherId(createResponse: unknown, sourceTeacher: TeacherForm) {
+    const response = createResponse as { data?: { teacherId?: number; id?: number }; teacherId?: number; id?: number };
+    const immediateId = Number(response?.data?.teacherId || response?.teacherId || response?.data?.id || response?.id || 0);
+    if (immediateId > 0) return immediateId;
+
+    const employeeId = String(sourceTeacher.employee_id || "").trim();
+    const name = normalizeText(sourceTeacher.name);
+    const phone = String(sourceTeacher.phone || "").trim();
+    const email = normalizeText(sourceTeacher.email);
+    const currentRows = [...teachers];
+    if (!currentRows.length || immediateId <= 0) {
+      try {
+        const result = await getTeachers({ page: 1, limit: TEACHERS_PAGE_SIZE });
+        currentRows.push(...(result.data || []));
+      } catch {
+        // Keep the local list fallback below.
+      }
+    }
+    const matched = currentRows.find((row) => {
+      if (employeeId && String(row.employee_id || "").trim() === employeeId) return true;
+      const rowName = normalizeText(row.name);
+      const rowPhone = String(row.phone || "").trim();
+      const rowEmail = normalizeText(row.email);
+      return rowName === name && ((phone && rowPhone === phone) || (email && rowEmail === email));
+    });
+    return Number(matched?.id || 0);
+  }
+
   async function handleCreate() {
     const validation = validateTeacher(createForm, allowedScopeCodes, true);
     if (validation) return Alert.alert("Validation", validation);
     setSaving(true);
     try {
-      await createTeacher({ employee_id: createForm.employee_id.trim(), name: createForm.name.trim(), phone: createForm.phone.trim(), email: createForm.email.trim(), class_scope: createForm.class_scope, password: String(createForm.password || ""), photo: createForm.photo });
+      const mappingConflict = await validateDeviceMapping(createForm);
+      if (mappingConflict) {
+        Alert.alert("Device mapping", mappingConflict);
+        return;
+      }
+      const createResponse = await createTeacher({ employee_id: createForm.employee_id.trim(), name: createForm.name.trim(), phone: createForm.phone.trim(), email: createForm.email.trim(), class_scope: createForm.class_scope, password: String(createForm.password || ""), photo: createForm.photo });
+      const selectedDeviceId = String(createForm.device_id || "").trim();
+      const selectedDeviceUserId = normalizeMachineUserId(createForm.device_user_id);
+      if (canManageDeviceMappings && selectedDeviceId && selectedDeviceUserId) {
+        const createdTeacherId = await resolveCreatedTeacherId(createResponse, createForm);
+        if (!createdTeacherId) {
+          showNotice("Teacher Created, Mapping Failed", "Teacher was created, but the app could not resolve the new teacher id for device mapping.", "error");
+        } else {
+          await upsertAttendanceDeviceUser({
+            device_id: Number(selectedDeviceId),
+            device_user_id: selectedDeviceUserId,
+            teacher_id: createdTeacherId,
+          });
+        }
+      }
       setCreateOpen(false);
       setCreateForm({ ...EMPTY_CREATE, class_scope: defaultScopeCode });
       await loadData("refresh");
@@ -343,8 +440,25 @@ export default function TeachersTab({ onStartTeacherMessage }: Props) {
   }
 
   function openEdit(teacher: TeacherItem) {
-    setEditForm({ id: teacher.id, employee_id: teacher.employee_id ?? "", name: teacher.name ?? "", phone: teacher.phone ?? "", email: teacher.email ?? "", class_scope: resolveScopeCode(teacher.class_scope, teacher.scope_name), photo: null, photo_preview: resolveTeacherPhotoUrl(teacher.photo_url) });
+    setEditForm({ id: teacher.id, employee_id: teacher.employee_id ?? "", name: teacher.name ?? "", phone: teacher.phone ?? "", email: teacher.email ?? "", class_scope: resolveScopeCode(teacher.class_scope, teacher.scope_name), password: "", device_id: "", device_user_id: "", photo: null, photo_preview: resolveTeacherPhotoUrl(teacher.photo_url) });
     setEditOpen(true);
+    if (canManageDeviceMappings) {
+      void (async () => {
+        try {
+          const mappings = await getAttendanceDeviceUsers();
+          const mapping = mappings.find((item) => Number(item.teacher_id) === Number(teacher.id));
+          if (mapping) {
+            setEditForm((prev) => prev.id === teacher.id ? {
+              ...prev,
+              device_id: String(mapping.device_id || ""),
+              device_user_id: String(mapping.device_user_id || ""),
+            } : prev);
+          }
+        } catch {
+          // Keep edit usable if mappings cannot be loaded.
+        }
+      })();
+    }
   }
 
   async function handleEdit() {
@@ -353,7 +467,21 @@ export default function TeachersTab({ onStartTeacherMessage }: Props) {
     if (!editForm.id) return;
     setSaving(true);
     try {
+      const mappingConflict = await validateDeviceMapping(editForm, editForm.id);
+      if (mappingConflict) {
+        Alert.alert("Device mapping", mappingConflict);
+        return;
+      }
       await updateTeacher(editForm.id, { employee_id: editForm.employee_id.trim(), name: editForm.name.trim(), phone: editForm.phone.trim(), email: editForm.email.trim(), class_scope: editForm.class_scope, photo: editForm.photo });
+      const selectedDeviceId = String(editForm.device_id || "").trim();
+      const selectedDeviceUserId = normalizeMachineUserId(editForm.device_user_id);
+      if (canManageDeviceMappings && selectedDeviceId && selectedDeviceUserId) {
+        await upsertAttendanceDeviceUser({
+          device_id: Number(selectedDeviceId),
+          device_user_id: selectedDeviceUserId,
+          teacher_id: Number(editForm.id),
+        });
+      }
       setEditOpen(false);
       setEditForm({ ...EMPTY_EDIT, class_scope: defaultScopeCode });
       await loadData("refresh");
@@ -416,8 +544,10 @@ export default function TeachersTab({ onStartTeacherMessage }: Props) {
   }
 
   function openDetails(teacher: TeacherItem) {
-    setSelectedTeacherId(teacher.id);
-    setDetailsOpen(true);
+    navigation.navigate("TeacherDetails", {
+      teacherId: Number(teacher.id),
+      teacherName: teacher.name || "Teacher profile",
+    });
   }
 
   async function submitAssignment() {
@@ -640,6 +770,26 @@ export default function TeachersTab({ onStartTeacherMessage }: Props) {
           <FormInput label="Email" value={createForm.email} onChangeText={(value) => setCreateForm((prev) => ({ ...prev, email: value }))} placeholder="teacher@school.com" keyboardType="email-address" autoCapitalize="none" />
           <Text style={[styles.inputLabel, { color: theme.subText }]}>Class Scope *</Text>
           <View style={styles.filterRow}>{scopeOptions.map((scope) => <Pressable key={scope.code} style={[styles.filterChip, { borderColor: theme.border, backgroundColor: theme.cardMuted }, createForm.class_scope === scope.code && { borderColor: theme.primary, backgroundColor: theme.isDark ? "#f8fafc" : theme.primary }]} onPress={() => setCreateForm((prev) => ({ ...prev, class_scope: scope.code }))}><Text style={[styles.filterChipText, { color: theme.subText }, createForm.class_scope === scope.code && { color: theme.isDark ? "#0f172a" : theme.primaryText }]}>{scope.name}</Text></Pressable>)}</View>
+          {canManageDeviceMappings ? (
+            <>
+              <Text style={[styles.inputLabel, styles.spaceTop, { color: theme.subText }]}>Attendance Device (Optional)</Text>
+              <View style={styles.filterRow}>
+                <Pressable style={[styles.filterChip, { borderColor: theme.border, backgroundColor: theme.cardMuted }, !createForm.device_id && { borderColor: theme.primary, backgroundColor: theme.isDark ? "#f8fafc" : theme.primary }]} onPress={() => setCreateForm((prev) => ({ ...prev, device_id: "", device_user_id: "" }))}>
+                  <Text style={[styles.filterChipText, { color: theme.subText }, !createForm.device_id && { color: theme.isDark ? "#0f172a" : theme.primaryText }]}>No mapping</Text>
+                </Pressable>
+                {attendanceDevices.map((device) => {
+                  const label = device.name || device.device_name || device.device_code || `Device #${device.id}`;
+                  const active = createForm.device_id === String(device.id);
+                  return (
+                    <Pressable key={device.id} style={[styles.filterChip, { borderColor: theme.border, backgroundColor: theme.cardMuted }, active && { borderColor: theme.primary, backgroundColor: theme.isDark ? "#f8fafc" : theme.primary }]} onPress={() => setCreateForm((prev) => ({ ...prev, device_id: String(device.id) }))}>
+                      <Text style={[styles.filterChipText, { color: theme.subText }, active && { color: theme.isDark ? "#0f172a" : theme.primaryText }]}>{label}</Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+              <FormInput label="Machine User ID (Optional)" value={createForm.device_user_id} onChangeText={(value) => setCreateForm((prev) => ({ ...prev, device_user_id: value }))} placeholder="e.g. 00000001" keyboardType="phone-pad" />
+            </>
+          ) : null}
           <FormInput label="Password *" value={String(createForm.password || "")} onChangeText={(value) => setCreateForm((prev) => ({ ...prev, password: value }))} placeholder="Minimum 6 characters" secureTextEntry />
           <View style={styles.rowActions}><Pressable style={[styles.secondaryBtn, { borderColor: theme.border, backgroundColor: theme.card }]} onPress={() => setCreateOpen(false)}><Text style={[styles.secondaryBtnText, { color: theme.text }]}>Cancel</Text></Pressable><Pressable style={[styles.successBtn, { backgroundColor: theme.success, borderColor: theme.successBorder }]} onPress={handleCreate} disabled={saving}><Text style={[styles.successBtnText, { color: theme.successText }]}>{saving ? "Saving..." : "Save"}</Text></Pressable></View>
         </Sheet>
@@ -654,6 +804,26 @@ export default function TeachersTab({ onStartTeacherMessage }: Props) {
           <FormInput label="Email" value={editForm.email} onChangeText={(value) => setEditForm((prev) => ({ ...prev, email: value }))} placeholder="teacher@school.com" keyboardType="email-address" autoCapitalize="none" />
           <Text style={[styles.inputLabel, { color: theme.subText }]}>Class Scope *</Text>
           <View style={styles.filterRow}>{scopeOptions.map((scope) => <Pressable key={scope.code} style={[styles.filterChip, { borderColor: theme.border, backgroundColor: theme.cardMuted }, editForm.class_scope === scope.code && { borderColor: theme.primary, backgroundColor: theme.isDark ? "#f8fafc" : theme.primary }]} onPress={() => setEditForm((prev) => ({ ...prev, class_scope: scope.code }))}><Text style={[styles.filterChipText, { color: theme.subText }, editForm.class_scope === scope.code && { color: theme.isDark ? "#0f172a" : theme.primaryText }]}>{scope.name}</Text></Pressable>)}</View>
+          {canManageDeviceMappings ? (
+            <>
+              <Text style={[styles.inputLabel, styles.spaceTop, { color: theme.subText }]}>Attendance Device (Optional)</Text>
+              <View style={styles.filterRow}>
+                <Pressable style={[styles.filterChip, { borderColor: theme.border, backgroundColor: theme.cardMuted }, !editForm.device_id && { borderColor: theme.primary, backgroundColor: theme.isDark ? "#f8fafc" : theme.primary }]} onPress={() => setEditForm((prev) => ({ ...prev, device_id: "", device_user_id: "" }))}>
+                  <Text style={[styles.filterChipText, { color: theme.subText }, !editForm.device_id && { color: theme.isDark ? "#0f172a" : theme.primaryText }]}>No mapping change</Text>
+                </Pressable>
+                {attendanceDevices.map((device) => {
+                  const label = device.name || device.device_name || device.device_code || `Device #${device.id}`;
+                  const active = editForm.device_id === String(device.id);
+                  return (
+                    <Pressable key={device.id} style={[styles.filterChip, { borderColor: theme.border, backgroundColor: theme.cardMuted }, active && { borderColor: theme.primary, backgroundColor: theme.isDark ? "#f8fafc" : theme.primary }]} onPress={() => setEditForm((prev) => ({ ...prev, device_id: String(device.id) }))}>
+                      <Text style={[styles.filterChipText, { color: theme.subText }, active && { color: theme.isDark ? "#0f172a" : theme.primaryText }]}>{label}</Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+              <FormInput label="Machine User ID (Optional)" value={editForm.device_user_id} onChangeText={(value) => setEditForm((prev) => ({ ...prev, device_user_id: value }))} placeholder="e.g. 00000001" keyboardType="phone-pad" />
+            </>
+          ) : null}
           <View style={styles.rowActions}><Pressable style={[styles.secondaryBtn, { borderColor: theme.border, backgroundColor: theme.card }]} onPress={() => setEditOpen(false)}><Text style={[styles.secondaryBtnText, { color: theme.text }]}>Cancel</Text></Pressable><Pressable style={[styles.successBtn, { backgroundColor: theme.success, borderColor: theme.successBorder }]} onPress={handleEdit} disabled={saving}><Text style={[styles.successBtnText, { color: theme.successText }]}>{saving ? "Saving..." : "Update"}</Text></Pressable></View>
         </Sheet>
       </Modal>
@@ -674,11 +844,6 @@ export default function TeachersTab({ onStartTeacherMessage }: Props) {
         </Sheet>
       </Modal>
 
-      <Modal visible={detailsOpen} transparent animationType="slide" onRequestClose={() => setDetailsOpen(false)}>
-        <Sheet title="Teacher Details" subtitle="Teacher profile, assignments, attendance, and security." onClose={() => setDetailsOpen(false)}>
-          <TeacherDetailsModule teacherId={selectedTeacherId} canManageTeachers={canManageTeachers} />
-        </Sheet>
-      </Modal>
       <Modal visible={deleteTarget !== null} transparent animationType="fade" onRequestClose={() => setDeleteTarget(null)}>
         <View style={styles.modalOverlay}>
           <Pressable style={[styles.modalBackdrop, { backgroundColor: theme.overlay }]} onPress={() => setDeleteTarget(null)} />

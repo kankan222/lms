@@ -1,5 +1,6 @@
 import { pool } from "../../database/pool.js";
 import * as repo from "./subjects.repository.js";
+import * as studentRepo from "../students/student.repository.js";
 import AppError from "../../core/errors/AppError.js";
 
 export async function createSubject(data) {
@@ -95,9 +96,29 @@ export async function replaceSubjectOfferings(data) {
   );
 }
 
-export async function getStudentSubjectRegistrations(studentId) {
+export async function getStudentSubjectRegistrations(studentId, user = null) {
   const normalizedStudentId = normalizePositiveInteger(studentId, "student_id");
-  return repo.getStudentSubjectRegistrations(normalizedStudentId);
+  const isParent = Array.isArray(user?.roles) && user.roles.includes("parent");
+  const parentStudentIds = user?.userId
+    ? await studentRepo.getParentStudentIdsByUser(user.userId)
+    : [];
+
+  if (isParent && !parentStudentIds.includes(normalizedStudentId)) {
+    throw new AppError("Not authorized to view this student's subjects", 403);
+  }
+
+  const data = await repo.getStudentSubjectRegistrations(normalizedStudentId);
+
+  if (isParent) {
+    return {
+      ...data,
+      offerings: (data.offerings || []).filter(
+        (offering) => offering.auto_required || offering.registration_id,
+      ),
+    };
+  }
+
+  return data;
 }
 
 export async function replaceStudentSubjectRegistrations(studentId, data) {

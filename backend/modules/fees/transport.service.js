@@ -2,6 +2,7 @@ import AppError from "../../core/errors/AppError.js";
 import { pool } from "../../database/pool.js";
 import { renderFeeReceiptPdf } from "./feePdf.service.js";
 import * as repo from "./transport.repository.js";
+import * as studentRepo from "../students/student.repository.js";
 
 const MONTH_NAMES = [
   "",
@@ -278,11 +279,42 @@ export async function createAssignment(data, user) {
   }
 }
 
-export async function listAssignments(filters = {}) {
+function isParentUser(user) {
+  return Array.isArray(user?.roles) && user.roles.includes("parent");
+}
+
+async function resolveParentTransportStudentId(filters = {}, user = null) {
+  if (!isParentUser(user)) return null;
+
+  const studentId = filters.student_id ? parsePositiveInt(filters.student_id, "student_id") : null;
+  if (!studentId) {
+    throw new AppError("student_id is required", 400);
+  }
+
+  const ownedStudentIds = user?.userId
+    ? await studentRepo.getParentStudentIdsByUser(user.userId)
+    : [];
+  if (!ownedStudentIds.includes(studentId)) {
+    throw new AppError("Not authorized to view this student's transportation records", 403);
+  }
+
+  return studentId;
+}
+
+async function hasActiveTransportAssignment(studentId) {
+  const rows = await repo.listAssignments({
+    student_id: studentId,
+    status: "active",
+  });
+  return rows.length > 0;
+}
+
+export async function listAssignments(filters = {}, user = null) {
+  const parentStudentId = await resolveParentTransportStudentId(filters, user);
   return repo.listAssignments({
     student_id: filters.student_id ? parsePositiveInt(filters.student_id, "student_id") : null,
     session_id: filters.session_id ? parsePositiveInt(filters.session_id, "session_id") : null,
-    status: filters.status ? String(filters.status) : null,
+    status: parentStudentId ? "active" : filters.status ? String(filters.status) : null,
   });
 }
 
@@ -294,7 +326,12 @@ export async function endAssignment(id, data) {
   return { message: "Transport assignment ended" };
 }
 
-export async function listDues(filters = {}) {
+export async function listDues(filters = {}, user = null) {
+  const parentStudentId = await resolveParentTransportStudentId(filters, user);
+  if (parentStudentId && !(await hasActiveTransportAssignment(parentStudentId))) {
+    return [];
+  }
+
   return repo.listDues({
     student_id: filters.student_id ? parsePositiveInt(filters.student_id, "student_id") : null,
     session_id: filters.session_id ? parsePositiveInt(filters.session_id, "session_id") : null,
@@ -382,7 +419,12 @@ export async function createPayment(data, user) {
   }
 }
 
-export async function listPayments(filters = {}) {
+export async function listPayments(filters = {}, user = null) {
+  const parentStudentId = await resolveParentTransportStudentId(filters, user);
+  if (parentStudentId && !(await hasActiveTransportAssignment(parentStudentId))) {
+    return [];
+  }
+
   return repo.listPayments({
     student_id: filters.student_id ? parsePositiveInt(filters.student_id, "student_id") : null,
     session_id: filters.session_id ? parsePositiveInt(filters.session_id, "session_id") : null,
@@ -485,9 +527,21 @@ export async function getSummary() {
   return repo.getSummary();
 }
 
-export async function generateReceipt(paymentId) {
+export async function generateReceipt(paymentId, user = null) {
   const receipt = await repo.getPaymentReceipt(parsePositiveInt(paymentId, "payment_id"));
   if (!receipt) throw new AppError("Transportation payment not found", 404);
+  if (isParentUser(user)) {
+    const ownedStudentIds = user?.userId
+      ? await studentRepo.getParentStudentIdsByUser(user.userId)
+      : [];
+    const receiptStudentId = Number(receipt.student_id);
+    if (!ownedStudentIds.includes(receiptStudentId)) {
+      throw new AppError("Not authorized to view this transportation receipt", 403);
+    }
+    if (!(await hasActiveTransportAssignment(receiptStudentId))) {
+      throw new AppError("Transportation fee is not enabled for this student", 403);
+    }
+  }
 
   const allocations = receipt.allocations || [];
   const feeAmount = allocations.reduce((sum, item) => sum + Number(item.due_amount || 0), 0);

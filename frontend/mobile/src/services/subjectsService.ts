@@ -12,6 +12,29 @@ export type SubjectItem = {
   code: string;
 };
 
+export type StudentSubjectEnrollment = {
+  id?: number;
+  class_name?: string | null;
+  section_name?: string | null;
+  medium?: string | null;
+  stream_name?: string | null;
+};
+
+export type StudentSubjectOffering = {
+  id: number;
+  subject_id?: number;
+  subject_name: string;
+  subject_code?: string | null;
+  subject_group?: string | null;
+  auto_required?: boolean | number;
+  registration_id?: number | null;
+};
+
+export type StudentSubjectRegistrationDetails = {
+  enrollment: StudentSubjectEnrollment | null;
+  offerings: StudentSubjectOffering[];
+};
+
 export type SubjectPayload = {
   name: string;
   code: string;
@@ -52,3 +75,15 @@ export async function getClassSubjects(classId: number) {
   return response.data.data ?? [];
 }
 
+export async function getStudentSubjectRegistrations(studentId: number | string) {
+  const response = await api.get<ApiEnvelope<StudentSubjectRegistrationDetails>>(`/subjects/student-registrations/${studentId}`);
+  return response.data.data ?? { enrollment: null, offerings: [] };
+}
+
+export async function replaceStudentSubjectRegistrations(
+  studentId: number | string,
+  payload: { offering_ids: number[] }
+) {
+  const response = await api.put<ApiEnvelope<unknown>>(`/subjects/student-registrations/${studentId}`, payload);
+  return response.data;
+}

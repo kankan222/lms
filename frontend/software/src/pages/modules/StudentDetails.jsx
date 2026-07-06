@@ -5,6 +5,7 @@ import { getStudent, updateStudent as updateStudentApi } from "../../api/student
 import { getStudentAttendanceSessions } from "../../api/attendance.api";
 import {
   createTransportAssignment,
+  downloadPaymentReceipt,
   downloadTransportReceipt,
   endTransportAssignment,
   getMyPayments,
@@ -192,7 +193,7 @@ const StudentDetails = () => {
   const isStudentUser = hasRole("student");
   const isSelfResultViewer = isParent || isStudentUser;
   const canEditParents = !isParent && can("student.update");
-  const canViewTransportation = !isParent && !isStudentUser && can("fee.view");
+  const canViewTransportation = !isStudentUser && can("fee.view");
   const canEditTransportation = !isParent && !isStudentUser && can("fee.create");
   const [student, setStudent] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -208,6 +209,7 @@ const StudentDetails = () => {
   const [transportMessage, setTransportMessage] = useState("");
   const [transportSaving, setTransportSaving] = useState(false);
   const [transportDownloadingId, setTransportDownloadingId] = useState(null);
+  const [paymentReceiptDownloadingId, setPaymentReceiptDownloadingId] = useState(null);
   const [transportForm, setTransportForm] = useState({
     enabled: false,
     monthly_fee: "",
@@ -412,16 +414,22 @@ const StudentDetails = () => {
     setTransportError("");
     setTransportMessage("");
     try {
-      const [assignmentRes, dueRes, paymentRes] = await Promise.all([
+      const [assignmentRes, dueRes] = await Promise.all([
         getTransportAssignments({ student_id: studentId }),
         getTransportDues({ student_id: studentId }),
-        getTransportPayments({ student_id: studentId }),
       ]);
+      let paymentRows = [];
+      try {
+        const paymentRes = await getTransportPayments({ student_id: studentId });
+        paymentRows = paymentRes?.data || [];
+      } catch {
+        paymentRows = [];
+      }
       const assignmentRows = assignmentRes?.data || [];
       const activeAssignment = assignmentRows.find((item) => String(item.status).toLowerCase() === "active");
       setTransportAssignments(assignmentRows);
       setTransportDues(dueRes?.data || []);
-      setTransportPayments(paymentRes?.data || []);
+      setTransportPayments(paymentRows);
       setTransportForm((prev) => ({
         ...prev,
         enabled: Boolean(activeAssignment),
@@ -741,6 +749,25 @@ const StudentDetails = () => {
       setTransportError(err?.message || "Failed to download transportation receipt.");
     } finally {
       setTransportDownloadingId(null);
+    }
+  }
+
+  async function handlePaymentReceipt(payment) {
+    if (!payment?.id) return;
+    setPaymentReceiptDownloadingId(payment.id);
+    try {
+      const blob = await downloadPaymentReceipt(payment.id);
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      const receiptNo = payment.receipt_serial || `PAY-${String(payment.id).padStart(6, "0")}`;
+      link.href = url;
+      link.download = `receipt-${receiptNo}.pdf`;
+      link.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setFinanceError(err?.message || "Failed to download payment receipt.");
+    } finally {
+      setPaymentReceiptDownloadingId(null);
     }
   }
 
@@ -1391,6 +1418,7 @@ const StudentDetails = () => {
                   <TableHead>Section</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>Remarks</TableHead>
+                  <TableHead className="text-right">Action</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -1407,11 +1435,22 @@ const StudentDetails = () => {
                       </span>
                     </TableCell>
                     <TableCell>{p.remarks || "-"}</TableCell>
+                    <TableCell className="text-right">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => handlePaymentReceipt(p)}
+                        disabled={paymentReceiptDownloadingId === p.id}
+                      >
+                        <Download size={14} />
+                        {paymentReceiptDownloadingId === p.id ? "Downloading..." : "Receipt"}
+                      </Button>
+                    </TableCell>
                   </TableRow>
                 ))}
                 {payments.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={7} className="text-center text-muted-foreground">
+                    <TableCell colSpan={8} className="text-center text-muted-foreground">
                       No payment history found for this student.
                     </TableCell>
                   </TableRow>
@@ -1429,6 +1468,7 @@ const StudentDetails = () => {
             <p className="text-sm text-emerald-700 dark:text-emerald-200">{transportMessage}</p>
           ) : null}
 
+          {!isParent ? (
           <div className="rounded-xl border bg-card p-4 space-y-4">
             <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
               <div>
@@ -1551,6 +1591,7 @@ const StudentDetails = () => {
               </Button>
             ) : null}
           </div>
+          ) : null}
 
           <div className="rounded-xl border bg-card p-4">
             <h3 className="font-semibold mb-2 flex items-center gap-2">

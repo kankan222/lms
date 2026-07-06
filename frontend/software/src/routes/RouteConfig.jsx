@@ -319,6 +319,7 @@ export const navSections = [
       navEntry("/subjects", {
         title: "Subject",
         icon: Book,
+        hideForRoles: ["teacher"],
       }),
       navEntry("/activities", {
         title: "Activity",
@@ -388,6 +389,7 @@ export const navSections = [
       navEntry("/exams", {
         title: "Exam Setup",
         icon: FileSpreadsheet,
+        hideForRoles: ["teacher"],
       }),
       navEntry("/mark-report", {
         title: "Mark Statement",

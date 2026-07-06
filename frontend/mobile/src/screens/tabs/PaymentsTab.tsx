@@ -15,6 +15,7 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import { useAuthStore } from "../../store/authStore";
 import { getClassStructure } from "../../services/classesService";
+import { getStreams, StreamItem } from "../../services/settingsService";
 import SelectField from "../../components/form/SelectField";
 import DateField from "../../components/form/DateField";
 import {
@@ -52,6 +53,7 @@ type DeleteTarget = { id: number; name: string } | null;
 
 type CreateForm = {
   class_id: number | null;
+  stream_id: number | null;
   section_id: number | null;
   student_id: number | null;
   student_fee_id: number | null;
@@ -67,6 +69,7 @@ type EditForm = {
 
 const EMPTY_CREATE_FORM: CreateForm = {
   class_id: null,
+  stream_id: null,
   section_id: null,
   student_id: null,
   student_fee_id: null,
@@ -97,6 +100,14 @@ function formatScope(value?: string | null) {
   if (scope === "hs") return "Higher Secondary";
   if (scope === "school") return "School";
   return "-";
+}
+
+function resolveClassScope(value?: string | null) {
+  return String(value || "school").trim().toLowerCase() === "hs" ? "hs" : "school";
+}
+
+function getReceiptSerial(row: PaymentItem) {
+  return row.receipt_serial || `PAY-${String(row.id).padStart(6, "0")}`;
 }
 
 function getPaymentStatus(row: PaymentItem) {
@@ -189,6 +200,7 @@ type PaymentModalProps = {
   visible: boolean;
   saving: boolean;
   classes: ClassStructureItem[];
+  streams: StreamItem[];
   form: CreateForm;
   students: PaymentStudentItem[];
   feeOptions: StudentFeeOption[];
@@ -204,6 +216,7 @@ function RecordPaymentModal({
   visible,
   saving,
   classes,
+  streams,
   form,
   students,
   feeOptions,
@@ -219,6 +232,7 @@ function RecordPaymentModal({
     () => classes.find((item) => item.id === form.class_id) ?? null,
     [classes, form.class_id],
   );
+  const isHsClass = resolveClassScope(selectedClass?.class_scope) === "hs";
 
   const filteredStudents = useMemo(() => {
     const query = studentSearch.trim().toLowerCase();
@@ -240,6 +254,7 @@ function RecordPaymentModal({
                 onChangeForm({
                   ...form,
                   class_id: value ? Number(value) : null,
+                  stream_id: null,
                   section_id: null,
                   student_id: null,
                   student_fee_id: null,
@@ -248,6 +263,23 @@ function RecordPaymentModal({
               options={classes.map((item) => ({ label: item.name, value: String(item.id) }))}
               placeholder="Choose class"
             />
+
+            {isHsClass ? (
+              <SelectField
+                label="Stream *"
+                value={form.stream_id === null ? "" : String(form.stream_id)}
+                onChange={(value) =>
+                  onChangeForm({
+                    ...form,
+                    stream_id: value ? Number(value) : null,
+                    student_id: null,
+                    student_fee_id: null,
+                  })
+                }
+                options={streams.map((item) => ({ label: item.name, value: String(item.id) }))}
+                placeholder="Choose stream"
+              />
+            ) : null}
 
             <SelectField
               label="Section *"
@@ -431,6 +463,7 @@ export default function PaymentsTab() {
   const isAccounts = roles.includes("accounts");
 
   const [classes, setClasses] = useState<ClassStructureItem[]>([]);
+  const [streams, setStreams] = useState<StreamItem[]>([]);
   const [payments, setPayments] = useState<PaymentItem[]>([]);
   const [students, setStudents] = useState<PaymentStudentItem[]>([]);
   const [myStudents, setMyStudents] = useState<PaymentStudentItem[]>([]);
@@ -445,6 +478,7 @@ export default function PaymentsTab() {
   const [totalRows, setTotalRows] = useState<number | null>(null);
 
   const [filterClassId, setFilterClassId] = useState<number | null>(null);
+  const [filterStreamId, setFilterStreamId] = useState<number | null>(null);
   const [filterSectionId, setFilterSectionId] = useState<number | null>(null);
   const [filterScope, setFilterScope] = useState<"" | "school" | "hs">("");
   const [paymentDate, setPaymentDate] = useState("");
@@ -462,10 +496,13 @@ export default function PaymentsTab() {
     () => classes.find((item) => item.id === filterClassId) ?? null,
     [classes, filterClassId],
   );
+  const isHsFilterClass = resolveClassScope(selectedFilterClass?.class_scope) === "hs";
+  const effectiveFilterStreamId = isHsFilterClass ? filterStreamId : null;
 
   function resetBrowseFilters() {
     setFilterScope("");
     setFilterClassId(null);
+    setFilterStreamId(null);
     setFilterSectionId(null);
     setPaymentDate("");
   }
@@ -539,7 +576,7 @@ export default function PaymentsTab() {
       return;
     }
     void loadPaymentsList("initial");
-  }, [filterClassId, filterSectionId, filterScope, paymentDate, parentStudentId, isParentOnly]);
+  }, [filterClassId, effectiveFilterStreamId, filterSectionId, filterScope, paymentDate, parentStudentId, isParentOnly]);
 
   useEffect(() => {
     if (!createForm.class_id || !createForm.section_id || isParentOnly) {
@@ -548,8 +585,14 @@ export default function PaymentsTab() {
       setCreateForm((prev) => ({ ...prev, student_id: null, student_fee_id: null }));
       return;
     }
-    loadStudentsForCreate(createForm.class_id, createForm.section_id);
-  }, [createForm.class_id, createForm.section_id, isParentOnly]);
+    const selectedClass = classes.find((item) => item.id === createForm.class_id) ?? null;
+    const streamId = resolveClassScope(selectedClass?.class_scope) === "hs" ? createForm.stream_id : null;
+    if (resolveClassScope(selectedClass?.class_scope) === "hs" && !streamId) {
+      setStudents([]);
+      return;
+    }
+    loadStudentsForCreate(createForm.class_id, createForm.section_id, streamId);
+  }, [classes, createForm.class_id, createForm.stream_id, createForm.section_id, isParentOnly]);
 
   useEffect(() => {
     if (!createForm.student_id || isParentOnly) {
@@ -565,8 +608,9 @@ export default function PaymentsTab() {
     else setLoading(true);
 
     try {
-      const structure = await getClassStructure();
+      const [structure, streamRows] = await Promise.all([getClassStructure(), getStreams()]);
       setClasses(structure as ClassStructureItem[]);
+      setStreams(streamRows);
 
       if (isParentOnly) {
         const rows = await getMyStudentsForFees();
@@ -576,6 +620,7 @@ export default function PaymentsTab() {
     } catch (err: unknown) {
       Alert.alert("Load failed", getErrorMessage(err, "Could not load payment filters."));
       setClasses([]);
+      setStreams([]);
       setMyStudents([]);
     } finally {
       if (mode === "refresh") setRefreshing(false);
@@ -600,6 +645,7 @@ export default function PaymentsTab() {
       const result = await getPaymentsList(
         {
           class_id: filterClassId ?? undefined,
+          stream_id: effectiveFilterStreamId ?? undefined,
           section_id: filterSectionId ?? undefined,
           scope: filterScope || undefined,
           payment_date: paymentDate || undefined,
@@ -681,9 +727,13 @@ export default function PaymentsTab() {
     await loadPaymentsList("refresh");
   }
 
-  async function loadStudentsForCreate(classId: number, sectionId: number) {
+  async function loadStudentsForCreate(classId: number, sectionId: number, streamId: number | null = null) {
     try {
-      const rows = await getStudentsForPayment({ class_id: classId, section_id: sectionId });
+      const rows = await getStudentsForPayment({
+        class_id: classId,
+        section_id: sectionId,
+        stream_id: streamId ?? undefined,
+      });
       setStudents(rows);
     } catch (err: unknown) {
       setStudents([]);
@@ -713,6 +763,10 @@ export default function PaymentsTab() {
   }
 
   async function handleCreatePayment() {
+    const selectedClass = classes.find((item) => item.id === createForm.class_id) ?? null;
+    if (resolveClassScope(selectedClass?.class_scope) === "hs" && !createForm.stream_id) {
+      return Alert.alert("Validation", "Stream is required for higher secondary classes.");
+    }
     if (!createForm.student_fee_id) return Alert.alert("Validation", "Select due fee item.");
     const amount = Number(createForm.amount_paid);
     if (!amount || amount <= 0) return Alert.alert("Validation", "Enter a valid payment amount.");
@@ -793,7 +847,7 @@ export default function PaymentsTab() {
 
   async function handleReceipt(row: PaymentItem) {
     try {
-      await downloadAndShareReceipt(row.id);
+      await downloadAndShareReceipt(row.id, getReceiptSerial(row));
     } catch (err: unknown) {
       showNotice("Receipt Failed", getErrorMessage(err, "Failed to download receipt."), "error");
     }
@@ -856,6 +910,7 @@ export default function PaymentsTab() {
               <Text style={[styles.activeFiltersText, { color: theme.subText }]}> 
                 {filterScope ? `Scope: ${filterScope === "hs" ? "Higher Secondary" : "School"}` : "All scope"}
                 {filterClassId !== null ? ` - Class: ${selectedFilterClass?.name || "-"}` : ""}
+                {effectiveFilterStreamId !== null ? ` - Stream: ${streams.find((stream) => stream.id === effectiveFilterStreamId)?.name || "-"}` : ""}
                 {filterSectionId !== null ? ` - Section: ${selectedFilterClass?.sections?.find((section) => section.id === filterSectionId)?.name || "-"}` : ""}
                 {paymentDate ? ` - Date: ${paymentDate}` : ""}
               </Text>
@@ -909,7 +964,7 @@ export default function PaymentsTab() {
                   <View style={styles.paymentHeaderCopy}>
                     <Text style={[styles.paymentTitle, { color: theme.text }]}>{row.student_name}</Text>
                     <Text style={[styles.metaCompact, { color: theme.subText }]}> 
-                      {formatScope(row.class_scope)} - {formatDateLabel(row.payment_date || row.created_at)}
+                      Sl. No. {getReceiptSerial(row)} - {formatDateLabel(row.payment_date || row.created_at)}
                     </Text>
                   </View>
                   <View style={[styles.statusBadge, { borderColor: palette.borderColor, backgroundColor: palette.backgroundColor }]}> 
@@ -920,7 +975,9 @@ export default function PaymentsTab() {
                 </View>
                 <View style={styles.metaStack}>
                   <Text style={[styles.metaCompact, { color: theme.subText }]}> 
-                    {row.class_name || "-"} - {row.section_name || "-"}
+                    {formatScope(row.class_scope)} - {row.class_name || "-"}
+                    {row.stream_name ? ` / ${row.stream_name}` : ""} - {row.section_name || "-"}
+                    {row.medium ? ` (${row.medium})` : ""}
                   </Text>
                   <Text style={[styles.metaCompact, { color: theme.subText }]}> 
                     {row.fee_type || "-"} - Paid: {formatCurrency(row.amount_paid)}
@@ -1014,10 +1071,12 @@ export default function PaymentsTab() {
                 onChange={(value) => {
                   if (!value) {
                     setFilterClassId(null);
+                    setFilterStreamId(null);
                     setFilterSectionId(null);
                     return;
                   }
                   setFilterClassId(Number(value));
+                  setFilterStreamId(null);
                   setFilterSectionId(null);
                 }}
                 options={classes.map((item) => ({ label: item.name, value: String(item.id) }))}
@@ -1040,6 +1099,18 @@ export default function PaymentsTab() {
                 disabled={!selectedFilterClass}
               />
 
+              {isHsFilterClass ? (
+                <SelectField
+                  label="Stream"
+                  value={filterStreamId === null ? "" : String(filterStreamId)}
+                  onChange={(value) => setFilterStreamId(value ? Number(value) : null)}
+                  options={streams.map((item) => ({ label: item.name, value: String(item.id) }))}
+                  placeholder="All streams"
+                  allowClear
+                  clearLabel="All streams"
+                />
+              ) : null}
+
               <View style={styles.rowActions}>
                 <Pressable
                   style={[styles.secondaryBtn, { borderColor: theme.border, backgroundColor: theme.card }]}
@@ -1058,6 +1129,7 @@ export default function PaymentsTab() {
           visible={createOpen}
           saving={saving}
           classes={classes}
+          streams={streams}
           form={createForm}
           students={students}
           feeOptions={feeOptions}

@@ -623,3 +623,45 @@ Update this file after every meaningful implementation change.
   student-specific monthly fee model: assign students by session/class/section/
   medium/stream filters, set start month/year and monthly fee directly, and
   manage the same enable/disable workflow from Student Details.
+- Moved the mobile teacher details experience out of the Teachers tab inline
+  detail state into a dedicated `TeacherDetails` navigation screen while
+  reusing the existing `TeacherDetailsModule` content and preserving teacher
+  list, assignment, edit, delete, and messaging actions.
+- Aligned the mobile attendance module with the software Student Attendance
+  workflow by making `Student Attendance` an explicit tab, keeping it wired to
+  the existing `/attendance/students/*` backend APIs, and matching the
+  load-students, mark-all-present, mark-all-absent, and submit controls.
+- Replaced the mobile More popup with a dedicated `More` navigation screen
+  that keeps the existing grid module launcher but groups visible modules into
+  software-style sections such as Student, Fee, Staff, Utilities, Reports, and
+  Settings.
+- Split mobile Teacher Attendance into its own module tab wired to the existing
+  backend teacher attendance APIs and PDF download flow, removed teacher logs
+  from the Student Attendance module, and placed Teacher Attendance under Staff
+  in the mobile More screen.
+- Updated the mobile Payments tab with the software payment serial behavior:
+  payment cards now show `Sl. No.` using `receipt_serial` with a fallback serial,
+  receipt sharing uses that serial label, and Higher Secondary payment filters
+  and record-payment student loading now include stream selection without adding
+  CSV export or bulk upload controls to mobile.
+- Updated the mobile Student Details Parents tab so parent phone edits are
+  constrained to the 10-digit format expected by the software/backend validation
+  and valid parent email rows can be tapped to open the device email app.
+- Added a top-level mobile Transportation Fee tab under the Fee section,
+  matching the software workflow with live transport summary cards, assignment
+  creation, pending dues, payment recording, receipt sharing, payment edit/delete,
+  and backend wiring through the existing transport fee APIs.
+- Added a top-level mobile Activities tab under Academics, wired to the
+  marksheet activities backend so users can view grouped activity definitions
+  and create, edit, activate/deactivate, scope, or delete activity rows similar
+  to the software Activities page.
+- Added fee payment receipt download/share actions inside Student Details on
+  both software and mobile, so regular fee receipts are available from each
+  payment-history row alongside the existing transportation receipt downloads.
+- Restored the Student Details Transportation tab for parent users in both
+  software and mobile while keeping Subject Selection read-only for parents,
+  and made transportation assignment/due loading independent from restricted
+  payment-history access.
+- Allowed the read-only student subject-registration endpoint to be used from
+  parent Student Details via `student.view`, with backend parent-student
+  ownership scoping so parents can see only their assigned students' subjects.

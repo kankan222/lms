@@ -4,6 +4,8 @@ import * as FileSystem from "expo-file-system/legacy";
 export type Student = {
   id: number;
   admission_no?: string;
+  display_id?: string;
+  contact_summary?: string | null;
   name: string;
   phone?: string;
   mobile?: string;
@@ -20,6 +22,7 @@ export type Student = {
   class?: string;
   section?: string;
   session?: string;
+  session_name?: string | null;
 };
 
 export type PaginationMeta = {
@@ -57,6 +60,7 @@ export type StudentDetails = {
   section_id?: number;
   session_id?: number;
   class_scope?: "school" | "hs";
+  medium?: string | null;
   stream_id?: number | null;
   stream_name?: string | null;
   class?: string;

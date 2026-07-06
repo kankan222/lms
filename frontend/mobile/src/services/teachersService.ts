@@ -19,6 +19,18 @@ export type TeacherItem = {
   photo_url?: string | null;
 };
 
+export type AttendanceDeviceUserMapping = {
+  id: number;
+  device_id: number;
+  device_user_id: string;
+  teacher_id: number;
+  device_name?: string | null;
+  device_code?: string | null;
+  location?: string | null;
+  teacher_name?: string | null;
+  employee_id?: string | null;
+};
+
 export type PaginationMeta = {
   page: number;
   limit: number;
@@ -207,6 +219,22 @@ export async function getAllTeacherAttendance(params: { startDate?: string; endD
 export async function getAttendanceDevices() {
   const response = await api.get<ApiEnvelope<AttendanceDevice[]>>("/teachers/attendance/devices");
   return response.data.data ?? [];
+}
+
+export async function getAttendanceDeviceUsers(params: { device_id?: number | string } = {}) {
+  const response = await api.get<ApiEnvelope<AttendanceDeviceUserMapping[]>>("/teachers/attendance/device-users", {
+    params,
+  });
+  return response.data.data ?? [];
+}
+
+export async function upsertAttendanceDeviceUser(payload: {
+  device_id: number;
+  device_user_id: string;
+  teacher_id: number;
+}) {
+  const response = await api.post<ApiEnvelope<unknown>>("/teachers/attendance/device-users", payload);
+  return response.data;
 }
 
 export async function createAttendanceDevice(payload: {

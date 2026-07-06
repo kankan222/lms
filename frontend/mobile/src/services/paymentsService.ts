@@ -20,6 +20,7 @@ export type PaginationMeta = {
 
 export type PaymentItem = {
   id: number;
+  receipt_serial?: string | null;
   student_fee_id: number;
   amount_paid: number;
   remarks: string | null;
@@ -48,6 +49,70 @@ export type StudentFeeOption = {
   due_date?: string | null;
   paid: number;
   remaining: number;
+};
+
+export type TransportAssignment = {
+  id: number;
+  student_id: number;
+  session_id?: number | null;
+  student_name?: string | null;
+  admission_no?: string | null;
+  roll_number?: string | number | null;
+  class_name?: string | null;
+  section_name?: string | null;
+  stream_name?: string | null;
+  medium?: string | null;
+  session_name?: string | null;
+  start_month: number;
+  start_year: number;
+  end_month?: number | null;
+  end_year?: number | null;
+  monthly_fee: number;
+  pending_count?: number;
+  status: string;
+};
+
+export type TransportDue = {
+  id: number;
+  student_id?: number;
+  student_name?: string | null;
+  due_month: number;
+  due_year: number;
+  amount: number;
+  paid: number;
+  remaining: number;
+  status: string;
+};
+
+export type TransportPayment = {
+  id: number;
+  student_id?: number;
+  student_name?: string | null;
+  receipt_no?: string | null;
+  amount_paid: number;
+  payment_method?: string | null;
+  covered_months?: string | null;
+  remarks?: string | null;
+  created_at: string;
+};
+
+export type TransportSummary = {
+  active_students?: number;
+  monthly_expected?: number;
+  pending_amount?: number;
+  collected_amount?: number;
+};
+
+export type TransportStudent = {
+  id: number;
+  name: string;
+  admission_no?: string | null;
+  roll_number?: string | number | null;
+  session_id?: number | null;
+  class_name?: string | null;
+  section_name?: string | null;
+  stream_name?: string | null;
+  medium?: string | null;
 };
 
 export type PaymentStudentItem = {
@@ -204,7 +269,7 @@ export async function deletePayment(id: number | string) {
   return response.data;
 }
 
-export async function downloadAndShareReceipt(paymentId: number | string) {
+export async function downloadAndShareReceipt(paymentId: number | string, receiptSerial?: string | null) {
   const accessToken = useAuthStore.getState().accessToken;
   if (!accessToken) {
     throw new Error("Not authenticated");
@@ -215,7 +280,8 @@ export async function downloadAndShareReceipt(paymentId: number | string) {
   }
 
   const url = `${ENV.API_BASE_URL}/fees/receipt/${paymentId}`;
-  const target = `${FileSystem.cacheDirectory}receipt-${paymentId}.pdf`;
+  const receiptLabel = String(receiptSerial || paymentId);
+  const target = `${FileSystem.cacheDirectory}receipt-${receiptLabel}.pdf`;
 
   const download = await FileSystem.downloadAsync(url, target, {
     headers: {
@@ -227,10 +293,125 @@ export async function downloadAndShareReceipt(paymentId: number | string) {
   if (canShare) {
     await Sharing.shareAsync(download.uri, {
       mimeType: "application/pdf",
-      dialogTitle: `Receipt ${paymentId}`,
+      dialogTitle: `Receipt ${receiptLabel}`,
       UTI: "com.adobe.pdf",
     });
     return download.uri;
+  }
+
+  return download.uri;
+}
+
+export async function getTransportAssignments(params: { student_id?: number | string; session_id?: number | string; status?: string } = {}) {
+  const response = await api.get<ApiEnvelope<TransportAssignment[]>>("/fees/transport/assignments", { params });
+  return response.data?.data ?? [];
+}
+
+export async function getTransportSummary() {
+  const response = await api.get<ApiEnvelope<TransportSummary>>("/fees/transport/summary");
+  return response.data?.data ?? {};
+}
+
+export async function searchTransportStudents(params: {
+  search?: string;
+  session_id?: number | string;
+  class_id?: number | string;
+  section_id?: number | string;
+  stream_id?: number | string;
+  medium?: string;
+  assigned_only?: string | number;
+} = {}) {
+  const response = await api.get<ApiEnvelope<TransportStudent[]>>("/fees/transport/students", { params });
+  return response.data?.data ?? [];
+}
+
+export async function createTransportAssignment(payload: {
+  student_id: number | string;
+  session_id: number | string;
+  start_month: number;
+  start_year: number;
+  monthly_fee: number;
+}) {
+  const response = await api.post("/fees/transport/assignments", payload);
+  return response.data;
+}
+
+export async function endTransportAssignment(
+  id: number | string,
+  payload: { end_month: number; end_year: number }
+) {
+  const response = await api.put(`/fees/transport/assignments/${id}/end`, payload);
+  return response.data;
+}
+
+export async function getTransportDues(params: {
+  student_id?: number | string;
+  session_id?: number | string;
+  status?: string;
+  month?: number | string;
+  year?: number | string;
+} = {}) {
+  const response = await api.get<ApiEnvelope<TransportDue[]>>("/fees/transport/dues", { params });
+  return response.data?.data ?? [];
+}
+
+export async function getTransportPayments(params: { student_id?: number | string; session_id?: number | string } = {}) {
+  const response = await api.get<ApiEnvelope<TransportPayment[]>>("/fees/transport/payments", { params });
+  return response.data?.data ?? [];
+}
+
+export async function createTransportPayment(payload: {
+  due_ids: Array<number | string>;
+  amount_paid: number;
+  remarks?: string;
+}) {
+  const response = await api.post("/fees/transport/payments", payload);
+  return response.data;
+}
+
+export async function updateTransportPayment(
+  paymentId: number | string,
+  payload: { amount_paid: number; remarks?: string }
+) {
+  const response = await api.put(`/fees/transport/payments/${paymentId}`, payload);
+  return response.data;
+}
+
+export async function deleteTransportPayment(paymentId: number | string) {
+  const response = await api.delete(`/fees/transport/payments/${paymentId}`);
+  return response.data;
+}
+
+export async function downloadAndShareTransportReceipt(paymentId: number | string) {
+  const accessToken = useAuthStore.getState().accessToken;
+  if (!accessToken) {
+    throw new Error("Not authenticated");
+  }
+
+  if (!FileSystem.cacheDirectory) {
+    throw new Error("File cache is not available on this device");
+  }
+
+  const url = `${ENV.API_BASE_URL}/fees/transport/receipt/${paymentId}`;
+  const target = `${FileSystem.cacheDirectory}transport-receipt-${paymentId}.pdf`;
+  const download = await FileSystem.downloadAsync(url, target, {
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+    },
+  });
+
+  if (download.status !== 200) {
+    await FileSystem.deleteAsync(download.uri, { idempotent: true });
+    throw new Error("Transportation receipt download failed");
+  }
+
+  const canShare = await Sharing.isAvailableAsync();
+  if (canShare) {
+    await Sharing.shareAsync(download.uri, {
+      mimeType: "application/pdf",
+      dialogTitle: `Transportation Receipt ${paymentId}`,
+      UTI: "com.adobe.pdf",
+    });
   }
 
   return download.uri;

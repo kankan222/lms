@@ -174,6 +174,27 @@ export function deletePayment(paymentId) {
   });
 }
 
+export async function downloadPaymentReceipt(paymentId) {
+  const token = localStorage.getItem("accessToken");
+  const baseUrl = import.meta.env.VITE_API_URL || "http://localhost:5000/api/v1";
+  const response = await fetch(`${baseUrl}/fees/receipt/${paymentId}`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+
+  if (!response.ok) {
+    let message = "Failed to download payment receipt.";
+    try {
+      const data = await response.json();
+      message = data?.message || message;
+    } catch {
+      // Keep the fallback message.
+    }
+    throw new Error(message);
+  }
+
+  return response.blob();
+}
+
 export function getTransportSummary() {
   return apiRequest("/fees/transport/summary");
 }

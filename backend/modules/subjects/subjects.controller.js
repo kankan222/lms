@@ -90,7 +90,7 @@ export async function replaceSubjectOfferings(req, res, next) {
 
 export async function getStudentSubjectRegistrations(req, res, next) {
   try {
-    const data = await service.getStudentSubjectRegistrations(req.params.studentId);
+    const data = await service.getStudentSubjectRegistrations(req.params.studentId, req.user);
     res.json({ success: true, data });
   } catch (err) {
     next(err);
