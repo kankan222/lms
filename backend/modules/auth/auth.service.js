@@ -24,6 +24,7 @@ import {
   generateAccessToken,
   generateRefreshToken
 } from "../../core/auth/jwt.js";
+import { applyRolePermissionFallbacks } from "../../core/rbac/rbac.service.js";
 
 
 import AppError from "../../core/errors/AppError.js";
@@ -69,9 +70,14 @@ async function loadAccessData(userId) {
     getUserRoles(userId)
   ]);
 
+  const roles = roleRows.map((r) => r.name);
+
   return {
-    permissions: permissionsRows.map(p => p.name),
-    roles: roleRows.map((r) => r.name)
+    permissions: applyRolePermissionFallbacks(
+      permissionsRows.map(p => p.name),
+      roles
+    ),
+    roles
   };
 }
 

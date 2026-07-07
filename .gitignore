@@ -2,5 +2,8 @@
 .env.*
 !.env.example
 !.env*.example
-LOCAL_CONTEXT.md
+
+# Ignore root markdown files
+*.md
+
 

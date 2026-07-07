@@ -1,8 +1,31 @@
-import { getPermissionsByUserId }
+import { getPermissionsByUserId, getRolesByUserId }
 from "./rbac.repository.js";
 
 const permissionCache = new Map();
 const CACHE_TTL = 10 * 60 * 1000; // 10 minutes
+const rolePermissionFallbacks = {
+  teacher: [
+    "attendance.take",
+    "marks.enter",
+    "marks.view",
+    "messages.send",
+    "messages.view",
+    "subjects.view",
+    "teacher.view",
+  ],
+};
+
+export function applyRolePermissionFallbacks(permissions = [], roles = []) {
+  const permissionSet = new Set(permissions);
+
+  for (const role of roles) {
+    for (const permission of rolePermissionFallbacks[role] || []) {
+      permissionSet.add(permission);
+    }
+  }
+
+  return [...permissionSet];
+}
 
 export async function loadPermissions(userId) {
 
@@ -12,10 +35,15 @@ export async function loadPermissions(userId) {
     return cached.permissions;
   }
 
-  const rows =
-    await getPermissionsByUserId(userId);
+  const [permissionRows, roleRows] = await Promise.all([
+    getPermissionsByUserId(userId),
+    getRolesByUserId(userId)
+  ]);
 
-  const permissions = rows.map(r => r.name);
+  const permissions = applyRolePermissionFallbacks(
+    permissionRows.map(r => r.name),
+    roleRows.map(r => r.name)
+  );
 
   permissionCache.set(userId, {
     permissions,
