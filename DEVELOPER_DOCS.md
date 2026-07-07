@@ -163,3 +163,39 @@ node -e "import('bcrypt').then(async b => console.log(await b.hash('123456', 10)
   DELETE FROM marks_entries;
 
   COMMIT;
+
+
+  <!-- DELETE PARENT ROLE FROM DUPLICATE TEACHERS -->
+  START TRANSACTION;
+
+  DELETE sp
+  FROM student_parents sp
+  JOIN parents p ON p.id = sp.parent_id
+  JOIN users u ON u.id = p.user_id
+  WHERE u.phone = '9707172848';
+
+  DELETE p
+  FROM parents p
+  JOIN users u ON u.id = p.user_id
+  WHERE u.phone = '9707172848';
+
+  DELETE ur
+  FROM user_roles ur
+  JOIN users u ON u.id = ur.user_id
+  JOIN roles r ON r.id = ur.role_id
+  WHERE u.phone = '9707172848'
+    AND r.name = 'parent';
+
+  COMMIT;
+<!-- VERIFY  -->
+   SELECT u.id, u.phone, GROUP_CONCAT(r.name ORDER BY r.name) AS roles
+  FROM users u
+  LEFT JOIN user_roles ur ON ur.user_id = u.id
+  LEFT JOIN roles r ON r.id = ur.role_id
+  WHERE u.phone = '9707172848'
+  GROUP BY u.id, u.phone;
+
+  SELECT p.*
+  FROM parents p
+  JOIN users u ON u.id = p.user_id
+  WHERE u.phone = '9707172848';

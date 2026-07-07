@@ -39,6 +39,7 @@ export async function generateReport(data){
         subject: m.subject_name,
         mark_pattern: String(m.mark_pattern || "single").trim().toLowerCase(),
         marks: Number(m.marks || 0),
+        mark_status: m.mark_status || "present",
         max_marks: Number(m.max_marks || 0),
         pass_marks: Number(m.pass_marks || 0),
         theory_marks: m.theory_marks === null ? null : Number(m.theory_marks),

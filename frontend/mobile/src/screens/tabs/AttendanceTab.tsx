@@ -37,6 +37,8 @@ type RangePreset = "today" | "week" | "month" | "custom";
 type DateRange = { from: string; to: string };
 
 const STATUS_OPTIONS: StudentAttendanceStatus[] = ["present", "absent"];
+const ATTENDANCE_PAGE_SIZE_OPTIONS = [10, 25, 50];
+const DEFAULT_ATTENDANCE_PAGE_SIZE = 10;
 const DEFAULT_THEME = {
   isDark: false,
   bg: "#f8fafc",
@@ -150,6 +152,64 @@ function SummaryCard({
   );
 }
 
+function PaginationBar({
+  page,
+  pageSize,
+  totalRows,
+  totalPages,
+  onPageChange,
+  onPageSizeChange,
+}: {
+  page: number;
+  pageSize: number;
+  totalRows: number;
+  totalPages: number;
+  onPageChange: (page: number) => void;
+  onPageSizeChange: (pageSize: number) => void;
+}) {
+  const startRow = totalRows === 0 ? 0 : (page - 1) * pageSize + 1;
+  const endRow = Math.min(page * pageSize, totalRows);
+
+  return (
+    <View style={styles.paginationCard}>
+      <Text style={styles.detailText}>
+        Showing {startRow}-{endRow} of {totalRows}
+      </Text>
+      <View style={styles.paginationRows}>
+        <Text style={styles.paginationLabel}>Rows</Text>
+        {ATTENDANCE_PAGE_SIZE_OPTIONS.map((option) => (
+          <Pressable
+            key={option}
+            style={[styles.pageSizeChip, pageSize === option && styles.pageSizeChipActive]}
+            onPress={() => onPageSizeChange(option)}
+          >
+            <Text style={[styles.pageSizeChipText, pageSize === option && styles.pageSizeChipTextActive]}>
+              {option}
+            </Text>
+          </Pressable>
+        ))}
+      </View>
+      <View style={styles.paginationRows}>
+        <Pressable
+          style={[styles.pageNavButton, page <= 1 && styles.btnDisabled]}
+          onPress={() => onPageChange(Math.max(1, page - 1))}
+          disabled={page <= 1}
+        >
+          <Text style={styles.pageNavText}>Previous</Text>
+        </Pressable>
+        <Text style={styles.paginationLabel}>Page {page} of {totalPages}</Text>
+        <Pressable
+          style={[styles.pageNavButton, page >= totalPages && styles.btnDisabled]}
+          onPress={() => onPageChange(Math.min(totalPages, page + 1))}
+          disabled={page >= totalPages}
+        >
+          <Text style={styles.pageNavText}>Next</Text>
+        </Pressable>
+      </View>
+    </View>
+  );
+}
+
 function StatusBadge({ status }: { status: string }) {
   const normalized = String(status || "").toLowerCase();
   return (
@@ -224,11 +284,15 @@ export default function AttendanceTab() {
 
   const [pendingLoading, setPendingLoading] = useState(false);
   const [pendingRows, setPendingRows] = useState<StudentAttendanceSessionItem[]>([]);
+  const [pendingPage, setPendingPage] = useState(1);
+  const [pendingPageSize, setPendingPageSize] = useState(DEFAULT_ATTENDANCE_PAGE_SIZE);
   const [selectedPending, setSelectedPending] = useState<StudentAttendanceSessionDetails | null>(null);
   const [reviewRemarks, setReviewRemarks] = useState("");
 
   const [approvedLoading, setApprovedLoading] = useState(false);
   const [approvedRows, setApprovedRows] = useState<StudentAttendanceSessionItem[]>([]);
+  const [approvedPage, setApprovedPage] = useState(1);
+  const [approvedPageSize, setApprovedPageSize] = useState(DEFAULT_ATTENDANCE_PAGE_SIZE);
   const [selectedApproved, setSelectedApproved] = useState<StudentAttendanceSessionDetails | null>(null);
   const [notifyFilters, setNotifyFilters] = useState({ class_id: "", section_id: "" });
   const [notifyDatePreset, setNotifyDatePreset] = useState<RangePreset>("today");
@@ -331,6 +395,16 @@ export default function AttendanceTab() {
       }),
     [approvedRows, notifyFilters.class_id, notifyFilters.section_id],
   );
+  const pendingTotalPages = Math.max(1, Math.ceil(pendingRows.length / pendingPageSize));
+  const paginatedPendingRows = useMemo(() => {
+    const start = (pendingPage - 1) * pendingPageSize;
+    return pendingRows.slice(start, start + pendingPageSize);
+  }, [pendingRows, pendingPage, pendingPageSize]);
+  const approvedTotalPages = Math.max(1, Math.ceil(filteredApprovedRows.length / approvedPageSize));
+  const paginatedApprovedRows = useMemo(() => {
+    const start = (approvedPage - 1) * approvedPageSize;
+    return filteredApprovedRows.slice(start, start + approvedPageSize);
+  }, [filteredApprovedRows, approvedPage, approvedPageSize]);
   const teacherScopeKeys = useMemo(
     () =>
       new Set(
@@ -404,6 +478,22 @@ export default function AttendanceTab() {
       setNotifyForm((prev) => ({ ...prev, student_ids: [] }));
     }
   }, [filteredApprovedRows, selectedApproved]);
+
+  useEffect(() => {
+    setPendingPage(1);
+  }, [pendingRows.length, pendingPageSize]);
+
+  useEffect(() => {
+    setApprovedPage(1);
+  }, [notifyFilters.class_id, notifyFilters.section_id, approvedRows.length, approvedPageSize]);
+
+  useEffect(() => {
+    setPendingPage((page) => Math.min(page, pendingTotalPages));
+  }, [pendingTotalPages]);
+
+  useEffect(() => {
+    setApprovedPage((page) => Math.min(page, approvedTotalPages));
+  }, [approvedTotalPages]);
 
   useEffect(() => {
     if (
@@ -786,7 +876,15 @@ export default function AttendanceTab() {
 
       {activeTab === "review" ? <>
         <SectionCard title="Pending Approval" hint={`${pendingRows.length} pending`}>
-          {pendingLoading ? <ActivityIndicator size="large" color="#0f172a" /> : pendingRows.length ? pendingRows.map((row) => <Pressable key={row.id} style={styles.sessionCard} onPress={() => openSessionDetails(Number(row.id), "pending")}><View style={styles.rowBetween}><Text style={styles.sessionTitle}>{row.class_name || "-"} / {row.section_name || "-"}</Text><StatusBadge status={row.approval_status || "pending"} /></View><Text style={styles.detailText}>{formatDate(row.date)} • Absent: {row.absent_count || 0}</Text><Text style={styles.detailText}>Submitted by {row.submitted_by_username || "-"}</Text></Pressable>) : <Text style={styles.emptyText}>No pending sessions found.</Text>}
+          <PaginationBar
+            page={pendingPage}
+            pageSize={pendingPageSize}
+            totalRows={pendingRows.length}
+            totalPages={pendingTotalPages}
+            onPageChange={setPendingPage}
+            onPageSizeChange={setPendingPageSize}
+          />
+          {pendingLoading ? <ActivityIndicator size="large" color="#0f172a" /> : pendingRows.length ? paginatedPendingRows.map((row) => <Pressable key={row.id} style={styles.sessionCard} onPress={() => openSessionDetails(Number(row.id), "pending")}><View style={styles.rowBetween}><Text style={styles.sessionTitle}>{row.class_name || "-"} / {row.section_name || "-"}</Text><StatusBadge status={row.approval_status || "pending"} /></View><Text style={styles.detailText}>{formatDate(row.date)} • Absent: {row.absent_count || 0}</Text><Text style={styles.detailText}>Submitted by {row.submitted_by_username || "-"}</Text></Pressable>) : <Text style={styles.emptyText}>No pending sessions found.</Text>}
         </SectionCard>
         <SectionCard title="Review Details" hint={selectedPending ? "Selected" : "Choose a session"}>
           {selectedPending ? <>
@@ -801,7 +899,13 @@ export default function AttendanceTab() {
 
       {(activeTab === "approved" || activeTab === "history" || activeTab === "notify") ? <>
         <SectionCard
-          title={activeTab === "notify" ? "Approved Sessions" : activeTab === "approved" ? "Approved Classes" : "Attendance History"}
+          title={
+            activeTab === "notify"
+              ? "Approved Sessions"
+              : activeTab === "approved"
+                ? isTeacherOnly ? "My Approved Attendance" : "Approved Classes"
+                : isTeacherOnly ? "My Attendance History" : "Attendance History"
+          }
           hint={`${approvedRows.length} sessions`}
         >
           {activeTab === "notify" ? (
@@ -894,31 +998,41 @@ export default function AttendanceTab() {
           {approvedLoading ? (
             <ActivityIndicator size="large" color={theme.text} />
           ) : filteredApprovedRows.length ? (
-            filteredApprovedRows.map((row) => {
-              const selected = Number(selectedApproved?.id) === Number(row.id);
-              return (
-                <Pressable
-                  key={row.id}
-                  style={[styles.sessionCard, selected && styles.sessionCardSelected]}
-                  onPress={() => openSessionDetails(Number(row.id), "approved")}
-                >
-                  <View style={styles.rowBetween}>
-                    <Text style={[styles.sessionTitle, selected && styles.sessionTitleSelected]}>
-                      {row.class_name || "-"} / {row.section_name || "-"}
-                    </Text>
-                    <StatusBadge status={row.approval_status || "approved"} />
-                  </View>
-                  <Text style={[styles.detailText, selected && styles.sessionDetailTextSelected]}>
-                    {formatDate(row.date)} - Absent: {row.absent_count || 0}
-                  </Text>
-                  {row.reviewed_by_username ? (
+            <>
+              <PaginationBar
+                page={approvedPage}
+                pageSize={approvedPageSize}
+                totalRows={filteredApprovedRows.length}
+                totalPages={approvedTotalPages}
+                onPageChange={setApprovedPage}
+                onPageSizeChange={setApprovedPageSize}
+              />
+              {paginatedApprovedRows.map((row) => {
+                const selected = Number(selectedApproved?.id) === Number(row.id);
+                return (
+                  <Pressable
+                    key={row.id}
+                    style={[styles.sessionCard, selected && styles.sessionCardSelected]}
+                    onPress={() => openSessionDetails(Number(row.id), "approved")}
+                  >
+                    <View style={styles.rowBetween}>
+                      <Text style={[styles.sessionTitle, selected && styles.sessionTitleSelected]}>
+                        {row.class_name || "-"} / {row.section_name || "-"}
+                      </Text>
+                      <StatusBadge status={row.approval_status || "approved"} />
+                    </View>
                     <Text style={[styles.detailText, selected && styles.sessionDetailTextSelected]}>
-                      Reviewed by {row.reviewed_by_username}
+                      {formatDate(row.date)} - Absent: {row.absent_count || 0}
                     </Text>
-                  ) : null}
-                </Pressable>
-              );
-            })
+                    {row.reviewed_by_username ? (
+                      <Text style={[styles.detailText, selected && styles.sessionDetailTextSelected]}>
+                        Reviewed by {row.reviewed_by_username}
+                      </Text>
+                    ) : null}
+                  </Pressable>
+                );
+              })}
+            </>
           ) : (
             <Text style={styles.emptyText}>
               {activeTab === "notify" ? "No approved sessions match the selected filters." : "No sessions found."}
@@ -1031,6 +1145,15 @@ return StyleSheet.create({
   sessionCardSelected: { borderColor: theme.primary, backgroundColor: theme.isDark ? "#1e293b" : theme.card },
   sessionTitleSelected: { color: theme.text },
   sessionDetailTextSelected: { color: theme.isDark ? "#cbd5e1" : theme.subText },
+  paginationCard: { borderWidth: 1, borderColor: theme.border, borderRadius: 14, backgroundColor: theme.cardMuted, padding: 10, gap: 10 },
+  paginationRows: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 8 },
+  paginationLabel: { color: theme.subText, fontSize: 12, fontWeight: "700" },
+  pageSizeChip: { borderWidth: 1, borderColor: theme.border, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 6, backgroundColor: theme.card },
+  pageSizeChipActive: { borderColor: theme.primary, backgroundColor: theme.primary },
+  pageSizeChipText: { color: theme.text, fontSize: 12, fontWeight: "700" },
+  pageSizeChipTextActive: { color: theme.primaryText },
+  pageNavButton: { borderWidth: 1, borderColor: theme.border, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8, backgroundColor: theme.card },
+  pageNavText: { color: theme.text, fontSize: 12, fontWeight: "700" },
   statusBadge: { borderWidth: 1, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4 },
   statusBadgeText: { fontSize: 12, fontWeight: "700" },
   studentRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 8, borderWidth: 1, borderColor: theme.border, borderRadius: 12, padding: 10, backgroundColor: theme.card },
@@ -1039,3 +1162,4 @@ return StyleSheet.create({
   emptyText: { color: theme.subText },
 });
 }
+

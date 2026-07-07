@@ -73,6 +73,16 @@ function statusClassName(status) {
   return "bg-red-600 text-white";
 }
 
+function markStatusClassName(status) {
+  if (status === "absent") return "border-red-200 bg-red-50 text-red-700 dark:border-red-900/60 dark:bg-red-950/30 dark:text-red-300";
+  if (status === "pending") return "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-300";
+  return "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/60 dark:bg-emerald-950/30 dark:text-emerald-300";
+}
+
+function markStatusSelectClassName(status) {
+  return `${SELECT_CLASSNAME} font-semibold ${markStatusClassName(status)}`;
+}
+
 function uniqueById(items = []) {
   const seen = new Set();
   return items.filter((item) => {
@@ -135,6 +145,20 @@ function hasSubjectComponents(subject) {
 function toNumberOrZero(value) {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function hasEnteredValue(value) {
+  return value !== null && value !== undefined && String(value).trim() !== "";
+}
+
+function normalizeMarkStatus(value) {
+  const status = String(value || "").trim().toLowerCase();
+  return ["present", "absent", "pending"].includes(status) ? status : "present";
+}
+
+function displayMarkValue(value, markStatus) {
+  if (markStatus === "absent") return "AB";
+  return value ?? "-";
 }
 
 function formatWholeNumber(value) {
@@ -1056,6 +1080,7 @@ export default function Reports() {
           marks: row.marks ?? "",
           theory_marks: row.theory_marks ?? "",
           practical_marks: row.practical_marks ?? "",
+          mark_status: normalizeMarkStatus(row.mark_status),
           components: (row.components || []).reduce((items, component) => {
             items[component.component_id] = {
               marks: component.marks ?? "",
@@ -1073,6 +1098,7 @@ export default function Reports() {
           marks: row.marks ?? "",
           theory_marks: row.theory_marks ?? "",
           practical_marks: row.practical_marks ?? "",
+          mark_status: normalizeMarkStatus(row.mark_status),
         };
         return;
       }
@@ -1081,6 +1107,7 @@ export default function Reports() {
         marks: row.marks ?? "",
         theory_marks: "",
         practical_marks: "",
+        mark_status: normalizeMarkStatus(row.mark_status),
       };
     });
     setEditedMarks(draft);
@@ -1169,9 +1196,82 @@ export default function Reports() {
           typeof prev?.[studentId] === "object"
             ? prev?.[studentId]?.practical_marks ?? ""
             : "",
+        mark_status: hasEnteredValue(value)
+          ? "present"
+          : typeof prev?.[studentId] === "object"
+            ? prev?.[studentId]?.mark_status ?? "present"
+            : "present",
         [key]: value,
       },
     }));
+  }
+
+  function updateMarkStatus(studentId, status) {
+    const nextStatus = normalizeMarkStatus(status);
+    setEditedMarks((prev) => {
+      const currentStudent = typeof prev?.[studentId] === "object" ? prev[studentId] : {};
+      const shouldClear = nextStatus !== "present";
+
+      return {
+        ...prev,
+        [studentId]: {
+          marks: shouldClear ? "" : currentStudent.marks ?? "",
+          theory_marks: shouldClear ? "" : currentStudent.theory_marks ?? "",
+          practical_marks: shouldClear ? "" : currentStudent.practical_marks ?? "",
+          mark_status: nextStatus,
+          components: Object.fromEntries(
+            Object.entries(currentStudent.components || {}).map(([componentId, component]) => [
+              componentId,
+              {
+                marks: shouldClear ? "" : component.marks ?? "",
+                theory_marks: shouldClear ? "" : component.theory_marks ?? "",
+                practical_marks: shouldClear ? "" : component.practical_marks ?? "",
+              },
+            ])
+          ),
+        },
+      };
+    });
+  }
+
+  function markBlankRowsAbsent() {
+    if (!grid?.rows?.length) return;
+    const splitPattern = isSplitPattern(grid?.subject);
+    const componentMode = hasSubjectComponents(grid?.subject);
+
+    setEditedMarks((prev) => {
+      const next = { ...prev };
+      grid.rows.forEach((row) => {
+        const edited = next[row.student_id] || {};
+        const hasMarks = componentMode
+          ? Object.values(edited.components || {}).some(
+              (component) =>
+                hasEnteredValue(component.marks) ||
+                hasEnteredValue(component.theory_marks) ||
+                hasEnteredValue(component.practical_marks)
+            )
+          : splitPattern
+            ? hasEnteredValue(edited.theory_marks) || hasEnteredValue(edited.practical_marks)
+            : hasEnteredValue(edited.marks);
+
+        if (!hasMarks) {
+          next[row.student_id] = {
+            ...edited,
+            marks: "",
+            theory_marks: "",
+            practical_marks: "",
+            mark_status: "absent",
+            components: Object.fromEntries(
+              Object.entries(edited.components || {}).map(([componentId, component]) => [
+                componentId,
+                { ...component, marks: "", theory_marks: "", practical_marks: "" },
+              ])
+            ),
+          };
+        }
+      });
+      return next;
+    });
   }
 
   function updateComponentMarksValue(studentId, componentId, key, value) {
@@ -1186,6 +1286,7 @@ export default function Reports() {
           marks: currentStudent.marks ?? "",
           theory_marks: currentStudent.theory_marks ?? "",
           practical_marks: currentStudent.practical_marks ?? "",
+          mark_status: hasEnteredValue(value) ? "present" : currentStudent.mark_status ?? "present",
           components: {
             ...currentComponents,
             [componentId]: {
@@ -1222,9 +1323,11 @@ export default function Reports() {
     const marks = grid.rows
       .map((row) => {
         const edited = editedMarks[row.student_id] || {};
+        const markStatus = normalizeMarkStatus(edited.mark_status);
         if (componentMode) {
           return {
             student_id: row.student_id,
+            mark_status: markStatus,
             component_marks: (grid.subject.components || []).map((component) => {
               const editedComponent = edited?.components?.[component.id] || {};
               return {
@@ -1240,6 +1343,7 @@ export default function Reports() {
         if (splitPattern) {
           return {
             student_id: row.student_id,
+            mark_status: markStatus,
             theory_marks: edited?.theory_marks ?? "",
             practical_marks: edited?.practical_marks ?? "",
           };
@@ -1247,24 +1351,13 @@ export default function Reports() {
 
         return {
           student_id: row.student_id,
+          mark_status: markStatus,
           marks: edited?.marks ?? "",
         };
-      })
-      .filter((row) =>
-        componentMode
-          ? (row.component_marks || []).some(
-              (component) =>
-                component.marks !== "" ||
-                component.theory_marks !== "" ||
-                component.practical_marks !== ""
-            )
-          : splitPattern
-          ? row.theory_marks !== "" || row.practical_marks !== ""
-          : row.marks !== "" && row.marks !== null && row.marks !== undefined
-      );
+      });
 
     if (!marks.length) {
-      setError("Enter at least one mark value to save.");
+      setError("Load at least one student row to save.");
       return;
     }
 
@@ -1913,6 +2006,13 @@ export default function Reports() {
                 </Button>
                 <Button
                   variant="outline"
+                  onClick={markBlankRowsAbsent}
+                  disabled={gridLoading || !grid?.rows?.length}
+                >
+                  Mark Blank Absent
+                </Button>
+                <Button
+                  variant="outline"
                   onClick={() => handleSubmitMarks(false)}
                   disabled={gridLoading || !selectedStudentIds.length}
                 >
@@ -1938,9 +2038,18 @@ export default function Reports() {
                   {editMode ? "Cancel Edit" : "Edit"}
                 </Button>
                 {editMode ? (
-                  <Button onClick={handleSaveMarks} disabled={gridLoading || !grid?.rows?.length}>
-                    Save Changes
-                  </Button>
+                  <>
+                    <Button
+                      variant="outline"
+                      onClick={markBlankRowsAbsent}
+                      disabled={gridLoading || !grid?.rows?.length}
+                    >
+                      Mark Blank Absent
+                    </Button>
+                    <Button onClick={handleSaveMarks} disabled={gridLoading || !grid?.rows?.length}>
+                      Save Changes
+                    </Button>
+                  </>
                 ) : null}
               </>
             ) : null}
@@ -2011,12 +2120,17 @@ export default function Reports() {
                     ? "Marks (T/P/Total)"
                     : "Marks"}
               </TableHead>
+              <TableHead className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Mark Status</TableHead>
               <TableHead className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Status</TableHead>
               {isAdmin ? <TableHead className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Downloads</TableHead> : null}
             </TableRow>
           </TableHeader>
           <TableBody>
-            {(grid?.rows || []).map((row) => (
+            {(grid?.rows || []).map((row) => {
+              const editedRow = editedMarks?.[row.student_id] || {};
+              const rowMarkStatus = normalizeMarkStatus(editedRow.mark_status ?? row.mark_status);
+              const marksDisabled = rowMarkStatus !== "present";
+              return (
               <TableRow key={row.student_id} className="transition-colors hover:bg-muted/35">
                 <TableCell>
                   <Checkbox
@@ -2047,7 +2161,7 @@ export default function Reports() {
                       <div className="space-y-3">
                         {(grid.subject.components || []).map((component) => {
                           const editedComponent =
-                            editedMarks?.[row.student_id]?.components?.[component.id] || {};
+                            editedRow?.components?.[component.id] || {};
                           const componentSplit =
                             String(component.mark_pattern || "single").trim().toLowerCase() === "split";
                           return (
@@ -2070,6 +2184,7 @@ export default function Reports() {
                                     max={component.theory_max ?? component.max_marks ?? 100}
                                     className="w-20"
                                     value={editedComponent.theory_marks ?? ""}
+                                    disabled={marksDisabled}
                                     onChange={(e) =>
                                       updateComponentMarksValue(
                                         row.student_id,
@@ -2087,6 +2202,7 @@ export default function Reports() {
                                     max={component.practical_max ?? component.max_marks ?? 100}
                                     className="w-20"
                                     value={editedComponent.practical_marks ?? ""}
+                                    disabled={marksDisabled}
                                     onChange={(e) =>
                                       updateComponentMarksValue(
                                         row.student_id,
@@ -2107,6 +2223,7 @@ export default function Reports() {
                                     max={component.max_marks ?? 100}
                                     className="w-24"
                                     value={editedComponent.marks ?? ""}
+                                    disabled={marksDisabled}
                                     onChange={(e) =>
                                       updateComponentMarksValue(
                                         row.student_id,
@@ -2126,7 +2243,7 @@ export default function Reports() {
                           Total:{" "}
                           {(grid.subject.components || []).reduce((sum, component) => {
                             const editedComponent =
-                              editedMarks?.[row.student_id]?.components?.[component.id] || {};
+                              editedRow?.components?.[component.id] || {};
                             const componentSplit =
                               String(component.mark_pattern || "single").trim().toLowerCase() === "split";
                             return (
@@ -2148,7 +2265,8 @@ export default function Reports() {
                             min="0"
                             max={grid?.subject?.theory_max ?? grid?.subject?.max_marks ?? 100}
                             className="w-24"
-                            value={editedMarks?.[row.student_id]?.theory_marks ?? ""}
+                            value={editedRow?.theory_marks ?? ""}
+                            disabled={marksDisabled}
                             onChange={(e) => updateMarksValue(row.student_id, "theory_marks", e.target.value)}
                             onWheel={(e) => e.currentTarget.blur()}
                           />
@@ -2160,15 +2278,16 @@ export default function Reports() {
                             min="0"
                             max={grid?.subject?.practical_max ?? grid?.subject?.max_marks ?? 100}
                             className="w-24"
-                            value={editedMarks?.[row.student_id]?.practical_marks ?? ""}
+                            value={editedRow?.practical_marks ?? ""}
+                            disabled={marksDisabled}
                             onChange={(e) => updateMarksValue(row.student_id, "practical_marks", e.target.value)}
                             onWheel={(e) => e.currentTarget.blur()}
                           />
                         </div>
                         <div className="text-[11px] text-muted-foreground">
                           Total:{" "}
-                          {toNumberOrZero(editedMarks?.[row.student_id]?.theory_marks) +
-                            toNumberOrZero(editedMarks?.[row.student_id]?.practical_marks)}
+                          {toNumberOrZero(editedRow?.theory_marks) +
+                            toNumberOrZero(editedRow?.practical_marks)}
                         </div>
                       </div>
                     ) : (
@@ -2177,11 +2296,14 @@ export default function Reports() {
                         min="0"
                         max={grid?.subject?.max_marks || 100}
                         className="w-24"
-                        value={editedMarks?.[row.student_id]?.marks ?? ""}
+                        value={editedRow?.marks ?? ""}
+                        disabled={marksDisabled}
                         onChange={(e) => updateMarksValue(row.student_id, "marks", e.target.value)}
                         onWheel={(e) => e.currentTarget.blur()}
                       />
                     )
+                  ) : rowMarkStatus === "absent" ? (
+                    <span className="font-semibold text-red-700 dark:text-red-300">AB</span>
                   ) : hasSubjectComponents(grid?.subject) ? (
                     <div className="space-y-2 text-xs">
                       {(row.components || []).map((component) => (
@@ -2190,16 +2312,33 @@ export default function Reports() {
                           <div>T: {component.theory_marks ?? "-"} | P: {component.practical_marks ?? "-"}</div>
                         </div>
                       ))}
-                      <div className="font-medium">Total: {row.marks ?? "-"}</div>
+                      <div className="font-medium">Total: {displayMarkValue(row.marks, rowMarkStatus)}</div>
                     </div>
                   ) : isSplitPattern(grid?.subject) ? (
                     <div className="text-xs">
                       <div>T: {row.theory_marks ?? "-"}</div>
                       <div>P: {row.practical_marks ?? "-"}</div>
-                      <div className="font-medium">Total: {row.marks ?? "-"}</div>
+                      <div className="font-medium">Total: {displayMarkValue(row.marks, rowMarkStatus)}</div>
                     </div>
                   ) : (
-                    row.marks ?? "-"
+                    displayMarkValue(row.marks, rowMarkStatus)
+                  )}
+                </TableCell>
+                <TableCell>
+                  {canEditMarks ? (
+                    <select
+                      className={markStatusSelectClassName(rowMarkStatus)}
+                      value={rowMarkStatus}
+                      onChange={(e) => updateMarkStatus(row.student_id, e.target.value)}
+                    >
+                      <option value="present">Present</option>
+                      <option value="absent">Absent</option>
+                      <option value="pending">Pending</option>
+                    </select>
+                  ) : (
+                    <Badge variant="outline" className={markStatusClassName(rowMarkStatus)}>
+                      {rowMarkStatus === "absent" ? "Absent" : rowMarkStatus === "pending" ? "Pending" : "Present"}
+                    </Badge>
                   )}
                 </TableCell>
                 <TableCell>
@@ -2233,12 +2372,13 @@ export default function Reports() {
                   </TableCell>
                 ) : null}
               </TableRow>
-            ))}
+              );
+            })}
 
             {!grid?.rows?.length ? (
               <TableRow>
                 <TableCell
-                  colSpan={isAdmin ? 9 : 8}
+                  colSpan={isAdmin ? 10 : 9}
                   className="py-8 text-center text-muted-foreground"
                 >
                   {emptyMessage}
@@ -2387,9 +2527,9 @@ export default function Reports() {
                   {(selfReport.subjects || []).map((row) => (
                     <TableRow key={row.subject}>
                       <TableCell>{row.subject}</TableCell>
-                      <TableCell>{row.theory_marks ?? "-"}</TableCell>
-                      <TableCell>{row.practical_marks ?? "-"}</TableCell>
-                      <TableCell>{row.marks}</TableCell>
+                      <TableCell>{row.mark_status === "absent" ? "AB" : row.theory_marks ?? "-"}</TableCell>
+                      <TableCell>{row.mark_status === "absent" ? "AB" : row.practical_marks ?? "-"}</TableCell>
+                      <TableCell>{displayMarkValue(row.marks, row.mark_status)}</TableCell>
                       <TableCell>{row.max_marks}</TableCell>
                     </TableRow>
                   ))}

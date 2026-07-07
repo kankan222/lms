@@ -3,6 +3,7 @@ import { execute, query } from "../../core/db/query.js";
 let supportsScopesTableCache;
 let examSubjectSplitSchemaStatusCache;
 let marksEntrySplitSchemaStatusCache;
+let marksEntryStatusSchemaCache;
 let studentExamSubjectsTableCache;
 let subjectRegistrationTablesCache;
 let examSubjectComponentsTableCache;
@@ -101,6 +102,25 @@ export async function getMarksEntrySplitSchemaStatus() {
 
   marksEntrySplitSchemaStatusCache = status;
   return status;
+}
+
+export async function supportsMarksEntryStatus() {
+  if (typeof marksEntryStatusSchemaCache === "boolean") {
+    return marksEntryStatusSchemaCache;
+  }
+
+  const rows = await query(
+    `
+      SELECT COUNT(*) AS total
+      FROM information_schema.COLUMNS
+      WHERE TABLE_SCHEMA = DATABASE()
+        AND TABLE_NAME = 'marks_entries'
+        AND COLUMN_NAME = 'mark_status'
+    `
+  );
+
+  marksEntryStatusSchemaCache = Number(rows[0]?.total || 0) > 0;
+  return marksEntryStatusSchemaCache;
 }
 
 export async function supportsStudentExamSubjectsTable() {
@@ -759,8 +779,10 @@ export async function getMarksByExamSubjectStudentIds(examId, subjectId, student
 
   const schema = await getMarksEntrySplitSchemaStatus();
   const supportsSplitMarksSchema = schema.hasTheoryMarks && schema.hasPracticalMarks;
+  const supportsMarkStatus = await supportsMarksEntryStatus();
   const theoryMarksExpr = supportsSplitMarksSchema ? "theory_marks" : "NULL";
   const practicalMarksExpr = supportsSplitMarksSchema ? "practical_marks" : "NULL";
+  const markStatusExpr = supportsMarkStatus ? "mark_status" : "'present'";
 
   const placeholders = studentIds.map(() => "?").join(",");
   return query(
@@ -770,6 +792,7 @@ export async function getMarksByExamSubjectStudentIds(examId, subjectId, student
       marks,
       ${theoryMarksExpr} AS theory_marks,
       ${practicalMarksExpr} AS practical_marks,
+      ${markStatusExpr} AS mark_status,
       approval_status,
       approved_by,
       approved_at
@@ -869,6 +892,62 @@ export async function upsertMarksDraft(conn, rows) {
 
   const schema = await getMarksEntrySplitSchemaStatus();
   const supportsSplitMarksSchema = schema.hasTheoryMarks && schema.hasPracticalMarks;
+  const supportsMarkStatus = await supportsMarksEntryStatus();
+
+  if (supportsSplitMarksSchema && supportsMarkStatus) {
+    const values = rows.map((row) => [
+      row.student_id,
+      row.exam_id,
+      row.subject_id,
+      row.marks,
+      row.theory_marks ?? null,
+      row.practical_marks ?? null,
+      row.mark_status || "present",
+      row.entered_by,
+    ]);
+
+    await conn.query(
+      `INSERT INTO marks_entries
+       (student_id, exam_id, subject_id, marks, theory_marks, practical_marks, mark_status, entered_by)
+       VALUES ?
+       ON DUPLICATE KEY UPDATE
+         marks = VALUES(marks),
+         theory_marks = VALUES(theory_marks),
+         practical_marks = VALUES(practical_marks),
+         mark_status = VALUES(mark_status),
+         entered_by = VALUES(entered_by),
+         approval_status = CASE
+           WHEN approval_status = 'pending' THEN 'pending'
+           WHEN approval_status = 'approved'
+             AND marks <=> VALUES(marks)
+             AND theory_marks <=> VALUES(theory_marks)
+             AND practical_marks <=> VALUES(practical_marks)
+             AND mark_status <=> VALUES(mark_status)
+           THEN 'approved'
+           ELSE 'draft'
+         END,
+         approved_by = CASE
+           WHEN approval_status = 'approved'
+             AND marks <=> VALUES(marks)
+             AND theory_marks <=> VALUES(theory_marks)
+             AND practical_marks <=> VALUES(practical_marks)
+             AND mark_status <=> VALUES(mark_status)
+           THEN approved_by
+           ELSE NULL
+         END,
+         approved_at = CASE
+           WHEN approval_status = 'approved'
+             AND marks <=> VALUES(marks)
+             AND theory_marks <=> VALUES(theory_marks)
+             AND practical_marks <=> VALUES(practical_marks)
+             AND mark_status <=> VALUES(mark_status)
+           THEN approved_at
+           ELSE NULL
+         END`,
+      [values]
+    );
+    return;
+  }
 
   if (supportsSplitMarksSchema) {
     const values = rows.map((row) => [
@@ -912,6 +991,50 @@ export async function upsertMarksDraft(conn, rows) {
              AND marks <=> VALUES(marks)
              AND theory_marks <=> VALUES(theory_marks)
              AND practical_marks <=> VALUES(practical_marks)
+           THEN approved_at
+           ELSE NULL
+         END`,
+      [values]
+    );
+    return;
+  }
+
+  if (supportsMarkStatus) {
+    const values = rows.map((row) => [
+      row.student_id,
+      row.exam_id,
+      row.subject_id,
+      row.marks,
+      row.mark_status || "present",
+      row.entered_by,
+    ]);
+    await conn.query(
+      `INSERT INTO marks_entries
+       (student_id, exam_id, subject_id, marks, mark_status, entered_by)
+       VALUES ?
+       ON DUPLICATE KEY UPDATE
+         marks = VALUES(marks),
+         mark_status = VALUES(mark_status),
+         entered_by = VALUES(entered_by),
+         approval_status = CASE
+           WHEN approval_status = 'pending' THEN 'pending'
+           WHEN approval_status = 'approved'
+             AND marks <=> VALUES(marks)
+             AND mark_status <=> VALUES(mark_status)
+           THEN 'approved'
+           ELSE 'draft'
+         END,
+         approved_by = CASE
+           WHEN approval_status = 'approved'
+             AND marks <=> VALUES(marks)
+             AND mark_status <=> VALUES(mark_status)
+           THEN approved_by
+           ELSE NULL
+         END,
+         approved_at = CASE
+           WHEN approval_status = 'approved'
+             AND marks <=> VALUES(marks)
+             AND mark_status <=> VALUES(mark_status)
            THEN approved_at
            ELSE NULL
          END`,
@@ -970,6 +1093,22 @@ export async function upsertComponentMarks(conn, rows) {
   );
 }
 
+export async function deleteComponentMarksForStudents(conn, examSubjectId, studentIds) {
+  if (!(await supportsExamSubjectComponentsTable()) || !examSubjectId || !studentIds.length) return 0;
+
+  const placeholders = studentIds.map(() => "?").join(",");
+  const [result] = await conn.execute(
+    `DELETE ecm
+     FROM exam_subject_component_marks ecm
+     JOIN exam_subject_components esc ON esc.id = ecm.exam_subject_component_id
+     WHERE esc.exam_subject_id = ?
+       AND ecm.student_id IN (${placeholders})`,
+    [examSubjectId, ...studentIds]
+  );
+
+  return result.affectedRows;
+}
+
 export async function updateApprovalStatusBySelection(conn, payload) {
   const params = [];
   const setSql = [];
@@ -1011,6 +1150,11 @@ export async function updateApprovalStatusBySelection(conn, payload) {
     params.push(...payload.currentStatuses);
   }
 
+  if (payload.excludeMarkStatuses?.length && (await supportsMarksEntryStatus())) {
+    where.push(`COALESCE(me.mark_status, 'present') NOT IN (${payload.excludeMarkStatuses.map(() => "?").join(",")})`);
+    params.push(...payload.excludeMarkStatuses);
+  }
+
   const [result] = await conn.execute(
     `UPDATE marks_entries me
      JOIN student_enrollments se
@@ -1025,6 +1169,53 @@ export async function updateApprovalStatusBySelection(conn, payload) {
   );
 
   return result.affectedRows;
+}
+
+export async function countMarkStatusesBySelection(conn, payload) {
+  if (!(await supportsMarksEntryStatus())) return {};
+
+  const params = [payload.examId, payload.subjectId, payload.classId, payload.sectionId];
+  const where = [
+    `me.exam_id = ?`,
+    `me.subject_id = ?`,
+    `se.class_id = ?`,
+    `se.section_id = ?`,
+    `se.status = 'active'`,
+  ];
+
+  if (payload.medium) {
+    where.push(`LOWER(sec.medium) = ?`);
+    params.push(String(payload.medium).trim().toLowerCase());
+  }
+
+  if (Array.isArray(payload.studentIds) && payload.studentIds.length) {
+    where.push(`me.student_id IN (${payload.studentIds.map(() => "?").join(",")})`);
+    params.push(...payload.studentIds);
+  }
+
+  if (Array.isArray(payload.currentStatuses) && payload.currentStatuses.length) {
+    where.push(`me.approval_status IN (${payload.currentStatuses.map(() => "?").join(",")})`);
+    params.push(...payload.currentStatuses);
+  }
+
+  const [rows] = await conn.execute(
+    `SELECT me.mark_status, COUNT(*) AS total
+     FROM marks_entries me
+     JOIN student_enrollments se
+       ON se.student_id = me.student_id
+     JOIN exams e
+       ON e.id = me.exam_id
+      AND e.session_id = se.session_id
+     JOIN sections sec ON sec.id = se.section_id
+     WHERE ${where.join(" AND ")}
+     GROUP BY me.mark_status`,
+    params
+  );
+
+  return rows.reduce((acc, row) => {
+    acc[row.mark_status || "present"] = Number(row.total || 0);
+    return acc;
+  }, {});
 }
 
 function normalizePublicationMedium(medium) {
@@ -1152,6 +1343,7 @@ export async function listPublishedReportScopes(filters = {}) {
 export async function listApprovedMarkRecords(filters = {}) {
   const hasScopesTable = await supportsScopesTable();
   const classScopeExpr = buildClassScopeExpression(hasScopesTable);
+  const markStatusExpr = (await supportsMarksEntryStatus()) ? "me.mark_status" : "'present'";
   const where = [
     `me.approval_status = 'approved'`,
     `se.status = 'active'`,
@@ -1207,6 +1399,7 @@ export async function listApprovedMarkRecords(filters = {}) {
        me.marks,
        me.theory_marks,
        me.practical_marks,
+       ${markStatusExpr} AS mark_status,
        me.approval_status,
        DATE_FORMAT(me.approved_at, '%Y-%m-%d %H:%i:%s') AS approved_at
      FROM marks_entries me
@@ -1397,6 +1590,7 @@ export async function getFinalReportRows({ studentId, sessionId, classId, sectio
     subjectSchema.hasPracticalMax;
   const marksSchema = await getMarksEntrySplitSchemaStatus();
   const supportsSplitMarksSchema = marksSchema.hasTheoryMarks && marksSchema.hasPracticalMarks;
+  const markStatusExpr = (await supportsMarksEntryStatus()) ? "me.mark_status" : "'present'";
   const markPatternExpr = supportsSplitSubjectSchema ? "es.mark_pattern" : "'single'";
   const theoryMaxExpr = supportsSplitSubjectSchema ? "es.theory_max" : "NULL";
   const practicalMaxExpr = supportsSplitSubjectSchema ? "es.practical_max" : "NULL";
@@ -1445,6 +1639,7 @@ export async function getFinalReportRows({ studentId, sessionId, classId, sectio
        me.marks,
        ${theoryMarksExpr} AS theory_marks,
        ${practicalMarksExpr} AS practical_marks,
+       ${markStatusExpr} AS mark_status,
        me.approval_status
      FROM marks_entries me
      JOIN exams e ON e.id = me.exam_id
@@ -1499,6 +1694,7 @@ export async function getStudentReportRows(examId, studentId, onlyApproved = tru
     subjectSchema.hasPracticalPass;
   const marksSchema = await getMarksEntrySplitSchemaStatus();
   const supportsSplitMarksSchema = marksSchema.hasTheoryMarks && marksSchema.hasPracticalMarks;
+  const markStatusExpr = (await supportsMarksEntryStatus()) ? "me.mark_status" : "'present'";
   const hasStudentExamSubjects = await supportsStudentExamSubjectsTable();
   const hasSubjectRegistrations = await supportsSubjectRegistrationTables();
   const hasSubjectOfferingId = subjectSchema.hasSubjectOfferingId;
@@ -1617,6 +1813,7 @@ export async function getStudentReportRows(examId, studentId, onlyApproved = tru
       me.marks,
       ${theoryMarksExpr} AS theory_marks,
       ${practicalMarksExpr} AS practical_marks,
+      ${markStatusExpr} AS mark_status,
       me.approval_status
      FROM exams e
      JOIN student_enrollments se

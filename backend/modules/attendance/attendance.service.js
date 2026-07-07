@@ -152,6 +152,16 @@ function canAutoApprove(actor) {
   );
 }
 
+function isTeacherLimitedAttendanceUser(actor) {
+  const roles = Array.isArray(actor?.roles) ? actor.roles : [];
+  const permissions = Array.isArray(actor?.permissions) ? actor.permissions : [];
+  return (
+    roles.includes("teacher") &&
+    !permissions.includes("student_attendance.review") &&
+    !permissions.includes("marks.approve")
+  );
+}
+
 export async function getStudentAttendanceEntryScopes(actor) {
   const isTeacher = Array.isArray(actor?.roles) && actor.roles.includes("teacher");
 
@@ -309,8 +319,12 @@ export async function takeStudentAttendance(data, actor) {
   }
 }
 
-export async function listStudentAttendanceSessions(filters = {}) {
-  return repo.getStudentAttendanceSessions(filters);
+export async function listStudentAttendanceSessions(filters = {}, actor = {}) {
+  const scopedFilters = { ...filters };
+  if (isTeacherLimitedAttendanceUser(actor)) {
+    scopedFilters.submitted_by = actor.userId;
+  }
+  return repo.getStudentAttendanceSessions(scopedFilters);
 }
 
 export async function getStudentAttendanceRoster(filters = {}, actor) {
@@ -380,11 +394,18 @@ export async function getPendingStudentAttendance(filters = {}) {
   });
 }
 
-export async function getStudentAttendanceSession(sessionId) {
+export async function getStudentAttendanceSession(sessionId, actor = {}) {
   const [session] = await repo.getStudentAttendanceSessionById(Number(sessionId));
 
   if (!session) {
     throw new AppError("Student attendance session not found", 404);
+  }
+
+  if (
+    isTeacherLimitedAttendanceUser(actor) &&
+    Number(session.submitted_by || 0) !== Number(actor.userId || 0)
+  ) {
+    throw new AppError("Not authorized to view this attendance session", 403);
   }
 
   const rows = await repo.getStudentAttendanceRows(Number(sessionId));

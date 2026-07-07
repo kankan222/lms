@@ -14,6 +14,28 @@ Update this file after every meaningful implementation change.
 
 ## Completed
 
+- Added explicit marks entry statuses for Present, Absent, and Pending:
+  blank saved marks now remain pending until reviewed, absent rows store blank
+  marks but calculate as zero, pending rows are blocked from submit/approval,
+  and single/final marksheets display absent marks as `AB`.
+- Updated the mobile Reports and Student Details result UI for the same marks
+  status workflow, including mobile Present/Absent/Pending row controls,
+  Mark Blank Absent, disabled absent/pending mark entry, and `AB` result
+  display.
+- Restricted student attendance approved/history access for teacher-only
+  logins so teachers only receive and open attendance sessions they submitted,
+  and clarified the mobile teacher labels as My Approved Attendance and My
+  Attendance History.
+- Added paginated row views to the student attendance Review and Notify
+  session lists in both internal software and mobile so large attendance
+  batches are easier to scan.
+- Updated marks entry status controls so the software status select is colored
+  by Present/Absent/Pending and the mobile status chips stay side by side.
+- Redesigned the mobile Reports marks cards to follow
+  `frontend/mobile/design.md`: student name, roll, class/section-medium,
+  subject, mark status, attendance status, centered score, and download action.
+- Corrected marks entry fallback status to Present and matched the mobile
+  Reports marks input and Download button height in the card footer.
 - Rearranged the internal software sidebar into the requirements-defined
   sections: Dashboard, Academics, Student, Staff, Exam, Utilities, Reports,
   and Settings Section. Added matching navigation labels for Class, Subject,

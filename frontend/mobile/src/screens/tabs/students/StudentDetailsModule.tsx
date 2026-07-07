@@ -64,6 +64,7 @@ const fmtScope = (value?: string | null) => String(value || "").trim().toLowerCa
 const fmtCurrency = (value?: number | string | null) => new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 }).format(Number(value || 0));
 const norm = (value?: string | null, fallback = "-") => String(value || "").trim().toLowerCase() || fallback;
 const title = (value: string) => value ? value.charAt(0).toUpperCase() + value.slice(1) : "";
+const displayMarkValue = (value?: string | number | null, status?: string | null) => norm(status, "") === "absent" ? "AB" : value ?? "-";
 const tabLabel = (value: TabKey) => value === "subjects" ? "Subject Selection" : value === "fees" ? "Fees & Payments" : title(value);
 const formatTransportMonth = (month?: number | string | null, year?: number | string | null) => `${TRANSPORT_MONTHS.find(([value]) => Number(value) === Number(month))?.[1] || month || "-"}${year ? ` ${year}` : ""}`;
 const resolvePhoto = (photoUrl?: string | null) => !photoUrl ? null : /^https?:\/\//i.test(photoUrl) ? photoUrl : `https://kalongkapilividyapith.com${String(photoUrl).startsWith("/") ? photoUrl : `/${photoUrl}`}`;
@@ -1198,7 +1199,9 @@ export default function StudentDetailsModule({ studentId, exams }: Props) {
                       <Text style={[styles.listMeta, { color: theme.subText }]}>Max marks {subject.max_marks}</Text>
                     </View>
                     <View style={styles.subjectMarks}>
-                      <Text style={[styles.subjectMarksValue, { color: theme.text }]}>{subject.marks}</Text>
+                      <Text style={[styles.subjectMarksValue, { color: norm(subject.mark_status, "") === "absent" ? theme.danger : theme.text }]}>
+                        {displayMarkValue(subject.marks, subject.mark_status)}
+                      </Text>
                       <Text style={[styles.subjectMarksMeta, { color: theme.subText }]}>scored</Text>
                     </View>
                   </View>

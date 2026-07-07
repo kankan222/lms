@@ -1,6 +1,7 @@
 let supportsScopesTableCache;
 let examSubjectSplitSchemaStatusCache;
 let marksEntrySplitSchemaStatusCache;
+let marksEntryStatusSchemaCache;
 let subjectRegistrationTablesCache;
 
 async function supportsScopesTable(conn) {
@@ -112,6 +113,25 @@ async function getMarksEntrySplitSchemaStatus(conn) {
   return marksEntrySplitSchemaStatusCache;
 }
 
+async function supportsMarksEntryStatus(conn) {
+  if (typeof marksEntryStatusSchemaCache === "boolean") {
+    return marksEntryStatusSchemaCache;
+  }
+
+  const [rows] = await conn.execute(
+    `
+      SELECT COUNT(*) AS total
+      FROM information_schema.COLUMNS
+      WHERE TABLE_SCHEMA = DATABASE()
+        AND TABLE_NAME = 'marks_entries'
+        AND COLUMN_NAME = 'mark_status'
+    `
+  );
+
+  marksEntryStatusSchemaCache = Number(rows[0]?.total || 0) > 0;
+  return marksEntryStatusSchemaCache;
+}
+
 export async function getStudentMarks(conn,data){
   const hasScopesTable = await supportsScopesTable(conn);
   const classScopeExpr = buildClassScopeExpression(hasScopesTable);
@@ -124,6 +144,7 @@ export async function getStudentMarks(conn,data){
     subjectSchema.hasPracticalPass;
   const marksSchema = await getMarksEntrySplitSchemaStatus(conn);
   const supportsSplitMarksSchema = marksSchema.hasTheoryMarks && marksSchema.hasPracticalMarks;
+  const markStatusExpr = (await supportsMarksEntryStatus(conn)) ? "me.mark_status" : "'present'";
   const hasSubjectRegistrations = await supportsSubjectRegistrationTables(conn);
   const hasSubjectOfferingId = subjectSchema.hasSubjectOfferingId;
 
@@ -235,6 +256,7 @@ export async function getStudentMarks(conn,data){
       me.marks,
       ${theoryMarksExpr} AS theory_marks,
       ${practicalMarksExpr} AS practical_marks,
+      ${markStatusExpr} AS mark_status,
       me.approval_status
     FROM marks_entries me
     JOIN students s

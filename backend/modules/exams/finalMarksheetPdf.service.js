@@ -110,6 +110,9 @@ function isBiologyPartComponent(component) {
 
 function renderFinalMarkCell(cell) {
   if (!cell) return "<td></td>";
+  if (String(cell.mark_status || "").trim().toLowerCase() === "absent") {
+    return `<td class="absent-mark">AB</td>`;
+  }
 
   const components = Array.isArray(cell.components) ? cell.components : [];
   const splitComponents = components.filter(hasSplitMarks);

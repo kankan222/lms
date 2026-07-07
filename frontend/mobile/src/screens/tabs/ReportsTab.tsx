@@ -36,6 +36,7 @@ import {
   type LinkedStudent,
   type MarksGridData,
   type MarksApprovalSummary,
+  type MarkStatus,
   type PendingApprovalQueue,
   type StudentReport,
 } from "../../services/reportsService";
@@ -57,6 +58,10 @@ type SubjectItem = {
 };
 
 type NoticeTone = "success" | "error";
+type MarkDraft = {
+  marks: string;
+  mark_status: MarkStatus;
+};
 
 const EMPTY_FILTERS = {
   exam_id: "",
@@ -134,6 +139,20 @@ function capitalize(value: string) {
   return value ? value.charAt(0).toUpperCase() + value.slice(1) : "";
 }
 
+function normalizeMarkStatus(value?: string | null): MarkStatus {
+  const status = String(value || "").trim().toLowerCase();
+  if (status === "absent" || status === "pending" || status === "present") return status;
+  return "present";
+}
+
+function hasEnteredValue(value?: string | number | null) {
+  return value !== null && value !== undefined && String(value).trim() !== "";
+}
+
+function displayMarkValue(value?: string | number | null, status?: string | null) {
+  return normalizeMarkStatus(status) === "absent" ? "AB" : value ?? "-";
+}
+
 function noticeToneStyle(tone: NoticeTone) {
   return tone === "success"
     ? { borderColor: "#bbf7d0", backgroundColor: currentTheme.isDark ? "#052e16" : "#f0fdf4" }
@@ -159,6 +178,28 @@ function statusBadgeTone(status: string) {
     borderColor: currentTheme.border,
     backgroundColor: currentTheme.cardMuted,
     color: currentTheme.subText,
+  };
+}
+
+function markStatusTone(status: MarkStatus) {
+  if (status === "absent") {
+    return {
+      borderColor: currentTheme.isDark ? "#991b1b" : "#fecaca",
+      backgroundColor: currentTheme.isDark ? "#450a0a" : "#fef2f2",
+      color: currentTheme.isDark ? "#fca5a5" : "#b91c1c",
+    };
+  }
+  if (status === "pending") {
+    return {
+      borderColor: currentTheme.isDark ? "#d97706" : "#fde68a",
+      backgroundColor: currentTheme.isDark ? "#451a03" : "#fffbeb",
+      color: currentTheme.isDark ? "#fcd34d" : "#b45309",
+    };
+  }
+  return {
+    borderColor: currentTheme.isDark ? "#15803d" : "#bbf7d0",
+    backgroundColor: currentTheme.isDark ? "#052e16" : "#f0fdf4",
+    color: currentTheme.isDark ? "#86efac" : "#15803d",
   };
 }
 
@@ -256,6 +297,17 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
+function MarkStatusBadge({ status }: { status: MarkStatus }) {
+  const palette = markStatusTone(status);
+  return (
+    <View style={[styles.statusBadge, { borderColor: palette.borderColor, backgroundColor: palette.backgroundColor }]}>
+      <Text style={[styles.statusBadgeText, { color: palette.color }]}>
+        {status === "absent" ? "Absent" : status === "pending" ? "Pending" : "Present"}
+      </Text>
+    </View>
+  );
+}
+
 function ReportCard({ report }: { report: StudentReport }) {
   return (
     <SectionCard
@@ -275,7 +327,7 @@ function ReportCard({ report }: { report: StudentReport }) {
             <Text style={styles.studentName}>{row.subject}</Text>
           </View>
           <View style={styles.subjectMarks}>
-            <Text style={styles.subjectMarksValue}>{row.marks}</Text>
+            <Text style={styles.subjectMarksValue}>{displayMarkValue(row.marks, row.mark_status)}</Text>
             <Text style={styles.mutedText}>/ {row.max_marks}</Text>
           </View>
         </View>
@@ -332,7 +384,7 @@ export default function ReportsTab() {
   const [grid, setGrid] = useState<MarksGridData | null>(null);
   const [selfReport, setSelfReport] = useState<StudentReport | null>(null);
   const [selectedStudentIds, setSelectedStudentIds] = useState<number[]>([]);
-  const [editedMarks, setEditedMarks] = useState<Record<number, string>>({});
+  const [editedMarks, setEditedMarks] = useState<Record<number, MarkDraft>>({});
   const [visibleRowCount, setVisibleRowCount] = useState(GRID_BATCH_SIZE);
   const [editMode, setEditMode] = useState(false);
   const [pendingQueue, setPendingQueue] = useState<PendingApprovalQueue>({ total_pending: 0, groups: [] });
@@ -818,10 +870,12 @@ export default function ReportsTab() {
     setGrid(nextGrid);
     setVisibleRowCount(GRID_BATCH_SIZE);
     setSelectedStudentIds([]);
-    const draft: Record<number, string> = {};
+    const draft: Record<number, MarkDraft> = {};
     (nextGrid.rows || []).forEach((row) => {
-      draft[Number(row.student_id)] =
-        row.marks !== null && row.marks !== undefined ? String(row.marks) : "";
+      draft[Number(row.student_id)] = {
+        marks: row.marks !== null && row.marks !== undefined ? String(row.marks) : "",
+        mark_status: normalizeMarkStatus(row.mark_status || "present"),
+      };
     });
     setEditedMarks(draft);
     setEditMode(false);
@@ -890,7 +944,49 @@ export default function ReportsTab() {
   }
 
   function updateMarksValue(studentId: number, value: string) {
-    setEditedMarks((prev) => ({ ...prev, [studentId]: value }));
+    setEditedMarks((prev) => {
+      const current = prev[studentId] || { marks: "", mark_status: "present" as MarkStatus };
+      return {
+        ...prev,
+        [studentId]: {
+          ...current,
+          marks: value,
+          mark_status: hasEnteredValue(value) ? "present" : current.mark_status,
+        },
+      };
+    });
+  }
+
+  function updateMarkStatus(studentId: number, status: MarkStatus) {
+    setEditedMarks((prev) => {
+      const current = prev[studentId] || { marks: "", mark_status: "present" as MarkStatus };
+      const shouldClear = status !== "present";
+      return {
+        ...prev,
+        [studentId]: {
+          marks: shouldClear ? "" : current.marks,
+          mark_status: status,
+        },
+      };
+    });
+  }
+
+  function markBlankRowsAbsent() {
+    if (!grid?.rows?.length) return;
+    setEditedMarks((prev) => {
+      const next = { ...prev };
+      grid.rows.forEach((row) => {
+        const studentId = Number(row.student_id);
+        const current = next[studentId] || {
+          marks: row.marks !== null && row.marks !== undefined ? String(row.marks) : "",
+          mark_status: normalizeMarkStatus(row.mark_status || "present"),
+        };
+        if (!hasEnteredValue(current.marks)) {
+          next[studentId] = { marks: "", mark_status: "absent" };
+        }
+      });
+      return next;
+    });
   }
 
   function loadMoreGridRows() {
@@ -965,15 +1061,20 @@ export default function ReportsTab() {
       return;
     }
 
-    const marks = grid.rows
-      .map((row) => ({
+    const marks = grid.rows.map((row) => {
+      const draft = editedMarks[Number(row.student_id)] || {
+        marks: row.marks !== null && row.marks !== undefined ? String(row.marks) : "",
+        mark_status: normalizeMarkStatus(row.mark_status || "present"),
+      };
+      return {
         student_id: row.student_id,
-        marks: editedMarks[Number(row.student_id)],
-      }))
-      .filter((row) => row.marks !== "" && row.marks !== undefined);
+        marks: draft.marks,
+        mark_status: draft.mark_status,
+      };
+    });
 
     if (!marks.length) {
-      setError("Validation", "Enter at least one mark to save.");
+      setError("Validation", "Load at least one student row to save.");
       return;
     }
 
@@ -1280,6 +1381,13 @@ export default function ReportsTab() {
               </Pressable>
               <Pressable
                 style={[styles.secondaryBtn, { backgroundColor: theme.card, borderColor: theme.border }]}
+                onPress={markBlankRowsAbsent}
+                disabled={gridLoading || !grid?.rows?.length}
+              >
+                <Text style={[styles.secondaryBtnText, { color: theme.text }]}>Mark Blank Absent</Text>
+              </Pressable>
+              <Pressable
+                style={[styles.secondaryBtn, { backgroundColor: theme.card, borderColor: theme.border }]}
                 onPress={() => handleSubmitMarks(false)}
                 disabled={gridLoading || !selectedStudentIds.length}
               >
@@ -1305,9 +1413,18 @@ export default function ReportsTab() {
                 <Text style={[styles.secondaryBtnText, { color: theme.text }]}>{editMode ? "Cancel Edit" : "Edit"}</Text>
               </Pressable>
               {editMode ? (
-                <Pressable style={[styles.successBtn, { backgroundColor: theme.success }]} onPress={handleSaveMarks} disabled={gridLoading || !grid?.rows?.length}>
-                  <Text style={styles.successBtnText}>Save Changes</Text>
-                </Pressable>
+                <>
+                  <Pressable
+                    style={[styles.secondaryBtn, { backgroundColor: theme.card, borderColor: theme.border }]}
+                    onPress={markBlankRowsAbsent}
+                    disabled={gridLoading || !grid?.rows?.length}
+                  >
+                    <Text style={[styles.secondaryBtnText, { color: theme.text }]}>Mark Blank Absent</Text>
+                  </Pressable>
+                  <Pressable style={[styles.successBtn, { backgroundColor: theme.success }]} onPress={handleSaveMarks} disabled={gridLoading || !grid?.rows?.length}>
+                    <Text style={styles.successBtnText}>Save Changes</Text>
+                  </Pressable>
+                </>
               ) : null}
             </>
           ) : null}
@@ -1347,7 +1464,21 @@ export default function ReportsTab() {
 
         {visibleGridRows.length ? (
           <View>
-            {visibleGridRows.map((row) => (
+            {visibleGridRows.map((row) => {
+              const draft = editedMarks[Number(row.student_id)] || {
+                marks: row.marks !== null && row.marks !== undefined ? String(row.marks) : "",
+                mark_status: normalizeMarkStatus(row.mark_status || "present"),
+              };
+              const rowMarkStatus = normalizeMarkStatus(draft.mark_status);
+              const marksDisabled = rowMarkStatus !== "present";
+              const classLabel = selectedClass?.name || "-";
+              const sectionLabel = selectedSection
+                ? `${selectedSection.name}${selectedSection.medium ? `(${selectedSection.medium})` : row.medium ? `(${row.medium})` : ""}`
+                : row.medium
+                  ? `-(${row.medium})`
+                  : "-";
+              const subjectLabel = selectedSubject?.name || grid?.subject?.name || "-";
+              return (
               <Pressable
                 key={row.student_id}
                 style={[
@@ -1360,45 +1491,72 @@ export default function ReportsTab() {
                 onPress={() => toggleRow(Number(row.student_id))}
                 disabled={!canSelectRows}
               >
-                <View style={styles.rowBetween}>
-                  <View style={styles.studentMeta}>
-                    <View style={styles.studentHeaderRow}>
-                      <Text style={[styles.studentName, { color: theme.text }]}>{row.student_name}</Text>
-                      {canSelectRows ? (
-                        <View
-                          style={[
-                            styles.selectionDot,
-                            { backgroundColor: theme.border },
-                            selectedStudentIds.includes(Number(row.student_id)) && [styles.selectionDotActive, { backgroundColor: theme.primary }],
-                          ]}
-                        />
-                      ) : null}
-                    </View>
-                    <View style={styles.metaWrap}>
-                      <View style={[styles.metaPill, { borderColor: theme.border, backgroundColor: theme.card }]}>
-                        <Text style={[styles.metaPillText, { color: theme.subText }]}>Roll {row.roll_number || "-"}</Text>
-                      </View>
-                      <View style={[styles.metaPill, { borderColor: theme.border, backgroundColor: theme.card }]}>
-                        <Text style={[styles.metaPillText, { color: theme.subText }]}>
-                          {selectedClass?.name || "-"} / {selectedSection?.name || "-"}
-                          {selectedSection?.medium ? ` (${selectedSection.medium})` : row.medium ? ` (${row.medium})` : ""}
-                        </Text>
-                      </View>
-                    </View>
-                    <Text style={[styles.subjectMeta, { color: theme.subText }]}>Subject: {selectedSubject?.name || grid?.subject?.name || "-"}</Text>
-                  </View>
-                  <StatusBadge status={row.approval_status} />
+                <View style={styles.reportCardHeader}>
+                  <Text style={[styles.reportStudentName, { color: theme.text }]}>{row.student_name}</Text>
+                  {canSelectRows ? (
+                    <View
+                      style={[
+                        styles.selectionDot,
+                        { backgroundColor: theme.border },
+                        selectedStudentIds.includes(Number(row.student_id)) && [styles.selectionDotActive, { backgroundColor: theme.primary }],
+                      ]}
+                    />
+                  ) : null}
                 </View>
 
-                <View style={styles.cardFooterRow}>
-                  <View style={styles.marksBox}>
-                    <Text style={[styles.compactLabel, { color: theme.subText }]}>Marks</Text>
+                <View style={styles.reportDetailStack}>
+                  <Text style={[styles.reportInfoText, { color: theme.text }]}>
+                    <Text style={[styles.reportLabel, { color: theme.subText }]}>Class - </Text>{classLabel}
+                    <Text style={[styles.reportLabel, { color: theme.subText }]}> | Roll No - </Text>{row.roll_number || "-"}
+                  </Text>
+                  <Text style={[styles.reportInfoText, { color: theme.text }]}>
+                    <Text style={[styles.reportLabel, { color: theme.subText }]}>Sec/Med - </Text>{sectionLabel}
+                  </Text>
+                  <Text style={[styles.reportInfoText, { color: theme.text }]}>
+                    <Text style={[styles.reportLabel, { color: theme.subText }]}>Subject - </Text>{subjectLabel}
+                  </Text>
+                  <View style={styles.reportInlineRow}>
+                    <Text style={[styles.reportSmallLabel, { color: theme.subText }]}>Mark Status - </Text>
+                    <StatusBadge status={row.approval_status} />
+                  </View>
+                  <View style={styles.reportInlineRow}>
+                    <Text style={[styles.reportSmallLabel, { color: theme.subText }]}>Attendance - </Text>
+                    {canEditMarks && row.approval_status !== "approved" ? (
+                      <View style={styles.statusChipRow}>
+                        {(["present", "absent", "pending"] as MarkStatus[]).map((status) => {
+                          const palette = markStatusTone(status);
+                          const active = rowMarkStatus === status;
+                          return (
+                            <Pressable
+                              key={`${row.student_id}-${status}`}
+                              style={[
+                                styles.markStatusChip,
+                                { borderColor: active ? palette.borderColor : theme.border, backgroundColor: active ? palette.backgroundColor : theme.card },
+                              ]}
+                              onPress={() => updateMarkStatus(Number(row.student_id), status)}
+                            >
+                              <Text style={[styles.markStatusChipText, { color: active ? palette.color : theme.subText }]}>
+                                {status === "absent" ? "Absent" : status === "pending" ? "Pending" : "Present"}
+                              </Text>
+                            </Pressable>
+                          );
+                        })}
+                      </View>
+                    ) : (
+                      <MarkStatusBadge status={rowMarkStatus} />
+                    )}
+                  </View>
+                </View>
+
+                <View style={styles.reportBottomRow}>
+                  <View style={[styles.reportScoreBox, { borderColor: theme.border, backgroundColor: theme.card }]}>
                     {canEditMarks && row.approval_status !== "approved" ? (
                       <TextInput
-                        style={[styles.input, styles.marksInput, styles.compactInput]}
+                        style={[styles.reportMarksInput, { color: theme.text }, marksDisabled && styles.disabledInput]}
                         keyboardType="numeric"
-                        value={editedMarks[Number(row.student_id)] ?? ""}
+                        value={draft.marks}
                         onChangeText={(value) => updateMarksValue(Number(row.student_id), value)}
+                        editable={!marksDisabled}
                         onFocus={() => focusMarksInput(Number(row.student_id))}
                         onBlur={() => {
                           if (focusedStudentIdRef.current === Number(row.student_id)) {
@@ -1409,22 +1567,25 @@ export default function ReportsTab() {
                         placeholderTextColor={theme.mutedText}
                       />
                     ) : (
-                      <Text style={[styles.marksValue, { color: theme.text }]}>{row.marks ?? "-"}</Text>
+                      <Text style={[styles.reportScoreText, { color: rowMarkStatus === "absent" ? theme.danger : theme.text }]}>
+                        {displayMarkValue(row.marks, rowMarkStatus)}
+                      </Text>
                     )}
                   </View>
 
                   {isAdmin ? (
                     <Pressable
-                      style={[styles.smallSecondaryBtn, { backgroundColor: theme.card, borderColor: theme.border }]}
+                      style={[styles.reportDownloadBtn, { backgroundColor: theme.primary, borderColor: theme.primary }]}
                       disabled={row.approval_status !== "approved"}
                       onPress={() => handleDownloadStudent(Number(row.student_id))}
                     >
-                      <Text style={[styles.smallSecondaryBtnText, { color: theme.text }]}>Download</Text>
+                      <Text style={[styles.smallSecondaryBtnText, { color: theme.primaryText }]}>Download</Text>
                     </Pressable>
                   ) : null}
                 </View>
               </Pressable>
-            ))}
+              );
+            })}
             {hasMoreGridRows ? (
               <Pressable
                 style={[styles.loadMoreBtn, { borderColor: theme.border, backgroundColor: theme.cardMuted }]}
@@ -1808,14 +1969,93 @@ return StyleSheet.create({
   studentCard: {
     borderWidth: 1,
     borderColor: "#e2e8f0",
-    borderRadius: 14,
+    borderRadius: 16,
     backgroundColor: "#f8fafc",
-    padding: 10,
-    gap: 8,
+    padding: 14,
+    gap: 12,
   },
   studentCardSelected: {
     borderColor: "#0f172a",
     backgroundColor: "#eef2ff",
+  },
+  reportCardHeader: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: 10,
+  },
+  reportStudentName: {
+    flex: 1,
+    color: "#0f172a",
+    fontSize: 17,
+    fontWeight: "800",
+    lineHeight: 22,
+  },
+  reportDetailStack: {
+    gap: 7,
+  },
+  reportInfoText: {
+    color: "#0f172a",
+    fontSize: 13,
+    fontWeight: "700",
+    lineHeight: 19,
+  },
+  reportLabel: {
+    color: "#64748b",
+    fontWeight: "700",
+  },
+  reportSmallLabel: {
+    color: "#64748b",
+    fontSize: 11,
+    fontWeight: "700",
+  },
+  reportInlineRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    alignItems: "center",
+    gap: 6,
+  },
+  reportBottomRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+  },
+  reportScoreBox: {
+    alignSelf: "flex-start",
+    height: 48,
+    minWidth: 96,
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingHorizontal: 18,
+    paddingVertical: 10,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  reportScoreText: {
+    color: "#0f172a",
+    fontSize: 22,
+    fontWeight: "900",
+    fontVariant: ["tabular-nums"],
+  },
+  reportMarksInput: {
+    minWidth: 72,
+    paddingVertical: 0,
+    color: "#0f172a",
+    fontSize: 22,
+    fontWeight: "900",
+    textAlign: "center",
+  },
+  reportDownloadBtn: {
+    alignSelf: "center",
+    height: 48,
+    minWidth: 132,
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    alignItems: "center",
+    justifyContent: "center",
   },
   studentMeta: {
     flex: 1,
@@ -1901,9 +2141,36 @@ return StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 8,
   },
+  disabledInput: {
+    opacity: 0.58,
+  },
   marksValue: {
     color: "#0f172a",
     fontSize: 18,
+    fontWeight: "800",
+  },
+  markStatusBox: {
+    flex: 1.6,
+    minWidth: 190,
+    gap: 4,
+  },
+  statusChipRow: {
+    flex: 1,
+    minWidth: 210,
+    flexDirection: "row",
+    flexWrap: "nowrap",
+    gap: 4,
+  },
+  markStatusChip: {
+    flex: 1,
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingHorizontal: 6,
+    paddingVertical: 6,
+    alignItems: "center",
+  },
+  markStatusChipText: {
+    fontSize: 10,
     fontWeight: "800",
   },
   smallSecondaryBtn: {

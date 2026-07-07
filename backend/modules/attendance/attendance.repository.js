@@ -360,6 +360,11 @@ export async function getStudentAttendanceSessions(filters = {}) {
     params.push(Number(filters.section_id));
   }
 
+  if (filters.submitted_by) {
+    where.push("att.submitted_by = ?");
+    params.push(Number(filters.submitted_by));
+  }
+
   if (filters.date_from) {
     where.push("att.date >= ?");
     params.push(filters.date_from);

@@ -10,6 +10,8 @@ type ApiEnvelope<T> = {
   message?: string;
 };
 
+export type MarkStatus = "present" | "absent" | "pending";
+
 export type MarksGridFilters = {
   exam_id?: number | string;
   class_id?: number | string;
@@ -27,6 +29,7 @@ export type MarksGridRow = {
   student_name: string;
   medium?: string | null;
   marks?: number | null;
+  mark_status?: MarkStatus | string | null;
   approval_status: string;
   has_entry?: boolean;
 };
@@ -66,6 +69,7 @@ export type StudentReport = {
   subjects?: Array<{
     subject: string;
     marks: number;
+    mark_status?: MarkStatus | string | null;
     max_marks: number;
     pass_marks?: number;
   }>;
@@ -204,7 +208,7 @@ export async function saveMarks(payload: {
   section_id: number | string;
   medium?: string;
   subject_id: number | string;
-  marks: Array<{ student_id: number | string; marks: string | number }>;
+  marks: Array<{ student_id: number | string; marks: string | number; mark_status?: MarkStatus | string }>;
 }) {
   const response = await api.post("/marks/save", payload);
   return response.data;

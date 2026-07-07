@@ -43,6 +43,48 @@ function normalizeSelectionIds(value) {
   return [...new Set(value.map((item) => Number(item)).filter(Boolean))];
 }
 
+function hasEnteredValue(value) {
+  return value !== null && value !== undefined && String(value).trim() !== "";
+}
+
+function normalizeMarkStatus(value) {
+  const status = String(value || "").trim().toLowerCase();
+  return ["present", "absent", "pending"].includes(status) ? status : "present";
+}
+
+function rowHasSubjectMarks(row, examSubject) {
+  const pattern = String(examSubject.mark_pattern || "single").trim().toLowerCase();
+  if (pattern === "split") {
+    return (
+      hasEnteredValue(row?.theory_marks ?? row?.theoryMarks) ||
+      hasEnteredValue(row?.practical_marks ?? row?.practicalMarks)
+    );
+  }
+
+  return hasEnteredValue(row?.marks);
+}
+
+function rowHasComponentMarks(row) {
+  const componentMarks = Array.isArray(row?.component_marks)
+    ? row.component_marks
+    : Array.isArray(row?.componentMarks)
+      ? row.componentMarks
+      : [];
+
+  return componentMarks.some(
+    (component) =>
+      hasEnteredValue(component?.marks) ||
+      hasEnteredValue(component?.theory_marks ?? component?.theoryMarks) ||
+      hasEnteredValue(component?.practical_marks ?? component?.practicalMarks)
+  );
+}
+
+function resolveEntryStatus(row, hasMarks) {
+  if (hasMarks) return "present";
+  const requestedStatus = normalizeMarkStatus(row?.mark_status ?? row?.markStatus);
+  return requestedStatus === "absent" ? "absent" : "pending";
+}
+
 function normalizeDateString(value, fieldName) {
   const text = String(value || "").trim();
   if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) {
@@ -206,6 +248,7 @@ async function formatReport(rows, publication = null) {
         subject_group: String(row.subject_group || "zz").trim().toLowerCase(),
         mark_pattern: String(row.mark_pattern || "single").trim().toLowerCase(),
         marks: Number(row.marks || 0),
+        mark_status: row.mark_status || "present",
         max_marks: Number(row.max_marks || 0),
         pass_marks: Number(row.pass_marks || 0),
         theory_marks: row.theory_marks === null ? null : Number(row.theory_marks),
@@ -388,6 +431,7 @@ async function formatFinalReport(scope, rows) {
     const subject = subjectMap.get(subjectKey);
     subject.exams[examId] = {
       marks,
+      mark_status: row.mark_status || "present",
       max_marks: maxMarks,
       mark_pattern: String(row.mark_pattern || "single").trim().toLowerCase(),
       theory_marks:
@@ -644,7 +688,10 @@ export async function getMarksGrid(filters, userId) {
       roll_number: student.roll_number,
       student_name: student.student_name,
       medium: student.medium,
-      marks: entry ? Number(entry.marks) : null,
+      marks:
+        entry?.marks === null || entry?.marks === undefined
+          ? null
+          : Number(entry.marks),
       theory_marks:
         entry?.theory_marks === null || entry?.theory_marks === undefined
           ? null
@@ -654,6 +701,7 @@ export async function getMarksGrid(filters, userId) {
           ? null
           : Number(entry.practical_marks),
       approval_status: entry?.approval_status || "draft",
+      mark_status: entry?.mark_status || (entry ? "present" : "pending"),
       has_entry: Boolean(entry),
       components: components.map((component) => {
         const componentEntry = studentComponentMarks.get(Number(component.id));
@@ -667,7 +715,10 @@ export async function getMarksGrid(filters, userId) {
           theory_pass: component.theory_pass === null ? null : Number(component.theory_pass),
           practical_max: component.practical_max === null ? null : Number(component.practical_max),
           practical_pass: component.practical_pass === null ? null : Number(component.practical_pass),
-          marks: componentEntry ? Number(componentEntry.marks) : null,
+          marks:
+            componentEntry?.marks === null || componentEntry?.marks === undefined
+              ? null
+              : Number(componentEntry.marks),
           theory_marks:
             componentEntry?.theory_marks === null || componentEntry?.theory_marks === undefined
               ? null
@@ -855,6 +906,7 @@ export async function saveMarks(payload, userId) {
 
   const componentById = new Map(components.map((component) => [Number(component.id), component]));
   const componentRows = [];
+  const clearComponentStudentIds = [];
 
   const rows = marks.map((item) => {
     const studentId = Number(item.student_id ?? item.studentId);
@@ -864,6 +916,21 @@ export async function saveMarks(payload, userId) {
     }
 
     if (components.length) {
+      const entryStatus = resolveEntryStatus(item, rowHasComponentMarks(item));
+      if (entryStatus !== "present") {
+        clearComponentStudentIds.push(studentId);
+        return {
+          student_id: studentId,
+          exam_id: examId,
+          subject_id: subjectId,
+          marks: null,
+          theory_marks: null,
+          practical_marks: null,
+          mark_status: entryStatus,
+          entered_by: userId,
+        };
+      }
+
       const rawComponentMarks = Array.isArray(item.component_marks)
         ? item.component_marks
         : Array.isArray(item.componentMarks)
@@ -911,10 +978,25 @@ export async function saveMarks(payload, userId) {
       return {
         student_id: studentId,
         exam_id: examId,
+          subject_id: subjectId,
+          marks: totalMarks,
+          theory_marks: theoryMarks,
+          practical_marks: practicalMarks,
+          mark_status: "present",
+          entered_by: userId,
+        };
+      }
+
+    const entryStatus = resolveEntryStatus(item, rowHasSubjectMarks(item, examSubject));
+    if (entryStatus !== "present") {
+      return {
+        student_id: studentId,
+        exam_id: examId,
         subject_id: subjectId,
-        marks: totalMarks,
-        theory_marks: theoryMarks,
-        practical_marks: practicalMarks,
+        marks: null,
+        theory_marks: null,
+        practical_marks: null,
+        mark_status: entryStatus,
         entered_by: userId,
       };
     }
@@ -928,6 +1010,7 @@ export async function saveMarks(payload, userId) {
       marks: normalizedMarks.marks,
       theory_marks: normalizedMarks.theory_marks,
       practical_marks: normalizedMarks.practical_marks,
+      mark_status: "present",
       entered_by: userId,
     };
   });
@@ -935,6 +1018,7 @@ export async function saveMarks(payload, userId) {
   const conn = await pool.getConnection();
   try {
     await conn.beginTransaction();
+    await repo.deleteComponentMarksForStudents(conn, examSubject.id, clearComponentStudentIds);
     await repo.upsertComponentMarks(conn, componentRows);
     await repo.upsertMarksDraft(conn, rows);
     await conn.commit();
@@ -964,6 +1048,27 @@ async function changeSelectionStatus(payload, userId, options) {
   const conn = await pool.getConnection();
   try {
     await conn.beginTransaction();
+    if (options.blockMarkStatuses?.length) {
+      const statusCounts = await repo.countMarkStatusesBySelection(conn, {
+        examId,
+        classId,
+        sectionId,
+        subjectId,
+        medium,
+        studentIds: applyToAll ? [] : studentIds,
+        currentStatuses: options.currentStatuses,
+      });
+      const blockedCount = options.blockMarkStatuses.reduce(
+        (sum, status) => sum + Number(statusCounts[status] || 0),
+        0
+      );
+      if (blockedCount > 0) {
+        throw new AppError(
+          `${blockedCount} student mark ${blockedCount === 1 ? "row is" : "rows are"} still pending. Mark them Present or Absent before continuing.`,
+          400
+        );
+      }
+    }
     const affected = await repo.updateApprovalStatusBySelection(conn, {
       examId,
       classId,
@@ -974,6 +1079,7 @@ async function changeSelectionStatus(payload, userId, options) {
       currentStatuses: options.currentStatuses,
       nextStatus: options.nextStatus,
       approvedBy: options.nextStatus === "approved" ? userId : null,
+      excludeMarkStatuses: options.excludeMarkStatuses || [],
     });
     await conn.commit();
     return { affected, approval_status: options.nextStatus };
@@ -991,6 +1097,8 @@ export async function submitMarksForApproval(payload, userId) {
     adminOnly: false,
     currentStatuses: ["draft"],
     nextStatus: "pending",
+    excludeMarkStatuses: ["pending"],
+    blockMarkStatuses: ["pending"],
   });
 }
 
@@ -999,6 +1107,8 @@ export async function approveMarks(payload, userId) {
     teacherOnly: false,
     currentStatuses: ["pending"],
     nextStatus: "approved",
+    excludeMarkStatuses: ["pending"],
+    blockMarkStatuses: ["pending"],
   });
 }
 

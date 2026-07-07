@@ -133,6 +133,11 @@ function combineBiologyPartSubjects(subjects = []) {
   const combinedSubject = {
     subject: "Biology",
     mark_pattern: "split",
+    mark_status: biologyParts.every(
+      (part) => String(part?.mark_status || "").trim().toLowerCase() === "absent"
+    )
+      ? "absent"
+      : "present",
     marks: sumNullable(biologyParts, "marks") ?? 0,
     max_marks: sumNullable(biologyParts, "max_marks") ?? 0,
     pass_marks: sumNullable(biologyParts, "pass_marks") ?? 0,
@@ -160,9 +165,12 @@ function combineBiologyPartSubjects(subjects = []) {
 
 function renderMarksheetSubjectRows(subject) {
   const components = Array.isArray(subject.components) ? subject.components : [];
-  let marksObtained = escapeHtml(formatCell(subject.marks));
+  let marksObtained =
+    String(subject.mark_status || "").trim().toLowerCase() === "absent"
+      ? "AB"
+      : escapeHtml(formatCell(subject.marks));
 
-  if (components.length) {
+  if (marksObtained !== "AB" && components.length) {
     const biologyComponents = components.some(isBiologyPartComponent);
     const shouldBreakDown = biologyComponents || components.some(hasSplitMarks);
     if (shouldBreakDown) {
@@ -181,7 +189,7 @@ function renderMarksheetSubjectRows(subject) {
       );
       marksObtained = renderSplitMarksObtained(theoryMarks, practicalMarks, subject.marks);
     }
-  } else if (hasSplitMarks(subject)) {
+  } else if (marksObtained !== "AB" && hasSplitMarks(subject)) {
     marksObtained = renderSplitMarksObtained(
       subject.theory_marks,
       subject.practical_marks,

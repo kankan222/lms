@@ -11,7 +11,7 @@ export async function takeStudentAttendance(req, res, next) {
 
 export async function listStudentAttendanceSessions(req, res, next) {
   try {
-    const result = await service.listStudentAttendanceSessions(req.query);
+    const result = await service.listStudentAttendanceSessions(req.query, req.user);
     res.json({ success: true, data: result });
   } catch (err) {
     next(err);
@@ -47,7 +47,7 @@ export async function getPendingStudentAttendance(req, res, next) {
 
 export async function getStudentAttendanceSession(req, res, next) {
   try {
-    const result = await service.getStudentAttendanceSession(req.params.sessionId);
+    const result = await service.getStudentAttendanceSession(req.params.sessionId, req.user);
     res.json({ success: true, data: result });
   } catch (err) {
     next(err);

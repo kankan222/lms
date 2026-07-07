@@ -38,6 +38,8 @@ import { formatReadableDate, formatReadableDateTime } from "../lib/dateTime";
 const FIELD_CLASSNAME =
   "w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground shadow-xs outline-hidden transition focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] disabled:cursor-not-allowed disabled:opacity-60";
 const ATTENDANCE_LOG_ROWS_PER_PAGE_OPTIONS = [10, 20, 50, 100];
+const STUDENT_ATTENDANCE_ROWS_PER_PAGE_OPTIONS = [10, 25, 50, 100];
+const DEFAULT_STUDENT_ATTENDANCE_ROWS_PER_PAGE = 10;
 
 const teacherAttendanceColumns = [
   { header: "Teacher", accessor: "teacher" },
@@ -265,6 +267,10 @@ export default function Attendance() {
     section_id: "",
     sort_by: "latest",
   });
+  const [pendingPage, setPendingPage] = useState(1);
+  const [pendingRowsPerPage, setPendingRowsPerPage] = useState(
+    DEFAULT_STUDENT_ATTENDANCE_ROWS_PER_PAGE
+  );
   const [reviewRemarks, setReviewRemarks] = useState("");
   const [approvedRows, setApprovedRows] = useState([]);
   const [approvedLoading, setApprovedLoading] = useState(false);
@@ -274,6 +280,10 @@ export default function Attendance() {
     class_id: "",
     section_id: "",
   });
+  const [notifyPage, setNotifyPage] = useState(1);
+  const [notifyRowsPerPage, setNotifyRowsPerPage] = useState(
+    DEFAULT_STUDENT_ATTENDANCE_ROWS_PER_PAGE
+  );
   const [notifyDatePreset, setNotifyDatePreset] = useState("today");
   const [notifyDraftRange, setNotifyDraftRange] = useState(() =>
     resolveTeacherLogPresetRange("today")
@@ -1362,6 +1372,49 @@ export default function Attendance() {
   const allFilteredPendingSelected =
     filteredPendingRows.length > 0 &&
     filteredPendingRows.every((row) => selectedPendingIds.includes(Number(row.id)));
+  const pendingTotalPages = Math.max(
+    1,
+    Math.ceil(filteredPendingRows.length / pendingRowsPerPage)
+  );
+  const paginatedPendingRows = useMemo(() => {
+    const start = (pendingPage - 1) * pendingRowsPerPage;
+    return filteredPendingRows.slice(start, start + pendingRowsPerPage);
+  }, [filteredPendingRows, pendingPage, pendingRowsPerPage]);
+  const notifyTotalPages = Math.max(
+    1,
+    Math.ceil(filteredApprovedRows.length / notifyRowsPerPage)
+  );
+  const paginatedApprovedRows = useMemo(() => {
+    const start = (notifyPage - 1) * notifyRowsPerPage;
+    return filteredApprovedRows.slice(start, start + notifyRowsPerPage);
+  }, [filteredApprovedRows, notifyPage, notifyRowsPerPage]);
+
+  useEffect(() => {
+    setPendingPage(1);
+  }, [
+    pendingFilters.class_id,
+    pendingFilters.section_id,
+    pendingFilters.sort_by,
+    pendingRowsPerPage,
+  ]);
+
+  useEffect(() => {
+    setNotifyPage(1);
+  }, [
+    notifyAppliedRange.from,
+    notifyAppliedRange.to,
+    notifyFilters.class_id,
+    notifyFilters.section_id,
+    notifyRowsPerPage,
+  ]);
+
+  useEffect(() => {
+    setPendingPage((page) => Math.min(page, pendingTotalPages));
+  }, [pendingTotalPages]);
+
+  useEffect(() => {
+    setNotifyPage((page) => Math.min(page, notifyTotalPages));
+  }, [notifyTotalPages]);
   const presentCount = roster.filter((student) => student.status === "present").length;
   const absentCount = roster.filter((student) => student.status === "absent").length;
   const approvedAbsentRows = (selectedApproved?.rows || []).filter((row) => row.status === "absent");
@@ -1440,6 +1493,62 @@ export default function Attendance() {
   function handleTabChange(nextTab) {
     setActiveTab(nextTab);
     setSearchParams({ tab: nextTab });
+  }
+
+  function renderStudentAttendancePagination({
+    label,
+    page,
+    rowsPerPage,
+    totalRows,
+    totalPages,
+    onPageChange,
+    onRowsPerPageChange,
+  }) {
+    const startRow = totalRows === 0 ? 0 : (page - 1) * rowsPerPage + 1;
+    const endRow = Math.min(page * rowsPerPage, totalRows);
+
+    return (
+      <div className="flex flex-col gap-3 rounded-lg border bg-muted/20 px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
+        <p className="text-sm text-muted-foreground">
+          {label}: {startRow}-{endRow} of {totalRows}
+        </p>
+        <div className="flex flex-wrap items-center gap-2">
+          <Label className="text-xs text-muted-foreground">Rows</Label>
+          <select
+            className={`${FIELD_CLASSNAME} h-9 w-[88px] py-1`}
+            value={rowsPerPage}
+            onChange={(event) => onRowsPerPageChange(Number(event.target.value))}
+          >
+            {STUDENT_ATTENDANCE_ROWS_PER_PAGE_OPTIONS.map((option) => (
+              <option key={option} value={option}>
+                {option}
+              </option>
+            ))}
+          </select>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={() => onPageChange(Math.max(1, page - 1))}
+            disabled={page <= 1}
+          >
+            Previous
+          </Button>
+          <span className="text-sm text-muted-foreground">
+            Page {page} of {totalPages}
+          </span>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={() => onPageChange(Math.min(totalPages, page + 1))}
+            disabled={page >= totalPages}
+          >
+            Next
+          </Button>
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -1741,6 +1850,16 @@ export default function Attendance() {
                     {approvedLoading ? "Refreshing..." : "Refresh"}
                   </Button>
                 </div>
+
+                {renderStudentAttendancePagination({
+                  label: "Review rows",
+                  page: pendingPage,
+                  rowsPerPage: pendingRowsPerPage,
+                  totalRows: filteredPendingRows.length,
+                  totalPages: pendingTotalPages,
+                  onPageChange: setPendingPage,
+                  onRowsPerPageChange: setPendingRowsPerPage,
+                })}
 
                 <div className="rounded-xl border">
                   <table className="w-full text-sm">
@@ -2103,7 +2222,7 @@ export default function Attendance() {
                       </tr>
                     </thead>
                     <tbody>
-                      {filteredPendingRows.map((row) => (
+                      {paginatedPendingRows.map((row) => (
                         <tr key={row.id} className="border-b">
                           <td className="px-3 py-2">
                             <input
@@ -2141,6 +2260,18 @@ export default function Attendance() {
                     </tbody>
                   </table>
                 </div>
+
+                {filteredPendingRows.length > pendingRowsPerPage
+                  ? renderStudentAttendancePagination({
+                      label: "Review rows",
+                      page: pendingPage,
+                      rowsPerPage: pendingRowsPerPage,
+                      totalRows: filteredPendingRows.length,
+                      totalPages: pendingTotalPages,
+                      onPageChange: setPendingPage,
+                      onRowsPerPageChange: setPendingRowsPerPage,
+                    })
+                  : null}
               </div>
 
               <div className="rounded-xl border bg-card p-4 space-y-4">
@@ -2378,6 +2509,16 @@ export default function Attendance() {
                   {notifyAppliedRange.to || "-"}.
                 </p>
 
+                {renderStudentAttendancePagination({
+                  label: "Notify rows",
+                  page: notifyPage,
+                  rowsPerPage: notifyRowsPerPage,
+                  totalRows: filteredApprovedRows.length,
+                  totalPages: notifyTotalPages,
+                  onPageChange: setNotifyPage,
+                  onRowsPerPageChange: setNotifyRowsPerPage,
+                })}
+
                 <div className="rounded-xl border">
                   <table className="w-full text-sm">
                     <thead className="border-b bg-secondary">
@@ -2390,7 +2531,7 @@ export default function Attendance() {
                       </tr>
                     </thead>
                     <tbody>
-                      {filteredApprovedRows.map((row) => (
+                      {paginatedApprovedRows.map((row) => (
                         <tr key={row.id} className="border-b">
                           <td className="px-3 py-2">{formatReadableDate(row.date)}</td>
                           <td className="px-3 py-2">{row.class_name || "-"}</td>
@@ -2419,6 +2560,18 @@ export default function Attendance() {
                     </tbody>
                   </table>
                 </div>
+
+                {filteredApprovedRows.length > notifyRowsPerPage
+                  ? renderStudentAttendancePagination({
+                      label: "Notify rows",
+                      page: notifyPage,
+                      rowsPerPage: notifyRowsPerPage,
+                      totalRows: filteredApprovedRows.length,
+                      totalPages: notifyTotalPages,
+                      onPageChange: setNotifyPage,
+                      onRowsPerPageChange: setNotifyRowsPerPage,
+                    })
+                  : null}
               </div>
 
               <div className="rounded-xl border bg-card p-4 space-y-4">
