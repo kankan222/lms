@@ -591,6 +591,10 @@ export async function getStudentFeeOptions(enrollmentId) {
       sf.amount,
       sf.status,
       fi.installment_name,
+      CASE
+        WHEN sf.fee_type = 'admission' THEN 'Admission Fee'
+        ELSE fi.installment_name
+      END AS fee_name,
       fi.due_date,
       COALESCE(SUM(p.amount_paid), 0) AS paid,
       (sf.amount - COALESCE(SUM(p.amount_paid), 0)) AS remaining
@@ -602,6 +606,7 @@ export async function getStudentFeeOptions(enrollmentId) {
     WHERE sf.enrollment_id = ?
     GROUP BY sf.id, sf.fee_type, sf.amount, sf.status, fi.installment_name, fi.due_date
     HAVING remaining > 0
+       OR (COALESCE(sf.amount, 0) = 0 AND sf.status <> 'paid')
     ORDER BY fi.due_date IS NULL DESC, fi.due_date ASC, sf.id ASC
   `;
   return query(sql, [enrollmentId]);
