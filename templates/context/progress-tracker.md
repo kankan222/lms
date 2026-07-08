@@ -14,6 +14,9 @@ Update this file after every meaningful implementation change.
 
 ## Completed
 
+- Refined the internal web Payments table to match the Students table style:
+  grouped student/class/section cells, section-medium display, scope under
+  class, roll under section, and colored Fee Name badges backed by `fee_name`.
 - Simplified mobile Student Details fee presentation by removing overview
   Outstanding/Paid Total cards and reducing the Fee Summary section to title,
   payment coverage, and errors only.

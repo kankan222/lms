@@ -58,15 +58,69 @@ const columns = [
     accessor: "payment_date",
     cell: (row) => formatReadableDate(row.payment_date),
   },
-  { header: "Student", accessor: "student_name" },
-  { header: "Scope", accessor: "scope_label" },
-  { header: "Class", accessor: "class_name" },
-  { header: "Stream", accessor: "stream_name" },
-  { header: "Section", accessor: "section_name" },
-  { header: "Medium", accessor: "medium" },
-  { header: "Fee Type", accessor: "fee_type" },
-  { header: "Amount Paid", accessor: "amount_paid" },
-  { header: "Status", accessor: "display_status" },
+  {
+    header: "Student",
+    accessor: "student_summary",
+    className: "min-w-[220px]",
+    cell: (row) => (
+      <div className="min-w-0 space-y-1">
+        <p className="truncate font-medium text-foreground">{row.student_name || "-"}</p>
+        {row.admission_no ? (
+          <p className="truncate text-xs text-muted-foreground">Adm: {row.admission_no}</p>
+        ) : null}
+        <p className="truncate text-xs text-muted-foreground">Sl. No. {row.receipt_serial || "-"}</p>
+      </div>
+    ),
+  },
+  {
+    header: "Class",
+    accessor: "class_summary",
+    className: "min-w-[180px]",
+    cell: (row) => (
+      <div className="space-y-1">
+        <p className="font-medium text-foreground">{row.class_name || "-"}</p>
+        <p className="text-xs text-muted-foreground">{row.scope_label || "-"}</p>
+        {row.stream_name && row.stream_name !== "-" ? (
+          <p className="text-xs text-muted-foreground">{row.stream_name}</p>
+        ) : null}
+      </div>
+    ),
+  },
+  {
+    header: "Section",
+    accessor: "section_summary",
+    className: "min-w-[150px]",
+    cell: (row) => (
+      <div className="space-y-1">
+        <p className="font-medium text-foreground">{formatSectionMedium(row.section_name, row.medium)}</p>
+        <p className="text-xs text-muted-foreground">
+          {row.roll_number ? `Roll ${row.roll_number}` : "Roll -"}
+        </p>
+      </div>
+    ),
+  },
+  {
+    header: "Fee Name",
+    accessor: "fee_name",
+    className: "min-w-[170px]",
+    cell: (row) => (
+      <span className={`inline-flex rounded-full border px-3 py-1 text-xs font-medium ${feeNameBadgeClass(row.fee_name)}`}>
+        {row.fee_name || "-"}
+      </span>
+    ),
+  },
+  {
+    header: "Amount Paid",
+    accessor: "amount_paid",
+    className: "min-w-[130px] text-right",
+    headerClassName: "text-right",
+    cell: (row) => (
+      <span className="font-medium tabular-nums">
+        {formatCurrency(row.amount_paid)}
+      </span>
+    ),
+  },
+  { header: "Status", accessor: "display_status", className: "min-w-[120px]" },
 ];
 const PAYMENTS_ROWS_PER_PAGE_OPTIONS = [10, 20, 50, 100];
 const PAYMENTS_TABLE_PAGE_KEY = "payments.table.page";
@@ -88,6 +142,47 @@ function formatScope(scope) {
   if (value === "hs") return "Higher Secondary";
   if (value === "school") return "School";
   return scope || "-";
+}
+
+function formatCurrency(value) {
+  return new Intl.NumberFormat("en-IN", {
+    style: "currency",
+    currency: "INR",
+    maximumFractionDigits: 0,
+  }).format(Number(value || 0));
+}
+
+function getFeeName(row) {
+  const directFeeName = String(row?.fee_name || "").trim();
+  if (directFeeName) return directFeeName;
+  const feeName = String(row?.installment_name || "").trim();
+  if (feeName) return feeName;
+  return String(row?.fee_type || "").toLowerCase() === "admission" ? "Admission Fee" : "-";
+}
+
+function formatSectionMedium(section, medium) {
+  const sectionName = String(section || "").trim();
+  const mediumName = String(medium || "").trim();
+  if (sectionName && mediumName && mediumName !== "-") return `${sectionName} (${mediumName})`;
+  return sectionName || "-";
+}
+
+function feeNameBadgeClass(name) {
+  const value = String(name || "").trim().toLowerCase();
+
+  if (value.includes("admission")) {
+    return "border-punch-200 bg-punch-50 text-punch-700 dark:border-punch-900/60 dark:bg-punch-950/30 dark:text-punch-200";
+  }
+  if (value.includes("transport") || value.includes("bus") || value.includes("van")) {
+    return "border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-900/60 dark:bg-sky-950/30 dark:text-sky-300";
+  }
+  if (value.includes("exam") || value.includes("test")) {
+    return "border-violet-200 bg-violet-50 text-violet-700 dark:border-violet-900/60 dark:bg-violet-950/30 dark:text-violet-300";
+  }
+  if (value.includes("monthly") || value.includes("tuition")) {
+    return "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/60 dark:bg-emerald-950/30 dark:text-emerald-300";
+  }
+  return "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-300";
 }
 
 function resolveClassScope(value) {
@@ -122,6 +217,7 @@ function readStoredString(key, fallback = "") {
 function enrichPaymentRows(rows = []) {
   return rows.map((row) => ({
     ...row,
+    fee_name: getFeeName(row),
     medium: row.medium || "-",
     payment_date: row.payment_date || row.created_at || "-",
     scope_label: formatScope(row.class_scope),
@@ -1053,7 +1149,7 @@ export default function Payments() {
                       <option value="">Select Due Item</option>
                       {feeOptions.map((f) => (
                         <option key={f.id} value={f.id}>
-                          {(f.installment_name || f.fee_type)} - Remaining: {f.remaining}
+                          {getFeeName(f)} - Remaining: {formatCurrency(f.remaining)}
                         </option>
                       ))}
                     </select>
