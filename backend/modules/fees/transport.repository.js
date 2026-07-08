@@ -209,6 +209,21 @@ export async function deactivateActiveAssignments(conn, studentId, sessionId) {
   );
 }
 
+export async function getActiveAssignmentForUpdate(conn, studentId, sessionId) {
+  const [rows] = await conn.execute(
+    `SELECT *
+     FROM student_transport_assignments
+     WHERE student_id = ?
+       AND session_id = ?
+       AND status = 'active'
+     ORDER BY id DESC
+     LIMIT 1
+     FOR UPDATE`,
+    [studentId, sessionId]
+  );
+  return rows[0] || null;
+}
+
 export async function createAssignment(conn, data) {
   const [result] = await conn.execute(
     `INSERT INTO student_transport_assignments
@@ -324,7 +339,15 @@ export async function endAssignment(id, data) {
 export async function listDues(filters = {}) {
   const where = [];
   const params = [];
+  const statusExpression = `CASE
+       WHEN COALESCE(month_paid.paid, 0) >= d.amount THEN 'paid'
+       WHEN COALESCE(month_paid.paid, 0) > 0 THEN 'partial'
+       ELSE 'pending'
+     END`;
 
+  if (!filters.include_inactive_assignments) {
+    where.push("a.status = 'active'");
+  }
   if (filters.student_id) {
     where.push("d.student_id = ?");
     params.push(filters.student_id);
@@ -334,7 +357,7 @@ export async function listDues(filters = {}) {
     params.push(filters.session_id);
   }
   if (filters.status) {
-    where.push("d.status = ?");
+    where.push(`${statusExpression} = ?`);
     params.push(filters.status);
   }
   if (filters.month) {
@@ -355,7 +378,16 @@ export async function listDues(filters = {}) {
   }
 
   return query(
-    `SELECT d.*,
+    `SELECT d.id,
+            d.assignment_id,
+            d.student_id,
+            d.session_id,
+            d.due_month,
+            d.due_year,
+            d.amount,
+            ${statusExpression} AS status,
+            d.created_at,
+            d.updated_at,
             s.name AS student_name,
             s.admission_no,
             ses.name AS session_name,
@@ -364,8 +396,8 @@ export async function listDues(filters = {}) {
             c.name AS class_name,
             sec.name AS section_name,
             sec.medium,
-            COALESCE(pa.paid, 0) AS paid,
-            (d.amount - COALESCE(pa.paid, 0)) AS remaining
+            COALESCE(month_paid.paid, 0) AS paid,
+            GREATEST(d.amount - COALESCE(month_paid.paid, 0), 0) AS remaining
      FROM student_transport_fee_dues d
      JOIN student_transport_assignments a ON a.id = d.assignment_id
      JOIN students s ON s.id = d.student_id
@@ -379,10 +411,19 @@ export async function listDues(filters = {}) {
      LEFT JOIN classes c ON c.id = se.class_id
      LEFT JOIN sections sec ON sec.id = se.section_id
      LEFT JOIN (
-       SELECT transport_due_id, SUM(amount_applied) AS paid
-       FROM transport_payment_allocations
-       GROUP BY transport_due_id
-     ) pa ON pa.transport_due_id = d.id
+       SELECT d2.student_id,
+              d2.session_id,
+              d2.due_month,
+              d2.due_year,
+              SUM(pa.amount_applied) AS paid
+       FROM student_transport_fee_dues d2
+       JOIN transport_payment_allocations pa ON pa.transport_due_id = d2.id
+       GROUP BY d2.student_id, d2.session_id, d2.due_month, d2.due_year
+     ) month_paid
+       ON month_paid.student_id = d.student_id
+      AND month_paid.session_id = d.session_id
+      AND month_paid.due_month = d.due_month
+      AND month_paid.due_year = d.due_year
      ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
      ORDER BY d.due_year DESC, d.due_month DESC, s.name ASC`,
     params

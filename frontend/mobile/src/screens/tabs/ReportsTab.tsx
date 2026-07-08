@@ -592,10 +592,10 @@ export default function ReportsTab() {
 
   useEffect(() => {
     if (!filters.exam_id) {
-      setExamSubjects([]);
-      setExamScopes([]);
+      setExamSubjects((prev) => (prev.length ? [] : prev));
+      setExamScopes((prev) => (prev.length ? [] : prev));
       setExamMetaLoading(false);
-      setFilters((prev) => ({ ...prev, subject_id: "" }));
+      setFilters((prev) => (prev.subject_id ? { ...prev, subject_id: "" } : prev));
       return;
     }
 

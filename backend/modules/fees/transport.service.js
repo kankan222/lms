@@ -130,6 +130,23 @@ function buildDueMonths(session, assignment) {
   return months;
 }
 
+function nullableNumber(value) {
+  if (value === undefined || value === null || value === "") return null;
+  return Number(value);
+}
+
+function assignmentMatches(existing, next) {
+  return (
+    nullableNumber(existing.route_id) === nullableNumber(next.route_id) &&
+    nullableNumber(existing.stop_id) === nullableNumber(next.stop_id) &&
+    Number(existing.start_month) === Number(next.start_month) &&
+    Number(existing.start_year) === Number(next.start_year) &&
+    nullableNumber(existing.end_month) === nullableNumber(next.end_month) &&
+    nullableNumber(existing.end_year) === nullableNumber(next.end_year) &&
+    Math.abs(Number(existing.monthly_fee) - Number(next.monthly_fee)) < 0.005
+  );
+}
+
 function normalizeRoutePayload(data = {}, existing = null) {
   const name = String(data.name ?? existing?.name ?? "").trim();
   if (!name) throw new AppError("Route name is required", 400);
@@ -256,6 +273,22 @@ export async function createAssignment(data, user) {
   const conn = await pool.getConnection();
   try {
     await conn.beginTransaction();
+    const activeAssignment = await repo.getActiveAssignmentForUpdate(conn, studentId, sessionId);
+    if (activeAssignment && assignmentMatches(activeAssignment, assignment)) {
+      for (const item of dueMonths) {
+        await repo.insertDue(conn, {
+          assignment_id: Number(activeAssignment.id),
+          student_id: studentId,
+          session_id: sessionId,
+          due_month: item.month,
+          due_year: item.year,
+          amount: assignment.monthly_fee,
+        });
+      }
+      await conn.commit();
+      return { message: "Transport assignment already active", id: Number(activeAssignment.id) };
+    }
+
     await repo.deactivateActiveAssignments(conn, studentId, sessionId);
     const result = await repo.createAssignment(conn, assignment);
     const assignmentId = Number(result.insertId);

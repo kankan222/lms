@@ -14,6 +14,10 @@ Update this file after every meaningful implementation change.
 
 ## Completed
 
+- Fixed transportation fee duplicate due rendering caused by repeated
+  student-level transportation saves: unchanged active assignments now reuse the
+  existing assignment, and transportation due lists exclude inactive assignment
+  dues by default while preserving payment history.
 - Added explicit marks entry statuses for Present, Absent, and Pending:
   blank saved marks now remain pending until reviewed, absent rows store blank
   marks but calculate as zero, pending rows are blocked from submit/approval,
