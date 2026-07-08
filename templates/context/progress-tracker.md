@@ -14,6 +14,9 @@ Update this file after every meaningful implementation change.
 
 ## Completed
 
+- Kept zero-amount fee items visible in student fee options so newly created
+  fee names appear in Student Details and payment due selectors before the
+  amount is finalized.
 - Refined the internal web Payments table to match the Students table style:
   grouped student/class/section cells, section-medium display, scope under
   class, roll under section, and colored Fee Name badges backed by `fee_name`.

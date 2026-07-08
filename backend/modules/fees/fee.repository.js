@@ -726,6 +726,7 @@ export async function findStudentFeesForPaymentImport(filters = {}) {
       acs.name,
       str.name
     HAVING remaining > 0
+       OR (COALESCE(sf.amount, 0) = 0 AND sf.status <> 'paid')
     ORDER BY sf.id ASC
   `;
 
