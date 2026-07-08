@@ -51,50 +51,41 @@ const columns = [
   {
     header: "Sl. No.",
     accessor: "receipt_serial",
-    className: "min-w-[120px]",
+    className: "min-w-[95px]",
   },
   {
     header: "Date",
     accessor: "payment_date",
+    className: "min-w-[105px]",
     cell: (row) => formatReadableDate(row.payment_date),
   },
   {
     header: "Student",
     accessor: "student_summary",
-    className: "min-w-[220px]",
+    className: "min-w-[185px]",
     cell: (row) => (
       <div className="min-w-0 space-y-1">
         <p className="truncate font-medium text-foreground">{row.student_name || "-"}</p>
         {row.admission_no ? (
           <p className="truncate text-xs text-muted-foreground">Adm: {row.admission_no}</p>
         ) : null}
-        <p className="truncate text-xs text-muted-foreground">Sl. No. {row.receipt_serial || "-"}</p>
       </div>
     ),
   },
   {
-    header: "Class",
-    accessor: "class_summary",
-    className: "min-w-[180px]",
+    header: "Academic",
+    accessor: "academic_summary",
+    className: "min-w-[205px]",
     cell: (row) => (
       <div className="space-y-1">
-        <p className="font-medium text-foreground">{row.class_name || "-"}</p>
-        <p className="text-xs text-muted-foreground">{row.scope_label || "-"}</p>
+        <p className="font-medium text-foreground">
+          {row.class_name || "-"} / {formatSectionMedium(row.section_name, row.medium)}
+        </p>
         {row.stream_name && row.stream_name !== "-" ? (
           <p className="text-xs text-muted-foreground">{row.stream_name}</p>
         ) : null}
-      </div>
-    ),
-  },
-  {
-    header: "Section",
-    accessor: "section_summary",
-    className: "min-w-[150px]",
-    cell: (row) => (
-      <div className="space-y-1">
-        <p className="font-medium text-foreground">{formatSectionMedium(row.section_name, row.medium)}</p>
         <p className="text-xs text-muted-foreground">
-          {row.roll_number ? `Roll ${row.roll_number}` : "Roll -"}
+          {row.scope_label || "-"} | {row.roll_number ? `Roll ${row.roll_number}` : "Roll -"}
         </p>
       </div>
     ),
@@ -102,9 +93,9 @@ const columns = [
   {
     header: "Fee Name",
     accessor: "fee_name",
-    className: "min-w-[170px]",
+    className: "min-w-[130px] max-w-[170px]",
     cell: (row) => (
-      <span className={`inline-flex rounded-full border px-3 py-1 text-xs font-medium ${feeNameBadgeClass(row.fee_name)}`}>
+      <span className={`inline-flex max-w-full whitespace-normal rounded-full border px-3 py-1 text-xs font-medium ${feeNameBadgeClass(row.fee_name)}`}>
         {row.fee_name || "-"}
       </span>
     ),
@@ -112,7 +103,7 @@ const columns = [
   {
     header: "Amount Paid",
     accessor: "amount_paid",
-    className: "min-w-[130px] text-right",
+    className: "min-w-[110px] text-right",
     headerClassName: "text-right",
     cell: (row) => (
       <span className="font-medium tabular-nums">
@@ -120,7 +111,7 @@ const columns = [
       </span>
     ),
   },
-  { header: "Status", accessor: "display_status", className: "min-w-[120px]" },
+  { header: "Status", accessor: "display_status", className: "min-w-[100px]" },
 ];
 const PAYMENTS_ROWS_PER_PAGE_OPTIONS = [10, 20, 50, 100];
 const PAYMENTS_TABLE_PAGE_KEY = "payments.table.page";
