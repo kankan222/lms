@@ -178,16 +178,21 @@ export default function Fees() {
     e.preventDefault();
     setInstallmentError("");
 
-    if (!structureId || !installmentName || !installmentAmount) {
-      setInstallmentError("Fee structure, installment name and amount are required.");
+    if (!structureId || !installmentName) {
+      setInstallmentError("Fee structure and fee name are required.");
+      return;
+    }
+    const nextAmount = installmentAmount === "" ? 0 : Number(installmentAmount);
+    if (!Number.isFinite(nextAmount) || nextAmount < 0) {
+      setInstallmentError("Amount must be zero or greater.");
       return;
     }
 
     try {
       await createInstallment({
         fee_structure_id: Number(structureId),
-        installment_name: installmentName,
-        amount: Number(installmentAmount),
+        installment_name: installmentName.trim(),
+        amount: nextAmount,
         due_date: dueDate || null,
       });
 
@@ -197,10 +202,10 @@ export default function Fees() {
       setInstallmentAmount("");
       setDueDate("");
       setInstallmentSheetOpen(false);
-      showNotice("Installment Created", "Installment created successfully.");
+      showNotice("Fee Type Created", "Fee type created successfully.");
     } catch (err) {
-      showNotice("Create Failed", err?.message || "Failed to create installment.", "error");
-      setInstallmentError(err?.message || "Failed to create installment.");
+      showNotice("Create Failed", err?.message || "Failed to create fee type.", "error");
+      setInstallmentError(err?.message || "Failed to create fee type.");
     }
   }
 
@@ -249,9 +254,13 @@ export default function Fees() {
     if (!editingInstallment) return;
     setInstallmentError("");
 
-    const nextAmount = Number(editingInstallment.amount);
-    if (!String(editingInstallment.installment_name || "").trim() || !nextAmount || nextAmount <= 0) {
-      setInstallmentError("Installment name and valid amount are required.");
+    const nextAmount = editingInstallment.amount === "" ? 0 : Number(editingInstallment.amount);
+    if (!String(editingInstallment.installment_name || "").trim()) {
+      setInstallmentError("Fee name is required.");
+      return;
+    }
+    if (!Number.isFinite(nextAmount) || nextAmount < 0) {
+      setInstallmentError("Amount must be zero or greater.");
       return;
     }
 
@@ -263,10 +272,10 @@ export default function Fees() {
       });
       await loadFees();
       setEditingInstallment(null);
-      showNotice("Installment Updated", "Installment updated successfully.");
+      showNotice("Fee Type Updated", "Fee type updated successfully.");
     } catch (err) {
-      showNotice("Update Failed", err?.message || "Failed to update installment.", "error");
-      setInstallmentError(err?.message || "Failed to update installment.");
+      showNotice("Update Failed", err?.message || "Failed to update fee type.", "error");
+      setInstallmentError(err?.message || "Failed to update fee type.");
     }
   }
 
@@ -277,10 +286,10 @@ export default function Fees() {
       await deleteInstallment(inst.id);
       await loadFees();
       setDeletingInstallment(null);
-      showNotice("Installment Deleted", "Installment deleted successfully.");
+      showNotice("Fee Type Deleted", "Fee type deleted successfully.");
     } catch (err) {
-      showNotice("Delete Failed", err?.message || "Failed to delete installment.", "error");
-      setInstallmentError(err?.message || "Failed to delete installment.");
+      showNotice("Delete Failed", err?.message || "Failed to delete fee type.", "error");
+      setInstallmentError(err?.message || "Failed to delete fee type.");
     }
   }
 
@@ -321,7 +330,7 @@ export default function Fees() {
 
       <TopBar
         title="Fees"
-        subTitle="Create fee structures, manage installments, and keep admission pricing organized."
+        subTitle="Create fee structures, manage fee types, and keep admission pricing organized."
         action={
           <div className="flex gap-2">
             <Dialog open={feeSheetOpen} onOpenChange={setFeeSheetOpen}>
@@ -415,15 +424,15 @@ export default function Fees() {
 
             <Dialog open={installmentSheetOpen} onOpenChange={setInstallmentSheetOpen}>
               <DialogTrigger asChild>
-                <Button variant="secondary">Add Installment</Button>
+                <Button variant="secondary">Add Fee Type</Button>
               </DialogTrigger>
 
               <DialogContent className="max-h-[85vh] overflow-y-auto">
                 <form onSubmit={handleCreateInstallment} className="space-y-5">
                   <DialogHeader>
-                    <DialogTitle>Add Installment</DialogTitle>
+                    <DialogTitle>Add Fee Type</DialogTitle>
                     <DialogDescription>
-                      Add installment details for the selected fee structure.
+                      Add a fee item for the selected class and session. The amount can be filled now or updated later.
                     </DialogDescription>
                   </DialogHeader>
 
@@ -447,16 +456,15 @@ export default function Fees() {
                     </div>
 
                     <div className="grid gap-2">
-                      <Label>Installment Name *</Label>
+                      <Label>Fee Name *</Label>
                       <Input required value={installmentName} onChange={(e) => setInstallmentName(e.target.value)} />
                     </div>
 
                     <div className="grid gap-2">
-                      <Label>Amount *</Label>
+                      <Label>Amount</Label>
                       <Input
                         type="number"
-                        min="1"
-                        required
+                        min="0"
                         value={installmentAmount}
                         onChange={(e) => setInstallmentAmount(e.target.value)}
                         onWheel={preventNumberInputScroll}
@@ -493,7 +501,7 @@ export default function Fees() {
         </SurfaceCard>
         <SurfaceCard accent className="bg-gradient-to-br from-emerald-500/15 via-background to-transparent">
           <div className="p-4">
-            <p className="text-xs uppercase tracking-wide text-muted-foreground">Installments</p>
+            <p className="text-xs uppercase tracking-wide text-muted-foreground">Fee Types</p>
             <p className="mt-1 text-2xl font-semibold">{totalInstallments}</p>
           </div>
         </SurfaceCard>
@@ -517,7 +525,7 @@ export default function Fees() {
             <div>
               <p className="text-base font-semibold">Fee Structures</p>
               <p className="text-sm text-muted-foreground">
-                Open a class structure to review admission pricing and installment plans.
+                Open a class structure to review admission pricing and fee items.
               </p>
             </div>
           </div>
@@ -549,7 +557,7 @@ export default function Fees() {
                         </span>
                         <span className="inline-flex items-center gap-1.5">
                           <Layers3 className="size-3.5" />
-                          {fee.installments?.length || 0} installment{fee.installments?.length === 1 ? "" : "s"}
+                          {fee.installments?.length || 0} fee type{fee.installments?.length === 1 ? "" : "s"}
                         </span>
                       </div>
                     </div>
@@ -579,7 +587,7 @@ export default function Fees() {
                     <Table>
                       <TableHeader>
                         <TableRow className="bg-muted/40">
-                          <TableHead>Installment</TableHead>
+                          <TableHead>Fee Name</TableHead>
                           <TableHead>Due Date</TableHead>
                           <TableHead className="text-right">Amount</TableHead>
                           <TableHead className="text-right">Actions</TableHead>
@@ -625,7 +633,7 @@ export default function Fees() {
                         ) : (
                           <TableRow>
                             <TableCell colSpan={4} className="py-8 text-center text-muted-foreground">
-                              No installments added yet for this fee structure.
+                              No fee types added yet for this fee structure.
                             </TableCell>
                           </TableRow>
                         )}
@@ -644,7 +652,7 @@ export default function Fees() {
           <div className="p-8 text-center">
             <p className="text-base font-semibold">No fee structures yet</p>
             <p className="mt-1 text-sm text-muted-foreground">
-              Create the first fee structure to start managing class admission fees and installments.
+              Create the first fee structure to start managing class admission fees and fee items.
             </p>
           </div>
         </SurfaceCard>
@@ -725,14 +733,14 @@ export default function Fees() {
         <DialogContent>
           <form onSubmit={handleEditInstallment} className="space-y-4">
             <DialogHeader>
-              <DialogTitle>Edit Installment</DialogTitle>
+              <DialogTitle>Edit Fee Type</DialogTitle>
               <DialogDescription>
-                Update the installment details for the selected fee structure.
+                Update the fee name, amount, or due date for the selected fee item.
               </DialogDescription>
             </DialogHeader>
 
             <div className="grid gap-2">
-              <Label>Installment Name *</Label>
+              <Label>Fee Name *</Label>
               <Input
                 value={editingInstallment?.installment_name || ""}
                 onChange={(e) =>
@@ -745,10 +753,10 @@ export default function Fees() {
             </div>
 
             <div className="grid gap-2">
-              <Label>Amount *</Label>
+              <Label>Amount</Label>
               <Input
                 type="number"
-                min="1"
+                min="0"
                 value={editingInstallment?.amount || ""}
                 onChange={(e) =>
                   setEditingInstallment((prev) => ({
@@ -790,10 +798,10 @@ export default function Fees() {
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete installment?</AlertDialogTitle>
+            <AlertDialogTitle>Delete fee type?</AlertDialogTitle>
             <AlertDialogDescription>
               {deletingInstallment
-                ? `This will delete the installment '${deletingInstallment.installment_name}'.`
+                ? `This will delete the fee type '${deletingInstallment.installment_name}'.`
                 : "This action cannot be undone."}
             </AlertDialogDescription>
           </AlertDialogHeader>

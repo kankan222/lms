@@ -345,7 +345,7 @@ async function syncStudentLedgerForEnrollment(enrollmentId) {
 
     const nextAmount = Number(installment.amount || 0);
     const currentAmount = Number(current.amount || 0);
-    if (nextAmount > 0 && currentAmount !== nextAmount) {
+    if (currentAmount !== nextAmount) {
       await repo.updateStudentFeeAmount(current.id, nextAmount);
     }
   }
@@ -484,9 +484,34 @@ export async function getAllFeeStructures() {
   return repo.getAllFeeStructuresWithInstallments();
 }
 
+function normalizeFeeItemAmount(value, fallback = 0) {
+  if (value === undefined || value === null || String(value).trim() === "") {
+    return Number(fallback || 0);
+  }
+  const amount = Number(value);
+  if (!Number.isFinite(amount) || amount < 0) {
+    throw new AppError("amount must be zero or greater", 400);
+  }
+  return amount;
+}
+
 export async function createInstallment(data) {
-  const result = await repo.insertInstallment(data);
-  await syncStudentLedgersForStructure(Number(data.fee_structure_id));
+  const payload = {
+    fee_structure_id: Number(data.fee_structure_id),
+    installment_name: String(data.installment_name || "").trim(),
+    amount: normalizeFeeItemAmount(data.amount),
+    due_date: data.due_date || null,
+  };
+
+  if (!payload.fee_structure_id) {
+    throw new AppError("fee_structure_id is required", 400);
+  }
+  if (!payload.installment_name) {
+    throw new AppError("installment_name is required", 400);
+  }
+
+  const result = await repo.insertInstallment(payload);
+  await syncStudentLedgersForStructure(payload.fee_structure_id);
   return result;
 }
 
@@ -496,15 +521,12 @@ export async function updateInstallment(id, data) {
 
   const next = {
     installment_name: String(data.installment_name ?? existing.installment_name).trim(),
-    amount: Number(data.amount ?? existing.amount),
+    amount: normalizeFeeItemAmount(data.amount, existing.amount),
     due_date: data.due_date ?? existing.due_date ?? null
   };
 
   if (!next.installment_name) {
     throw new AppError("installment_name is required", 400);
-  }
-  if (!next.amount || next.amount <= 0) {
-    throw new AppError("amount must be greater than zero", 400);
   }
 
   await repo.updateInstallment(id, next);

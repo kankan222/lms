@@ -14,6 +14,16 @@ Update this file after every meaningful implementation change.
 
 ## Completed
 
+- Simplified mobile Student Details fee presentation by removing overview
+  Outstanding/Paid Total cards and reducing the Fee Summary section to title,
+  payment coverage, and errors only.
+- Updated Student Details fee displays on web and mobile so pending fees and
+  payment history show a user-facing Fee Name, using the named fee item where
+  present and falling back to Admission Fee for admission rows; payment and
+  fee-option APIs now expose an explicit `fee_name` field for this display.
+- Generalized Fee Setup installment wording to fee types/items, made fee item
+  amount optional for create and update by storing blank amounts as zero, and
+  aligned unpaid student ledger sync with zero-amount updates.
 - Fixed transportation fee duplicate due rendering caused by repeated
   student-level transportation saves: unchanged active assignments now reuse the
   existing assignment, and transportation due lists exclude inactive assignment

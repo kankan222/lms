@@ -678,6 +678,10 @@ export async function findStudentFeesForPaymentImport(filters = {}) {
       sf.amount,
       sf.status,
       fi.installment_name,
+      CASE
+        WHEN sf.fee_type = 'admission' THEN 'Admission Fee'
+        ELSE fi.installment_name
+      END AS fee_name,
       s.id AS student_id,
       s.name AS student_name,
       s.admission_no,
@@ -1180,6 +1184,7 @@ function buildPaymentsBaseSql(hasScopesTable, whereClause = "") {
     ${hasScopesTable ? "LEFT JOIN scopes sc ON sc.id = c.scope_id" : ""}
     LEFT JOIN streams st ON st.id = e.stream_id
     JOIN sections sec ON e.section_id = sec.id
+    LEFT JOIN fee_installments fi ON fi.id = sf.installment_id
     ${whereClause}
   `;
 }
@@ -1201,6 +1206,11 @@ export async function getPayments(filters = {}) {
       p.status,
       p.created_at,
       sf.fee_type,
+      fi.installment_name,
+      CASE
+        WHEN sf.fee_type = 'admission' THEN 'Admission Fee'
+        ELSE fi.installment_name
+      END AS fee_name,
       sf.amount AS fee_amount,
       sf.status AS fee_status,
       s.id AS student_id,
@@ -1239,6 +1249,11 @@ export async function getPaymentsPaginated(filters = {}, options = {}) {
       p.status,
       p.created_at,
       sf.fee_type,
+      fi.installment_name,
+      CASE
+        WHEN sf.fee_type = 'admission' THEN 'Admission Fee'
+        ELSE fi.installment_name
+      END AS fee_name,
       sf.amount AS fee_amount,
       sf.status AS fee_status,
       s.id AS student_id,

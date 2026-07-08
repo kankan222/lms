@@ -508,6 +508,14 @@ const StudentDetails = () => {
     }).format(Number(value || 0));
   }
 
+  function getFeeName(row) {
+    const directFeeName = String(row?.fee_name || "").trim();
+    if (directFeeName) return directFeeName;
+    const feeName = String(row?.installment_name || "").trim();
+    if (feeName) return feeName;
+    return String(row?.fee_type || "").toLowerCase() === "admission" ? "Admission Fee" : "-";
+  }
+
   const father = useMemo(
     () =>
       student?.parents?.find(
@@ -1368,8 +1376,7 @@ const StudentDetails = () => {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Fee Type</TableHead>
-                  <TableHead>Installment</TableHead>
+                  <TableHead>Fee Name</TableHead>
                   <TableHead>Due Date</TableHead>
                   <TableHead>Total</TableHead>
                   <TableHead>Paid</TableHead>
@@ -1380,8 +1387,7 @@ const StudentDetails = () => {
               <TableBody>
                 {feeItems.map((item) => (
                   <TableRow key={item.id}>
-                    <TableCell className="capitalize">{item.fee_type || "-"}</TableCell>
-                    <TableCell>{item.installment_name || "-"}</TableCell>
+                    <TableCell>{getFeeName(item)}</TableCell>
                     <TableCell>{formatReadableDate(item.due_date)}</TableCell>
                     <TableCell>{formatCurrency(item.amount)}</TableCell>
                     <TableCell>{formatCurrency(item.paid)}</TableCell>
@@ -1395,7 +1401,7 @@ const StudentDetails = () => {
                 ))}
                 {feeItems.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={7} className="text-center text-muted-foreground">
+                    <TableCell colSpan={6} className="text-center text-muted-foreground">
                       No pending fee items for this student.
                     </TableCell>
                   </TableRow>
@@ -1413,7 +1419,7 @@ const StudentDetails = () => {
                 <TableRow>
                   <TableHead>Date</TableHead>
                   <TableHead>Amount</TableHead>
-                  <TableHead>Fee Type</TableHead>
+                  <TableHead>Fee Name</TableHead>
                   <TableHead>Class</TableHead>
                   <TableHead>Section</TableHead>
                   <TableHead>Status</TableHead>
@@ -1426,7 +1432,7 @@ const StudentDetails = () => {
                   <TableRow key={p.id}>
                     <TableCell>{formatReadableDate(p.created_at)}</TableCell>
                     <TableCell>{formatCurrency(p.amount_paid)}</TableCell>
-                    <TableCell className="capitalize">{p.fee_type || "-"}</TableCell>
+                    <TableCell>{getFeeName(p)}</TableCell>
                     <TableCell>{p.class_name || "-"}</TableCell>
                     <TableCell>{p.section_name || "-"}</TableCell>
                     <TableCell>

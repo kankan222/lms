@@ -62,6 +62,13 @@ const TRANSPORT_MONTHS = [
 
 const fmtScope = (value?: string | null) => String(value || "").trim().toLowerCase() === "hs" ? "Higher Secondary" : "School";
 const fmtCurrency = (value?: number | string | null) => new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 }).format(Number(value || 0));
+const getFeeName = (row?: { fee_name?: string | null; installment_name?: string | null; fee_type?: string | null }) => {
+  const directFeeName = String(row?.fee_name || "").trim();
+  if (directFeeName) return directFeeName;
+  const feeName = String(row?.installment_name || "").trim();
+  if (feeName) return feeName;
+  return String(row?.fee_type || "").toLowerCase() === "admission" ? "Admission Fee" : "-";
+};
 const norm = (value?: string | null, fallback = "-") => String(value || "").trim().toLowerCase() || fallback;
 const title = (value: string) => value ? value.charAt(0).toUpperCase() + value.slice(1) : "";
 const displayMarkValue = (value?: string | number | null, status?: string | null) => norm(status, "") === "absent" ? "AB" : value ?? "-";
@@ -713,8 +720,6 @@ export default function StudentDetailsModule({ studentId, exams }: Props) {
         <View style={styles.summaryGrid}>
           <SummaryCard label="Session" value={student.session || "-"} tone="blue" />
           <SummaryCard label="Approved Days" value={approvedAttendance} tone="green" />
-          <SummaryCard label="Outstanding" value={fmtCurrency(totalDue)} tone="violet" />
-          <SummaryCard label="Paid Total" value={fmtCurrency(totalPaid)} />
         </View>
       </View>
 
@@ -1008,13 +1013,7 @@ export default function StudentDetailsModule({ studentId, exams }: Props) {
 
       {activeTab === "fees" ? (
         <>
-          <SectionCard title="Fee Summary" hint="Live backend ledger">
-            <View style={styles.summaryGrid}>
-              <SummaryCard label="Active Items" value={feeItems.length} tone="blue" />
-              <SummaryCard label="Outstanding" value={fmtCurrency(totalDue)} tone="violet" />
-              <SummaryCard label="Payments" value={payments.length} tone="green" />
-              <SummaryCard label="Paid Total" value={fmtCurrency(totalPaid)} />
-            </View>
+          <SectionCard title="Fee Summary">
             {paymentTotal ? <MetricBar label="Payment Coverage" value={totalPaid} total={paymentTotal} color="#6d28d9" trackColor="#ede9fe" caption={`${Math.round((totalPaid / paymentTotal) * 100)}% paid`} /> : null}
             {financeError ? <Text style={styles.errorText}>{financeError}</Text> : null}
           </SectionCard>
@@ -1023,7 +1022,7 @@ export default function StudentDetailsModule({ studentId, exams }: Props) {
               <View key={item.id} style={[styles.listCard, { borderColor: theme.border, backgroundColor: theme.cardMuted }]}>
                 <View style={styles.rowBetween}>
                   <View style={styles.listCopy}>
-                    <Text style={[styles.listTitle, { color: theme.text }]}>{item.installment_name || item.fee_type}</Text>
+                    <Text style={[styles.listTitle, { color: theme.text }]}>{getFeeName(item)}</Text>
                     <Text style={[styles.listMeta, { color: theme.subText }]}>Due {formatDateLabel(item.due_date)}</Text>
                   </View>
                   <StatusChip value={norm(item.status)} />
@@ -1037,7 +1036,7 @@ export default function StudentDetailsModule({ studentId, exams }: Props) {
               <View key={`${payment.id}-${payment.created_at}`} style={[styles.listCard, { borderColor: theme.border, backgroundColor: theme.cardMuted }]}>
                 <View style={styles.rowBetween}>
                   <View style={styles.listCopy}>
-                    <Text style={[styles.listTitle, { color: theme.text }]}>{payment.fee_type || "-"}</Text>
+                    <Text style={[styles.listTitle, { color: theme.text }]}>{getFeeName(payment)}</Text>
                     <Text style={[styles.listMeta, { color: theme.subText }]}>{formatDateLabel(payment.payment_date || payment.created_at)}</Text>
                   </View>
                   <StatusChip value={norm(payment.fee_status || payment.status)} />
