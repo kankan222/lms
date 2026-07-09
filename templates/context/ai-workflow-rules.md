@@ -8,6 +8,18 @@ operational caveats. Before making architectural or cross-module
 changes, read the relevant context file and verify the current source
 still matches it.
 
+## Question-Only Requests
+
+- If the user asks a question, answer the question directly and do not
+  implement code, edit files, run migrations, or change behavior unless
+  the user explicitly asks for an implementation or fix.
+- Treat requests phrased as "is it", "will it", "do we have", "what
+  happens", "what should we do", or "do not implement" as discussion
+  only.
+- If a question reveals a likely bug or improvement, explain the current
+  behavior and the recommended next step, then wait for explicit
+  approval before changing files.
+
 ## Scoping Rules
 
 - Work on one feature unit at a time
