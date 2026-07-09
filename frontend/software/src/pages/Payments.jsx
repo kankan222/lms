@@ -43,6 +43,7 @@ import {
   getPayments,
   getStudentsForPayment,
   getStudentFeeOptions,
+  markStudentFeeStatus,
   updatePayment,
 } from "../api/fee.api";
 import { formatReadableDate } from "../lib/dateTime";
@@ -382,7 +383,12 @@ export default function Payments() {
   async function loadStudentFeesForCreate() {
     try {
       const res = await getStudentFeeOptions(createForm.student_id);
-      setFeeOptions(res?.data || []);
+      const rows = res?.data || [];
+      setFeeOptions(rows.filter((fee) => (
+        fee.fee_mode === "status_only"
+          ? String(fee.status || "").toLowerCase() !== "paid"
+          : Number(fee.remaining || 0) > 0
+      )));
       setCreateError("");
     } catch {
       setFeeOptions([]);
@@ -536,24 +542,29 @@ export default function Payments() {
       setCreateError("Select due fee item.");
       return;
     }
-    if (!createForm.amount_paid || Number(createForm.amount_paid) <= 0) {
-      setCreateError("Enter a valid payment amount.");
-      return;
-    }
     const selectedFee = feeOptions.find(
       (f) => String(f.id) === String(createForm.student_fee_id)
     );
-    if (selectedFee && Number(createForm.amount_paid) > Number(selectedFee.remaining)) {
+    const isStatusOnlyFee = selectedFee?.fee_mode === "status_only";
+    if (!isStatusOnlyFee && (!createForm.amount_paid || Number(createForm.amount_paid) <= 0)) {
+      setCreateError("Enter a valid payment amount.");
+      return;
+    }
+    if (!isStatusOnlyFee && selectedFee && Number(createForm.amount_paid) > Number(selectedFee.remaining)) {
       setCreateError("Amount cannot exceed remaining fee.");
       return;
     }
 
     try {
-      await createPayment({
-        student_fee_id: createForm.student_fee_id,
-        amount_paid: Number(createForm.amount_paid),
-        remarks: createForm.remarks,
-      });
+      if (isStatusOnlyFee) {
+        await markStudentFeeStatus(createForm.student_fee_id, { status: "paid" });
+      } else {
+        await createPayment({
+          student_fee_id: createForm.student_fee_id,
+          amount_paid: Number(createForm.amount_paid),
+          remarks: createForm.remarks,
+        });
+      }
     } catch (err) {
       const message = err?.message || "Failed to create payment.";
       setCreateError(message);
@@ -575,7 +586,10 @@ export default function Payments() {
     setStudentSearch("");
     setOpenCreate(false);
     setCreateError("");
-    showNotice("Payment Saved", "Payment recorded successfully.");
+    showNotice(
+      isStatusOnlyFee ? "Fee Marked Paid" : "Payment Saved",
+      isStatusOnlyFee ? "Status-only fee item marked paid." : "Payment recorded successfully.",
+    );
     await loadPayments();
   }
 
@@ -1129,44 +1143,52 @@ export default function Payments() {
                     <select
                       className="border rounded p-2"
                       value={createForm.student_fee_id}
-                      onChange={(e) =>
+                      onChange={(e) => {
+                        const nextFee = feeOptions.find((f) => String(f.id) === String(e.target.value));
                         setCreateForm((prev) => ({
                           ...prev,
                           student_fee_id: e.target.value,
-                        }))
-                      }
+                          amount_paid: nextFee?.fee_mode === "status_only" ? "" : prev.amount_paid,
+                        }));
+                      }}
                       disabled={!createForm.student_id}
                     >
                       <option value="">Select Due Item</option>
                       {feeOptions.map((f) => (
                         <option key={f.id} value={f.id}>
-                          {getFeeName(f)} - Remaining: {formatCurrency(f.remaining)}
+                          {getFeeName(f)} - {f.fee_mode === "status_only" ? `Status: ${formatStatus(f.status)}` : `Remaining: ${formatCurrency(f.remaining)}`}
                         </option>
                       ))}
                     </select>
                   </div>
 
-                  <div className="grid gap-2">
-                    <Label>Amount Paid *</Label>
-                    <Input
-                      value={createForm.amount_paid}
-                      onChange={(e) =>
-                        setCreateForm((prev) => ({
-                          ...prev,
-                          amount_paid: e.target.value,
-                        }))
-                      }
-                      onWheel={preventWheelNumberChange}
-                      type="number"
-                      min="1"
-                      max={selectedFee ? Number(selectedFee.remaining) : undefined}
-                    />
-                    {selectedFee && (
-                      <p className="text-xs text-muted-foreground">
-                        Due Amount: {selectedFee.amount} | Paid: {selectedFee.paid} | Remaining: {selectedFee.remaining}
-                      </p>
-                    )}
-                  </div>
+                  {selectedFee?.fee_mode === "status_only" ? (
+                    <div className="rounded-md border border-border bg-muted/30 p-3 text-sm text-muted-foreground">
+                      This fee item tracks status only. Saving will mark it as paid without an amount.
+                    </div>
+                  ) : (
+                    <div className="grid gap-2">
+                      <Label>Amount Paid *</Label>
+                      <Input
+                        value={createForm.amount_paid}
+                        onChange={(e) =>
+                          setCreateForm((prev) => ({
+                            ...prev,
+                            amount_paid: e.target.value,
+                          }))
+                        }
+                        onWheel={preventWheelNumberChange}
+                        type="number"
+                        min="1"
+                        max={selectedFee ? Number(selectedFee.remaining) : undefined}
+                      />
+                      {selectedFee && (
+                        <p className="text-xs text-muted-foreground">
+                          Due Amount: {formatCurrency(selectedFee.amount)} | Paid: {formatCurrency(selectedFee.paid)} | Remaining: {formatCurrency(selectedFee.remaining)}
+                        </p>
+                      )}
+                    </div>
+                  )}
 
                   <div className="grid gap-2">
                     <Label>Remarks</Label>
@@ -1183,7 +1205,7 @@ export default function Payments() {
                   {createError && <p className="text-sm text-red-600">{createError}</p>}
 
                   <DialogFooter showCloseButton>
-                    <Button type="submit">Save</Button>
+                    <Button type="submit">{selectedFee?.fee_mode === "status_only" ? "Mark Paid" : "Save"}</Button>
                   </DialogFooter>
                 </form>
               </DialogContent>

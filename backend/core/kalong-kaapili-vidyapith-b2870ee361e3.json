@@ -1,0 +1,13 @@
+{
+  "type": "service_account",
+  "project_id": "kalong-kaapili-vidyapith",
+  "private_key_id": "b2870ee361e3e24953b9e14283caf746e334c795",
+  "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvAIBADANBgkqhkiG9w0BAQEFAASCBKYwggSiAgEAAoIBAQCsbByqt+7hKzxa\nXrT4DyhkyTZVphZtaRvJr2gHe6j+gdw0FM4buD/6aF329ABL+z/d1nVbAmudwPGQ\nAEcCn+Fk6UIvSZW2LzlNc0BK3op7/Da7mrSMmNOO6dV8vx88dIRjmu51ewPuLsKF\nnAwuZyBsRikCflDawK4VCvWCXUVn2hkJT0+LhapHfSyxQwihmoD5f8UjvtKcayx7\nsw4Z9mJRYbQXeyE7hf68N6tCH3lDLezTjdDRMOjYQctVGtBMaOeOwMfPLJP4n2Pv\nUAgu5EF6md1ZOTWvfxUy4KHbIc8qz1Qg11zrofX1yqEoBMxGpTkAuo4EPDt2gQXK\nGbpSfxVlAgMBAAECggEAHCHjp4MtSbXpOgF724F1oMQnxl+8BwwASa8B9T6a+zOq\n/yBp5KHyZmQC+Nkk90C+Ue685SWG841YnJs++tGlT/azIs4JzFj2K4njcpPO2p3z\nPDbowIvq8MV8XMc+THniY/ISeD6jDIi6mlw0rJmM872a0VpUzOxlOu+30RZwzZnG\nrqNEdaaVNXyyGfUU2oSYQd8vjDo9nRrhL+0OhWTsGkZEG3dpZqmFgOvWXh2j0M4c\nlAei+W5IF98DLwVnyJimpRJq2XEOJetjlieX4nAMjcB0FDpACrAJoz1GfCRU05tU\nDVCb1xTW7ohUe2PfsjO2yJU7QQEveVPFVkyFecqaIQKBgQDTAUUgOY9Z0Fidhi87\n7Jzf42a2h4qmW28ySHvFgda0rRjvx07DxJe+/UNfHa3IsgaEvL3Kytr1gDHzUTvc\ncG6p0xFgP9rI/Ry8Xe0lcZ6gCwCKtmtdlDOV9itFhWGIGrB6zktfPdKHMSD6UUnf\nV3wEHbdoK240+9xMnUapr2+eeQKBgQDRMJ7tY47F9zR3QnaVlKjoZSPeSZzexdgt\nv9zlX1NIcFj9WMeTvJ/cz8Csh48poB5lSN4sKTYk/maUkqPrQ7P4Bh2tnUFhF60K\nsbPB0eL+i/4eNokUV+lOwAzfCtIK4IW1CV4d0KbmgvyPBjhr8Fki+MxTvGZ+UJ8O\nsLffn1kDTQKBgCAuIme+v5EYCFvF2jBObsJqgQC3fTrP2Q6XJWFC4wbdG19+SxHq\nSqZTI9I+yYFBPWNDEcL62xfz/Co6qmF9ODNoQE8ojep3R8mmnYNHZ8TKyMNe/NLh\nxlhJmeHZbL2ALIgeLDqTSCdcI8ZpXVXVltFd4tndPcqQ2tFIbz1zxxcpAoGAOJb/\nl1aEbBd40P5g2Aw0OVILBvpA/p7k4VNy7XYBMKp72GVo8BVp5bEp/UJavzb6ogm5\nWJb5d75+f5i/0UgqamE1LB9LbXmbLTZvW3JtBtFWOFQmdyNlERGxKbFiquCcKyJS\nnJwyWk97BTH4l3KYmnZVyB1CWM90h+PUiiEwUk0CgYAHwTdB+nWLLQ+L3nyi2hm2\nSBAy5assSMgtn77+rPfH1kkCzrnY3jp3iOZ3DRH6cQ+JCLB/jTgEdmKSCHXPrb5l\nALtamw81iSR1j92g4oAOxUBUM23ptaZ1WERBnEfe0yiow70TJvuL3CNQ1Y9lv35F\nu47RvAPur4xXii5V/fglTw==\n-----END PRIVATE KEY-----\n",
+  "client_email": "techdevcreators@kalong-kaapili-vidyapith.iam.gserviceaccount.com",
+  "client_id": "114036685059857850225",
+  "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+  "token_uri": "https://oauth2.googleapis.com/token",
+  "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+  "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/techdevcreators%40kalong-kaapili-vidyapith.iam.gserviceaccount.com",
+  "universe_domain": "googleapis.com"
+}

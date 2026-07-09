@@ -75,6 +75,13 @@ export function createPayment(data) {
   });
 }
 
+export function markStudentFeeStatus(studentFeeId, data) {
+  return apiRequest(`/fees/student-fees/${studentFeeId}/status`, {
+    method: "PATCH",
+    body: JSON.stringify(data),
+  });
+}
+
 export function bulkUploadPayments(file) {
   const form = new FormData();
   form.append("file", file);

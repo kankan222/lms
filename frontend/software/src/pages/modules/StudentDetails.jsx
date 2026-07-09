@@ -1371,7 +1371,7 @@ const StudentDetails = () => {
 
           <div className="rounded-xl border bg-card p-4">
             <h3 className="font-semibold mb-2 flex items-center gap-2">
-              <CreditCard size={16} /> Pending/Active Fee Items
+              <CreditCard size={16} /> Fee Items
             </h3>
             <Table>
               <TableHeader>
@@ -1389,9 +1389,9 @@ const StudentDetails = () => {
                   <TableRow key={item.id}>
                     <TableCell>{getFeeName(item)}</TableCell>
                     <TableCell>{formatReadableDate(item.due_date)}</TableCell>
-                    <TableCell>{formatCurrency(item.amount)}</TableCell>
-                    <TableCell>{formatCurrency(item.paid)}</TableCell>
-                    <TableCell>{formatCurrency(item.remaining)}</TableCell>
+                    <TableCell>{item.fee_mode === "status_only" ? "-" : formatCurrency(item.amount)}</TableCell>
+                    <TableCell>{item.fee_mode === "status_only" ? "-" : formatCurrency(item.paid)}</TableCell>
+                    <TableCell>{item.fee_mode === "status_only" ? "-" : formatCurrency(item.remaining)}</TableCell>
                     <TableCell>
                       <span className={`px-3 py-1 text-xs rounded-full font-medium capitalize ${feeStatusColor(item.status)}`}>
                         {normalizeFeeStatus(item.status)}

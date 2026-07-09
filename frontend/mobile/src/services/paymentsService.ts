@@ -29,6 +29,7 @@ export type PaymentItem = {
   created_at: string;
   payment_date?: string | null;
   fee_type: string;
+  fee_mode?: "amount_based" | "status_only" | string | null;
   installment_name?: string | null;
   fee_name?: string | null;
   fee_amount: number;
@@ -45,6 +46,7 @@ export type PaymentItem = {
 export type StudentFeeOption = {
   id: number;
   fee_type: string;
+  fee_mode?: "amount_based" | "status_only" | string | null;
   amount: number;
   status: string;
   installment_name?: string | null;

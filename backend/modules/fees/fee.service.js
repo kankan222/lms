@@ -339,12 +339,20 @@ async function syncStudentLedgerForEnrollment(enrollmentId) {
       continue;
     }
 
+    const nextMode = normalizeFeeMode(installment.fee_mode);
+    const currentMode = normalizeFeeMode(current.fee_mode);
+    const nextAmount = nextMode === "status_only" ? 0 : Number(installment.amount || 0);
+    const currentAmount = Number(current.amount || 0);
+
+    if (currentMode !== nextMode) {
+      await repo.updateStudentFeeModeAndAmount(current.id, nextMode, nextAmount);
+      continue;
+    }
+
     if (Number(current.paid || 0) !== 0) {
       continue;
     }
 
-    const nextAmount = Number(installment.amount || 0);
-    const currentAmount = Number(current.amount || 0);
     if (currentAmount !== nextAmount) {
       await repo.updateStudentFeeAmount(current.id, nextAmount);
     }
@@ -495,11 +503,19 @@ function normalizeFeeItemAmount(value, fallback = 0) {
   return amount;
 }
 
+function normalizeFeeMode(value, fallback = "amount_based") {
+  const mode = String(value || fallback || "amount_based").trim().toLowerCase();
+  if (mode === "status_only") return "status_only";
+  return "amount_based";
+}
+
 export async function createInstallment(data) {
+  const feeMode = normalizeFeeMode(data.fee_mode);
   const payload = {
     fee_structure_id: Number(data.fee_structure_id),
     installment_name: String(data.installment_name || "").trim(),
-    amount: normalizeFeeItemAmount(data.amount),
+    fee_mode: feeMode,
+    amount: feeMode === "status_only" ? 0 : normalizeFeeItemAmount(data.amount),
     due_date: data.due_date || null,
   };
 
@@ -521,7 +537,10 @@ export async function updateInstallment(id, data) {
 
   const next = {
     installment_name: String(data.installment_name ?? existing.installment_name).trim(),
-    amount: normalizeFeeItemAmount(data.amount, existing.amount),
+    fee_mode: normalizeFeeMode(data.fee_mode, existing.fee_mode),
+    amount: normalizeFeeMode(data.fee_mode, existing.fee_mode) === "status_only"
+      ? 0
+      : normalizeFeeItemAmount(data.amount, existing.amount),
     due_date: data.due_date ?? existing.due_date ?? null
   };
 
@@ -579,6 +598,12 @@ export async function createPayment(data, user) {
     throw new AppError("student_fee_id required", 400);
   }
 
+  const studentFee = await repo.getStudentFeeById(data.student_fee_id);
+  if (!studentFee) throw new AppError("Invalid student_fee_id", 400);
+  if (studentFee.fee_mode === "status_only") {
+    throw new AppError("Status-only fee items must be marked paid instead of recording an amount", 400);
+  }
+
   if (!data.amount_paid || data.amount_paid <= 0) {
     throw new AppError("invalid payment amount", 400);
   }
@@ -600,6 +625,31 @@ export async function createPayment(data, user) {
     message: "Payment recorded successfully",
     payment_id: result?.insertId || null
   };
+}
+
+export async function markStudentFeeStatus(studentFeeId, data = {}, user) {
+  const id = Number(studentFeeId);
+  if (!Number.isInteger(id) || id <= 0) {
+    throw new AppError("student_fee_id required", 400);
+  }
+
+  const status = String(data.status || "").trim().toLowerCase();
+  if (!["pending", "paid"].includes(status)) {
+    throw new AppError("status must be pending or paid", 400);
+  }
+
+  const studentFee = await repo.getStudentFeeById(id);
+  if (!studentFee) throw new AppError("Student fee item not found", 404);
+  if (studentFee.fee_mode !== "status_only") {
+    throw new AppError("Only status-only fee items can be marked directly", 400);
+  }
+
+  const enrollment = await repo.getEnrollmentByStudentFeeId(id);
+  if (!enrollment) throw new AppError("Invalid student_fee_id", 400);
+  await assertTeacherScopeAccess(user.userId, enrollment);
+
+  await repo.updateStudentFeeStatus(id, status);
+  return { message: `Fee item marked ${status}` };
 }
 
 export async function bulkCreatePayments(rows = [], user) {

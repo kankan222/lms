@@ -1027,7 +1027,12 @@ export default function StudentDetailsModule({ studentId, exams }: Props) {
                   </View>
                   <StatusChip value={norm(item.status)} />
                 </View>
+                {item.fee_mode === "status_only" ? (
+                  <Text style={[styles.listMeta, { color: theme.subText }]}>Status {title(norm(item.status))}</Text>
+                ) : null}
+                {item.fee_mode !== "status_only" ? (
                 <Text style={[styles.listMeta, { color: theme.subText }]}>Total {fmtCurrency(item.amount)} • Paid {fmtCurrency(item.paid)} • Remaining {fmtCurrency(item.remaining)}</Text>
+                ) : null}
               </View>
             )) : <Text style={styles.emptyText}>No pending fee items for this student.</Text>}
           </SectionCard>

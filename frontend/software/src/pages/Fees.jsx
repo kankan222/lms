@@ -84,6 +84,7 @@ export default function Fees() {
   const [admissionFee, setAdmissionFee] = useState("");
   const [structureId, setStructureId] = useState("");
   const [installmentName, setInstallmentName] = useState("");
+  const [feeMode, setFeeMode] = useState("amount_based");
   const [installmentAmount, setInstallmentAmount] = useState("");
   const [dueDate, setDueDate] = useState("");
   const [feeError, setFeeError] = useState("");
@@ -182,7 +183,8 @@ export default function Fees() {
       setInstallmentError("Fee structure and fee name are required.");
       return;
     }
-    const nextAmount = installmentAmount === "" ? 0 : Number(installmentAmount);
+    const isStatusOnly = feeMode === "status_only";
+    const nextAmount = isStatusOnly || installmentAmount === "" ? 0 : Number(installmentAmount);
     if (!Number.isFinite(nextAmount) || nextAmount < 0) {
       setInstallmentError("Amount must be zero or greater.");
       return;
@@ -192,6 +194,7 @@ export default function Fees() {
       await createInstallment({
         fee_structure_id: Number(structureId),
         installment_name: installmentName.trim(),
+        fee_mode: feeMode,
         amount: nextAmount,
         due_date: dueDate || null,
       });
@@ -199,6 +202,7 @@ export default function Fees() {
       await loadFees();
       setStructureId("");
       setInstallmentName("");
+      setFeeMode("amount_based");
       setInstallmentAmount("");
       setDueDate("");
       setInstallmentSheetOpen(false);
@@ -254,7 +258,8 @@ export default function Fees() {
     if (!editingInstallment) return;
     setInstallmentError("");
 
-    const nextAmount = editingInstallment.amount === "" ? 0 : Number(editingInstallment.amount);
+    const nextMode = editingInstallment.fee_mode === "status_only" ? "status_only" : "amount_based";
+    const nextAmount = nextMode === "status_only" || editingInstallment.amount === "" ? 0 : Number(editingInstallment.amount);
     if (!String(editingInstallment.installment_name || "").trim()) {
       setInstallmentError("Fee name is required.");
       return;
@@ -267,6 +272,7 @@ export default function Fees() {
     try {
       await updateInstallment(editingInstallment.id, {
         installment_name: editingInstallment.installment_name.trim(),
+        fee_mode: nextMode,
         amount: nextAmount,
         due_date: String(editingInstallment.due_date || "").trim() || null,
       });
@@ -461,10 +467,26 @@ export default function Fees() {
                     </div>
 
                     <div className="grid gap-2">
+                      <Label>Fee Mode</Label>
+                      <select
+                        value={feeMode}
+                        onChange={(e) => {
+                          setFeeMode(e.target.value);
+                          if (e.target.value === "status_only") setInstallmentAmount("");
+                        }}
+                        className={selectClassName}
+                      >
+                        <option value="amount_based">Amount Based</option>
+                        <option value="status_only">Status Only</option>
+                      </select>
+                    </div>
+
+                    <div className="grid gap-2">
                       <Label>Amount</Label>
                       <Input
                         type="number"
                         min="0"
+                        disabled={feeMode === "status_only"}
                         value={installmentAmount}
                         onChange={(e) => setInstallmentAmount(e.target.value)}
                         onWheel={preventNumberInputScroll}
@@ -588,6 +610,7 @@ export default function Fees() {
                       <TableHeader>
                         <TableRow className="bg-muted/40">
                           <TableHead>Fee Name</TableHead>
+                          <TableHead>Mode</TableHead>
                           <TableHead>Due Date</TableHead>
                           <TableHead className="text-right">Amount</TableHead>
                           <TableHead className="text-right">Actions</TableHead>
@@ -600,13 +623,20 @@ export default function Fees() {
                             <TableRow key={inst.id}>
                               <TableCell className="font-medium">{inst.installment_name}</TableCell>
                               <TableCell>
+                                <span className="inline-flex rounded-full border border-border bg-muted px-3 py-1 text-xs font-medium text-muted-foreground">
+                                  {inst.fee_mode === "status_only" ? "Status Only" : "Amount Based"}
+                                </span>
+                              </TableCell>
+                              <TableCell>
                                 <span className="inline-flex items-center gap-1.5 text-muted-foreground">
                                   <CalendarDays className="size-3.5" />
                                   {formatReadableDate(inst.due_date)}
                                 </span>
                               </TableCell>
 
-                              <TableCell className="text-right">Rs {inst.amount}</TableCell>
+                              <TableCell className="text-right">
+                                {inst.fee_mode === "status_only" ? "-" : `Rs ${inst.amount}`}
+                              </TableCell>
                               <TableCell className="text-right">
                                 <div className="flex justify-end gap-2">
                                   <Button
@@ -616,6 +646,7 @@ export default function Fees() {
                                       setEditingInstallment({
                                         ...inst,
                                         installment_name: String(inst.installment_name ?? ""),
+                                        fee_mode: inst.fee_mode || "amount_based",
                                         amount: String(inst.amount ?? ""),
                                         due_date: inst.due_date ? String(inst.due_date).split("T")[0] : "",
                                       })
@@ -632,7 +663,7 @@ export default function Fees() {
                           ))
                         ) : (
                           <TableRow>
-                            <TableCell colSpan={4} className="py-8 text-center text-muted-foreground">
+                            <TableCell colSpan={5} className="py-8 text-center text-muted-foreground">
                               No fee types added yet for this fee structure.
                             </TableCell>
                           </TableRow>
@@ -753,10 +784,29 @@ export default function Fees() {
             </div>
 
             <div className="grid gap-2">
+              <Label>Fee Mode</Label>
+              <select
+                value={editingInstallment?.fee_mode || "amount_based"}
+                onChange={(e) =>
+                  setEditingInstallment((prev) => ({
+                    ...prev,
+                    fee_mode: e.target.value,
+                    amount: e.target.value === "status_only" ? "" : prev.amount,
+                  }))
+                }
+                className={selectClassName}
+              >
+                <option value="amount_based">Amount Based</option>
+                <option value="status_only">Status Only</option>
+              </select>
+            </div>
+
+            <div className="grid gap-2">
               <Label>Amount</Label>
               <Input
                 type="number"
                 min="0"
+                disabled={editingInstallment?.fee_mode === "status_only"}
                 value={editingInstallment?.amount || ""}
                 onChange={(e) =>
                   setEditingInstallment((prev) => ({

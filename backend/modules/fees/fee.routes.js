@@ -185,6 +185,11 @@ router.post(
   requirePermission("payment.create"),
   feeController.createPayment,
 );
+router.patch(
+  "/student-fees/:studentFeeId/status",
+  requirePermission("payment.create"),
+  feeController.markStudentFeeStatus,
+);
 router.post(
   "/payments/bulk-upload",
   requirePermission("payment.create"),

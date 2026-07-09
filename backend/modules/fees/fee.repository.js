@@ -5,6 +5,8 @@ let supportsFeeStructuresStreamIdCache;
 let supportsScopesTableCache;
 let feeStructuresStreamSchemaStatusCache;
 let supportsPaymentReceiptSerialCache;
+let supportsFeeInstallmentsModeCache;
+let supportsStudentFeesModeCache;
 
 export async function supportsFeeStructuresStreamId() {
   if (typeof supportsFeeStructuresStreamIdCache === "boolean") {
@@ -100,6 +102,44 @@ async function supportsPaymentReceiptSerial() {
 
   supportsPaymentReceiptSerialCache = Number(rows[0]?.total || 0) > 0;
   return supportsPaymentReceiptSerialCache;
+}
+
+async function supportsFeeInstallmentsMode() {
+  if (typeof supportsFeeInstallmentsModeCache === "boolean") {
+    return supportsFeeInstallmentsModeCache;
+  }
+
+  const rows = await query(
+    `
+      SELECT COUNT(*) AS total
+      FROM information_schema.COLUMNS
+      WHERE TABLE_SCHEMA = DATABASE()
+        AND TABLE_NAME = 'fee_installments'
+        AND COLUMN_NAME = 'fee_mode'
+    `
+  );
+
+  supportsFeeInstallmentsModeCache = Number(rows[0]?.total || 0) > 0;
+  return supportsFeeInstallmentsModeCache;
+}
+
+async function supportsStudentFeesMode() {
+  if (typeof supportsStudentFeesModeCache === "boolean") {
+    return supportsStudentFeesModeCache;
+  }
+
+  const rows = await query(
+    `
+      SELECT COUNT(*) AS total
+      FROM information_schema.COLUMNS
+      WHERE TABLE_SCHEMA = DATABASE()
+        AND TABLE_NAME = 'student_fees'
+        AND COLUMN_NAME = 'fee_mode'
+    `
+  );
+
+  supportsStudentFeesModeCache = Number(rows[0]?.total || 0) > 0;
+  return supportsStudentFeesModeCache;
 }
 
 function buildReceiptSerialExpression(hasReceiptSerial, paymentAlias = "p") {
@@ -270,26 +310,37 @@ export async function getAllFeeStructures() {
   return rows;
 }
 export async function insertInstallment(data) {
+  const hasFeeMode = await supportsFeeInstallmentsMode();
+  const sql = hasFeeMode
+    ? `
+      INSERT INTO fee_installments
+      (fee_structure_id, installment_name, fee_mode, amount, due_date)
+      VALUES (?,?,?,?,?)
+    `
+    : `
+      INSERT INTO fee_installments
+      (fee_structure_id, installment_name, amount, due_date)
+      VALUES (?,?,?,?)
+    `;
 
-  const sql = `
-  INSERT INTO fee_installments
-  (fee_structure_id, installment_name, amount, due_date)
-  VALUES (?,?,?,?)
-  `;
+  const params = hasFeeMode
+    ? [data.fee_structure_id, data.installment_name, data.fee_mode, data.amount, data.due_date]
+    : [data.fee_structure_id, data.installment_name, data.amount, data.due_date];
 
-  const result = await execute(sql, [
-    data.fee_structure_id,
-    data.installment_name,
-    data.amount,
-    data.due_date
-  ]);
+  const result = await execute(sql, params);
 
   return result;
 }
 
 export async function getInstallmentById(id) {
+  const hasFeeMode = await supportsFeeInstallmentsMode();
   const rows = await query(
-    `SELECT id, fee_structure_id, installment_name, amount, due_date
+    `SELECT id,
+            fee_structure_id,
+            installment_name,
+            ${hasFeeMode ? "fee_mode" : "'amount_based' AS fee_mode"},
+            amount,
+            due_date
      FROM fee_installments
      WHERE id = ?
      LIMIT 1`,
@@ -325,12 +376,22 @@ export async function deleteFeeStructure(id) {
 }
 
 export async function updateInstallment(id, data) {
-  const sql = `
-    UPDATE fee_installments
-    SET installment_name = ?, amount = ?, due_date = ?
-    WHERE id = ?
-  `;
-  return execute(sql, [data.installment_name, data.amount, data.due_date ?? null, id]);
+  const hasFeeMode = await supportsFeeInstallmentsMode();
+  const sql = hasFeeMode
+    ? `
+      UPDATE fee_installments
+      SET installment_name = ?, fee_mode = ?, amount = ?, due_date = ?
+      WHERE id = ?
+    `
+    : `
+      UPDATE fee_installments
+      SET installment_name = ?, amount = ?, due_date = ?
+      WHERE id = ?
+    `;
+  const params = hasFeeMode
+    ? [data.installment_name, data.fee_mode, data.amount, data.due_date ?? null, id]
+    : [data.installment_name, data.amount, data.due_date ?? null, id];
+  return execute(sql, params);
 }
 
 export async function deleteInstallment(id) {
@@ -347,12 +408,25 @@ export async function insertAdmissionFee(enrollmentId, amount) {
   return execute(sql, [enrollmentId, "admission", amount]);
 }
 export async function insertStudentInstallment(enrollmentId, installmentId, amount) {
+  const hasStudentFeeMode = await supportsStudentFeesMode();
+  const hasInstallmentMode = await supportsFeeInstallmentsMode();
+
+  if (hasStudentFeeMode && hasInstallmentMode) {
+    const sql = `
+      INSERT INTO student_fees
+      (enrollment_id, installment_id, fee_type, fee_mode, amount)
+      SELECT ?, id, 'installment', fee_mode, ?
+      FROM fee_installments
+      WHERE id = ?
+    `;
+    return execute(sql, [enrollmentId, amount, installmentId]);
+  }
 
   const sql = `
-  INSERT INTO student_fees
-  (enrollment_id, installment_id, fee_type, amount)
-  VALUES (?,?,?,?)
-  `;
+    INSERT INTO student_fees
+    (enrollment_id, installment_id, fee_type, amount)
+    VALUES (?,?,?,?)
+    `;
 
   return execute(sql, [
     enrollmentId,
@@ -363,12 +437,14 @@ export async function insertStudentInstallment(enrollmentId, installmentId, amou
 }
 
 export async function getStudentFeeSyncRows(enrollmentId) {
+  const hasFeeMode = await supportsStudentFeesMode();
   const sql = `
     SELECT
       sf.id,
       sf.enrollment_id,
       sf.installment_id,
       sf.fee_type,
+      ${hasFeeMode ? "sf.fee_mode" : "'amount_based' AS fee_mode"},
       sf.amount,
       sf.status,
       COALESCE(SUM(p.amount_paid), 0) AS paid
@@ -376,7 +452,7 @@ export async function getStudentFeeSyncRows(enrollmentId) {
     LEFT JOIN payments p
       ON p.student_fee_id = sf.id
     WHERE sf.enrollment_id = ?
-    GROUP BY sf.id, sf.enrollment_id, sf.installment_id, sf.fee_type, sf.amount, sf.status
+    GROUP BY sf.id, sf.enrollment_id, sf.installment_id, sf.fee_type, ${hasFeeMode ? "sf.fee_mode," : ""} sf.amount, sf.status
   `;
 
   return query(sql, [enrollmentId]);
@@ -386,6 +462,18 @@ export async function updateStudentFeeAmount(studentFeeId, amount) {
   return execute(
     `UPDATE student_fees SET amount = ? WHERE id = ?`,
     [amount, studentFeeId]
+  );
+}
+
+export async function updateStudentFeeModeAndAmount(studentFeeId, feeMode, amount) {
+  const hasFeeMode = await supportsStudentFeesMode();
+  if (!hasFeeMode) {
+    return updateStudentFeeAmount(studentFeeId, amount);
+  }
+
+  return execute(
+    `UPDATE student_fees SET fee_mode = ?, amount = ? WHERE id = ?`,
+    [feeMode, amount, studentFeeId]
   );
 }
 
@@ -584,10 +672,12 @@ export async function countStudentFees(enrollmentId) {
 }
 
 export async function getStudentFeeOptions(enrollmentId) {
+  const hasFeeMode = await supportsStudentFeesMode();
   const sql = `
     SELECT
       sf.id,
       sf.fee_type,
+      ${hasFeeMode ? "sf.fee_mode" : "'amount_based' AS fee_mode"},
       sf.amount,
       sf.status,
       fi.installment_name,
@@ -604,9 +694,10 @@ export async function getStudentFeeOptions(enrollmentId) {
     LEFT JOIN payments p
       ON p.student_fee_id = sf.id
     WHERE sf.enrollment_id = ?
-    GROUP BY sf.id, sf.fee_type, sf.amount, sf.status, fi.installment_name, fi.due_date
+    GROUP BY sf.id, sf.fee_type, ${hasFeeMode ? "sf.fee_mode," : ""} sf.amount, sf.status, fi.installment_name, fi.due_date
     HAVING remaining > 0
-       OR (COALESCE(sf.amount, 0) = 0 AND sf.status <> 'paid')
+       OR COALESCE(sf.amount, 0) = 0
+       OR ${hasFeeMode ? "sf.fee_mode = 'status_only'" : "0 = 1"}
     ORDER BY fi.due_date IS NULL DESC, fi.due_date ASC, sf.id ASC
   `;
   return query(sql, [enrollmentId]);
@@ -614,6 +705,7 @@ export async function getStudentFeeOptions(enrollmentId) {
 
 export async function findStudentFeesForPaymentImport(filters = {}) {
   const hasScopesTable = await supportsScopesTable();
+  const hasFeeMode = await supportsStudentFeesMode();
   const classScopeExpr = buildClassScopeExpression(hasScopesTable);
   const where = ["se.status = 'active'"];
   const params = [];
@@ -680,6 +772,7 @@ export async function findStudentFeesForPaymentImport(filters = {}) {
       sf.id,
       sf.enrollment_id,
       sf.fee_type,
+      ${hasFeeMode ? "sf.fee_mode" : "'amount_based' AS fee_mode"},
       sf.amount,
       sf.status,
       fi.installment_name,
@@ -716,6 +809,7 @@ export async function findStudentFeesForPaymentImport(filters = {}) {
       sf.id,
       sf.enrollment_id,
       sf.fee_type,
+      ${hasFeeMode ? "sf.fee_mode," : ""}
       sf.amount,
       sf.status,
       fi.installment_name,
@@ -731,7 +825,8 @@ export async function findStudentFeesForPaymentImport(filters = {}) {
       acs.name,
       str.name
     HAVING remaining > 0
-       OR (COALESCE(sf.amount, 0) = 0 AND sf.status <> 'paid')
+       OR COALESCE(sf.amount, 0) = 0
+       OR ${hasFeeMode ? "sf.fee_mode = 'status_only'" : "0 = 1"}
     ORDER BY sf.id ASC
   `;
 
@@ -925,8 +1020,14 @@ export async function getEnrollmentSummary(enrollmentId) {
   return rows[0] || null;
 }
 export async function getInstallments(structureId) {
+  const hasFeeMode = await supportsFeeInstallmentsMode();
   const sql = `
-    SELECT *
+    SELECT id,
+           fee_structure_id,
+           installment_name,
+           ${hasFeeMode ? "fee_mode" : "'amount_based' AS fee_mode"},
+           amount,
+           due_date
     FROM fee_installments
     WHERE fee_structure_id = ?
   `;
@@ -941,19 +1042,23 @@ export async function getStudentFeeId(paymentId) {
   const rows = await query(sql, [paymentId]);
   return rows[0]?.student_fee_id;
 }
+export async function updateStudentFeeStatus(studentFeeId, status) {
+  return execute(
+    `UPDATE student_fees SET status = ? WHERE id = ?`,
+    [status, studentFeeId]
+  );
+}
+
 export async function updateFeeStatus(studentFeeId) {
-  const sql = `
-    UPDATE student_fees
-    SET status = 'paid'
-    WHERE id = ?
-  `;
-  return execute(sql, [studentFeeId]);
+  return updateStudentFeeStatus(studentFeeId, "paid");
 }
 
 export async function getAllFeeStructuresWithInstallments() {
   const hasStreamId = await supportsFeeStructuresStreamId();
   const hasScopesTable = await supportsScopesTable();
+  const hasFeeMode = await supportsFeeInstallmentsMode();
   const classScopeExpr = buildClassScopeExpression(hasScopesTable);
+  const feeModeExpr = hasFeeMode ? "fi.fee_mode" : "'amount_based' AS fee_mode";
 
   const sql = hasStreamId
     ? `
@@ -969,6 +1074,7 @@ export async function getAllFeeStructuresWithInstallments() {
     st.name AS stream_name,
     fi.id AS installment_id,
     fi.installment_name,
+    ${feeModeExpr},
     fi.amount,
     fi.due_date
   FROM fee_structures fs
@@ -993,6 +1099,7 @@ export async function getAllFeeStructuresWithInstallments() {
     NULL AS stream_name,
     fi.id AS installment_id,
     fi.installment_name,
+    ${feeModeExpr},
     fi.amount,
     fi.due_date
   FROM fee_structures fs
@@ -1029,6 +1136,7 @@ export async function getAllFeeStructuresWithInstallments() {
       map[row.structure_id].installments.push({
         id: row.installment_id,
         installment_name: row.installment_name,
+        fee_mode: row.fee_mode || "amount_based",
         amount: row.amount,
         due_date: row.due_date
       });
@@ -1198,6 +1306,7 @@ function buildPaymentsBaseSql(hasScopesTable, whereClause = "") {
 export async function getPayments(filters = {}) {
   const hasScopesTable = await supportsScopesTable();
   const hasReceiptSerial = await supportsPaymentReceiptSerial();
+  const hasFeeMode = await supportsStudentFeesMode();
   const classScopeExpr = buildClassScopeExpression(hasScopesTable);
   const receiptSerialExpr = buildReceiptSerialExpression(hasReceiptSerial);
   const { whereClause, params } = buildPaymentsWhereClause(filters, classScopeExpr);
@@ -1212,6 +1321,7 @@ export async function getPayments(filters = {}) {
       p.status,
       p.created_at,
       sf.fee_type,
+      ${hasFeeMode ? "sf.fee_mode" : "'amount_based' AS fee_mode"},
       fi.installment_name,
       CASE
         WHEN sf.fee_type = 'admission' THEN 'Admission Fee'
@@ -1240,6 +1350,7 @@ export async function getPayments(filters = {}) {
 export async function getPaymentsPaginated(filters = {}, options = {}) {
   const hasScopesTable = await supportsScopesTable();
   const hasReceiptSerial = await supportsPaymentReceiptSerial();
+  const hasFeeMode = await supportsStudentFeesMode();
   const classScopeExpr = buildClassScopeExpression(hasScopesTable);
   const receiptSerialExpr = buildReceiptSerialExpression(hasReceiptSerial);
   const { whereClause, params } = buildPaymentsWhereClause(filters, classScopeExpr);
@@ -1257,6 +1368,7 @@ export async function getPaymentsPaginated(filters = {}, options = {}) {
       p.status,
       p.created_at,
       sf.fee_type,
+      ${hasFeeMode ? "sf.fee_mode" : "'amount_based' AS fee_mode"},
       fi.installment_name,
       CASE
         WHEN sf.fee_type = 'admission' THEN 'Admission Fee'
@@ -1321,6 +1433,25 @@ export async function getEnrollmentByStudentFeeId(studentFeeId) {
       e.session_id
      FROM student_fees sf
      JOIN student_enrollments e ON e.id = sf.enrollment_id
+     WHERE sf.id = ?
+     LIMIT 1`,
+    [studentFeeId]
+  );
+  return rows[0] || null;
+}
+
+export async function getStudentFeeById(studentFeeId) {
+  const hasFeeMode = await supportsStudentFeesMode();
+  const rows = await query(
+    `SELECT
+      sf.id,
+      sf.enrollment_id,
+      sf.installment_id,
+      sf.fee_type,
+      ${hasFeeMode ? "sf.fee_mode" : "'amount_based' AS fee_mode"},
+      sf.amount,
+      sf.status
+     FROM student_fees sf
      WHERE sf.id = ?
      LIMIT 1`,
     [studentFeeId]

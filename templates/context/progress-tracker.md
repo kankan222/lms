@@ -14,6 +14,11 @@ Update this file after every meaningful implementation change.
 
 ## Completed
 
+- Added status-only fee item support for cases like exam or registration fees:
+  fee setup can mark a fee item as Amount Based or Status Only, generated
+  student fee rows preserve that mode, status-only rows show paid/pending
+  without amounts, and Record Payment marks them paid without entering an
+  amount.
 - Kept zero-amount fee items visible in student fee options so newly created
   fee names appear in Student Details and payment due selectors before the
   amount is finalized.
