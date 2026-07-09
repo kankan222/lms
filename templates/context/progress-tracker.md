@@ -14,6 +14,9 @@ Update this file after every meaningful implementation change.
 
 ## Completed
 
+- Added a separate `admin` role that receives all current permissions except
+  `dashboard.view`, exposed it in internal web user creation/filtering, and
+  routed admin logins away from the dashboard by default.
 - Added status-only fee item support for cases like exam or registration fees:
   fee setup can mark a fee item as Amount Based or Status Only, generated
   student fee rows preserve that mode, status-only rows show paid/pending

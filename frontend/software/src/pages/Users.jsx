@@ -45,6 +45,7 @@ import {
 
 const ROLE_FILTERS = [
   { label: "All", value: "" },
+  { label: "Admin", value: "admin" },
   { label: "Teachers", value: "teacher" },
   { label: "Parents", value: "parent" },
   { label: "Accounts", value: "accounts" },
@@ -58,6 +59,7 @@ const STATUS_FILTERS = [
 ];
 
 const DEFAULT_ROLES = [
+  "admin",
   "teacher",
   "student",
   "parent",
@@ -378,15 +380,24 @@ export default function Users() {
   });
 
   useEffect(() => {
-    loadInitialUsers();
+    const task = Promise.resolve().then(() => loadInitialUsers());
+    return () => {
+      task.catch(() => {});
+    };
   }, []);
 
   useEffect(() => {
-    loadFilteredUsers();
+    const task = Promise.resolve().then(() => loadFilteredUsers());
+    return () => {
+      task.catch(() => {});
+    };
   }, [role, status, classId, sectionId, page, limit]);
 
   useEffect(() => {
-    loadGrantingUserPermissions();
+    const task = Promise.resolve().then(() => loadGrantingUserPermissions());
+    return () => {
+      task.catch(() => {});
+    };
   }, [grantingUser]);
 
   useEffect(() => {

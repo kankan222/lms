@@ -3,6 +3,7 @@ import { execute, query } from "../../core/db/query.js";
 
 const ROLES = [
   "super_admin",
+  "admin",
   "teacher",
   "student",
   "parent",
@@ -61,6 +62,7 @@ const PERMISSIONS = [
 
 const ROLE_PERMISSION_MAP = {
   super_admin: PERMISSIONS,
+  admin: PERMISSIONS.filter((permission) => permission !== "dashboard.view"),
   teacher: ["marks.enter", "marks.view", "teacher.view", "attendance.take", "student_attendance.take", "student_attendance.view", "subjects.view", "exams.view", "messages.view", "messages.send"],
   student: [],
   parent: ["student.view", "student_attendance.view", "fee.view", "marks.view", "messages.view", "messages.send"],
