@@ -14,11 +14,11 @@ export function generateAccessToken(payload) {
   );
 }
 
-export function generateRefreshToken(payload) {
+export function generateRefreshToken(payload, expiresIn = process.env.REFRESH_TOKEN_EXPIRY) {
   return jwt.sign(
     payload,
     process.env.JWT_REFRESH_SECRET,
-    { expiresIn: process.env.REFRESH_TOKEN_EXPIRY }
+    { expiresIn }
   );
 }
 

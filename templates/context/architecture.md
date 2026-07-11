@@ -88,6 +88,9 @@
   account deactivation, or explicit revocation.
 - Access tokens contain `userId` and `sessionId`; refresh tokens are
   hashed in the sessions table.
+- Refresh sessions are role-aware: `super_admin` and `admin` refresh tokens
+  and session rows expire after 1 day by default, while other users expire
+  after 30 days by default.
 - Permissions are loaded server-side and cached for 10 minutes by
   user id.
 - Backend `requirePermission` checks are the security boundary.

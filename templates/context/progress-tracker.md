@@ -14,6 +14,9 @@ Update this file after every meaningful implementation change.
 
 ## Completed
 
+- Made auth refresh sessions role-aware: super admin and admin refresh tokens
+  and database sessions now expire after 1 day by default, while other roles
+  expire after 30 days by default; refresh now rejects expired DB sessions.
 - Updated the Payments Record Payment dialog so the student selector shows
   student name, roll number, and guardian name, truncating long values with
   ellipses and allowing search by those fields.

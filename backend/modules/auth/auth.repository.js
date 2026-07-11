@@ -93,7 +93,9 @@ export async function createSession(data) {
 export async function findSession(sessionId) {
   const sql = `
     SELECT * FROM user_sessions
-    WHERE id = ? AND revoked_at IS NULL
+    WHERE id = ?
+      AND revoked_at IS NULL
+      AND expires_at > NOW()
     LIMIT 1
   `;
 

@@ -33,9 +33,48 @@ const OTP_MAX_WRONG_ATTEMPTS = 5;
 const OTP_RESEND_COOLDOWN_MS = 60 * 1000;
 const OTP_MAX_RESENDS_PER_DAY = 10;
 const SUSPICIOUS_FAILED_LOGIN_THRESHOLD = 3;
+const DEFAULT_USER_REFRESH_TOKEN_EXPIRY = "30d";
+const DEFAULT_ADMIN_REFRESH_TOKEN_EXPIRY = "1d";
 
 function isProductionEnvironment() {
   return String(process.env.NODE_ENV || "").trim().toLowerCase() === "production";
+}
+
+function parseDurationMs(value, fallbackMs) {
+  const raw = String(value || "").trim().toLowerCase();
+  const match = raw.match(/^(\d+)\s*(ms|s|m|h|d)?$/);
+  if (!match) return fallbackMs;
+
+  const amount = Number(match[1]);
+  const unit = match[2] || "ms";
+  const multipliers = {
+    ms: 1,
+    s: 1000,
+    m: 60 * 1000,
+    h: 60 * 60 * 1000,
+    d: 24 * 60 * 60 * 1000
+  };
+
+  return amount * multipliers[unit];
+}
+
+function getRefreshSessionPolicy(roles = []) {
+  const roleSet = new Set(roles);
+  const isAdminSession = roleSet.has("super_admin") || roleSet.has("admin");
+  const fallbackExpiry = isAdminSession
+    ? DEFAULT_ADMIN_REFRESH_TOKEN_EXPIRY
+    : DEFAULT_USER_REFRESH_TOKEN_EXPIRY;
+  const fallbackMs = isAdminSession
+    ? 15 * 60 * 60 * 1000
+    : 30 * 24 * 60 * 60 * 1000;
+  const refreshTokenExpiry = isAdminSession
+    ? process.env.ADMIN_REFRESH_TOKEN_EXPIRY || fallbackExpiry
+    : process.env.USER_REFRESH_TOKEN_EXPIRY || fallbackExpiry;
+
+  return {
+    refreshTokenExpiry,
+    sessionMs: parseDurationMs(refreshTokenExpiry, fallbackMs)
+  };
 }
 
 function normalizeStoredIndianPhone(phone) {
@@ -83,6 +122,7 @@ async function loadAccessData(userId) {
 
 async function issueLoginSession(user, accessData, meta) {
   const sessionId = uuid();
+  const refreshPolicy = getRefreshSessionPolicy(accessData.roles);
 
   const accessToken = generateAccessToken({
     userId: user.id,
@@ -92,7 +132,7 @@ async function issueLoginSession(user, accessData, meta) {
   const refreshToken = generateRefreshToken({
     userId: user.id,
     sessionId
-  });
+  }, refreshPolicy.refreshTokenExpiry);
 
   const refreshHash = await bcrypt.hash(refreshToken, 10);
 
@@ -103,7 +143,7 @@ async function issueLoginSession(user, accessData, meta) {
     deviceId: meta.deviceId ?? null,
     deviceType: meta.deviceType ?? null,
     ip: meta.ip,
-    expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
+    expiresAt: new Date(Date.now() + refreshPolicy.sessionMs)
   });
 
   if (meta.deviceId && !isProductionEnvironment()) {
@@ -429,18 +469,20 @@ export async function refresh(refreshToken) {
     userId: payload.userId,
     sessionId: payload.sessionId
   });
+  const accessData = await loadAccessData(payload.userId);
+  const refreshPolicy = getRefreshSessionPolicy(accessData.roles);
 
   const newRefreshToken = generateRefreshToken({
     userId: payload.userId,
     sessionId: payload.sessionId
-  });
+  }, refreshPolicy.refreshTokenExpiry);
 
   const newHash = await bcrypt.hash(newRefreshToken, 10);
 
   await updateSessionToken(
     payload.sessionId,
     newHash,
-    new Date(Date.now() + 30*24*60*60*1000)
+    new Date(Date.now() + refreshPolicy.sessionMs)
   );
 
   return {

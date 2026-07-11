@@ -257,6 +257,8 @@
 - Access tokens must identify the user and session.
 - Refresh tokens must support rotation.
 - Token refresh must not require OTP verification.
+- Refresh sessions for `super_admin` and `admin` users must expire after 1 day
+  by default, while other user sessions must expire after 30 days by default.
 - Production password logins must complete OTP verification on every login.
 - Non-production new or suspicious devices must complete OTP verification.
 - Trusted devices must be revocable after password reset, account
