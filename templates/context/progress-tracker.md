@@ -14,6 +14,9 @@ Update this file after every meaningful implementation change.
 
 ## Completed
 
+- Updated the Payments Record Payment dialog so the student selector shows
+  student name, roll number, and guardian name, truncating long values with
+  ellipses and allowing search by those fields.
 - Added a separate `admin` role that receives all current permissions except
   `dashboard.view`, exposed it in internal web user creation/filtering, and
   routed admin logins away from the dashboard by default.

@@ -199,3 +199,78 @@ node -e "import('bcrypt').then(async b => console.log(await b.hash('123456', 10)
   FROM parents p
   JOIN users u ON u.id = p.user_id
   WHERE u.phone = '9707172848';
+
+
+  
+node -e "import bcrypt from 'bcrypt'; console.log(await bcrypt.hash('SuperAdmin@KKV369', 10));"
+$2b$10$S25h/JZT1uhFKCo1zTjmh.4aQ2fcG028Q4.KhqONrCehRoUiLVCrG
+node -e "import bcrypt from 'bcrypt'; console.log(await bcrypt.hash('Admin@KKV147', 10));"
+
+ UPDATE users
+  SET password_hash = '$2b$10$Il5LIoHz0TwEYA8rR7p6u.6PHYVki7.GEWaQmLFKcFJWkoDRNRrcC'
+  WHERE email = 'admin.perm@kkv.com';
+
+    UPDATE users
+  SET email = 'admin@kkv.com'
+  WHERE email = 'admin.perm@kkv.com';
+
+UPDATE users
+  SET username = 'admin'
+  WHERE email = 'admin@kkv.com';
+
+SELECT id, username, email, phone, status
+  FROM users
+  WHERE username = 'admin';
+
+  UPDATE user_sessions
+  SET revoked_at = NOW()
+  WHERE user_id = (
+    SELECT id FROM users
+    WHERE username = 'admin' OR email = 'admin@kkv.com'
+    LIMIT 1
+  );
+
+  UPDATE auth_trusted_devices
+  SET revoked_at = NOW(),
+      revoke_reason = 'password_reset'
+  WHERE user_id = (
+    SELECT id FROM users
+    WHERE username = 'admin' OR email = 'admin@kkv.com'
+    LIMIT 1
+  )
+  AND revoked_at IS NULL;
+
+
+
+
+  
+  SELECT u.id, u.username, u.email, u.phone, r.name AS role
+  FROM users u
+  JOIN user_roles ur ON ur.user_id = u.id
+  JOIN roles r ON r.id = ur.role_id
+  WHERE r.name = 'parent'
+    AND u.phone = '7002715061';
+
+      UPDATE users u
+  JOIN user_roles ur ON ur.user_id = u.id
+  JOIN roles r ON r.id = ur.role_id
+  SET u.password_hash = '$2b$10$p65a0SH66NpRZ.oJd.ia0OqdNSIy/0c3QkbbISs49vs2I4nqmeihO'
+  WHERE r.name = 'parent'
+    AND u.phone = '7002715061';
+
+  UPDATE user_sessions
+  SET revoked_at = NOW()
+  WHERE user_id = (
+    SELECT id FROM users WHERE phone = '7002715061' LIMIT 1
+  )
+  AND revoked_at IS NULL;
+
+  UPDATE auth_trusted_devices
+  SET revoked_at = NOW(),
+      revoke_reason = 'password_reset'
+  WHERE user_id = (
+    SELECT id FROM users WHERE phone = '7002715061' LIMIT 1
+  )
+  AND revoked_at IS NULL;
+
+  COMMIT;

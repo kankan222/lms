@@ -159,6 +159,33 @@ function formatSectionMedium(section, medium) {
   return sectionName || "-";
 }
 
+function truncateText(value, maxLength = 28) {
+  const text = String(value || "").trim();
+  if (!text) return "-";
+  if (text.length <= maxLength) return text;
+  return `${text.slice(0, Math.max(0, maxLength - 3)).trimEnd()}...`;
+}
+
+function getStudentSearchText(student) {
+  return [
+    student?.name,
+    student?.roll_number ? `roll ${student.roll_number}` : "",
+    student?.guardian_name,
+    student?.admission_no,
+    student?.stream_name,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+}
+
+function formatPaymentStudentLabel(student) {
+  const name = truncateText(student?.name, 34);
+  const roll = student?.roll_number ? `Roll ${student.roll_number}` : "Roll -";
+  const guardian = truncateText(student?.guardian_name, 28);
+  return `${name} | ${roll} | Guardian: ${guardian}`;
+}
+
 function feeNameBadgeClass(name) {
   const value = String(name || "").trim().toLowerCase();
 
@@ -443,9 +470,7 @@ export default function Payments() {
     const query = studentSearch.trim().toLowerCase();
     if (!query) return;
 
-    const matchingStudent = students.find((student) =>
-      String(student.name || "").toLowerCase().includes(query)
-    );
+    const matchingStudent = students.find((student) => getStudentSearchText(student).includes(query));
 
     if (!matchingStudent) return;
     if (String(createForm.student_id) === String(matchingStudent.id)) return;
@@ -769,9 +794,7 @@ export default function Payments() {
   const effectiveCreateStreamId = createSelectedClassScope === "hs" ? createForm.stream_id : "";
   const createSections = createSelectedClass?.sections || [];
   const filteredStudents = students.filter((student) =>
-    String(student.name || "")
-      .toLowerCase()
-      .includes(studentSearch.trim().toLowerCase())
+    getStudentSearchText(student).includes(studentSearch.trim().toLowerCase())
   );
   const selectedFee = feeOptions.find(
     (f) => String(f.id) === String(createForm.student_fee_id)
@@ -1124,7 +1147,7 @@ export default function Payments() {
                       <option value="">Select Student</option>
                       {filteredStudents.map((s) => (
                         <option key={s.id} value={s.id}>
-                          {s.name}
+                          {formatPaymentStudentLabel(s)}
                           {s.stream_name ? ` (${s.stream_name})` : ""}
                         </option>
                       ))}

@@ -7,6 +7,7 @@ let feeStructuresStreamSchemaStatusCache;
 let supportsPaymentReceiptSerialCache;
 let supportsFeeInstallmentsModeCache;
 let supportsStudentFeesModeCache;
+let supportsStudentParentsGuardianColumnsCache;
 
 export async function supportsFeeStructuresStreamId() {
   if (typeof supportsFeeStructuresStreamIdCache === "boolean") {
@@ -140,6 +141,38 @@ async function supportsStudentFeesMode() {
 
   supportsStudentFeesModeCache = Number(rows[0]?.total || 0) > 0;
   return supportsStudentFeesModeCache;
+}
+
+async function supportsStudentParentsGuardianColumns() {
+  if (typeof supportsStudentParentsGuardianColumnsCache === "boolean") {
+    return supportsStudentParentsGuardianColumnsCache;
+  }
+
+  const rows = await query(
+    `
+      SELECT COUNT(*) AS total
+      FROM information_schema.COLUMNS
+      WHERE TABLE_SCHEMA = DATABASE()
+        AND TABLE_NAME = 'student_parents'
+        AND COLUMN_NAME IN ('father_name', 'mother_name')
+    `
+  );
+
+  supportsStudentParentsGuardianColumnsCache = Number(rows[0]?.total || 0) >= 2;
+  return supportsStudentParentsGuardianColumnsCache;
+}
+
+async function guardianNameExpression() {
+  const hasGuardianColumns = await supportsStudentParentsGuardianColumns();
+  if (hasGuardianColumns) {
+    return `COALESCE(
+      MAX(NULLIF(sp.father_name, '')),
+      MAX(NULLIF(sp.mother_name, '')),
+      GROUP_CONCAT(DISTINCT p.name ORDER BY FIELD(LOWER(sp.relationship), 'father', 'mother', 'guardian'), p.name SEPARATOR ', ')
+    )`;
+  }
+
+  return `GROUP_CONCAT(DISTINCT p.name ORDER BY FIELD(LOWER(sp.relationship), 'father', 'mother', 'guardian'), p.name SEPARATOR ', ')`;
 }
 
 function buildReceiptSerialExpression(hasReceiptSerial, paymentAlias = "p") {
@@ -858,6 +891,7 @@ export async function getStudentsByIds(studentIds) {
 export async function getStudentsForPayment(filters = {}) {
   const hasScopesTable = await supportsScopesTable();
   const classScopeExpr = buildClassScopeExpression(hasScopesTable);
+  const guardianExpr = await guardianNameExpression();
   const where = ["se.status = 'active'"];
   const params = [];
 
@@ -902,7 +936,8 @@ export async function getStudentsForPayment(filters = {}) {
       ${classScopeExpr} AS class_scope,
       sec.name AS section_name,
       sec.medium,
-      str.name AS stream_name
+      str.name AS stream_name,
+      guardians.guardian_name
     FROM students s
     JOIN student_enrollments se
       ON se.student_id = s.id
@@ -913,6 +948,14 @@ export async function getStudentsForPayment(filters = {}) {
       ON sec.id = se.section_id
     LEFT JOIN streams str
       ON str.id = se.stream_id
+    LEFT JOIN (
+      SELECT
+        sp.student_id,
+        ${guardianExpr} AS guardian_name
+      FROM student_parents sp
+      JOIN parents p ON p.id = sp.parent_id
+      GROUP BY sp.student_id
+    ) guardians ON guardians.student_id = s.id
     WHERE ${where.join(" AND ")}
     ORDER BY s.name ASC, s.id ASC
   `;
