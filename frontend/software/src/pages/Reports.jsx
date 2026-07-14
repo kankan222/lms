@@ -73,6 +73,10 @@ function statusClassName(status) {
   return "bg-red-600 text-white";
 }
 
+function isDraftApprovalStatus(status) {
+  return String(status || "draft").trim().toLowerCase() === "draft";
+}
+
 function markStatusClassName(status) {
   if (status === "absent") return "border-red-200 bg-red-50 text-red-700 dark:border-red-900/60 dark:bg-red-950/30 dark:text-red-300";
   if (status === "pending") return "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-300";
@@ -1176,8 +1180,28 @@ export default function Reports() {
     }
 
     setSelectedStudentIds(
-      checked ? grid.rows.map((row) => Number(row.student_id)) : []
+      checked ? grid.rows.filter(canSelectRowInCurrentTab).map((row) => Number(row.student_id)) : []
     );
+  }
+
+  function canSelectRowInCurrentTab(row) {
+    if (activeTab === "approved") {
+      return false;
+    }
+
+    if (activeTab === "pending" || activeTab === "manual-review") {
+      return true;
+    }
+
+    return isDraftApprovalStatus(row?.approval_status);
+  }
+
+  function canEditRowInCurrentTab(row) {
+    if (activeTab === "pending" || activeTab === "manual-review" || activeTab === "approved") {
+      return true;
+    }
+
+    return isDraftApprovalStatus(row?.approval_status);
   }
 
   function updateMarksValue(studentId, key, value) {
@@ -1242,6 +1266,10 @@ export default function Reports() {
     setEditedMarks((prev) => {
       const next = { ...prev };
       grid.rows.forEach((row) => {
+        if (!canEditRowInCurrentTab(row)) {
+          return;
+        }
+
         const edited = next[row.student_id] || {};
         const hasMarks = componentMode
           ? Object.values(edited.components || {}).some(
@@ -1320,7 +1348,8 @@ export default function Reports() {
 
     const splitPattern = isSplitPattern(grid?.subject);
     const componentMode = hasSubjectComponents(grid?.subject);
-    const marks = grid.rows
+    const editableRows = grid.rows.filter(canEditRowInCurrentTab);
+    const marks = editableRows
       .map((row) => {
         const edited = editedMarks[row.student_id] || {};
         const markStatus = normalizeMarkStatus(edited.mark_status);
@@ -1357,7 +1386,7 @@ export default function Reports() {
       });
 
     if (!marks.length) {
-      setError("Load at least one student row to save.");
+      setError("Submitted marks are locked until an admin rejects them.");
       return;
     }
 
@@ -1380,13 +1409,17 @@ export default function Reports() {
   async function handleSubmitMarks(applyAll) {
     setGridLoading(true);
     try {
-      await submitMarksForApproval(
+      const result = await submitMarksForApproval(
         buildMutationPayload(
           applyAll
             ? { apply_all: true }
             : { student_ids: selectedStudentIds }
         )
       );
+      const affected = Number(result?.data?.affected || 0);
+      if (!affected) {
+        throw new Error("No draft marks are available to submit. Submitted marks are locked until an admin rejects them.");
+      }
       await handleLoadGrid();
       setSuccess(applyAll ? "All draft marks submitted." : "Selected draft marks submitted.");
     } catch (err) {
@@ -1542,9 +1575,10 @@ export default function Reports() {
     }
   }
 
+  const selectableGridRows = (grid?.rows || []).filter(canSelectRowInCurrentTab);
   const allSelected =
-    grid?.rows?.length > 0 &&
-    selectedStudentIds.length === grid.rows.length;
+    selectableGridRows.length > 0 &&
+    selectableGridRows.every((row) => selectedStudentIds.includes(Number(row.student_id)));
 
   function handleTabChange(nextTab) {
     if (!canViewAdminReportSections && ["records", "templates"].includes(nextTab)) {
@@ -2001,13 +2035,13 @@ export default function Reports() {
           <div className="flex flex-wrap gap-2">
             {showEntryActions ? (
               <>
-                <Button onClick={handleSaveMarks} disabled={gridLoading || !grid?.rows?.length}>
+                <Button onClick={handleSaveMarks} disabled={gridLoading || !selectableGridRows.length}>
                   Save
                 </Button>
                 <Button
                   variant="outline"
                   onClick={markBlankRowsAbsent}
-                  disabled={gridLoading || !grid?.rows?.length}
+                  disabled={gridLoading || !selectableGridRows.length}
                 >
                   Mark Blank Absent
                 </Button>
@@ -2021,7 +2055,7 @@ export default function Reports() {
                 <Button
                   variant="outline"
                   onClick={() => handleSubmitMarks(true)}
-                  disabled={gridLoading || !grid?.rows?.length}
+                  disabled={gridLoading || !selectableGridRows.length}
                 >
                   Submit All
                 </Button>
@@ -2104,7 +2138,7 @@ export default function Reports() {
               <TableHead className="w-12 text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
                 <Checkbox
                   checked={allSelected}
-                  disabled={!canSelectRows}
+                  disabled={!canSelectRows || !selectableGridRows.length}
                   onCheckedChange={(checked) => toggleAllRows(Boolean(checked))}
                 />
               </TableHead>
@@ -2130,12 +2164,14 @@ export default function Reports() {
               const editedRow = editedMarks?.[row.student_id] || {};
               const rowMarkStatus = normalizeMarkStatus(editedRow.mark_status ?? row.mark_status);
               const marksDisabled = rowMarkStatus !== "present";
+              const rowCanSelect = canSelectRows && canSelectRowInCurrentTab(row);
+              const rowCanEdit = canEditMarks && canEditRowInCurrentTab(row);
               return (
               <TableRow key={row.student_id} className="transition-colors hover:bg-muted/35">
                 <TableCell>
                   <Checkbox
                     checked={selectedStudentIds.includes(Number(row.student_id))}
-                    disabled={!canSelectRows}
+                    disabled={!rowCanSelect}
                     onCheckedChange={(checked) =>
                       toggleRow(Number(row.student_id), Boolean(checked))
                     }
@@ -2156,7 +2192,7 @@ export default function Reports() {
                 </TableCell>
                 <TableCell>{selectedSubject?.name || grid?.subject?.name || "-"}</TableCell>
                 <TableCell>
-                  {canEditMarks ? (
+                  {rowCanEdit ? (
                     hasSubjectComponents(grid?.subject) ? (
                       <div className="space-y-3">
                         {(grid.subject.components || []).map((component) => {
@@ -2325,7 +2361,7 @@ export default function Reports() {
                   )}
                 </TableCell>
                 <TableCell>
-                  {canEditMarks ? (
+                  {rowCanEdit ? (
                     <select
                       className={markStatusSelectClassName(rowMarkStatus)}
                       value={rowMarkStatus}

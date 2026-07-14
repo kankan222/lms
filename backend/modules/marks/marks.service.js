@@ -1081,6 +1081,9 @@ async function changeSelectionStatus(payload, userId, options) {
       approvedBy: options.nextStatus === "approved" ? userId : null,
       excludeMarkStatuses: options.excludeMarkStatuses || [],
     });
+    if (!affected) {
+      throw new AppError(options.emptyMessage || "No matching marks found for this action", 400);
+    }
     await conn.commit();
     return { affected, approval_status: options.nextStatus };
   } catch (err) {
@@ -1099,6 +1102,7 @@ export async function submitMarksForApproval(payload, userId) {
     nextStatus: "pending",
     excludeMarkStatuses: ["pending"],
     blockMarkStatuses: ["pending"],
+    emptyMessage: "No draft marks are available to submit. Submitted marks are locked until an admin rejects them.",
   });
 }
 
@@ -1109,6 +1113,7 @@ export async function approveMarks(payload, userId) {
     nextStatus: "approved",
     excludeMarkStatuses: ["pending"],
     blockMarkStatuses: ["pending"],
+    emptyMessage: "No pending marks are available to approve.",
   });
 }
 
@@ -1117,6 +1122,7 @@ export async function rejectMarks(payload, userId) {
     teacherOnly: false,
     currentStatuses: ["pending", "approved"],
     nextStatus: "draft",
+    emptyMessage: "No submitted marks are available to reject.",
   });
 }
 

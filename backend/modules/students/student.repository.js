@@ -54,6 +54,18 @@ export async function findUserByPhone(conn, phone) {
   return rows[0];
 }
 
+export async function findTeacherByUser(conn, userId) {
+  const [rows] = await conn.execute(
+    `SELECT id, name
+     FROM teachers
+     WHERE user_id = ?
+     LIMIT 1`,
+    [userId]
+  );
+
+  return rows[0] || null;
+}
+
 export async function createUser(conn, user) {
   const [result] = await conn.execute(
     `INSERT INTO users (phone, email, password_hash)

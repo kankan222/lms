@@ -200,7 +200,7 @@ node -e "import('bcrypt').then(async b => console.log(await b.hash('123456', 10)
   JOIN users u ON u.id = p.user_id
   WHERE u.phone = '9707172848';
 
-
+//SUPERADMIN
   
 node -e "import bcrypt from 'bcrypt'; console.log(await bcrypt.hash('SuperAdmin@KKV369', 10));"
 $2b$10$S25h/JZT1uhFKCo1zTjmh.4aQ2fcG028Q4.KhqONrCehRoUiLVCrG
@@ -249,19 +249,19 @@ SELECT id, username, email, phone, status
   JOIN user_roles ur ON ur.user_id = u.id
   JOIN roles r ON r.id = ur.role_id
   WHERE r.name = 'parent'
-    AND u.phone = '7002715061';
+    AND u.phone = '9706296609';
 
       UPDATE users u
   JOIN user_roles ur ON ur.user_id = u.id
   JOIN roles r ON r.id = ur.role_id
   SET u.password_hash = '$2b$10$p65a0SH66NpRZ.oJd.ia0OqdNSIy/0c3QkbbISs49vs2I4nqmeihO'
   WHERE r.name = 'parent'
-    AND u.phone = '7002715061';
+    AND u.phone = '9706296609';
 
   UPDATE user_sessions
   SET revoked_at = NOW()
   WHERE user_id = (
-    SELECT id FROM users WHERE phone = '7002715061' LIMIT 1
+    SELECT id FROM users WHERE phone = '9706296609' LIMIT 1
   )
   AND revoked_at IS NULL;
 
@@ -269,8 +269,38 @@ SELECT id, username, email, phone, status
   SET revoked_at = NOW(),
       revoke_reason = 'password_reset'
   WHERE user_id = (
-    SELECT id FROM users WHERE phone = '7002715061' LIMIT 1
+    SELECT id FROM users WHERE phone = '9706296609' LIMIT 1
   )
   AND revoked_at IS NULL;
 
   COMMIT;
+
+
+    To repair the already messed-up data:
+
+  -- 1. Inspect the conflicted phone
+  SELECT u.id AS user_id, u.phone, u.email, t.id AS teacher_id, t.name AS teacher_name,
+         p.id AS parent_id, p.name AS parent_name
+  FROM users u
+  LEFT JOIN teachers t ON t.user_id = u.id
+  LEFT JOIN parents p ON p.user_id = u.id
+  WHERE u.phone = '7002572242';
+
+  -- 2. After updating the student parent to a different valid phone,
+  -- remove accidental parent profile/role from the teacher user
+  DELETE p FROM parents p
+  WHERE p.user_id = 2946;
+
+  DELETE ur FROM user_roles ur
+  JOIN roles r ON r.id = ur.role_id
+  WHERE ur.user_id = 2946
+    AND r.name = 'parent';
+
+  -- 3. Restore teacher user contact from teacher profile if needed
+  UPDATE users u
+  JOIN teachers t ON t.user_id = u.id
+  SET u.phone = t.phone,
+      u.email = t.email
+  WHERE t.id = 100;
+
+  Verification: node --check passed for both changed files.

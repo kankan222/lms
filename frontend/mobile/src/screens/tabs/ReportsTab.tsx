@@ -35,6 +35,7 @@ import {
   type AccessibleExamScope,
   type LinkedStudent,
   type MarksGridData,
+  type MarksGridRow,
   type MarksApprovalSummary,
   type MarkStatus,
   type PendingApprovalQueue,
@@ -143,6 +144,10 @@ function normalizeMarkStatus(value?: string | null): MarkStatus {
   const status = String(value || "").trim().toLowerCase();
   if (status === "absent" || status === "pending" || status === "present") return status;
   return "present";
+}
+
+function isDraftApprovalStatus(status?: string | null) {
+  return String(status || "draft").trim().toLowerCase() === "draft";
 }
 
 function hasEnteredValue(value?: string | number | null) {
@@ -530,8 +535,10 @@ export default function ReportsTab() {
     [grid?.rows, visibleRowCount],
   );
   const hasMoreGridRows = (grid?.rows?.length || 0) > visibleRowCount;
-  const allVisibleSelected = Boolean(visibleGridRows.length)
-    && visibleGridRows.every((row) => selectedStudentIds.includes(Number(row.student_id)));
+  const selectableGridRows = (grid?.rows || []).filter(canSelectRowInCurrentTab);
+  const selectableVisibleRows = visibleGridRows.filter(canSelectRowInCurrentTab);
+  const allVisibleSelected = Boolean(selectableVisibleRows.length)
+    && selectableVisibleRows.every((row) => selectedStudentIds.includes(Number(row.student_id)));
 
   useEffect(() => {
     setActiveTab(tabs[0]?.key || "entry");
@@ -919,19 +926,24 @@ export default function ReportsTab() {
   }
 
   function toggleRow(studentId: number) {
+    const row = grid?.rows?.find((item) => Number(item.student_id) === studentId);
+    if (!row || !canSelectRowInCurrentTab(row)) {
+      return;
+    }
+
     setSelectedStudentIds((prev) =>
       prev.includes(studentId) ? prev.filter((id) => id !== studentId) : [...prev, studentId],
     );
   }
 
   function toggleAllRows() {
-    if (!visibleGridRows.length) {
+    if (!selectableVisibleRows.length) {
       setSelectedStudentIds([]);
       return;
     }
 
     setSelectedStudentIds((prev) => {
-      const visibleIds = visibleGridRows.map((row) => Number(row.student_id));
+      const visibleIds = selectableVisibleRows.map((row) => Number(row.student_id));
       const visibleSet = new Set(visibleIds);
       const hasUnselectedVisible = visibleIds.some((id) => !prev.includes(id));
 
@@ -941,6 +953,26 @@ export default function ReportsTab() {
 
       return [...new Set([...prev, ...visibleIds])];
     });
+  }
+
+  function canSelectRowInCurrentTab(row: MarksGridRow) {
+    if (activeTab === "published") {
+      return false;
+    }
+
+    if (activeTab === "review") {
+      return true;
+    }
+
+    return isDraftApprovalStatus(row.approval_status);
+  }
+
+  function canEditRowInCurrentTab(row: MarksGridRow) {
+    if (activeTab === "review" || activeTab === "published") {
+      return true;
+    }
+
+    return isDraftApprovalStatus(row.approval_status);
   }
 
   function updateMarksValue(studentId: number, value: string) {
@@ -976,6 +1008,10 @@ export default function ReportsTab() {
     setEditedMarks((prev) => {
       const next = { ...prev };
       grid.rows.forEach((row) => {
+        if (!canEditRowInCurrentTab(row)) {
+          return;
+        }
+
         const studentId = Number(row.student_id);
         const current = next[studentId] || {
           marks: row.marks !== null && row.marks !== undefined ? String(row.marks) : "",
@@ -1061,7 +1097,8 @@ export default function ReportsTab() {
       return;
     }
 
-    const marks = grid.rows.map((row) => {
+    const editableRows = grid.rows.filter(canEditRowInCurrentTab);
+    const marks = editableRows.map((row) => {
       const draft = editedMarks[Number(row.student_id)] || {
         marks: row.marks !== null && row.marks !== undefined ? String(row.marks) : "",
         mark_status: normalizeMarkStatus(row.mark_status || "present"),
@@ -1074,7 +1111,7 @@ export default function ReportsTab() {
     });
 
     if (!marks.length) {
-      setError("Validation", "Load at least one student row to save.");
+      setError("Validation", "Submitted marks are locked until an admin rejects them.");
       return;
     }
 
@@ -1096,9 +1133,13 @@ export default function ReportsTab() {
   async function handleSubmitMarks(applyAll: boolean) {
     setGridLoading(true);
     try {
-      await submitMarksForApproval(
+      const result = await submitMarksForApproval(
         buildMutationPayload(applyAll ? { apply_all: true } : { student_ids: selectedStudentIds }),
       );
+      const affected = Number((result as { data?: { affected?: number } })?.data?.affected || 0);
+      if (!affected) {
+        throw new Error("No draft marks are available to submit. Submitted marks are locked until an admin rejects them.");
+      }
       await handleLoadGrid();
       setSuccess(
         "Submitted",
@@ -1368,7 +1409,7 @@ export default function ReportsTab() {
             <Pressable
               style={[styles.secondaryBtn, { backgroundColor: theme.card, borderColor: theme.border }, !canSelectRows && styles.disabledBtn]}
               onPress={toggleAllRows}
-              disabled={!canSelectRows}
+              disabled={!canSelectRows || !selectableVisibleRows.length}
             >
               <Text style={[styles.secondaryBtnText, { color: theme.text }]}>{allVisibleSelected ? "Clear Visible" : "Select Visible"}</Text>
             </Pressable>
@@ -1376,13 +1417,13 @@ export default function ReportsTab() {
 
           {showEntryActions ? (
             <>
-              <Pressable style={[styles.successBtn, { backgroundColor: theme.success }]} onPress={handleSaveMarks} disabled={gridLoading || !grid?.rows?.length}>
+              <Pressable style={[styles.successBtn, { backgroundColor: theme.success }]} onPress={handleSaveMarks} disabled={gridLoading || !selectableGridRows.length}>
                 <Text style={styles.successBtnText}>Save</Text>
               </Pressable>
               <Pressable
                 style={[styles.secondaryBtn, { backgroundColor: theme.card, borderColor: theme.border }]}
                 onPress={markBlankRowsAbsent}
-                disabled={gridLoading || !grid?.rows?.length}
+                disabled={gridLoading || !selectableGridRows.length}
               >
                 <Text style={[styles.secondaryBtnText, { color: theme.text }]}>Mark Blank Absent</Text>
               </Pressable>
@@ -1396,7 +1437,7 @@ export default function ReportsTab() {
               <Pressable
                 style={[styles.secondaryBtn, { backgroundColor: theme.card, borderColor: theme.border }]}
                 onPress={() => handleSubmitMarks(true)}
-                disabled={gridLoading || !grid?.rows?.length}
+                disabled={gridLoading || !selectableGridRows.length}
               >
                 <Text style={[styles.secondaryBtnText, { color: theme.text }]}>Submit All</Text>
               </Pressable>
@@ -1471,6 +1512,8 @@ export default function ReportsTab() {
               };
               const rowMarkStatus = normalizeMarkStatus(draft.mark_status);
               const marksDisabled = rowMarkStatus !== "present";
+              const rowCanSelect = canSelectRows && canSelectRowInCurrentTab(row);
+              const rowCanEdit = canEditMarks && canEditRowInCurrentTab(row);
               const classLabel = selectedClass?.name || "-";
               const sectionLabel = selectedSection
                 ? `${selectedSection.name}${selectedSection.medium ? `(${selectedSection.medium})` : row.medium ? `(${row.medium})` : ""}`
@@ -1484,16 +1527,16 @@ export default function ReportsTab() {
                 style={[
                   styles.studentCard,
                   { backgroundColor: theme.cardMuted, borderColor: theme.border },
-                  canSelectRows &&
+                  rowCanSelect &&
                     selectedStudentIds.includes(Number(row.student_id)) &&
                     [styles.studentCardSelected, { borderColor: theme.primary, backgroundColor: theme.isDark ? "#1e293b" : "#eef2ff" }],
                 ]}
                 onPress={() => toggleRow(Number(row.student_id))}
-                disabled={!canSelectRows}
+                disabled={!rowCanSelect}
               >
                 <View style={styles.reportCardHeader}>
                   <Text style={[styles.reportStudentName, { color: theme.text }]}>{row.student_name}</Text>
-                  {canSelectRows ? (
+                  {rowCanSelect ? (
                     <View
                       style={[
                         styles.selectionDot,
@@ -1521,7 +1564,7 @@ export default function ReportsTab() {
                   </View>
                   <View style={styles.reportInlineRow}>
                     <Text style={[styles.reportSmallLabel, { color: theme.subText }]}>Attendance - </Text>
-                    {canEditMarks && row.approval_status !== "approved" ? (
+                    {rowCanEdit && row.approval_status !== "approved" ? (
                       <View style={styles.statusChipRow}>
                         {(["present", "absent", "pending"] as MarkStatus[]).map((status) => {
                           const palette = markStatusTone(status);
@@ -1550,7 +1593,7 @@ export default function ReportsTab() {
 
                 <View style={styles.reportBottomRow}>
                   <View style={[styles.reportScoreBox, { borderColor: theme.border, backgroundColor: theme.card }]}>
-                    {canEditMarks && row.approval_status !== "approved" ? (
+                    {rowCanEdit && row.approval_status !== "approved" ? (
                       <TextInput
                         style={[styles.reportMarksInput, { color: theme.text }, marksDisabled && styles.disabledInput]}
                         keyboardType="numeric"

@@ -4,6 +4,7 @@ import { pool } from "../../database/pool.js";
 import AppError from "../../core/errors/AppError.js";
 
 const EMAIL_REGEX = /^\S+@\S+\.\S+$/;
+const DEFAULT_PARENT_PASSWORD = "123456";
 
 function hasParentDetails(parent = {}) {
   return Boolean(
@@ -432,6 +433,14 @@ async function resolveParent(conn, parent, options = {}) {
   const existingUser = await repo.findUserByPhone(conn, normalizedMobile);
 
   if (existingUser) {
+    const teacherProfile = await repo.findTeacherByUser(conn, existingUser.id);
+    if (teacherProfile?.id) {
+      throw new AppError(
+        `Parent phone ${normalizedMobile} is already used by teacher ${teacherProfile.name || teacherProfile.id}. Use a different parent phone or update the teacher phone first.`,
+        409
+      );
+    }
+
     if (normalizedEmail) {
       if (overwriteEmail) {
         await repo.updateUserEmail(conn, existingUser.id, normalizedEmail);
@@ -471,7 +480,7 @@ async function resolveParent(conn, parent, options = {}) {
     });
   }
 
-  const passwordHash = await bcrypt.hash("ABCDEF", 10);
+  const passwordHash = await bcrypt.hash(DEFAULT_PARENT_PASSWORD, 10);
 
   const userId = await repo.createUser(conn, {
     phone: normalizedMobile,

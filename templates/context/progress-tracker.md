@@ -721,3 +721,10 @@ Update this file after every meaningful implementation change.
 - Allowed the read-only student subject-registration endpoint to be used from
   parent Student Details via `student.view`, with backend parent-student
   ownership scoping so parents can see only their assigned students' subjects.
+- Changed auto-created parent login accounts to use `123456` as the default
+  password whenever a new parent user is created from student creation or
+  Student Details parent phone updates.
+- Locked submitted marks in teacher entry workflows on software and mobile:
+  only draft rows can be edited, selected, saved, or submitted, and the backend
+  now rejects no-op submit/approve/reject actions instead of returning a
+  misleading success.
