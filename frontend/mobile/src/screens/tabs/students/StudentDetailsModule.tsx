@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { ActivityIndicator, Alert, Image, Linking, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 import { getStudentById, updateStudent, type StudentDetails } from "../../../services/studentsService";
 import {
   createTransportAssignment,
@@ -225,8 +226,8 @@ function MarksheetPreview({ report, student }: { report: StudentReport; student:
       <View style={styles.marksheetTable}>
         <View style={[styles.marksheetTableRow, styles.marksheetTableHead, { borderBottomColor: theme.border }]}>
           <Text style={[styles.marksheetSubjectHead, { color: theme.subText }]}>Subject</Text>
-          <Text style={[styles.marksheetMarksHead, { color: theme.subText }]}>Marks</Text>
-          <Text style={[styles.marksheetMarksHead, { color: theme.subText }]}>Max</Text>
+          <Text style={[styles.marksheetMarksHead, { color: theme.subText }]}>Marks{"\n"}Obtained</Text>
+          <Text style={[styles.marksheetMarksHead, { color: theme.subText }]}>Total{"\n"}Marks</Text>
         </View>
         {subjects.map((subject, index) => (
           <View key={`${subject.subject}-${index}`} style={[styles.marksheetTableRow, { borderBottomColor: theme.border }]}>
@@ -1257,7 +1258,10 @@ export default function StudentDetailsModule({ studentId, exams }: Props) {
               {reportExams.map((exam) => <FilterChip key={exam.id} label={exam.name} active={selectedExamId === exam.id} onPress={() => setSelectedExamId(exam.id)} />)}
             </View>
             <View style={styles.actionRow}>
-              <Pressable style={[styles.primaryBtn, { backgroundColor: theme.primary }, (!selectedExamId || !report) && styles.btnDisabled]} disabled={!selectedExamId || !report} onPress={handleDownloadMarksheet}><Text style={[styles.primaryBtnText, { color: theme.primaryText }]}>Download Marksheet</Text></Pressable>
+              <Pressable style={[styles.primaryBtn, { backgroundColor: theme.primary }, (!selectedExamId || !report) && styles.btnDisabled]} disabled={!selectedExamId || !report} onPress={handleDownloadMarksheet}>
+                <Ionicons name="download-outline" size={17} color={theme.primaryText} />
+                <Text style={[styles.primaryBtnText, { color: theme.primaryText }]}>Download Marksheet</Text>
+              </Pressable>
             </View>
             {reportLoading ? <ActivityIndicator color={theme.text} /> : null}
             {reportError ? <Text style={styles.errorText}>{reportError}</Text> : null}
@@ -1332,7 +1336,7 @@ const styles = StyleSheet.create({
   checkboxBox: { width: 18, height: 18, borderRadius: 5, borderWidth: 1, marginTop: 1 },
   secondaryBtn: { alignSelf: "flex-start", borderWidth: 1, borderColor: "#cbd5e1", backgroundColor: "#ffffff", paddingHorizontal: 14, paddingVertical: 11, borderRadius: 12, alignItems: "center", justifyContent: "center" },
   secondaryBtnText: { color: "#334155", fontWeight: "700" },
-  primaryBtn: { backgroundColor: "#0f172a", paddingHorizontal: 16, paddingVertical: 11, borderRadius: 12, alignItems: "center", justifyContent: "center" },
+  primaryBtn: { backgroundColor: "#0f172a", paddingHorizontal: 16, paddingVertical: 11, borderRadius: 12, alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 7 },
   primaryBtnText: { color: "#ffffff", fontWeight: "700" },
   btnDisabled: { opacity: 0.45 },
   actionRow: { flexDirection: "row", gap: 10, flexWrap: "wrap" },
@@ -1361,10 +1365,10 @@ const styles = StyleSheet.create({
   marksheetTable: { paddingHorizontal: 12, paddingVertical: 8 },
   marksheetTableRow: { flexDirection: "row", alignItems: "center", borderBottomWidth: 1, paddingVertical: 8, gap: 8 },
   marksheetTableHead: { paddingTop: 2 },
-  marksheetSubjectHead: { flex: 1.4, fontSize: 10, fontWeight: "800", textTransform: "uppercase" },
-  marksheetMarksHead: { width: 58, textAlign: "right", fontSize: 10, fontWeight: "800", textTransform: "uppercase" },
-  marksheetSubjectCell: { flex: 1.4, fontSize: 12, lineHeight: 17, fontWeight: "700" },
-  marksheetMarksCell: { width: 58, textAlign: "right", fontSize: 13, fontWeight: "800" },
+  marksheetSubjectHead: { flex: 1, fontSize: 10, fontWeight: "800", textTransform: "uppercase" },
+  marksheetMarksHead: { width: 74, textAlign: "right", fontSize: 10, lineHeight: 12, fontWeight: "800", textTransform: "uppercase" },
+  marksheetSubjectCell: { flex: 1, fontSize: 12, lineHeight: 17, fontWeight: "700" },
+  marksheetMarksCell: { width: 74, textAlign: "right", fontSize: 13, fontWeight: "800" },
   marksheetTotalRow: { borderBottomWidth: 0 },
   marksheetTotalText: { fontSize: 13 },
   marksheetSummaryRow: { flexDirection: "row", borderTopWidth: 1, paddingHorizontal: 12, paddingVertical: 10, gap: 10 },

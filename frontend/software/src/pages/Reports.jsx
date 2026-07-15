@@ -808,6 +808,8 @@ export default function Reports() {
         ? "pending"
         : activeTab === "approved"
           ? "approved"
+          : activeTab === "draft"
+            ? "draft"
           : "";
     const currentStatus = String(filters.approval_status || "");
     const activeStatus = currentStatus || nextStatus;
@@ -1011,7 +1013,7 @@ export default function Reports() {
   ]);
 
   useEffect(() => {
-    if (!canViewAdminReportSections && ["records", "templates"].includes(activeTab)) {
+    if (!canViewAdminReportSections && ["records"].includes(activeTab)) {
       setActiveTab(selfViewOnly ? "results" : "entry");
     }
   }, [activeTab, canViewAdminReportSections, selfViewOnly]);
@@ -1586,7 +1588,7 @@ export default function Reports() {
     selectableGridRows.every((row) => selectedStudentIds.includes(Number(row.student_id)));
 
   function handleTabChange(nextTab) {
-    if (!canViewAdminReportSections && ["records", "templates"].includes(nextTab)) {
+    if (!canViewAdminReportSections && ["records"].includes(nextTab)) {
       return;
     }
 
@@ -1599,12 +1601,15 @@ export default function Reports() {
           ? "pending"
           : nextTab === "approved"
             ? "approved"
+            : nextTab === "draft"
+              ? "draft"
             : "",
     }));
   }
 
   function renderFilterPanel() {
     const isApprovedMode = activeTab === "approved";
+    const isDraftMode = activeTab === "draft";
     const canLoadApprovedRows =
       Boolean(filters.exam_id) &&
       Boolean(filters.class_id) &&
@@ -1759,11 +1764,11 @@ export default function Reports() {
                   }
                 />
               </div>
-              {isAdmin && activeTab === "manual-review" ? (
+              {isAdmin && (activeTab === "manual-review" || isDraftMode) ? (
                 <div className="grid gap-2">
                   <Label>Status</Label>
                   <div className="min-w-[180px] rounded-md border border-input bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
-                    Pending
+                    {isDraftMode ? "Draft" : "Pending"}
                   </div>
                 </div>
               ) : isAdmin ? (
@@ -2035,6 +2040,7 @@ export default function Reports() {
   function renderGridPanel({ mode = "entry" } = {}) {
     const isPendingMode = mode === "pending";
     const isApprovedMode = mode === "approved";
+    const isDraftMode = mode === "draft";
     const canEditMarks = isPendingMode || isApprovedMode ? editMode : canUseEntryFlow;
     const canSelectRows = !isApprovedMode;
     const showEntryActions = canUseEntryFlow && !isPendingMode && !isApprovedMode;
@@ -2044,7 +2050,9 @@ export default function Reports() {
       ? "Load a pending approval grid to review submitted marks."
       : isApprovedMode
         ? "Load approved records to download marksheets."
-        : "Select the filters above and load a marks grid.";
+        : isDraftMode
+          ? "Select the filters above to load saved draft entries."
+          : "Select the filters above and load a marks grid.";
 
     return (
       <SurfaceCard>
@@ -2052,7 +2060,7 @@ export default function Reports() {
         <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
           <div>
             <p className="text-base font-semibold">
-              {grid?.subject?.name || "Marks Grid"}
+              {grid?.subject?.name || (isDraftMode ? "Draft Entries" : "Marks Grid")}
             </p>
             <p className="text-sm text-muted-foreground">
               {grid?.rows?.length || 0} student{grid?.rows?.length === 1 ? "" : "s"} loaded
@@ -2623,9 +2631,18 @@ export default function Reports() {
               ) : null}
               {isAdmin ? <TabsTrigger value="manual-review">Review</TabsTrigger> : null}
               <TabsTrigger value="entry">Entry</TabsTrigger>
+              <TabsTrigger value="draft">
+                <span className="inline-flex items-center gap-2">
+                  <span>Draft</span>
+                  {approvalSummary.draft > 0 ? (
+                    <span className="inline-flex min-w-5 items-center justify-center rounded-full bg-slate-500 px-1.5 py-0.5 text-[10px] font-semibold leading-none text-white">
+                      {approvalSummary.draft}
+                    </span>
+                  ) : null}
+                </span>
+              </TabsTrigger>
               <TabsTrigger value="approved">Published</TabsTrigger>
               {canViewAdminReportSections ? <TabsTrigger value="records">Records</TabsTrigger> : null}
-              {canViewAdminReportSections ? <TabsTrigger value="templates">Templates</TabsTrigger> : null}
             </TabsList>
 
             {isAdmin ? (
@@ -2647,6 +2664,11 @@ export default function Reports() {
               {renderGridPanel({ mode: "entry" })}
             </TabsContent>
 
+            <TabsContent value="draft" className="grid gap-4">
+              {renderFilterPanel()}
+              {renderGridPanel({ mode: "draft" })}
+            </TabsContent>
+
             <TabsContent value="approved" className="grid gap-4">
               {renderPublicationPanel()}
               {renderFilterPanel()}
@@ -2657,25 +2679,6 @@ export default function Reports() {
               <TabsContent value="records" className="grid gap-4">
                 {renderFilterPanel()}
                 {renderApprovedRecordsPanel()}
-              </TabsContent>
-            ) : null}
-
-            {canViewAdminReportSections ? (
-              <TabsContent value="templates" className="grid gap-4">
-                <SurfaceCard accent>
-                  <div className="space-y-4 p-4">
-                    <div>
-                      <p className="text-base font-semibold">Marksheet Templates</p>
-                      <p className="text-sm text-muted-foreground">
-                        Preview how downloaded marksheets are presented. The single-exam template is active; the final template is the combined-exam layout planned from the shared references.
-                      </p>
-                    </div>
-                    <div className="grid gap-4 xl:grid-cols-2">
-                      <MarksheetTemplatePreview type="single" />
-                      <MarksheetTemplatePreview type="final" />
-                    </div>
-                  </div>
-                </SurfaceCard>
               </TabsContent>
             ) : null}
           </Tabs>

@@ -35,6 +35,13 @@ Update this file after every meaningful implementation change.
 - Fixed parent marksheet access when a parent's phone number also matches a
   student profile by prioritizing parent-linked student ownership before
   student-only result restrictions.
+- Renamed Student Details marksheet preview columns on software and mobile from
+  Max Marks/Marks to Total Marks/Marks Obtained.
+- Added a download icon to the mobile Student Details Download Marksheet button
+  while preserving the existing download behavior.
+- Replaced the software Reports Templates tab with a Draft tab that filters the
+  shared marks grid to saved draft entries and keeps the existing save/submit
+  draft workflow available.
 - Made auth refresh sessions role-aware: super admin and admin refresh tokens
   and database sessions now expire after 1 day by default, while other roles
   expire after 30 days by default; refresh now rejects expired DB sessions.

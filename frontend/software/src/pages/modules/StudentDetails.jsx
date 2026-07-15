@@ -230,7 +230,7 @@ function MarksheetPreview({ report, student }) {
             <TableRow>
               <TableHead>Subject</TableHead>
               <TableHead className="text-right">Marks Obtained</TableHead>
-              <TableHead className="text-right">Max Marks</TableHead>
+              <TableHead className="text-right">Total Marks</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
