@@ -1119,6 +1119,11 @@ export default function Reports() {
   }
 
   async function handleLoadGrid() {
+    if (activeTab === "approved" && !filters.subject_id) {
+      setError("Select a subject only if you want to load approved student rows. Publishing does not require loading students.");
+      return;
+    }
+
     if (!filters.exam_id || !filters.class_id || !filters.section_id || !filters.subject_id) {
       setError("Exam, class, section, and subject are required.");
       return;
@@ -1600,6 +1605,11 @@ export default function Reports() {
 
   function renderFilterPanel() {
     const isApprovedMode = activeTab === "approved";
+    const canLoadApprovedRows =
+      Boolean(filters.exam_id) &&
+      Boolean(filters.class_id) &&
+      Boolean(filters.section_id) &&
+      Boolean(filters.subject_id);
 
     return (
       <SurfaceCard>
@@ -1737,7 +1747,7 @@ export default function Reports() {
             </div>
           </FilterSection>
 
-          <FilterSection title="Refine And Load">
+          <FilterSection title={isApprovedMode ? "Optional Approved Rows" : "Refine And Load"}>
             <div className="grid gap-3 md:grid-cols-2">
               <div className="grid gap-2 md:col-span-2">
                 <Label>{isApprovedMode ? "Student Search (optional)" : "Student Search"}</Label>
@@ -1774,7 +1784,11 @@ export default function Reports() {
                 </div>
               ) : null}
               <div className="flex items-end justify-start md:justify-end">
-                <Button onClick={handleLoadGrid} disabled={gridLoading} className="min-w-[160px]">
+                <Button
+                  onClick={handleLoadGrid}
+                  disabled={gridLoading || (isApprovedMode && !canLoadApprovedRows)}
+                  className="min-w-[160px]"
+                >
                   {gridLoading
                     ? "Loading..."
                     : isApprovedMode
@@ -1782,6 +1796,11 @@ export default function Reports() {
                       : "Load Students"}
                 </Button>
               </div>
+              {isApprovedMode && !canLoadApprovedRows ? (
+                <p className="md:col-span-2 text-xs text-muted-foreground">
+                  To publish, use the issue date panel above. Select a subject here only when you want to load approved student rows for review or download.
+                </p>
+              ) : null}
             </div>
           </FilterSection>
         </div>
