@@ -1599,6 +1599,8 @@ export default function Reports() {
   }
 
   function renderFilterPanel() {
+    const isApprovedMode = activeTab === "approved";
+
     return (
       <SurfaceCard>
         <div className="space-y-4 p-4">
@@ -1612,7 +1614,7 @@ export default function Reports() {
           </div>
         ) : null}
         <div className="grid gap-3 lg:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]">
-          <FilterSection title="Choose Scope">
+          <FilterSection title={isApprovedMode ? "Choose Scope For Viewing Rows" : "Choose Scope"}>
             <div className="grid gap-3 md:grid-cols-3">
               <div className="grid gap-2">
                 <Label>Scope</Label>
@@ -1706,7 +1708,7 @@ export default function Reports() {
               </div>
 
               <div className="grid gap-2">
-                <Label>Subject</Label>
+                <Label>{isApprovedMode ? "Subject (view only)" : "Subject"}</Label>
                 <select
                   className={SELECT_CLASSNAME}
                   value={filters.subject_id}
@@ -1738,7 +1740,7 @@ export default function Reports() {
           <FilterSection title="Refine And Load">
             <div className="grid gap-3 md:grid-cols-2">
               <div className="grid gap-2 md:col-span-2">
-                <Label>Student Search</Label>
+                <Label>{isApprovedMode ? "Student Search (optional)" : "Student Search"}</Label>
                 <Input
                   placeholder="Search name"
                   value={filters.name}
@@ -1773,7 +1775,11 @@ export default function Reports() {
               ) : null}
               <div className="flex items-end justify-start md:justify-end">
                 <Button onClick={handleLoadGrid} disabled={gridLoading} className="min-w-[160px]">
-                  {gridLoading ? "Loading..." : "Load Students"}
+                  {gridLoading
+                    ? "Loading..."
+                    : isApprovedMode
+                      ? "Load Approved Students"
+                      : "Load Students"}
                 </Button>
               </div>
             </div>
@@ -1781,7 +1787,9 @@ export default function Reports() {
         </div>
 
         <div className="text-xs text-muted-foreground">
-          Tip: keep the filters narrow before loading to reduce clutter in the marks grid.
+          {isApprovedMode
+            ? "Publishing uses only the selected exam, class, and section. Subject and student search only load approved rows for review or download below."
+            : "Tip: keep the filters narrow before loading to reduce clutter in the marks grid."}
         </div>
         </div>
       </SurfaceCard>
@@ -2621,8 +2629,8 @@ export default function Reports() {
             </TabsContent>
 
             <TabsContent value="approved" className="grid gap-4">
-              {renderFilterPanel()}
               {renderPublicationPanel()}
+              {renderFilterPanel()}
               {renderGridPanel({ mode: "approved" })}
             </TabsContent>
 

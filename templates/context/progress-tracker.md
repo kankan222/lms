@@ -14,6 +14,10 @@ Update this file after every meaningful implementation change.
 
 ## Completed
 
+- Clarified the software Reports Published tab by moving the marksheet
+  publication panel above the approved-student grid filters and labeling
+  subject/student filters as view-only helpers, so publishing no longer appears
+  tied to loading student rows.
 - Made auth refresh sessions role-aware: super admin and admin refresh tokens
   and database sessions now expire after 1 day by default, while other roles
   expire after 30 days by default; refresh now rejects expired DB sessions.
