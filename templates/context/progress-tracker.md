@@ -18,6 +18,10 @@ Update this file after every meaningful implementation change.
   publication panel above the approved-student grid filters and labeling
   subject/student filters as view-only helpers, so publishing no longer appears
   tied to loading student rows.
+- Filtered the Reports pending-review queue by the same current subject
+  eligibility rules used by the marks grid, so stale pending marks for students
+  no longer assigned to an elective/optional subject do not appear as
+  un-loadable review groups.
 - Made auth refresh sessions role-aware: super admin and admin refresh tokens
   and database sessions now expire after 1 day by default, while other roles
   expire after 30 days by default; refresh now rejects expired DB sessions.

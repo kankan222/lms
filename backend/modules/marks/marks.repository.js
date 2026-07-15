@@ -829,6 +829,67 @@ export async function getComponentMarksByStudentIds(examSubjectId, studentIds) {
 export async function getPendingApprovalScopes() {
   const hasScopesTable = await supportsScopesTable();
   const classScopeExpr = buildClassScopeExpression(hasScopesTable);
+  const hasStudentExamSubjects = await supportsStudentExamSubjectsTable();
+  const hasSubjectRegistrations = await supportsSubjectRegistrationTables();
+  const examSubjectSchema = await getExamSubjectSplitSchemaStatus();
+  const hasSubjectOfferingId = examSubjectSchema.hasSubjectOfferingId;
+  const offeredSubjectMatchSql = (offeringAlias) =>
+    hasSubjectOfferingId
+      ? `(es.subject_offering_id IS NOT NULL AND ${offeringAlias}.id = es.subject_offering_id)
+         OR (es.subject_offering_id IS NULL AND ${offeringAlias}.subject_id = es.subject_id)`
+      : `${offeringAlias}.subject_id = es.subject_id`;
+  const studentSubjectFilterSql = hasStudentExamSubjects && !hasSubjectRegistrations
+    ? `AND (
+         NOT EXISTS (
+           SELECT 1
+           FROM student_exam_subjects ses_any
+           WHERE ses_any.exam_id = e.id
+             AND ses_any.student_id = se.student_id
+         )
+         OR EXISTS (
+           SELECT 1
+           FROM student_exam_subjects ses_match
+           WHERE ses_match.exam_id = e.id
+             AND ses_match.student_id = se.student_id
+             AND ses_match.subject_id = es.subject_id
+         )
+       )`
+    : "";
+  const registeredSubjectFilterSql = hasSubjectRegistrations
+    ? `AND (
+         NOT EXISTS (
+           SELECT 1
+           FROM subject_offerings so_any
+           WHERE so_any.is_active = TRUE
+             AND so_any.class_id = se.class_id
+             AND (so_any.section_id IS NULL OR so_any.section_id = se.section_id)
+             AND (so_any.stream_id IS NULL OR so_any.stream_id <=> se.stream_id)
+             AND (${offeredSubjectMatchSql("so_any")})
+         )
+         OR EXISTS (
+           SELECT 1
+           FROM subject_offerings so_required
+           WHERE so_required.is_active = TRUE
+             AND so_required.subject_group = 'compulsory'
+             AND so_required.class_id = se.class_id
+             AND (so_required.section_id IS NULL OR so_required.section_id = se.section_id)
+             AND (so_required.stream_id IS NULL OR so_required.stream_id <=> se.stream_id)
+             AND (${offeredSubjectMatchSql("so_required")})
+         )
+         OR EXISTS (
+           SELECT 1
+           FROM student_subject_registrations ssr
+           JOIN subject_offerings so_match ON so_match.id = ssr.subject_offering_id
+           WHERE ssr.student_id = se.student_id
+             AND ssr.status = 'active'
+             AND so_match.is_active = TRUE
+             AND so_match.class_id = se.class_id
+             AND (so_match.section_id IS NULL OR so_match.section_id = se.section_id)
+             AND (so_match.stream_id IS NULL OR so_match.stream_id <=> se.stream_id)
+             AND (${offeredSubjectMatchSql("so_match")})
+         )
+       )`
+    : "";
 
   return query(
     `SELECT
@@ -856,8 +917,13 @@ export async function getPendingApprovalScopes() {
      JOIN classes c ON c.id = se.class_id
      ${hasScopesTable ? "LEFT JOIN scopes sc_ref ON sc_ref.id = c.scope_id" : ""}
      JOIN sections sec ON sec.id = se.section_id
+     JOIN exam_subjects es
+       ON es.exam_id = me.exam_id
+      AND es.subject_id = me.subject_id
      JOIN subjects sub ON sub.id = me.subject_id
      WHERE me.approval_status = 'pending'
+       ${registeredSubjectFilterSql}
+       ${studentSubjectFilterSql}
      GROUP BY
       me.exam_id,
       e.name,
