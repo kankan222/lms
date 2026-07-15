@@ -72,7 +72,7 @@ const getFeeName = (row?: { fee_name?: string | null; installment_name?: string 
 const norm = (value?: string | null, fallback = "-") => String(value || "").trim().toLowerCase() || fallback;
 const title = (value: string) => value ? value.charAt(0).toUpperCase() + value.slice(1) : "";
 const displayMarkValue = (value?: string | number | null, status?: string | null) => norm(status, "") === "absent" ? "AB" : value ?? "-";
-const tabLabel = (value: TabKey) => value === "subjects" ? "Subject Selection" : value === "fees" ? "Fees & Payments" : title(value);
+const tabLabel = (value: TabKey) => value === "subjects" ? "Subject Selection" : value === "fees" ? "Fees & Payments" : value === "reports" ? "Marksheet" : title(value);
 const formatTransportMonth = (month?: number | string | null, year?: number | string | null) => `${TRANSPORT_MONTHS.find(([value]) => Number(value) === Number(month))?.[1] || month || "-"}${year ? ` ${year}` : ""}`;
 const resolvePhoto = (photoUrl?: string | null) => !photoUrl ? null : /^https?:\/\//i.test(photoUrl) ? photoUrl : `https://kalongkapilividyapith.com${String(photoUrl).startsWith("/") ? photoUrl : `/${photoUrl}`}`;
 const toDialablePhone = (value?: string | null) => {
@@ -158,7 +158,12 @@ function SectionCard({ title: heading, hint, children }: { title: string; hint?:
 function SummaryCard({ label, value, tone = "default" }: { label: string; value: string | number; tone?: "default" | "blue" | "green" | "violet" }) {
   const { theme } = useAppTheme();
   const palette = summaryPalette(tone, theme.isDark);
-  return <View style={[styles.summaryCard, { borderColor: palette.borderColor, backgroundColor: palette.backgroundColor }]}><Text style={[styles.summaryValue, { color: palette.color }]}>{value}</Text><Text style={[styles.summaryLabel, { color: theme.subText }]}>{label}</Text></View>;
+  return (
+    <View style={[styles.summaryCard, { borderColor: palette.borderColor, backgroundColor: palette.backgroundColor }]}>
+      <Text style={[styles.summaryLabel, { color: theme.subText }]}>{label}</Text>
+      <Text style={[styles.summaryValue, { color: palette.color }]} numberOfLines={2}>{value}</Text>
+    </View>
+  );
 }
 
 function MetricBar({ label, value, total, color, trackColor, caption }: { label: string; value: number; total: number; color: string; trackColor: string; caption: string }) {
@@ -181,6 +186,80 @@ function InfoRow({ label, value, onPress }: { label: string; value: string; onPr
     );
   }
   return <View style={[styles.infoRow, { borderColor: theme.border, backgroundColor: theme.cardMuted }]}><Text style={[styles.infoLabel, { color: theme.subText }]}>{label}</Text><Text style={[styles.infoValue, { color: theme.text }]}>{value}</Text></View>;
+}
+
+function MarksheetPreview({ report, student }: { report: StudentReport; student: StudentDetails }) {
+  const { theme } = useAppTheme();
+  const subjects = report.subjects || [];
+
+  return (
+    <View style={[styles.marksheetPreview, { borderColor: theme.border, backgroundColor: theme.card }]}>
+      <View style={[styles.marksheetHeader, { borderBottomColor: theme.border, backgroundColor: theme.cardMuted }]}>
+        <Text style={[styles.marksheetEyebrow, { color: theme.subText }]}>Marksheet Preview</Text>
+        <Text style={[styles.marksheetTitle, { color: theme.text }]}>{report.exam?.name || "Exam Marksheet"}</Text>
+        <Text style={[styles.marksheetSubTitle, { color: theme.subText }]}>
+          {report.exam?.class_name || "-"} / {report.exam?.section_name || "-"}
+          {report.exam?.medium ? ` (${report.exam.medium})` : ""}
+        </Text>
+      </View>
+
+      <View style={[styles.marksheetInfoGrid, { borderBottomColor: theme.border }]}>
+        <View style={styles.marksheetInfoItem}>
+          <Text style={[styles.marksheetInfoLabel, { color: theme.subText }]}>Student</Text>
+          <Text style={[styles.marksheetInfoValue, { color: theme.text }]}>{report.student?.name || student.name || "-"}</Text>
+        </View>
+        <View style={styles.marksheetInfoItem}>
+          <Text style={[styles.marksheetInfoLabel, { color: theme.subText }]}>Roll No</Text>
+          <Text style={[styles.marksheetInfoValue, { color: theme.text }]}>{report.student?.roll_number || student.roll_number || "-"}</Text>
+        </View>
+        <View style={styles.marksheetInfoItem}>
+          <Text style={[styles.marksheetInfoLabel, { color: theme.subText }]}>Admission No</Text>
+          <Text style={[styles.marksheetInfoValue, { color: theme.text }]}>{student.admission_no || "-"}</Text>
+        </View>
+        <View style={styles.marksheetInfoItem}>
+          <Text style={[styles.marksheetInfoLabel, { color: theme.subText }]}>Session</Text>
+          <Text style={[styles.marksheetInfoValue, { color: theme.text }]}>{student.session || "-"}</Text>
+        </View>
+      </View>
+
+      <View style={styles.marksheetTable}>
+        <View style={[styles.marksheetTableRow, styles.marksheetTableHead, { borderBottomColor: theme.border }]}>
+          <Text style={[styles.marksheetSubjectHead, { color: theme.subText }]}>Subject</Text>
+          <Text style={[styles.marksheetMarksHead, { color: theme.subText }]}>Marks</Text>
+          <Text style={[styles.marksheetMarksHead, { color: theme.subText }]}>Max</Text>
+        </View>
+        {subjects.map((subject, index) => (
+          <View key={`${subject.subject}-${index}`} style={[styles.marksheetTableRow, { borderBottomColor: theme.border }]}>
+            <Text style={[styles.marksheetSubjectCell, { color: theme.text }]}>{subject.subject}</Text>
+            <Text style={[styles.marksheetMarksCell, { color: norm(subject.mark_status, "") === "absent" ? theme.danger : theme.text }]}>
+              {displayMarkValue(subject.marks, subject.mark_status)}
+            </Text>
+            <Text style={[styles.marksheetMarksCell, { color: theme.text }]}>{subject.max_marks ?? "-"}</Text>
+          </View>
+        ))}
+        <View style={[styles.marksheetTableRow, styles.marksheetTotalRow]}>
+          <Text style={[styles.marksheetSubjectCell, styles.marksheetTotalText, { color: theme.text }]}>Grand Total</Text>
+          <Text style={[styles.marksheetMarksCell, styles.marksheetTotalText, { color: theme.text }]}>{report.summary?.total ?? 0}</Text>
+          <Text style={[styles.marksheetMarksCell, styles.marksheetTotalText, { color: theme.text }]}>{report.summary?.max_total ?? 0}</Text>
+        </View>
+      </View>
+
+      <View style={[styles.marksheetSummaryRow, { borderTopColor: theme.border }]}>
+        <View style={styles.marksheetSummaryItem}>
+          <Text style={[styles.marksheetInfoLabel, { color: theme.subText }]}>Percentage</Text>
+          <Text style={[styles.marksheetSummaryValue, { color: theme.text }]}>{report.summary?.percentage ?? 0}%</Text>
+        </View>
+        <View style={styles.marksheetSummaryItem}>
+          <Text style={[styles.marksheetInfoLabel, { color: theme.subText }]}>Subjects</Text>
+          <Text style={[styles.marksheetSummaryValue, { color: theme.text }]}>{subjects.length}</Text>
+        </View>
+      </View>
+
+      <Text style={[styles.marksheetFootnote, { color: theme.subText, borderTopColor: theme.border }]}>
+        Preview only. Download the marksheet for the printable PDF.
+      </Text>
+    </View>
+  );
 }
 
 export default function StudentDetailsModule({ studentId, exams }: Props) {
@@ -710,7 +789,7 @@ export default function StudentDetailsModule({ studentId, exams }: Props) {
             <Text style={[styles.title, { color: theme.text }]}>{student.name}</Text>
             <Text style={[styles.subtitle, { color: theme.subText }]}>{student.class || "-"} / {student.section || "-"} • {fmtScope(student.class_scope)}</Text>
             <Text style={[styles.heroMeta, { color: theme.subText }]}>Admission {student.admission_no || "-"} • Roll {student.roll_number || "-"}</Text>
-            <View style={styles.badgeRow}>
+            <View style={styles.identityBadgeWrap}>
               <StatusChip value={String(student.gender || "-")} />
               <StatusChip value={fmtScope(student.class_scope)} />
               {student.class_scope === "hs" && student.stream_name ? <StatusChip value={student.stream_name} /> : null}
@@ -723,9 +802,9 @@ export default function StudentDetailsModule({ studentId, exams }: Props) {
         </View>
       </View>
 
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tabsRow}>
+      <View style={styles.tabsGrid}>
         {tabs.map((tab) => <FilterChip key={tab} label={tabLabel(tab)} active={activeTab === tab} onPress={() => setActiveTab(tab)} />)}
-      </ScrollView>
+      </View>
 
       {activeTab === "overview" ? (
         <SectionCard title="Student Overview" hint={`#${student.id}`}>
@@ -1172,11 +1251,11 @@ export default function StudentDetailsModule({ studentId, exams }: Props) {
 
       {activeTab === "reports" ? (
         <>
-          <SectionCard title="Exam Report" hint={selectedExamId ? "Exam selected" : "Select an exam"}>
+          <SectionCard title="Marksheet" hint={selectedExamId ? "Exam selected" : "Select an exam"}>
             <Text style={styles.inputLabel}>Exam</Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterWrap}>
+            <View style={styles.examPickerGrid}>
               {reportExams.map((exam) => <FilterChip key={exam.id} label={exam.name} active={selectedExamId === exam.id} onPress={() => setSelectedExamId(exam.id)} />)}
-            </ScrollView>
+            </View>
             <View style={styles.actionRow}>
               <Pressable style={[styles.primaryBtn, { backgroundColor: theme.primary }, (!selectedExamId || !report) && styles.btnDisabled]} disabled={!selectedExamId || !report} onPress={handleDownloadMarksheet}><Text style={[styles.primaryBtnText, { color: theme.primaryText }]}>Download Marksheet</Text></Pressable>
             </View>
@@ -1185,33 +1264,7 @@ export default function StudentDetailsModule({ studentId, exams }: Props) {
             {!selectedExamId ? <Text style={styles.emptyText}>Select an exam to view results.</Text> : null}
           </SectionCard>
           {report ? (
-            <>
-              <SectionCard title={report.exam?.name || "Exam Report"} hint={`${report.exam?.class_name || "-"} / ${report.exam?.section_name || "-"}`}>
-                <View style={styles.summaryGrid}>
-                  <SummaryCard label="Total" value={report.summary?.total ?? 0} tone="blue" />
-                  <SummaryCard label="Max Total" value={report.summary?.max_total ?? 0} />
-                  <SummaryCard label="Percentage" value={`${report.summary?.percentage ?? 0}%`} tone="green" />
-                  <SummaryCard label="Subjects" value={report.subjects?.length || 0} tone="violet" />
-                </View>
-                <MetricBar label="Result Percentage" value={Number(report.summary?.percentage ?? 0)} total={100} color="#15803d" trackColor="#dcfce7" caption={`${Number(report.summary?.percentage ?? 0).toFixed(1)}%`} />
-              </SectionCard>
-              <SectionCard title="Subject Breakdown" hint={`${report.subjects?.length || 0} subjects`}>
-                {(report.subjects || []).map((subject, index) => (
-                  <View key={`${subject.subject}-${index}`} style={[styles.subjectCard, { borderColor: theme.border, backgroundColor: theme.cardMuted }]}>
-                    <View style={styles.listCopy}>
-                      <Text style={[styles.listTitle, { color: theme.text }]}>{subject.subject}</Text>
-                      <Text style={[styles.listMeta, { color: theme.subText }]}>Max marks {subject.max_marks}</Text>
-                    </View>
-                    <View style={styles.subjectMarks}>
-                      <Text style={[styles.subjectMarksValue, { color: norm(subject.mark_status, "") === "absent" ? theme.danger : theme.text }]}>
-                        {displayMarkValue(subject.marks, subject.mark_status)}
-                      </Text>
-                      <Text style={[styles.subjectMarksMeta, { color: theme.subText }]}>scored</Text>
-                    </View>
-                  </View>
-                ))}
-              </SectionCard>
-            </>
+            <MarksheetPreview report={report} student={student} />
           ) : null}
         </>
       ) : null}
@@ -1234,14 +1287,16 @@ const styles = StyleSheet.create({
   subtitle: { color: "#475569", fontWeight: "700" },
   heroMeta: { color: "#64748b", lineHeight: 18 },
   badgeRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 4 },
+  identityBadgeWrap: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 4, alignItems: "center" },
   tabsRow: { gap: 8, paddingBottom: 2 },
-  filterChip: { borderWidth: 1, borderColor: "#cbd5e1", borderRadius: 999, paddingHorizontal: 12, paddingVertical: 8, backgroundColor: "#f8fafc" },
+  tabsGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  filterChip: { minWidth: "23%", flexGrow: 1, borderWidth: 1, borderColor: "#cbd5e1", borderRadius: 12, paddingHorizontal: 10, paddingVertical: 8, backgroundColor: "#f8fafc", alignItems: "center", justifyContent: "center" },
   filterChipActive: { borderColor: "#0f172a", backgroundColor: "#0f172a" },
   filterChipText: { color: "#475569", fontWeight: "700", fontSize: 12 },
   filterChipTextActive: { color: "#ffffff" },
   summaryGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
-  summaryCard: { width: "48%", minHeight: 76, borderWidth: 1, borderRadius: 16, paddingHorizontal: 12, paddingVertical: 10, justifyContent: "space-between" },
-  summaryValue: { fontSize: 20, fontWeight: "800" },
+  summaryCard: { flexBasis: "48%", flexGrow: 1, minHeight: 62, borderWidth: 1, borderRadius: 16, paddingHorizontal: 10, paddingVertical: 9, justifyContent: "flex-start", gap: 4 },
+  summaryValue: { fontSize: 15, lineHeight: 19, fontWeight: "800" },
   summaryLabel: { color: "#64748b", fontSize: 12, fontWeight: "700" },
   metricBarCard: { gap: 6, borderWidth: 1, borderColor: "#e2e8f0", borderRadius: 14, backgroundColor: "#f8fafc", paddingHorizontal: 12, paddingVertical: 10 },
   metricBarLabel: { color: "#334155", fontWeight: "700", fontSize: 12 },
@@ -1271,6 +1326,7 @@ const styles = StyleSheet.create({
   input: { borderWidth: 1, borderColor: "#cbd5e1", borderRadius: 14, backgroundColor: "#ffffff", paddingHorizontal: 12, paddingVertical: 11, color: "#0f172a" },
   inputHalf: { flex: 1 },
   filterWrap: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  examPickerGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   subjectSelectionList: { gap: 8 },
   checkRow: { flexDirection: "row", alignItems: "flex-start", gap: 10, borderWidth: 1, borderRadius: 14, paddingHorizontal: 12, paddingVertical: 11 },
   checkboxBox: { width: 18, height: 18, borderRadius: 5, borderWidth: 1, marginTop: 1 },
@@ -1293,6 +1349,28 @@ const styles = StyleSheet.create({
   subjectMarks: { alignItems: "flex-end" },
   subjectMarksValue: { color: "#0f172a", fontWeight: "800", fontSize: 18 },
   subjectMarksMeta: { color: "#64748b", fontSize: 12, fontWeight: "600" },
+  marksheetPreview: { borderWidth: 1, borderRadius: 18, overflow: "hidden" },
+  marksheetHeader: { borderBottomWidth: 1, paddingHorizontal: 14, paddingVertical: 12, alignItems: "center" },
+  marksheetEyebrow: { fontSize: 10, fontWeight: "800", textTransform: "uppercase", letterSpacing: 1.2 },
+  marksheetTitle: { marginTop: 3, fontSize: 17, lineHeight: 22, fontWeight: "800", textAlign: "center" },
+  marksheetSubTitle: { marginTop: 2, fontSize: 12, fontWeight: "700", textAlign: "center" },
+  marksheetInfoGrid: { flexDirection: "row", flexWrap: "wrap", borderBottomWidth: 1, paddingHorizontal: 12, paddingVertical: 10, gap: 8 },
+  marksheetInfoItem: { flexBasis: "48%", flexGrow: 1, gap: 2 },
+  marksheetInfoLabel: { fontSize: 10, fontWeight: "800", textTransform: "uppercase" },
+  marksheetInfoValue: { fontSize: 12, lineHeight: 16, fontWeight: "700" },
+  marksheetTable: { paddingHorizontal: 12, paddingVertical: 8 },
+  marksheetTableRow: { flexDirection: "row", alignItems: "center", borderBottomWidth: 1, paddingVertical: 8, gap: 8 },
+  marksheetTableHead: { paddingTop: 2 },
+  marksheetSubjectHead: { flex: 1.4, fontSize: 10, fontWeight: "800", textTransform: "uppercase" },
+  marksheetMarksHead: { width: 58, textAlign: "right", fontSize: 10, fontWeight: "800", textTransform: "uppercase" },
+  marksheetSubjectCell: { flex: 1.4, fontSize: 12, lineHeight: 17, fontWeight: "700" },
+  marksheetMarksCell: { width: 58, textAlign: "right", fontSize: 13, fontWeight: "800" },
+  marksheetTotalRow: { borderBottomWidth: 0 },
+  marksheetTotalText: { fontSize: 13 },
+  marksheetSummaryRow: { flexDirection: "row", borderTopWidth: 1, paddingHorizontal: 12, paddingVertical: 10, gap: 10 },
+  marksheetSummaryItem: { flex: 1, gap: 2 },
+  marksheetSummaryValue: { fontSize: 15, fontWeight: "800" },
+  marksheetFootnote: { borderTopWidth: 1, paddingHorizontal: 12, paddingVertical: 10, fontSize: 11, lineHeight: 15 },
   emptyText: { color: "#64748b" },
   successText: { color: "#15803d", fontWeight: "600" },
   errorText: { color: "#b91c1c" },

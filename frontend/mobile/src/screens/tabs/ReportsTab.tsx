@@ -1720,7 +1720,7 @@ export default function ReportsTab() {
           <View style={styles.heroCard}>
             <View style={styles.heroCopy}>
               <Text style={styles.heroEyebrow}>Overview</Text>
-              <Text style={styles.title}>Reports</Text>
+              <Text style={styles.title}>Marksheet</Text>
               <Text style={styles.subtitle}>
                 {selfViewOnly
                   ? "View approved marks and download marksheets."

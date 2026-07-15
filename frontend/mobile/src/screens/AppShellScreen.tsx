@@ -72,7 +72,7 @@ const TABS: TabItem[] = [
   { key: "transportationFee", label: "Transportation Fee", icon: "bus-outline" },
   { key: "messaging", label: "Messaging", icon: "chatbubble-ellipses-outline" },
   { key: "exams", label: "Exams", icon: "document-text-outline" },
-  { key: "reports", label: "Reports", icon: "bar-chart-outline" },
+  { key: "reports", label: "Marksheet", icon: "bar-chart-outline" },
   { key: "users", label: "Profile", icon: "person-circle-outline" },
 ];
 
@@ -186,7 +186,7 @@ function buildPrimaryTabs(roles: string[], permissions: string[]): NavTab[] {
     return [
       { key: "attendance", label: "Student Att.", icon: "calendar-outline" },
       { key: "teacherAttendance", label: "Teacher Att.", icon: "finger-print-outline" },
-      { key: "reports", label: "Reports", icon: "bar-chart-outline" },
+      { key: "reports", label: "Marksheet", icon: "bar-chart-outline" },
       { key: "more", label: "More", icon: "apps-outline" },
     ];
   }
@@ -203,7 +203,7 @@ function buildPrimaryTabs(roles: string[], permissions: string[]): NavTab[] {
   if (isStaff) {
     return [
       { key: "messaging", label: "Messaging", icon: "chatbubble-ellipses-outline" },
-      { key: "reports", label: "Reports", icon: "bar-chart-outline" },
+      { key: "reports", label: "Marksheet", icon: "bar-chart-outline" },
       { key: "users", label: "Profile", icon: "person-circle-outline" },
       { key: "more", label: "More", icon: "apps-outline" },
     ];
@@ -231,7 +231,7 @@ function buildPrimaryTabs(roles: string[], permissions: string[]): NavTab[] {
   return [
     { key: "users", label: "Profile", icon: "person-circle-outline" },
     { key: "messaging", label: "Messaging", icon: "chatbubble-ellipses-outline" },
-    { key: "reports", label: "Reports", icon: "bar-chart-outline" },
+    { key: "reports", label: "Marksheet", icon: "bar-chart-outline" },
     { key: "more", label: "More", icon: "apps-outline" },
   ];
 }

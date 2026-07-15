@@ -1152,11 +1152,13 @@ export async function getStudentReport(examIdValue, studentIdValue, userId) {
     }
   }
 
-  if (userCtx.isParent && !userCtx.parentStudentIds.includes(studentId)) {
+  const isParentOwnedStudent = userCtx.isParent && userCtx.parentStudentIds.includes(studentId);
+
+  if (userCtx.isParent && !isParentOwnedStudent) {
     throw new AppError("Not authorized to view this student's marksheet", 403);
   }
 
-  if (userCtx.isStudent && userCtx.studentId !== studentId) {
+  if (!isParentOwnedStudent && userCtx.isStudent && userCtx.studentId !== studentId) {
     throw new AppError("Students can only view their own marksheet", 403);
   }
 
@@ -1253,13 +1255,6 @@ export async function saveReportPublication(payload, userId) {
 function resolveOwnedStudentId(query, userCtx) {
   const requestedStudentId = query.student_id ? Number(query.student_id) : null;
 
-  if (userCtx.isStudent) {
-    if (requestedStudentId && requestedStudentId !== userCtx.studentId) {
-      throw new AppError("Students can only view their own results", 403);
-    }
-    return userCtx.studentId;
-  }
-
   if (userCtx.isParent) {
     if (requestedStudentId) {
       if (!userCtx.parentStudentIds.includes(requestedStudentId)) {
@@ -1273,6 +1268,13 @@ function resolveOwnedStudentId(query, userCtx) {
     }
 
     throw new AppError("student_id is required for parents linked to multiple students", 400);
+  }
+
+  if (userCtx.isStudent) {
+    if (requestedStudentId && requestedStudentId !== userCtx.studentId) {
+      throw new AppError("Students can only view their own results", 403);
+    }
+    return userCtx.studentId;
   }
 
   throw new AppError("Only parents or students can use this endpoint", 403);
@@ -1427,8 +1429,8 @@ export async function downloadAdmitCards(query, userId) {
 export async function getMyStudents(userId) {
   const userCtx = await getUserContext(userId);
 
-  if (userCtx.isStudent && userCtx.studentId) {
-    const rows = await repo.getStudentsByIds([userCtx.studentId]);
+  if (userCtx.isParent) {
+    const rows = await repo.getStudentsByIds(userCtx.parentStudentIds);
     return rows.map((row) => ({
       id: Number(row.id),
       name: row.name,
@@ -1438,8 +1440,8 @@ export async function getMyStudents(userId) {
     }));
   }
 
-  if (userCtx.isParent) {
-    const rows = await repo.getStudentsByIds(userCtx.parentStudentIds);
+  if (userCtx.isStudent && userCtx.studentId) {
+    const rows = await repo.getStudentsByIds([userCtx.studentId]);
     return rows.map((row) => ({
       id: Number(row.id),
       name: row.name,

@@ -22,6 +22,19 @@ Update this file after every meaningful implementation change.
   eligibility rules used by the marks grid, so stale pending marks for students
   no longer assigned to an elective/optional subject do not appear as
   un-loadable review groups.
+- Refined mobile Student Details layout by wrapping identity badges, compacting
+  stacked summary cards, replacing horizontal tab scrolling with a wrapping tab
+  grid, and applying the same wrapping chip-grid pattern to exam selection and
+  Exams setup session/class/section choices.
+- Renamed the mobile Reports-facing labels to Marksheet in the app shell, More
+  screen, Reports screen title, and Student Details report tab while keeping
+  internal route keys unchanged.
+- Replaced the Student Details selected-exam marks display on software and
+  mobile with a marksheet-style preview card before download, preserving the
+  existing report loading and PDF download behavior.
+- Fixed parent marksheet access when a parent's phone number also matches a
+  student profile by prioritizing parent-linked student ownership before
+  student-only result restrictions.
 - Made auth refresh sessions role-aware: super admin and admin refresh tokens
   and database sessions now expire after 1 day by default, while other roles
   expire after 30 days by default; refresh now rejects expired DB sessions.

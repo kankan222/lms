@@ -631,7 +631,7 @@ export default function ExamsTab() {
               />
 
               <Text style={[styles.inputLabel, styles.spaceTop, { color: theme.subText }]}>Session</Text>
-              <ScrollView horizontal contentContainerStyle={styles.row}>
+              <View style={styles.chipGrid}>
                 {sessions.map((s) => (
                   <Pressable
                     key={s.id}
@@ -647,7 +647,7 @@ export default function ExamsTab() {
                     </Text>
                   </Pressable>
                 ))}
-              </ScrollView>
+              </View>
 
               <View style={[styles.sectionHeader, styles.spaceTop]}>
                 <Text style={[styles.inputLabel, { color: theme.subText }]}>Class-Section Scopes *</Text>
@@ -661,7 +661,7 @@ export default function ExamsTab() {
                 const sections = selectedClass?.sections || [];
                 return (
                   <View key={`${idx}-${scope.class_id}-${scope.section_id}`} style={[styles.scopeRow, { borderColor: theme.border, backgroundColor: theme.cardMuted }]}>
-                    <ScrollView horizontal contentContainerStyle={styles.row}>
+                    <View style={styles.chipGrid}>
                       {classes.map((c) => (
                         <Pressable
                           key={`c-${idx}-${c.id}`}
@@ -677,9 +677,9 @@ export default function ExamsTab() {
                           </Text>
                         </Pressable>
                       ))}
-                    </ScrollView>
+                    </View>
 
-                    <ScrollView horizontal contentContainerStyle={[styles.row, styles.spaceTop]}>
+                    <View style={[styles.chipGrid, styles.spaceTop]}>
                       {sections.map((s) => (
                         <Pressable
                           key={`s-${idx}-${s.id}`}
@@ -695,7 +695,7 @@ export default function ExamsTab() {
                           </Text>
                         </Pressable>
                       ))}
-                    </ScrollView>
+                    </View>
 
                     <Pressable
                       style={[styles.scopeRemoveBtn, styles.spaceTop, { borderColor: theme.border, backgroundColor: theme.card }]}
@@ -1077,7 +1077,7 @@ const styles = StyleSheet.create({
     gap: 3,
   },
   countBadge: {
-    borderRadius: 999,
+    borderRadius: 12,
     paddingHorizontal: 10,
     paddingVertical: 6,
     backgroundColor: "#e2e8f0",
@@ -1189,13 +1189,23 @@ const styles = StyleSheet.create({
     gap: 8,
     alignItems: "center",
   },
+  chipGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    alignItems: "center",
+  },
   chip: {
+    minWidth: "23%",
+    flexGrow: 1,
     borderWidth: 1,
     borderColor: "#cbd5e1",
     borderRadius: 999,
     paddingHorizontal: 12,
     paddingVertical: 8,
     backgroundColor: "#fff",
+    alignItems: "center",
+    justifyContent: "center",
   },
   chipActive: {
     borderColor: "#0f172a",

@@ -49,7 +49,7 @@ const MODULES: Record<ModuleKey, ModuleItem> = {
   transportationFee: { key: "transportationFee", label: "Transportation Fee", icon: "bus-outline" },
   messaging: { key: "messaging", label: "Chat", icon: "chatbubble-ellipses-outline" },
   exams: { key: "exams", label: "Exam Setup", icon: "document-text-outline" },
-  reports: { key: "reports", label: "Exam Report", icon: "bar-chart-outline" },
+  reports: { key: "reports", label: "Marksheet", icon: "bar-chart-outline" },
   users: { key: "users", label: "Profile", icon: "person-circle-outline" },
 };
 
@@ -60,7 +60,7 @@ const SECTION_DEFINITIONS: Array<{ title: string; keys: ModuleKey[] }> = [
   { title: "Fee", keys: ["fees", "payments", "transportationFee"] },
   { title: "Staff", keys: ["teachers", "teacherAttendance"] },
   { title: "Utilities", keys: ["messaging"] },
-  { title: "Reports", keys: ["reports"] },
+  { title: "Marksheet", keys: ["reports"] },
   { title: "Settings", keys: ["users"] },
 ];
 

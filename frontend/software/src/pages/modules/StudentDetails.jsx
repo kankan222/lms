@@ -184,6 +184,96 @@ function formatTransportMonth(month, year) {
   return `${found?.[1] || month} ${year || ""}`.trim();
 }
 
+function displayMarksheetMark(value, status) {
+  return String(status || "").trim().toLowerCase() === "absent" ? "AB" : value ?? "-";
+}
+
+function MarksheetPreview({ report, student }) {
+  const subjects = report?.subjects || [];
+  const total = report?.summary?.total ?? 0;
+  const maxTotal = report?.summary?.max_total ?? 0;
+  const percentage = report?.summary?.percentage ?? 0;
+
+  return (
+    <div className="overflow-hidden rounded-xl border bg-background shadow-sm">
+      <div className="border-b bg-muted/30 px-4 py-3 text-center">
+        <p className="text-xs font-semibold uppercase tracking-[0.22em] text-muted-foreground">Marksheet Preview</p>
+        <h3 className="mt-1 text-lg font-semibold text-foreground">{report?.exam?.name || "Exam Marksheet"}</h3>
+        <p className="text-sm text-muted-foreground">
+          {report?.exam?.class_name || "-"} / {report?.exam?.section_name || "-"}
+          {report?.exam?.medium ? ` (${report.exam.medium})` : ""}
+        </p>
+      </div>
+
+      <div className="grid gap-2 border-b p-4 text-sm sm:grid-cols-2 lg:grid-cols-4">
+        <div>
+          <p className="text-xs font-medium uppercase text-muted-foreground">Student</p>
+          <p className="font-semibold">{report?.student?.name || student?.name || "-"}</p>
+        </div>
+        <div>
+          <p className="text-xs font-medium uppercase text-muted-foreground">Roll No</p>
+          <p className="font-semibold">{report?.student?.roll_number || student?.roll_number || "-"}</p>
+        </div>
+        <div>
+          <p className="text-xs font-medium uppercase text-muted-foreground">Admission No</p>
+          <p className="font-semibold">{student?.admission_no || "-"}</p>
+        </div>
+        <div>
+          <p className="text-xs font-medium uppercase text-muted-foreground">Session</p>
+          <p className="font-semibold">{student?.session || "-"}</p>
+        </div>
+      </div>
+
+      <div className="overflow-x-auto p-4">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Subject</TableHead>
+              <TableHead className="text-right">Marks Obtained</TableHead>
+              <TableHead className="text-right">Max Marks</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {subjects.map((row, idx) => (
+              <TableRow key={`${row.subject}-${idx}`}>
+                <TableCell className="font-medium">{row.subject}</TableCell>
+                <TableCell className="text-right font-semibold">
+                  {displayMarksheetMark(row.marks, row.mark_status)}
+                </TableCell>
+                <TableCell className="text-right">{row.max_marks ?? "-"}</TableCell>
+              </TableRow>
+            ))}
+            <TableRow>
+              <TableCell className="font-semibold">Grand Total</TableCell>
+              <TableCell className="text-right font-semibold">{total}</TableCell>
+              <TableCell className="text-right font-semibold">{maxTotal}</TableCell>
+            </TableRow>
+          </TableBody>
+        </Table>
+      </div>
+
+      <div className="grid gap-3 border-t bg-muted/20 p-4 text-sm sm:grid-cols-3">
+        <div>
+          <p className="text-xs font-medium uppercase text-muted-foreground">Percentage</p>
+          <p className="text-base font-semibold">{percentage}%</p>
+        </div>
+        <div>
+          <p className="text-xs font-medium uppercase text-muted-foreground">Subjects</p>
+          <p className="text-base font-semibold">{subjects.length}</p>
+        </div>
+        <div>
+          <p className="text-xs font-medium uppercase text-muted-foreground">Status</p>
+          <p className="text-base font-semibold">Approved</p>
+        </div>
+      </div>
+
+      <p className="border-t px-4 py-3 text-xs text-muted-foreground">
+        Preview only. Use Download Marksheet for the printable official PDF.
+      </p>
+    </div>
+  );
+}
+
 const StudentDetails = () => {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -1728,45 +1818,7 @@ const StudentDetails = () => {
             )}
 
             {report && (
-              <div className="space-y-3">
-                <div className="grid gap-3 md:grid-cols-4">
-                  <div className="rounded-md border p-3">
-                    <p className="text-muted-foreground text-sm">Exam</p>
-                    <p className="font-medium">{report.exam?.name}</p>
-                  </div>
-                  <div className="rounded-md border p-3">
-                    <p className="text-muted-foreground text-sm">Class</p>
-                    <p className="font-medium">{report.exam?.class_name}</p>
-                  </div>
-                  <div className="rounded-md border p-3">
-                    <p className="text-muted-foreground text-sm">Section</p>
-                    <p className="font-medium">{report.exam?.section_name}</p>
-                  </div>
-                  <div className="rounded-md border p-3">
-                    <p className="text-muted-foreground text-sm">Percentage</p>
-                    <p className="font-medium">{report.summary?.percentage ?? 0}%</p>
-                  </div>
-                </div>
-
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Subject</TableHead>
-                      <TableHead>Marks</TableHead>
-                      <TableHead>Max Marks</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {(report.subjects || []).map((row, idx) => (
-                      <TableRow key={`${row.subject}-${idx}`}>
-                        <TableCell>{row.subject}</TableCell>
-                        <TableCell>{row.marks}</TableCell>
-                        <TableCell>{row.max_marks}</TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
+              <MarksheetPreview report={report} student={student} />
             )}
           </div>
         </TabsContent>
