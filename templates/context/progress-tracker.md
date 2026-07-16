@@ -42,6 +42,8 @@ Update this file after every meaningful implementation change.
 - Replaced the software Reports Templates tab with a Draft tab that filters the
   shared marks grid to saved draft entries and keeps the existing save/submit
   draft workflow available.
+- Aligned the Reports overview pending count with the Auto Review pending queue
+  by counting only currently actionable pending review scopes.
 - Made auth refresh sessions role-aware: super admin and admin refresh tokens
   and database sessions now expire after 1 day by default, while other roles
   expire after 30 days by default; refresh now rejects expired DB sessions.

@@ -790,9 +790,12 @@ export async function getPendingApprovalQueue() {
 }
 
 export async function getApprovalStatusSummary() {
-  const summary = await repo.getApprovalStatusSummary();
+  const [summary, pendingScopes] = await Promise.all([
+    repo.getApprovalStatusSummary(),
+    repo.getPendingApprovalScopes(),
+  ]);
   return {
-    pending: Number(summary.pending_count || 0),
+    pending: pendingScopes.reduce((sum, row) => sum + Number(row.pending_count || 0), 0),
     draft: Number(summary.draft_count || 0),
     approved: Number(summary.approved_count || 0),
   };

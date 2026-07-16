@@ -304,3 +304,62 @@ SELECT id, username, email, phone, status
   WHERE t.id = 100;
 
   Verification: node --check passed for both changed files.
+
+
+
+
+  SEE DRAFT MARKS
+
+   SELECT
+    me.id AS mark_entry_id,
+    me.exam_id,
+    e.name AS exam_name,
+    se.class_id,
+    c.name AS class_name,
+    se.section_id,
+    sec.name AS section_name,
+    sec.medium,
+    me.subject_id,
+    sub.name AS subject_name,
+    me.student_id,
+    s.name AS student_name,
+    se.roll_number,
+    me.marks,
+    me.theory_marks,
+    me.practical_marks,
+    me.mark_status,
+    me.approval_status
+  FROM marks_entries me
+  JOIN exams e ON e.id = me.exam_id
+  JOIN students s ON s.id = me.student_id
+  LEFT JOIN student_enrollments se
+    ON se.student_id = me.student_id
+   AND se.session_id = e.session_id
+   AND se.status = 'active'
+  LEFT JOIN classes c ON c.id = se.class_id
+  LEFT JOIN sections sec ON sec.id = se.section_id
+  LEFT JOIN subjects sub ON sub.id = me.subject_id
+  WHERE me.approval_status = 'draft'
+  ORDER BY me.id DESC;
+
+
+ SELECT COUNT(*) AS draft_count
+  FROM marks_entries
+  WHERE approval_status = 'draft';
+
+  DELETE FROM marks_entries
+  WHERE approval_status = 'draft';
+
+  
+  If using MySQL, safest flow:
+
+  START TRANSACTION;
+
+  DELETE FROM marks_entries
+  WHERE approval_status = 'draft';
+
+  SELECT ROW_COUNT() AS deleted_rows;
+
+  COMMIT;
+
+  Use ROLLBACK; instead of COMMIT; if the deleted row count looks wrong.
