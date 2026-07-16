@@ -136,7 +136,6 @@ export default function VerifyOtp({ className, ...props }) {
                       setOtp(event.target.value.replace(/\D/g, "").slice(0, 6));
                       if (error) setError("");
                     }}
-                    placeholder="123456"
                     required
                   />
                   <FieldDescription>

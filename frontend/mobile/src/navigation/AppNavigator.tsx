@@ -3,13 +3,15 @@ import LoginScreen from "../screens/LoginScreen";
 import AppShellScreen from "../screens/AppShellScreen";
 import MoreScreen from "../screens/MoreScreen";
 import TeacherDetailsScreen from "../screens/TeacherDetailsScreen";
+import MessagingComposeScreen, { type MessagingComposeResult } from "../screens/MessagingComposeScreen";
 import { useAuthStore } from "../store/authStore";
 
 export type RootStackParamList = {
   Login: undefined;
-  AppShell: { tab?: string } | undefined;
+  AppShell: { tab?: string; composeTarget?: MessagingComposeResult } | undefined;
   More: undefined;
   TeacherDetails: { teacherId: number; teacherName?: string };
+  MessagingCompose: undefined;
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -24,6 +26,7 @@ export default function AppNavigator() {
           <Stack.Screen name="AppShell" component={AppShellScreen} />
           <Stack.Screen name="More" component={MoreScreen} />
           <Stack.Screen name="TeacherDetails" component={TeacherDetailsScreen} />
+          <Stack.Screen name="MessagingCompose" component={MessagingComposeScreen} />
         </>
       ) : (
         <Stack.Screen name="Login" component={LoginScreen} />

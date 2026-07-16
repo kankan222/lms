@@ -8,7 +8,6 @@ import {
   Keyboard,
   KeyboardAvoidingView,
   Linking,
-  Modal,
   Platform,
   Pressable,
   ScrollView,
@@ -18,6 +17,8 @@ import {
   View,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { useNavigation } from "@react-navigation/native";
+import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import * as DocumentPicker from "expo-document-picker";
 import * as ImagePicker from "expo-image-picker";
 import {
@@ -32,6 +33,8 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import TopNotice from "../../components/feedback/TopNotice";
 import SelectField from "../../components/form/SelectField";
+import type { RootStackParamList } from "../../navigation/AppNavigator";
+import type { MessagingComposeResult } from "../MessagingComposeScreen";
 import { useAuthStore } from "../../store/authStore";
 import { useAppTheme } from "../../theme/AppThemeProvider";
 import { ENV } from "../../constants/env";
@@ -61,6 +64,8 @@ type Props = {
   onConversationViewChange?: (isConversationOpen: boolean) => void;
   parentConversationIntent?: ParentConversationIntent | null;
   onParentConversationIntentHandled?: (token: number) => void;
+  composeTargetIntent?: MessagingComposeResult | null;
+  onComposeTargetHandled?: (token: number) => void;
   isVisible?: boolean;
 };
 
@@ -81,6 +86,7 @@ type Compose = {
   class_id: string;
   section_id: string;
   teacher_type: "all" | "school" | "college";
+  name: string;
 };
 type ConversationTargetPayload = Omit<Parameters<typeof sendMessage>[0], "message">;
 
@@ -91,11 +97,13 @@ const EMPTY_COMPOSE: Compose = {
   class_id: "",
   section_id: "",
   teacher_type: "all",
+  name: "",
 };
 const CONVERSATIONS_PAGE_SIZE = 30;
 const MESSAGE_PAGE_SIZE = 40;
 const MESSAGE_SYNC_INTERVAL_MS = 6000;
 const RECIPIENTS_INITIAL_LIMIT = 80;
+const GROUP_TARGET_TYPES = ["class", "section", "broadcast", "all_classes", "all_sections", "all_parents", "all_teachers"] as const;
 
 const DEFAULT_THEME = {
   bg: "#f8fafc",
@@ -143,6 +151,21 @@ function presenceText(conversation?: ConversationItem | null) {
   return `Last seen ${formatDateLabel(conversation.last_seen_at)} ${formatTimeLabel(conversation.last_seen_at)}`;
 }
 
+function isGroupTargetType(value: Compose["target_type"]) {
+  return (GROUP_TARGET_TYPES as readonly string[]).includes(value);
+}
+
+function audienceIcon(value: Compose["target_type"]): keyof typeof Ionicons.glyphMap {
+  if (value === "parent") return "person-outline";
+  if (value === "teacher") return "school-outline";
+  if (value === "class") return "people-outline";
+  if (value === "section") return "grid-outline";
+  if (value === "all_parents") return "people-circle-outline";
+  if (value === "all_teachers") return "briefcase-outline";
+  if (value === "broadcast" || value === "all_classes" || value === "all_sections") return "megaphone-outline";
+  return "chatbubble-ellipses-outline";
+}
+
 function Avatar({ label, online, imageUrl }: { label?: string | null; online?: boolean; imageUrl?: string | null }) {
   const { theme, isDark } = useAppTheme();
   const resolvedImage = resolveMediaUrl(imageUrl);
@@ -176,6 +199,20 @@ function MessageAttachmentView({ attachment }: { attachment: MessageAttachment }
   const playerStatus = useAudioPlayerStatus(player);
   const [speed, setSpeed] = useState(1);
 
+  async function toggleVoicePlayback() {
+    if (playerStatus.playing) {
+      player.pause();
+      return;
+    }
+
+    const duration = Math.max(playerStatus.duration || 0, 0);
+    const current = Math.max(playerStatus.currentTime || 0, 0);
+    if (duration > 0 && current >= duration - 0.25) {
+      await player.seekTo(0);
+    }
+    player.play();
+  }
+
   useEffect(() => {
     let active = true;
     getAttachmentAccess(attachment.id)
@@ -205,7 +242,7 @@ function MessageAttachmentView({ attachment }: { attachment: MessageAttachment }
     const current = Math.max(playerStatus.currentTime || 0, 0);
     return (
       <View style={[styles.voiceCard, { borderColor: theme.border, backgroundColor: theme.inputBg }]}>
-        <Pressable onPress={() => (playerStatus.playing ? player.pause() : player.play())}>
+        <Pressable onPress={() => void toggleVoicePlayback()}>
           <Ionicons name={playerStatus.playing ? "pause" : "play"} size={20} color={theme.icon} />
         </Pressable>
         <Pressable onPress={() => void player.seekTo(Math.max(0, current - 10))}>
@@ -248,10 +285,25 @@ function VoicePreview({ uri }: { uri: string }) {
   const { theme } = useAppTheme();
   const player = useAudioPlayer(uri);
   const status = useAudioPlayerStatus(player);
+
+  async function togglePreviewPlayback() {
+    if (status.playing) {
+      player.pause();
+      return;
+    }
+
+    const duration = Math.max(status.duration || 0, 0);
+    const current = Math.max(status.currentTime || 0, 0);
+    if (duration > 0 && current >= duration - 0.25) {
+      await player.seekTo(0);
+    }
+    player.play();
+  }
+
   return (
     <Pressable
       style={[styles.voicePreview, { borderColor: theme.border, backgroundColor: theme.inputBg }]}
-      onPress={() => (status.playing ? player.pause() : player.play())}
+      onPress={() => void togglePreviewPlayback()}
     >
       <Ionicons name={status.playing ? "pause" : "play"} size={18} color={theme.icon} />
       <Text style={[styles.fileName, { color: theme.text }]}>Preview voice note</Text>
@@ -263,8 +315,11 @@ export default function MessagingTab({
   onConversationViewChange,
   parentConversationIntent,
   onParentConversationIntentHandled,
+  composeTargetIntent,
+  onComposeTargetHandled,
   isVisible = true,
 }: Props) {
+  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const { theme, isDark } = useAppTheme();
   styles = useMemo(() => createStyles(theme), [theme]);
   const insets = useSafeAreaInsets();
@@ -294,6 +349,7 @@ export default function MessagingTab({
   const [composeTeacherTypeFilter, setComposeTeacherTypeFilter] = useState<"all" | "school" | "college">("all");
   const [showAllRecipients, setShowAllRecipients] = useState(false);
   const [composeOpen, setComposeOpen] = useState(false);
+  const [composeStep, setComposeStep] = useState<"audience" | "target">("audience");
   const [loadingConversations, setLoadingConversations] = useState(true);
   const [loadingMoreConversations, setLoadingMoreConversations] = useState(false);
   const [conversationsPage, setConversationsPage] = useState(1);
@@ -499,6 +555,59 @@ export default function MessagingTab({
       })),
     [sectionsByFilterClass],
   );
+  const selectedClass = useMemo(
+    () => targets.classes.find((item) => String(item.id) === compose.class_id) ?? null,
+    [targets.classes, compose.class_id],
+  );
+  const selectedSection = useMemo(
+    () => targets.sections.find((item) => String(item.id) === compose.section_id) ?? null,
+    [targets.sections, compose.section_id],
+  );
+  const defaultConversationName = useMemo(() => {
+    if (compose.target_type === "class") return selectedClass ? `Class ${selectedClass.name}` : "";
+    if (compose.target_type === "section") {
+      return selectedSection ? `Section ${selectedSection.class_name} ${selectedSection.name}` : "";
+    }
+    if (compose.target_type === "broadcast") return "All Users";
+    if (compose.target_type === "all_classes") return "All Classes";
+    if (compose.target_type === "all_sections") return "All Sections";
+    if (compose.target_type === "all_parents") return "All Parents";
+    if (compose.target_type === "all_teachers") {
+      return compose.teacher_type === "college"
+        ? "All College Teachers"
+        : compose.teacher_type === "school"
+          ? "All School Teachers"
+          : "All Teachers";
+    }
+    return "";
+  }, [compose.target_type, compose.teacher_type, selectedClass, selectedSection]);
+  const effectiveConversationName = compose.name.trim() || defaultConversationName;
+  const targetRecipientCount = useMemo(() => {
+    if (["direct", "parent", "teacher"].includes(compose.target_type)) return selectedRecipient ? 1 : 0;
+    if (compose.target_type === "class" && compose.class_id) {
+      return new Set(targets.parents.filter((item) => String(item.class_id) === compose.class_id).map((item) => item.user_id).filter(Boolean)).size;
+    }
+    if (compose.target_type === "section" && compose.section_id) {
+      return new Set(targets.parents.filter((item) => String(item.section_id) === compose.section_id).map((item) => item.user_id).filter(Boolean)).size;
+    }
+    if (compose.target_type === "all_parents" || compose.target_type === "all_classes" || compose.target_type === "all_sections") {
+      return new Set(targets.parents.map((item) => item.user_id).filter(Boolean)).size;
+    }
+    if (compose.target_type === "all_teachers") {
+      return new Set(targets.teachers.filter((item) => compose.teacher_type === "all" || item.type === compose.teacher_type).map((item) => item.user_id).filter(Boolean)).size;
+    }
+    if (compose.target_type === "broadcast") {
+      return new Set([...targets.parents.map((item) => item.user_id), ...targets.teachers.map((item) => item.user_id)].filter(Boolean)).size;
+    }
+    return 0;
+  }, [compose.target_type, compose.class_id, compose.section_id, compose.teacher_type, selectedRecipient, targets.parents, targets.teachers]);
+  const canContinueCompose = useMemo(() => {
+    if (["direct", "parent", "teacher"].includes(compose.target_type)) return Boolean(compose.recipient_user_id);
+    if (compose.target_type === "class") return Boolean(compose.class_id);
+    if (compose.target_type === "section") return Boolean(compose.section_id);
+    if (isGroupTargetType(compose.target_type)) return Boolean(effectiveConversationName);
+    return true;
+  }, [compose, effectiveConversationName]);
   const filteredConversations = useMemo(() => {
     const query = search.trim().toLowerCase();
     if (!query) return conversations;
@@ -539,9 +648,9 @@ export default function MessagingTab({
   }, [activeConversationId, screen]);
 
   useEffect(() => {
-    onConversationViewChange?.(isVisible && (screen === "chat" || composeOpen));
+    onConversationViewChange?.(isVisible && screen === "chat");
     return () => onConversationViewChange?.(false);
-  }, [onConversationViewChange, screen, composeOpen, isVisible]);
+  }, [onConversationViewChange, screen, isVisible]);
 
   useEffect(() => {
     if (screen !== "chat") return undefined;
@@ -592,25 +701,43 @@ export default function MessagingTab({
     const targetType = intent.targetType === "teacher" ? "teacher" : "parent";
 
     lastHandledIntentTokenRef.current = intent.token;
-    setScreen("list");
-    setActiveConversationId(null);
-    setComposeOpen(true);
-    setCompose({
+    const payload: ConversationTargetPayload = {
       target_type: targetType,
-      recipient_user_id: String(intent.recipientUserId),
-      class_id: intent.classId ? String(intent.classId) : "",
-      section_id: intent.sectionId ? String(intent.sectionId) : "",
-      teacher_type: "all",
-    });
-    setComposeSearch(intent.recipientName || "");
-    setComposeRoleFilter(targetType);
-    setComposeClassFilter(intent.classId ? String(intent.classId) : "");
-    setComposeSectionFilter(intent.sectionId ? String(intent.sectionId) : "");
-    setComposeTeacherTypeFilter("all");
-    setShowAllRecipients(false);
-    void loadTargets();
+      recipient_user_id: Number(intent.recipientUserId),
+    };
+    setPendingConversationTarget(payload);
+    setPendingConversationLabel(intent.recipientName || "Conversation");
+    setActiveConversationId(null);
+    setMessages([]);
+    setMessagesPage(1);
+    setMessagesHasMore(false);
+    setReply("");
+    setScreen("chat");
     onParentConversationIntentHandled?.(intent.token);
   }, [parentConversationIntent, onParentConversationIntentHandled]);
+
+  useEffect(() => {
+    const intent = composeTargetIntent;
+    if (!intent?.token) return;
+    const existing = findConversationForTarget(intent.payload);
+    setPendingConversationLabel(intent.label || "Conversation");
+    setReply("");
+    setMessages([]);
+    setMessagesPage(1);
+    setMessagesHasMore(false);
+    if (existing?.id) {
+      const conversationId = Number(existing.id);
+      setPendingConversationTarget(null);
+      setActiveConversationId(conversationId);
+      setScreen("chat");
+      void loadMessagesForConversation(conversationId, true, { scrollToLatest: true, mode: "reset" });
+    } else {
+      setPendingConversationTarget(intent.payload);
+      setActiveConversationId(null);
+      setScreen("chat");
+    }
+    onComposeTargetHandled?.(intent.token);
+  }, [composeTargetIntent, onComposeTargetHandled]);
 
   useEffect(() => {
     setShowAllRecipients(false);
@@ -650,7 +777,7 @@ export default function MessagingTab({
       }
 
       const shouldAutoSelectFirst =
-        mode !== "loadMore" && screen === "list" && !pendingConversationTarget && !composeOpen;
+        mode !== "loadMore" && screen === "list" && !pendingConversationTarget;
       if (shouldAutoSelectFirst) {
         setActiveConversationId((prev) => {
           const hasPrevious = prev !== null && rows.some((item) => Number(item.id) === Number(prev));
@@ -784,6 +911,7 @@ export default function MessagingTab({
 
   function resetComposeState() {
     setComposeOpen(false);
+    setComposeStep("audience");
     setCompose(EMPTY_COMPOSE);
     setComposeSearch("");
     setComposeRoleFilter("all");
@@ -829,7 +957,7 @@ export default function MessagingTab({
         return null;
       }
       payload.class_id = Number(compose.class_id);
-      payload.name = `Class ${targets.classes.find((item) => String(item.id) === compose.class_id)?.name || compose.class_id}`;
+      payload.name = compose.name.trim() || `Class ${targets.classes.find((item) => String(item.id) === compose.class_id)?.name || compose.class_id}`;
       label = payload.name;
     }
 
@@ -840,34 +968,33 @@ export default function MessagingTab({
       }
       payload.section_id = Number(compose.section_id);
       const section = targets.sections.find((item) => String(item.id) === compose.section_id);
-      payload.name = `Section ${section?.class_name || ""} ${section?.name || compose.section_id}`.trim();
+      payload.name = compose.name.trim() || `Section ${section?.class_name || ""} ${section?.name || compose.section_id}`.trim();
       label = payload.name;
     }
 
     if (compose.target_type === "broadcast") {
-      payload.name = "All Users";
+      payload.name = compose.name.trim() || "All Users";
       label = payload.name;
     }
     if (compose.target_type === "all_classes") {
-      payload.name = "All Classes";
+      payload.name = compose.name.trim() || "All Classes";
       label = payload.name;
     }
     if (compose.target_type === "all_sections") {
-      payload.name = "All Sections";
+      payload.name = compose.name.trim() || "All Sections";
       label = payload.name;
     }
     if (compose.target_type === "all_parents") {
-      payload.name = "All Parents";
+      payload.name = compose.name.trim() || "All Parents";
       label = payload.name;
     }
     if (compose.target_type === "all_teachers") {
       payload.teacher_type = compose.teacher_type;
-      payload.name =
-        compose.teacher_type === "college"
+      payload.name = compose.name.trim() || (compose.teacher_type === "college"
           ? "All College Teachers"
           : compose.teacher_type === "school"
             ? "All School Teachers"
-            : "All Teachers";
+            : "All Teachers");
       label = payload.name;
     }
 
@@ -1086,7 +1213,7 @@ export default function MessagingTab({
         : []),
       { text: "Cancel", style: "cancel" as const },
     ];
-    Alert.alert("Message actions", "Choose an action", buttons);
+    Alert.alert("Message actions", "Choose an action", buttons, { cancelable: true });
   }
 
   async function sendReply() {
@@ -1161,6 +1288,262 @@ export default function MessagingTab({
     }
   }
 
+  function startNewConversationFlow() {
+    navigation.navigate("MessagingCompose");
+  }
+
+  function selectAudience(value: Compose["target_type"]) {
+    setCompose((prev) => ({
+      ...prev,
+      target_type: value,
+      recipient_user_id: "",
+      class_id: "",
+      section_id: "",
+      teacher_type: "all",
+      name: "",
+    }));
+    setComposeSearch("");
+    setComposeRoleFilter("all");
+    setComposeClassFilter("");
+    setComposeSectionFilter("");
+    setComposeTeacherTypeFilter("all");
+    setShowAllRecipients(false);
+    setComposeStep("target");
+  }
+
+  function renderAudienceCard(option: { label: string; value: string; description?: string }) {
+    const value = option.value as Compose["target_type"];
+    return (
+      <Pressable
+        key={option.value}
+        style={[styles.audienceCard, { borderColor: theme.border, backgroundColor: theme.card }]}
+        onPress={() => selectAudience(value)}
+      >
+        <View style={[styles.audienceIcon, { backgroundColor: isDark ? theme.cardMuted : "#fff7ed" }]}>
+          <Ionicons name={audienceIcon(value)} size={20} color={theme.success} />
+        </View>
+        <View style={styles.audienceCopy}>
+          <Text style={[styles.audienceTitle, { color: theme.text }]}>{option.label}</Text>
+          <Text style={[styles.audienceDesc, { color: theme.subText }]}>
+            {option.description || (isGroupTargetType(value) ? "Choose a group and name the conversation" : "Pick one recipient")}
+          </Text>
+        </View>
+        <Ionicons name="chevron-forward" size={18} color={theme.icon} />
+      </Pressable>
+    );
+  }
+
+  function renderGroupNameInput() {
+    if (!isGroupTargetType(compose.target_type)) return null;
+    return (
+      <View style={styles.composeSection}>
+        <Text style={[styles.inputLabel, { color: theme.text }]}>Conversation Name</Text>
+        <TextInput
+          value={compose.name}
+          onChangeText={(value) => setCompose((prev) => ({ ...prev, name: value }))}
+          placeholder={defaultConversationName || "Name this conversation"}
+          placeholderTextColor={theme.mutedText}
+          style={[styles.searchInputBox, { borderColor: theme.border, backgroundColor: theme.inputBg, color: theme.text }]}
+        />
+        <Text style={[styles.rowMeta, { color: theme.subText }]}>
+          {effectiveConversationName ? `Will appear as: ${effectiveConversationName}` : "This name helps identify the group thread later."}
+        </Text>
+      </View>
+    );
+  }
+
+  function renderTargetDetails() {
+    if (["direct", "parent", "teacher"].includes(compose.target_type)) {
+      return (
+        <View style={styles.composeSection}>
+          <TextInput
+            value={composeSearch}
+            onChangeText={setComposeSearch}
+            placeholder="Search by name, phone, class or section"
+            placeholderTextColor={theme.mutedText}
+            style={[styles.searchInputBox, { borderColor: theme.border, backgroundColor: theme.inputBg, color: theme.text }]}
+          />
+          {compose.target_type === "direct" ? (
+            <SelectField
+              label="User Type"
+              value={composeRoleFilter}
+              options={[
+                { label: "All User Types", value: "all" },
+                { label: "Parents", value: "parent" },
+                { label: "Teachers", value: "teacher" },
+              ]}
+              onChange={setComposeRoleFilter}
+            />
+          ) : null}
+          <SelectField label="Class" value={composeClassFilter} options={classOptions} onChange={(value) => { setComposeClassFilter(value); setComposeSectionFilter(""); }} allowClear clearLabel="All Classes" />
+          <SelectField label="Section" value={composeSectionFilter} options={filteredSectionOptions} onChange={setComposeSectionFilter} allowClear clearLabel="All Sections" />
+          {(compose.target_type === "teacher" || (compose.target_type === "direct" && composeRoleFilter !== "parent")) ? (
+            <SelectField
+              label="Teacher Type"
+              value={composeTeacherTypeFilter}
+              options={[
+                { label: "All Teacher Types", value: "all" },
+                { label: "School", value: "school" },
+                { label: "College", value: "college" },
+              ]}
+              onChange={(value) => setComposeTeacherTypeFilter(value as "all" | "school" | "college")}
+            />
+          ) : null}
+
+          {selectedRecipient ? (
+            <View style={[styles.selectedCard, { borderColor: "#fed7aa", backgroundColor: isDark ? theme.cardMuted : "#fff7ed" }]}>
+              <Text style={[styles.selectedLabel, { color: theme.success }]}>Selected Recipient</Text>
+              <Text style={[styles.rowTitle, { color: theme.text }]}>
+                {compose.target_type === "parent" && selectedRecipient.studentNames.length ? selectedRecipient.studentNames.join(", ") : selectedRecipient.name}
+              </Text>
+              <Text style={[styles.rowMeta, { color: theme.subText }]}>
+                {compose.target_type === "parent" && selectedRecipient.studentNames.length ? `Parent: ${selectedRecipient.name}` : selectedRecipient.roles.join(", ")}
+                {selectedRecipient.phones[0] ? ` - ${selectedRecipient.phones[0]}` : ""}
+                {selectedRecipient.classNames.length ? ` - ${selectedRecipient.classNames.join(", ")}` : ""}
+                {selectedRecipient.sectionNames.length ? ` - ${selectedRecipient.sectionNames.join(", ")}` : ""}
+              </Text>
+            </View>
+          ) : null}
+
+          {visibleRecipientOptions.map((item) => {
+            const active = compose.recipient_user_id === String(item.user_id);
+            const isParentRow = compose.target_type === "parent" && item.roles.includes("parent");
+            const rowTitle = isParentRow && item.studentNames.length ? item.studentNames.join(", ") : item.name;
+            const rowMetaPrefix = isParentRow && item.studentNames.length ? `Parent: ${item.name}` : item.roles.join(", ");
+            return (
+              <Pressable
+                key={item.user_id}
+                style={[styles.targetRow, { borderColor: active ? theme.success : theme.border, backgroundColor: active ? (isDark ? theme.cardMuted : "#fff7ed") : theme.card }]}
+                onPress={() => setCompose((prev) => ({ ...prev, recipient_user_id: String(item.user_id) }))}
+              >
+                <Text style={[styles.rowTitle, { color: active ? theme.success : theme.text }]}>{rowTitle}</Text>
+                <Text style={[styles.rowMeta, { color: theme.subText }]}>
+                  {rowMetaPrefix}
+                  {item.phones[0] ? ` - ${item.phones[0]}` : ""}
+                  {item.classNames.length ? ` - ${item.classNames.join(", ")}` : ""}
+                  {item.sectionNames.length ? ` - ${item.sectionNames.join(", ")}` : ""}
+                </Text>
+              </Pressable>
+            );
+          })}
+          {hiddenRecipientCount > 0 ? (
+            <Pressable style={[styles.secondaryBtn, { borderColor: theme.border, backgroundColor: theme.cardMuted }]} onPress={() => setShowAllRecipients(true)}>
+              <Text style={[styles.secondaryText, { color: theme.text }]}>Show {hiddenRecipientCount} More Recipients</Text>
+            </Pressable>
+          ) : null}
+          {!recipientOptions.length ? (
+            <View style={[styles.emptyInline, { borderColor: theme.border, backgroundColor: theme.inputBg }]}>
+              <Text style={[styles.rowMeta, { color: theme.subText }]}>No matching recipients found.</Text>
+            </View>
+          ) : null}
+        </View>
+      );
+    }
+
+    if (compose.target_type === "class") {
+      return (
+        <View style={styles.composeSection}>
+          <SelectField label="Class" value={compose.class_id} options={classOptions} onChange={(value) => setCompose((prev) => ({ ...prev, class_id: value, name: "" }))} />
+          {renderGroupNameInput()}
+        </View>
+      );
+    }
+
+    if (compose.target_type === "section") {
+      return (
+        <View style={styles.composeSection}>
+          <SelectField label="Class" value={compose.class_id} options={classOptions} onChange={(value) => setCompose((prev) => ({ ...prev, class_id: value, section_id: "", name: "" }))} />
+          <SelectField label="Section" value={compose.section_id} options={sectionOptions} onChange={(value) => setCompose((prev) => ({ ...prev, section_id: value, name: "" }))} />
+          {renderGroupNameInput()}
+        </View>
+      );
+    }
+
+    return (
+      <View style={styles.composeSection}>
+        {compose.target_type === "all_teachers" ? (
+          <SelectField
+            label="Teacher Type"
+            value={compose.teacher_type}
+            options={[
+              { label: "All Teachers", value: "all" },
+              { label: "School Teachers", value: "school" },
+              { label: "College Teachers", value: "college" },
+            ]}
+            onChange={(value) => setCompose((prev) => ({ ...prev, teacher_type: value as Compose["teacher_type"], name: "" }))}
+          />
+        ) : null}
+        {renderGroupNameInput()}
+      </View>
+    );
+  }
+
+  function renderComposeScreen() {
+    const audienceGroups = [
+      { title: "One Person", values: ["parent", "teacher"] },
+      { title: "Class Or Section", values: ["section", "class", "all_classes"] },
+      { title: "Whole Group", values: ["all_parents", "all_teachers", "broadcast", "all_sections"] },
+    ];
+    const optionsByValue = new Map(targetTypeOptions.map((option) => [option.value, option]));
+    return (
+      <KeyboardAvoidingView
+        style={[styles.screen, { backgroundColor: theme.bg, paddingTop: Math.max(insets.top, 10) }]}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        keyboardVerticalOffset={0}
+      >
+        <TopNotice notice={notice} style={styles.topNoticeOverlay} />
+        <View style={[styles.composeHeader, { borderBottomColor: theme.border }]}>
+          <Pressable style={[styles.iconBtn, { backgroundColor: theme.cardMuted }]} onPress={() => composeStep === "audience" ? resetComposeState() : setComposeStep("audience")}>
+            <Ionicons name="arrow-back-outline" size={20} color={theme.icon} />
+          </Pressable>
+          <View style={styles.chatHeaderCopy}>
+            <Text style={[styles.heroEyebrow, { color: theme.subText }]}>Step {composeStep === "audience" ? "1" : "2"} of 2</Text>
+            <Text style={[styles.heroTitle, { color: theme.text }]}>New Conversation</Text>
+          </View>
+        </View>
+        {composeStep === "audience" ? (
+          <ScrollView contentContainerStyle={styles.composeScreenContent} showsVerticalScrollIndicator={false}>
+            {audienceGroups.map((group) => (
+              <View key={group.title} style={styles.composeSection}>
+                <Text style={[styles.groupLabel, { color: theme.subText }]}>{group.title}</Text>
+                {group.values.map((value) => {
+                  const option = optionsByValue.get(value);
+                  return option ? renderAudienceCard(option) : null;
+                })}
+              </View>
+            ))}
+          </ScrollView>
+        ) : (
+          <>
+            <ScrollView contentContainerStyle={styles.composeScreenContent} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+              <View style={[styles.identityCard, { borderColor: "#fed7aa", backgroundColor: isDark ? theme.cardMuted : "#fff7ed" }]}>
+                <View style={[styles.audienceIcon, { backgroundColor: theme.card }]}>
+                  <Ionicons name={audienceIcon(compose.target_type)} size={20} color={theme.success} />
+                </View>
+                <View style={styles.audienceCopy}>
+                  <Text style={[styles.selectedLabel, { color: theme.success }]}>Sending To</Text>
+                  <Text style={[styles.audienceTitle, { color: theme.text }]}>{targetTypeOptions.find((item) => item.value === compose.target_type)?.label || "Audience"}</Text>
+                  <Text style={[styles.audienceDesc, { color: theme.subText }]}>
+                    {targetRecipientCount ? `${targetRecipientCount} recipient${targetRecipientCount === 1 ? "" : "s"}` : "Select the target details"}
+                  </Text>
+                </View>
+              </View>
+              {renderTargetDetails()}
+            </ScrollView>
+            <View style={[styles.composeFooter, { borderTopColor: theme.border, paddingBottom: Math.max(insets.bottom, 12) }]}>
+              <Pressable style={[styles.secondaryBtn, { borderColor: theme.border, backgroundColor: theme.card }]} onPress={() => setComposeStep("audience")}>
+                <Text style={[styles.secondaryText, { color: theme.text }]}>Change Audience</Text>
+              </Pressable>
+              <Pressable style={[styles.primaryBtn, { backgroundColor: theme.success }, !canContinueCompose && styles.btnDisabled]} onPress={() => void openNewConversationScreen()} disabled={!canContinueCompose || sending}>
+                <Text style={styles.primaryText}>{sending ? "Opening..." : "Open Chat"}</Text>
+              </Pressable>
+            </View>
+          </>
+        )}
+      </KeyboardAvoidingView>
+    );
+  }
+
   return (
     <>
       {screen === "list" ? (
@@ -1193,19 +1576,7 @@ export default function MessagingTab({
                     <View style={styles.heroPrimaryActions}>
                       <Pressable
                         style={styles.topActionBtn}
-                        onPress={() => {
-                          setPendingConversationTarget(null);
-                          setPendingConversationLabel("Conversation");
-                          setCompose(EMPTY_COMPOSE);
-                          setComposeSearch("");
-                          setComposeRoleFilter("all");
-                          setComposeClassFilter("");
-                          setComposeSectionFilter("");
-                          setComposeTeacherTypeFilter("all");
-                          setShowAllRecipients(false);
-                          void loadTargets();
-                          setComposeOpen(true);
-                        }}
+                        onPress={startNewConversationFlow}
                       >
                         <Ionicons name="create-outline" size={18} color={theme.successText} />
                         <Text style={styles.topActionText}>New Conversation</Text>
@@ -1312,9 +1683,8 @@ export default function MessagingTab({
           <TopNotice notice={notice} style={styles.topNoticeOverlay} />
           <View style={styles.chatInnerContent}>
             <View style={styles.chatHeroCard}>
-              <Text style={styles.heroEyebrow}>Conversation</Text>
-              <View style={[styles.chatHeader, { borderColor: theme.border, backgroundColor: theme.card }]}>
-                <Pressable style={[styles.iconBtn, { backgroundColor: isDark ? theme.cardMuted : theme.bg }]} onPress={closeChatView}>
+              <View style={[styles.chatHeader, { borderBottomColor: theme.border, backgroundColor: theme.bg }]}>
+                <Pressable style={[styles.iconBtn, { backgroundColor: theme.cardMuted }]} onPress={closeChatView}>
                   <Ionicons name="arrow-back-outline" size={20} color={theme.icon} />
                 </Pressable>
                 <Avatar
@@ -1323,10 +1693,10 @@ export default function MessagingTab({
                   imageUrl={activeConversation?.other_user_image_url}
                 />
                 <View style={styles.chatHeaderCopy}>
-                  <Text style={[styles.rowTitle, { color: theme.text }]}>
+                  <Text style={[styles.chatTitle, { color: theme.text }]} numberOfLines={1}>
                     {activeConversation?.name || pendingConversationLabel || "Chat"}
                   </Text>
-                  <Text style={[styles.rowMeta, { color: theme.subText }]}>
+                  <Text style={[styles.chatMeta, { color: theme.subText }]} numberOfLines={1}>
                     {typingUserIds.length
                       ? "Typing..."
                       : activeConversation
@@ -1335,7 +1705,7 @@ export default function MessagingTab({
                   </Text>
                 </View>
                 <Pressable
-                  style={[styles.iconBtn, { backgroundColor: isDark ? theme.cardMuted : theme.bg }]}
+                  style={[styles.iconBtn, { backgroundColor: theme.cardMuted }]}
                   onPress={() => setChatSearchOpen((value) => !value)}
                 >
                   <Ionicons name="search-outline" size={20} color={theme.icon} />
@@ -1358,7 +1728,7 @@ export default function MessagingTab({
               ) : null}
             </View>
 
-            <View style={[styles.chatMessagesPanel, { borderColor: theme.border, backgroundColor: theme.cardMuted }]}>
+            <View style={[styles.chatMessagesPanel, { backgroundColor: theme.bg }]}>
               <FlatList
                 ref={messagesListRef}
                 style={styles.chatMessagesScroll}
@@ -1409,10 +1779,15 @@ export default function MessagingTab({
                       <View style={[
                         styles.bubble,
                         mine
-                          ? { backgroundColor: theme.cardMuted, borderColor: theme.border, borderWidth: 1, borderTopRightRadius: 6 }
+                          ? { backgroundColor: isDark ? "#064e3b" : "#dcfce7", borderColor: isDark ? "#166534" : "#bbf7d0", borderWidth: 1, borderTopRightRadius: 6 }
                           : { backgroundColor: theme.card, borderColor: theme.border, borderWidth: 1 },
                       ]}>
-                        {!mine ? <Text style={[styles.senderName, { color: theme.subText }]}>{message.sender_name || message.username}</Text> : null}
+                        <View style={styles.bubbleTopRow}>
+                          {!mine ? <Text style={[styles.senderName, { color: theme.subText }]} numberOfLines={1}>{message.sender_name || message.username}</Text> : <View style={styles.senderNameSpacer} />}
+                          <Pressable style={styles.messageActionBtn} onPress={() => openMessageActions(message)}>
+                            <Ionicons name="ellipsis-horizontal" size={16} color={theme.icon} />
+                          </Pressable>
+                        </View>
                         {message.reply_to_message_id ? (
                           <View style={[styles.replyQuote, { borderColor: theme.primary }]}>
                             <Text style={[styles.fileMeta, { color: theme.subText }]} numberOfLines={2}>
@@ -1496,15 +1871,15 @@ export default function MessagingTab({
               </View>
             ) : null}
             <View style={[styles.replyBar, { borderColor: theme.border, backgroundColor: theme.card }]}>
-              <Pressable onPress={() => void pickImages()}>
+              <Pressable style={styles.composerIconBtn} onPress={() => void pickImages()}>
                 <Ionicons name="image-outline" size={21} color={theme.icon} />
               </Pressable>
-              <Pressable onPress={() => void pickDocuments()}>
+              <Pressable style={styles.composerIconBtn} onPress={() => void pickDocuments()}>
                 <Ionicons name="attach-outline" size={21} color={theme.icon} />
               </Pressable>
               <Pressable
                 onPress={() => void (recorderState.isRecording ? stopVoiceRecording() : startVoiceRecording())}
-                style={recorderState.isRecording ? styles.recordingButton : undefined}
+                style={recorderState.isRecording ? styles.recordingButton : styles.composerIconBtn}
               >
                 <Ionicons name={recorderState.isRecording ? "stop" : "mic-outline"} size={21} color={recorderState.isRecording ? "#fff" : theme.icon} />
               </Pressable>
@@ -1532,206 +1907,6 @@ export default function MessagingTab({
         </KeyboardAvoidingView>
       )}
 
-      <Modal visible={composeOpen} transparent animationType="slide" onRequestClose={() => setComposeOpen(false)}>
-        <View style={styles.modalOverlay}>
-          <Pressable style={styles.modalBackdrop} onPress={() => setComposeOpen(false)} />
-          <View
-            style={[
-              styles.modalCard,
-              {
-                borderColor: theme.border,
-                backgroundColor: theme.card,
-                paddingBottom: 16 + Math.max(insets.bottom, 10),
-              },
-            ]}
-          >
-            <Text style={[styles.modalTitle, { color: theme.text }]}>New Message</Text>
-            <ScrollView showsVerticalScrollIndicator={false}>
-              <View style={styles.composeSection}>
-                <SelectField
-                  label="Audience"
-                  value={compose.target_type}
-                  options={targetTypeOptions}
-                  onChange={(value) =>
-                    setCompose((prev) => ({
-                      ...prev,
-                      target_type: value as Compose["target_type"],
-                      recipient_user_id: "",
-                      class_id: "",
-                      section_id: "",
-                      teacher_type: "all",
-                    }))
-                  }
-                />
-              </View>
-
-              {["direct", "parent", "teacher"].includes(compose.target_type) ? (
-                <View style={styles.composeSection}>
-                  <TextInput
-                    value={composeSearch}
-                    onChangeText={setComposeSearch}
-                    placeholder="Search by name, phone, class or section"
-                    placeholderTextColor={theme.mutedText}
-                    style={[styles.searchInputBox, { borderColor: theme.border, backgroundColor: theme.inputBg, color: theme.text }]}
-                  />
-                  {compose.target_type === "direct" ? (
-                    <SelectField
-                      label="User Type"
-                      value={composeRoleFilter}
-                      options={[
-                        { label: "All User Types", value: "all" },
-                        { label: "Parents", value: "parent" },
-                        { label: "Teachers", value: "teacher" },
-                      ]}
-                      onChange={setComposeRoleFilter}
-                    />
-                  ) : null}
-                  <SelectField
-                    label="Class"
-                    value={composeClassFilter}
-                    options={classOptions}
-                    onChange={(value) => {
-                      setComposeClassFilter(value);
-                      setComposeSectionFilter("");
-                    }}
-                    allowClear
-                    clearLabel="All Classes"
-                  />
-                  <SelectField
-                    label="Section"
-                    value={composeSectionFilter}
-                    options={filteredSectionOptions}
-                    onChange={setComposeSectionFilter}
-                    allowClear
-                    clearLabel="All Sections"
-                  />
-                  {(compose.target_type === "teacher" || (compose.target_type === "direct" && composeRoleFilter !== "parent")) ? (
-                    <SelectField
-                      label="Teacher Type"
-                      value={composeTeacherTypeFilter}
-                      options={[
-                        { label: "All Teacher Types", value: "all" },
-                        { label: "School", value: "school" },
-                        { label: "College", value: "college" },
-                      ]}
-                      onChange={(value) => setComposeTeacherTypeFilter(value as "all" | "school" | "college")}
-                    />
-                  ) : null}
-
-                  {selectedRecipient ? (
-                    <View style={[styles.selectedCard, { borderColor: "#bfdbfe", backgroundColor: isDark ? theme.cardMuted : "#eff6ff" }]}>
-                      <Text style={[styles.selectedLabel, { color: "#1d4ed8" }]}>Selected Recipient</Text>
-                      <Text style={[styles.rowTitle, { color: theme.text }]}>
-                        {compose.target_type === "parent" && selectedRecipient.studentNames.length
-                          ? selectedRecipient.studentNames.join(", ")
-                          : selectedRecipient.name}
-                      </Text>
-                      <Text style={[styles.rowMeta, { color: theme.subText }]}>
-                        {compose.target_type === "parent" && selectedRecipient.studentNames.length
-                          ? `Parent: ${selectedRecipient.name}`
-                          : selectedRecipient.roles.join(", ")}
-                        {selectedRecipient.phones[0] ? ` - ${selectedRecipient.phones[0]}` : ""}
-                        {selectedRecipient.classNames.length ? ` - ${selectedRecipient.classNames.join(", ")}` : ""}
-                        {selectedRecipient.sectionNames.length ? ` - ${selectedRecipient.sectionNames.join(", ")}` : ""}
-                      </Text>
-                    </View>
-                  ) : null}
-
-                  {visibleRecipientOptions.map((item) => {
-                    const active = compose.recipient_user_id === String(item.user_id);
-                    const isParentRow = compose.target_type === "parent" && item.roles.includes("parent");
-                    const rowTitle =
-                      isParentRow && item.studentNames.length ? item.studentNames.join(", ") : item.name;
-                    const rowMetaPrefix =
-                      isParentRow && item.studentNames.length ? `Parent: ${item.name}` : item.roles.join(", ");
-                    return (
-                      <Pressable
-                        key={item.user_id}
-                        style={[
-                          styles.targetRow,
-                          {
-                            borderColor: active ? "#1d4ed8" : theme.border,
-                            backgroundColor: active ? (isDark ? theme.cardMuted : "#eff6ff") : theme.card,
-                          },
-                        ]}
-                        onPress={() => setCompose((prev) => ({ ...prev, recipient_user_id: String(item.user_id) }))}
-                      >
-                        <Text style={[styles.rowTitle, { color: active ? "#1d4ed8" : theme.text }]}>{rowTitle}</Text>
-                        <Text style={[styles.rowMeta, { color: theme.subText }]}>
-                          {rowMetaPrefix}
-                          {item.phones[0] ? ` - ${item.phones[0]}` : ""}
-                          {item.classNames.length ? ` - ${item.classNames.join(", ")}` : ""}
-                          {item.sectionNames.length ? ` - ${item.sectionNames.join(", ")}` : ""}
-                        </Text>
-                      </Pressable>
-                    );
-                  })}
-                  {hiddenRecipientCount > 0 ? (
-                    <Pressable
-                      style={[styles.secondaryBtn, { borderColor: theme.border, backgroundColor: theme.cardMuted }]}
-                      onPress={() => setShowAllRecipients(true)}
-                    >
-                      <Text style={[styles.secondaryText, { color: theme.text }]}>Show {hiddenRecipientCount} More Recipients</Text>
-                    </Pressable>
-                  ) : null}
-                  {!recipientOptions.length ? (
-                    <View style={[styles.emptyInline, { borderColor: theme.border, backgroundColor: theme.inputBg }]}>
-                      <Text style={[styles.rowMeta, { color: theme.subText }]}>No matching recipients found.</Text>
-                    </View>
-                  ) : null}
-                </View>
-              ) : null}
-
-              {compose.target_type === "class" ? (
-                <View style={styles.composeSection}>
-                  <SelectField label="Class" value={compose.class_id} options={classOptions} onChange={(value) => setCompose((prev) => ({ ...prev, class_id: value }))} />
-                </View>
-              ) : null}
-
-              {compose.target_type === "section" ? (
-                <View style={styles.composeSection}>
-                  <SelectField
-                    label="Class"
-                    value={compose.class_id}
-                    options={classOptions}
-                    onChange={(value) => setCompose((prev) => ({ ...prev, class_id: value, section_id: "" }))}
-                  />
-                  <SelectField
-                    label="Section"
-                    value={compose.section_id}
-                    options={sectionOptions}
-                    onChange={(value) => setCompose((prev) => ({ ...prev, section_id: value }))}
-                  />
-                </View>
-              ) : null}
-
-              {compose.target_type === "all_teachers" ? (
-                <View style={styles.composeSection}>
-                  <SelectField
-                    label="Teacher Type"
-                    value={compose.teacher_type}
-                    options={[
-                      { label: "All Teachers", value: "all" },
-                      { label: "School Teachers", value: "school" },
-                      { label: "College Teachers", value: "college" },
-                    ]}
-                    onChange={(value) => setCompose((prev) => ({ ...prev, teacher_type: value as Compose["teacher_type"] }))}
-                  />
-                </View>
-              ) : null}
-
-            </ScrollView>
-            <View style={styles.modalActions}>
-              <Pressable style={[styles.secondaryBtn, { borderColor: theme.border, backgroundColor: theme.card }]} onPress={resetComposeState}>
-                <Text style={[styles.secondaryText, { color: theme.text }]}>Cancel</Text>
-              </Pressable>
-              <Pressable style={[styles.primaryBtn, { backgroundColor: theme.success }]} onPress={() => void openNewConversationScreen()} disabled={sending}>
-                <Text style={styles.primaryText}>{sending ? "Opening..." : "Open Chat"}</Text>
-              </Pressable>
-            </View>
-          </View>
-        </View>
-      </Modal>
     </>
   );
 }
@@ -1741,7 +1916,7 @@ return StyleSheet.create({
   screen: { flex: 1 },
   root: { flex: 1 },
   chatScreen: { flex: 1, minHeight: 0 },
-  chatInnerContent: { flex: 1, gap: 12, paddingHorizontal: 14, paddingTop: 10 },
+  chatInnerContent: { flex: 1, minHeight: 0 },
   content: { paddingHorizontal: 14, paddingTop: 10, paddingBottom: 120 },
   innerContent: { gap: 12 },
   topNoticeOverlay: {
@@ -1753,7 +1928,7 @@ return StyleSheet.create({
     elevation: 20,
   },
   heroCard: { borderRadius: 24, paddingVertical: 2, gap: 10 },
-  chatHeroCard: { borderRadius: 24, paddingVertical: 2, gap: 10 },
+  chatHeroCard: { gap: 8 },
   heroCopy: { gap: 6 },
   heroPrimaryActions: { flexDirection: "row", gap: 10 },
   heroEyebrow: { color: theme.subText, fontSize: 12, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.6 },
@@ -1762,12 +1937,10 @@ return StyleSheet.create({
   chatMessagesScroll: { flex: 1, minHeight: 0 },
   chatMessagesContent: { gap: 10, paddingTop: 2 },
   chatMessagesPanel: {
-    flex: 1.6,
+    flex: 1,
     minHeight: 0,
-    borderWidth: 1,
-    borderRadius: 22,
     paddingHorizontal: 10,
-    paddingTop: 8,
+    paddingTop: 10,
     paddingBottom: 4,
     overflow: "hidden",
   },
@@ -1794,16 +1967,21 @@ return StyleSheet.create({
   presenceDot: { position: "absolute", right: 2, bottom: 2, width: 12, height: 12, borderRadius: 6, borderWidth: 2, borderColor: theme.card },
   presenceOnline: { backgroundColor: "#22c55e" },
   presenceOffline: { backgroundColor: "#ef4444" },
-  chatHeader: { flexDirection: "row", alignItems: "center", gap: 10, borderWidth: 1, borderRadius: 22, paddingHorizontal: 12, paddingVertical: 10 },
+  chatHeader: { flexDirection: "row", alignItems: "center", gap: 10, borderBottomWidth: 1, paddingHorizontal: 14, paddingVertical: 10 },
   iconBtn: { width: 36, height: 36, borderRadius: 12, alignItems: "center", justifyContent: "center" },
   chatHeaderCopy: { flex: 1, gap: 2 },
-  messageRow: { flexDirection: "row", gap: 8 },
+  chatTitle: { fontSize: 15, fontWeight: "800" },
+  chatMeta: { fontSize: 12 },
+  messageRow: { flexDirection: "row", gap: 8, paddingHorizontal: 2 },
   mine: { justifyContent: "flex-end" },
   other: { justifyContent: "flex-start" },
-  bubble: { maxWidth: "82%", borderRadius: 18, paddingHorizontal: 12, paddingVertical: 10 },
+  bubble: { maxWidth: "80%", borderRadius: 18, paddingHorizontal: 12, paddingVertical: 8 },
   bubbleMine: { borderTopRightRadius: 6 },
-  senderName: { fontSize: 11, fontWeight: "700", marginBottom: 4 },
-  messageText: {},
+  bubbleTopRow: { minHeight: 18, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 2 },
+  senderName: { flex: 1, fontSize: 11, fontWeight: "700" },
+  senderNameSpacer: { flex: 1 },
+  messageActionBtn: { width: 24, height: 20, alignItems: "center", justifyContent: "center", borderRadius: 10 },
+  messageText: { fontSize: 14, lineHeight: 20 },
   bubbleTime: { fontSize: 11 },
   messageMetaRow: { marginTop: 6, flexDirection: "row", flexWrap: "wrap", justifyContent: "flex-end", gap: 6 },
   replyQuote: { borderLeftWidth: 3, paddingLeft: 8, paddingVertical: 4, marginBottom: 6 },
@@ -1816,28 +1994,36 @@ return StyleSheet.create({
   fileCard: { marginTop: 8, borderWidth: 1, borderRadius: 14, padding: 10, flexDirection: "row", alignItems: "center", gap: 10 },
   fileName: { flex: 1, fontSize: 12, fontWeight: "700" },
   fileMeta: { fontSize: 11 },
-  replyBarWrap: { paddingTop: 0, paddingHorizontal: 14, marginTop: "auto" },
+  replyBarWrap: { paddingTop: 8, paddingHorizontal: 10, marginTop: "auto", borderTopWidth: 1, borderTopColor: theme.border },
   composerContext: { marginBottom: 6, borderWidth: 1, borderRadius: 14, padding: 9, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 },
   voicePreview: { flex: 1, borderWidth: 1, borderRadius: 12, padding: 8, flexDirection: "row", alignItems: "center", gap: 8 },
-  replyBar: { flexDirection: "row", gap: 10, alignItems: "center", borderWidth: 1, borderRadius: 22, paddingHorizontal: 10, paddingVertical: 7 },
-  replyInput: { flex: 1, borderWidth: 1, borderRadius: 16, paddingHorizontal: 14, paddingVertical: 9 },
+  replyBar: { flexDirection: "row", gap: 8, alignItems: "center", borderWidth: 1, borderRadius: 20, paddingHorizontal: 8, paddingVertical: 7 },
+  composerIconBtn: { width: 32, height: 32, borderRadius: 16, alignItems: "center", justifyContent: "center" },
+  replyInput: { flex: 1, borderWidth: 1, borderRadius: 16, paddingHorizontal: 12, paddingVertical: 8, maxHeight: 96 },
   sendBtn: { width: 44, height: 44, borderRadius: 22, backgroundColor: theme.success, alignItems: "center", justifyContent: "center" },
   recordingButton: { width: 32, height: 32, borderRadius: 16, backgroundColor: "#dc2626", alignItems: "center", justifyContent: "center" },
-  modalOverlay: { flex: 1, justifyContent: "flex-end" },
-  modalBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: theme.overlay },
-  modalCard: { maxHeight: "88%", borderTopLeftRadius: 24, borderTopRightRadius: 24, borderWidth: 1, borderBottomWidth: 0, padding: 16, gap: 12 },
-  modalTitle: { fontSize: 18, fontWeight: "800" },
+  composeHeader: { flexDirection: "row", alignItems: "center", gap: 10, borderBottomWidth: 1, paddingHorizontal: 14, paddingBottom: 12 },
+  composeScreenContent: { gap: 16, paddingHorizontal: 14, paddingTop: 14, paddingBottom: 120 },
   composeSection: { gap: 10, marginBottom: 12 },
+  groupLabel: { fontSize: 11, fontWeight: "800", textTransform: "uppercase", letterSpacing: 0.7 },
+  audienceCard: { flexDirection: "row", alignItems: "center", gap: 12, borderWidth: 1, borderRadius: 14, padding: 13 },
+  audienceIcon: { width: 40, height: 40, borderRadius: 12, alignItems: "center", justifyContent: "center" },
+  audienceCopy: { flex: 1, gap: 3 },
+  audienceTitle: { fontSize: 14, fontWeight: "800" },
+  audienceDesc: { fontSize: 12, lineHeight: 17 },
+  identityCard: { flexDirection: "row", alignItems: "center", gap: 12, borderWidth: 1, borderRadius: 16, padding: 13 },
+  composeFooter: { flexDirection: "row", gap: 10, borderTopWidth: 1, paddingHorizontal: 14, paddingTop: 12, backgroundColor: theme.bg },
+  inputLabel: { fontSize: 12, fontWeight: "800" },
   searchInputBox: { borderWidth: 1, borderRadius: 14, paddingHorizontal: 12, paddingVertical: 12, fontSize: 14 },
   selectedCard: { borderWidth: 1, borderRadius: 14, padding: 12, gap: 4 },
   selectedLabel: { fontSize: 11, fontWeight: "800", textTransform: "uppercase", letterSpacing: 0.4 },
   targetRow: { borderWidth: 1, borderRadius: 14, padding: 12, marginBottom: 8 },
   emptyInline: { borderWidth: 1, borderRadius: 14, padding: 12 },
-  modalActions: { flexDirection: "row", gap: 10 },
   secondaryBtn: { flex: 1, borderWidth: 1, borderRadius: 12, paddingVertical: 11, alignItems: "center" },
   secondaryText: { fontWeight: "700" },
   primaryBtn: { flex: 1, borderRadius: 12, paddingVertical: 11, alignItems: "center" },
   primaryText: { color: theme.successText, fontWeight: "700" },
+  btnDisabled: { opacity: 0.5 },
   emptyText: { textAlign: "center" },
 });
 }

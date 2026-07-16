@@ -105,7 +105,6 @@ export default function LoginForm({ className, ...props }) {
                   id="identifier"
                   name="identifier"
                   type="text"
-                  placeholder="m@example.com or 9876543210"
                   disabled={submitting}
                   required
                 />

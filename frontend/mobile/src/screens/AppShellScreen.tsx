@@ -34,6 +34,7 @@ import ModulePlaceholderTab from "./tabs/ModulePlaceholderTab";
 import type { ParentConversationRequest } from "./tabs/StudentsTab";
 import type { TeacherConversationRequest } from "./tabs/TeachersTab";
 import type { ParentConversationIntent } from "./tabs/MessagingTab";
+import type { MessagingComposeResult } from "./MessagingComposeScreen";
 
 type TabKey =
   | "dashboard"
@@ -278,6 +279,7 @@ export default function AppShellScreen({ navigation, route }: Props) {
   const [mountedTabs, setMountedTabs] = useState<TabKey[]>([defaultTab]);
   const [isMessagingConversationOpen, setIsMessagingConversationOpen] = useState(false);
   const [parentConversationIntent, setParentConversationIntent] = useState<ParentConversationIntent | null>(null);
+  const [messagingComposeTarget, setMessagingComposeTarget] = useState<MessagingComposeResult | null>(null);
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -292,11 +294,14 @@ export default function AppShellScreen({ navigation, route }: Props) {
     const requestedTab = route.params?.tab;
     if (!requestedTab || !visibleTabs.includes(requestedTab as TabKey)) return;
     setActiveTab(requestedTab as TabKey);
+    if (requestedTab === "messaging" && route.params?.composeTarget) {
+      setMessagingComposeTarget(route.params.composeTarget);
+    }
     if (requestedTab !== "messaging") {
       setIsMessagingConversationOpen(false);
     }
-    navigation.setParams({ tab: undefined });
-  }, [navigation, route.params?.tab, visibleTabs]);
+    navigation.setParams({ tab: undefined, composeTarget: undefined });
+  }, [navigation, route.params?.composeTarget, route.params?.tab, visibleTabs]);
 
   useEffect(() => {
     setMountedTabs((prev) => {
@@ -446,6 +451,10 @@ export default function AppShellScreen({ navigation, route }: Props) {
             parentConversationIntent={parentConversationIntent}
             onParentConversationIntentHandled={(token) => {
               setParentConversationIntent((prev) => (prev?.token === token ? null : prev));
+            }}
+            composeTargetIntent={messagingComposeTarget}
+            onComposeTargetHandled={(token) => {
+              setMessagingComposeTarget((prev) => (prev?.token === token ? null : prev));
             }}
           />
         );

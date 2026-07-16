@@ -255,8 +255,6 @@ export default function LoginScreen() {
                       if (error) setError(null);
                     }}
                     autoCapitalize="none"
-                    placeholder="m@example.com or 9876543210"
-                    placeholderTextColor={theme.mutedText}
                     style={[styles.input, { borderColor: theme.border, backgroundColor: theme.inputBg, color: theme.text }]}
                     editable={!submitting}
                   />
@@ -268,8 +266,6 @@ export default function LoginScreen() {
                       if (error) setError(null);
                     }}
                     secureTextEntry={!showPassword}
-                    placeholder="Password"
-                    placeholderTextColor={theme.mutedText}
                     style={[styles.input, { borderColor: theme.border, backgroundColor: theme.inputBg, color: theme.text }]}
                     editable={!submitting}
                   />
@@ -300,8 +296,6 @@ export default function LoginScreen() {
                     }}
                     keyboardType="number-pad"
                     textContentType="oneTimeCode"
-                    placeholder="123456"
-                    placeholderTextColor={theme.mutedText}
                     style={[styles.input, { borderColor: theme.border, backgroundColor: theme.inputBg, color: theme.text }]}
                     editable={!submitting}
                     maxLength={6}

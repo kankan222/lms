@@ -44,6 +44,26 @@ Update this file after every meaningful implementation change.
   draft workflow available.
 - Aligned the Reports overview pending count with the Auto Review pending queue
   by counting only currently actionable pending review scopes.
+- Reworked the mobile Messaging new-conversation flow from a bottom modal into
+  a guided full-screen audience and target selection experience, preserving the
+  existing chat composer features and adding custom conversation names for
+  class, section, and broadcast/group targets.
+- Promoted the mobile Messaging new-conversation selector into a real
+  React Navigation screen (`MessagingCompose`) that returns the selected target
+  to the Messaging tab instead of rendering as an in-tab overlay.
+- Refined the mobile Messaging conversation screen with a cleaner top chat bar,
+  full-height message list, clearer incoming/outgoing bubbles, visible
+  per-message action buttons, and a tighter bottom composer.
+- Made the mobile Messaging message action dialog cancelable so Android users
+  can dismiss it by tapping outside as well as using Cancel.
+- Wrapped the mobile Messaging new-conversation screens in a keyboard-avoiding
+  safe-area aware view so target search and group-name inputs remain usable
+  while typing.
+- Fixed mobile Messaging voice playback replay by rewinding voice attachments
+  and unsent voice previews to the start when playback has already reached the
+  end.
+- Removed placeholder text from mobile and software login/OTP inputs while
+  preserving labels, validation, and authentication behavior.
 - Made auth refresh sessions role-aware: super admin and admin refresh tokens
   and database sessions now expire after 1 day by default, while other roles
   expire after 30 days by default; refresh now rejects expired DB sessions.

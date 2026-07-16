@@ -207,8 +207,8 @@ $2b$10$S25h/JZT1uhFKCo1zTjmh.4aQ2fcG028Q4.KhqONrCehRoUiLVCrG
 node -e "import bcrypt from 'bcrypt'; console.log(await bcrypt.hash('Admin@KKV147', 10));"
 
  UPDATE users
-  SET password_hash = '$2b$10$Il5LIoHz0TwEYA8rR7p6u.6PHYVki7.GEWaQmLFKcFJWkoDRNRrcC'
-  WHERE email = 'admin.perm@kkv.com';
+  SET password_hash = '$2b$10$S25h/JZT1uhFKCo1zTjmh.4aQ2fcG028Q4.KhqONrCehRoUiLVCrG'
+  WHERE email = 'super.admin@kkv.com';
 
     UPDATE users
   SET email = 'admin@kkv.com'
@@ -220,7 +220,7 @@ UPDATE users
 
 SELECT id, username, email, phone, status
   FROM users
-  WHERE username = 'admin';
+  WHERE username = 'superadmin';
 
   UPDATE user_sessions
   SET revoked_at = NOW()
