@@ -791,3 +791,6 @@ Update this file after every meaningful implementation change.
 - Updated Student Details marksheet exam lists on software and mobile to use a
   student-specific approved-exam source for admin users and display exams in
   ascending entry order instead of latest-first.
+- Fixed production OTP trusted-device behavior so verifying OTP stores the
+  device in production too, and later logins from the same mobile device do not
+  resend OTP just because the app was updated or the session expired.

@@ -32,6 +32,7 @@ import AppError from "../../core/errors/AppError.js";
 const OTP_MAX_WRONG_ATTEMPTS = 5;
 const OTP_RESEND_COOLDOWN_MS = 60 * 1000;
 const OTP_MAX_RESENDS_PER_DAY = 10;
+const SUSPICIOUS_FAILED_LOGIN_THRESHOLD = 3;
 const DEFAULT_USER_REFRESH_TOKEN_EXPIRY = "30d";
 const DEFAULT_ADMIN_REFRESH_TOKEN_EXPIRY = "1d";
 
@@ -145,7 +146,7 @@ async function issueLoginSession(user, accessData, meta) {
     expiresAt: new Date(Date.now() + refreshPolicy.sessionMs)
   });
 
-  if (meta.deviceId && !isProductionEnvironment()) {
+  if (meta.deviceId) {
     await otpRepo.touchTrustedDevice({
       userId: user.id,
       deviceId: meta.deviceId,
@@ -177,7 +178,25 @@ async function resolveOtpRequirement(user, roles, meta) {
     return { required: false, reason: null };
   }
 
-  return { required: true, reason: "production_login" };
+  if (!meta.deviceId) {
+    return { required: true, reason: "new_device" };
+  }
+
+  const trustedDevice = await otpRepo.findTrustedDevice(user.id, meta.deviceId);
+  if (!trustedDevice) {
+    return { required: true, reason: "new_device" };
+  }
+
+  if (trustedDevice.device_type && meta.deviceType && trustedDevice.device_type !== meta.deviceType) {
+    return { required: true, reason: "changed_device_type" };
+  }
+
+  const failedLoginCount = await otpRepo.countRecentLoginFailures(user.id);
+  if (failedLoginCount >= SUSPICIOUS_FAILED_LOGIN_THRESHOLD) {
+    return { required: true, reason: "many_failed_logins" };
+  }
+
+  return { required: false, reason: null };
 }
 
 async function createAndSendOtpChallenge({ user, roles, phone, meta, reason }) {
@@ -348,7 +367,7 @@ export async function verifyOtp(data, meta) {
   const accessData = await loadAccessData(user.id);
 
   await otpRepo.markOtpVerified(challengeId);
-  if (meta.deviceId && !isProductionEnvironment()) {
+  if (meta.deviceId) {
     await otpRepo.trustDevice({
       userId: user.id,
       deviceId: meta.deviceId,

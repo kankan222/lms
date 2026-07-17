@@ -4,7 +4,7 @@ import type { ExpoConfig } from "expo/config";
 const config: ExpoConfig = {
   name: "Kalong Kapili Vidyapith",
   slug: "kalong-kapili-vidyapith",
-  version: "1.1.2",
+  version: "1.1.3",
   orientation: "portrait",
   icon: "./assets/splash-icon.png",
   userInterfaceStyle: "light",
@@ -22,7 +22,7 @@ const config: ExpoConfig = {
   },
   android: {
     package: "com.kalongkapilividyapith.mobile",
-    versionCode: 2,
+    versionCode: 25,
     blockedPermissions: [
       "android.permission.CAMERA",
     ],
