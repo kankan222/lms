@@ -782,3 +782,6 @@ Update this file after every meaningful implementation change.
   backend, hid them from student list/detail responses, and allowed Student
   Details parent email edits to clear both `parents.email` and linked
   `users.email`.
+- Added scoped mobile messaging broadcasts for `All Parents`, allowing admins to
+  choose All, School, or College parents, with backend recipient filtering based
+  on active student enrollment class scope.

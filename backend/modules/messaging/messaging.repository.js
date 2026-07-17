@@ -571,7 +571,37 @@ export async function getAllActiveUserRecipients() {
   );
 }
 
-export async function getAllParentRecipientUsers() {
+export async function getAllParentRecipientUsers(parentType) {
+  const hasClassScope = await hasClassClassScopeColumn();
+
+  if (hasClassScope && parentType === "college") {
+    return query(
+      `SELECT DISTINCT p.user_id
+       FROM parents p
+       JOIN student_parents sp ON sp.parent_id = p.id
+       JOIN student_enrollments e
+         ON e.student_id = sp.student_id
+         AND e.status = 'active'
+       JOIN classes c ON c.id = e.class_id
+       WHERE p.user_id IS NOT NULL
+         AND c.class_scope = 'hs'`
+    );
+  }
+
+  if (hasClassScope && parentType === "school") {
+    return query(
+      `SELECT DISTINCT p.user_id
+       FROM parents p
+       JOIN student_parents sp ON sp.parent_id = p.id
+       JOIN student_enrollments e
+         ON e.student_id = sp.student_id
+         AND e.status = 'active'
+       JOIN classes c ON c.id = e.class_id
+       WHERE p.user_id IS NOT NULL
+         AND c.class_scope = 'school'`
+    );
+  }
+
   return query(
     `SELECT DISTINCT user_id
      FROM parents

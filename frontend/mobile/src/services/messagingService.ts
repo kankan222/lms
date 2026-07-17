@@ -160,6 +160,7 @@ export type SendMessagePayload = {
   class_id?: number;
   section_id?: number;
   teacher_type?: "all" | "school" | "college";
+  parent_type?: "all" | "school" | "college";
   name?: string;
   message?: string;
   attachment_ids?: number[];

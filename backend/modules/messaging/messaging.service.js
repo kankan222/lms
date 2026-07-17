@@ -194,10 +194,15 @@ export async function sendMessage(data, actorInput) {
     } else if (targetType === "all_parents") {
       conversationId = await getOrCreateBroadcastConversation(
         senderUserId,
-        data.name || "All Parents"
+        data.name ||
+          (data.parent_type === "college"
+            ? "All College Parents"
+            : data.parent_type === "school"
+              ? "All School Parents"
+              : "All Parents")
       );
 
-      const recipients = await repo.getAllParentRecipientUsers();
+      const recipients = await repo.getAllParentRecipientUsers(data.parent_type);
       await repo.addConversationMembers(conversationId, uniqueUserIds(recipients));
     } else if (targetType === "all_teachers") {
       conversationId = await getOrCreateBroadcastConversation(

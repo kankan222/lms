@@ -25,6 +25,7 @@ type Compose = {
   class_id: string;
   section_id: string;
   teacher_type: "all" | "school" | "college";
+  parent_type: "all" | "school" | "college";
   name: string;
 };
 
@@ -46,6 +47,7 @@ const EMPTY_COMPOSE: Compose = {
   class_id: "",
   section_id: "",
   teacher_type: "all",
+  parent_type: "all",
   name: "",
 };
 const GROUP_TARGET_TYPES = ["class", "section", "broadcast", "all_classes", "all_sections", "all_parents", "all_teachers"];
@@ -208,12 +210,14 @@ export default function MessagingComposeScreen({ navigation }: Props) {
     if (compose.target_type === "broadcast") return "All Users";
     if (compose.target_type === "all_classes") return "All Classes";
     if (compose.target_type === "all_sections") return "All Sections";
-    if (compose.target_type === "all_parents") return "All Parents";
+    if (compose.target_type === "all_parents") {
+      return compose.parent_type === "college" ? "All College Parents" : compose.parent_type === "school" ? "All School Parents" : "All Parents";
+    }
     if (compose.target_type === "all_teachers") {
       return compose.teacher_type === "college" ? "All College Teachers" : compose.teacher_type === "school" ? "All School Teachers" : "All Teachers";
     }
     return "";
-  }, [compose.target_type, compose.teacher_type, selectedClass, selectedSection]);
+  }, [compose.target_type, compose.parent_type, compose.teacher_type, selectedClass, selectedSection]);
   const effectiveConversationName = compose.name.trim() || defaultConversationName;
   const recipientCount = useMemo(() => {
     if (["parent", "teacher", "direct"].includes(compose.target_type)) return selectedRecipient ? 1 : 0;
@@ -225,6 +229,9 @@ export default function MessagingComposeScreen({ navigation }: Props) {
     }
     if (compose.target_type === "all_teachers") {
       return new Set(targets.teachers.filter((item) => compose.teacher_type === "all" || item.type === compose.teacher_type).map((item) => item.user_id).filter(Boolean)).size;
+    }
+    if (compose.target_type === "all_parents") {
+      return new Set(targets.parents.filter((item) => compose.parent_type === "all" || item.class_scope === (compose.parent_type === "college" ? "hs" : "school")).map((item) => item.user_id).filter(Boolean)).size;
     }
     if (compose.target_type === "broadcast") {
       return new Set([...targets.parents.map((item) => item.user_id), ...targets.teachers.map((item) => item.user_id)].filter(Boolean)).size;
@@ -267,6 +274,7 @@ export default function MessagingComposeScreen({ navigation }: Props) {
       payload.name = effectiveConversationName;
       label = effectiveConversationName;
     } else {
+      if (compose.target_type === "all_parents") payload.parent_type = compose.parent_type;
       if (compose.target_type === "all_teachers") payload.teacher_type = compose.teacher_type;
       payload.name = effectiveConversationName;
       label = effectiveConversationName;
@@ -398,6 +406,9 @@ export default function MessagingComposeScreen({ navigation }: Props) {
                 </View>
               ) : (
                 <View style={styles.composeSection}>
+                  {compose.target_type === "all_parents" ? (
+                    <SelectField label="Parent Type" value={compose.parent_type} options={[{ label: "All Parents", value: "all" }, { label: "School Parents", value: "school" }, { label: "College Parents", value: "college" }]} onChange={(value) => setCompose((prev) => ({ ...prev, parent_type: value as Compose["parent_type"], name: "" }))} />
+                  ) : null}
                   {compose.target_type === "all_teachers" ? (
                     <SelectField label="Teacher Type" value={compose.teacher_type} options={[{ label: "All Teachers", value: "all" }, { label: "School Teachers", value: "school" }, { label: "College Teachers", value: "college" }]} onChange={(value) => setCompose((prev) => ({ ...prev, teacher_type: value as Compose["teacher_type"], name: "" }))} />
                   ) : null}
