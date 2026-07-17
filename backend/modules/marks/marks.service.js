@@ -801,8 +801,19 @@ export async function getApprovalStatusSummary() {
   };
 }
 
-export async function getAccessibleExams(userId) {
+export async function getAccessibleExams(userId, query = {}) {
   const userCtx = await getUserContext(userId);
+  const studentId = query?.student_id ?? query?.studentId;
+  if (studentId) {
+    const normalizedStudentId = normalizeNumber(studentId, "student_id");
+    if (userCtx.isParent && !userCtx.parentStudentIds.includes(normalizedStudentId)) {
+      throw new AppError("Not authorized to view this student's exams", 403);
+    }
+    if (userCtx.isStudent && Number(userCtx.studentId) !== normalizedStudentId) {
+      throw new AppError("Students can only view their own exams", 403);
+    }
+    return repo.getStudentApprovedReportExams(normalizedStudentId);
+  }
 
   if (userCtx.isTeacher) {
     return repo.getTeacherAccessibleExams(userId);

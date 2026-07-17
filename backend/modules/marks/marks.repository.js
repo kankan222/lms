@@ -526,8 +526,46 @@ export async function getOwnedStudentAccessibleExams(studentIds) {
       AND (sc.section_id IS NULL OR sc.section_id = se.section_id)
      LEFT JOIN academic_sessions ses ON ses.id = e.session_id
      WHERE se.student_id IN (${placeholders})
-     ORDER BY e.id DESC`,
+     ORDER BY e.id ASC`,
     studentIds
+  );
+}
+
+export async function getStudentApprovedReportExams(studentId) {
+  const hasPublicationsTable = await supportsReportPublicationsTable();
+  const publicationJoin = hasPublicationsTable
+    ? `LEFT JOIN exam_report_publications erp
+       ON erp.exam_id = e.id
+      AND erp.class_id = se.class_id
+      AND erp.section_id = se.section_id
+      AND erp.medium = LOWER(COALESCE(sec.medium, ''))`
+    : "";
+  const publishedOnExpr = hasPublicationsTable ? "DATE_FORMAT(erp.published_on, '%Y-%m-%d')" : "NULL";
+
+  return query(
+    `SELECT DISTINCT
+      e.id,
+      e.name,
+      e.session_id,
+      ses.name AS session_name,
+      ${publishedOnExpr} AS published_on
+     FROM marks_entries me
+     JOIN exams e ON e.id = me.exam_id
+     JOIN student_enrollments se
+       ON se.student_id = me.student_id
+      AND se.session_id = e.session_id
+      AND se.status = 'active'
+     JOIN exam_scopes sc
+       ON sc.exam_id = e.id
+      AND sc.class_id = se.class_id
+      AND (sc.section_id IS NULL OR sc.section_id = se.section_id)
+     JOIN sections sec ON sec.id = se.section_id
+     LEFT JOIN academic_sessions ses ON ses.id = e.session_id
+     ${publicationJoin}
+     WHERE me.student_id = ?
+       AND me.approval_status = 'approved'
+     ORDER BY e.id ASC`,
+    [studentId]
   );
 }
 

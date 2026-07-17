@@ -546,7 +546,7 @@ export default function StudentsTab({ onStartParentMessage }: Props) {
           contentContainerStyle={styles.detailScreenContent}
           showsVerticalScrollIndicator={false}
         >
-          <StudentDetailsModule studentId={selectedStudentId} exams={exams} />
+          <StudentDetailsModule studentId={selectedStudentId} />
         </ScrollView>
       </View>
     );

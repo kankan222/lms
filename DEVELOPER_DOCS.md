@@ -384,3 +384,4 @@ SELECT id, username, email, phone, status
   UPDATE parents
   SET email = NULL
   WHERE LOWER(TRIM(email)) LIKE '%@placeholder.local';
+  

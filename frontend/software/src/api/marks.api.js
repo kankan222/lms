@@ -72,8 +72,8 @@ export function saveReportPublication(data) {
   });
 }
 
-export function getAccessibleExams() {
-  return apiRequest("/marks/exams");
+export function getAccessibleExams(params = {}) {
+  return apiRequest(`/marks/exams${buildQuery(params)}`);
 }
 
 export function getAccessibleExamById(examId) {

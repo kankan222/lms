@@ -2,6 +2,14 @@ import AppError from "../../core/errors/AppError.js";
 
 const FAST2SMS_OTP_URL = "https://www.fast2sms.com/dev/otp/send";
 
+function isProductionEnvironment() {
+  return String(process.env.NODE_ENV || "").trim().toLowerCase() === "production";
+}
+
+function allowNonProductionSms() {
+  return String(process.env.SMS_ALLOW_NON_PRODUCTION || "").trim().toLowerCase() === "true";
+}
+
 function requireConfig(name) {
   const value = process.env[name];
   if (!value) {
@@ -51,6 +59,14 @@ export function resolveOtpTemplateId(roles = []) {
 }
 
 export async function sendOtpSms({ phone, otp, templateId }) {
+  if (!isProductionEnvironment() && !allowNonProductionSms()) {
+    return {
+      return: true,
+      skipped: true,
+      reason: "sms_disabled_outside_production",
+    };
+  }
+
   if (String(process.env.SMS_PROVIDER || "fast2sms").toLowerCase() !== "fast2sms") {
     throw new AppError("SMS_PROVIDER must be fast2sms", 500);
   }

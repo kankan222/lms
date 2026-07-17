@@ -65,7 +65,7 @@ export async function saveReportPublication(req, res, next) {
 
 export async function getAccessibleExams(req, res, next) {
   try {
-    const result = await service.getAccessibleExams(req.user.userId);
+    const result = await service.getAccessibleExams(req.user.userId, req.query || {});
     res.json({ success: true, data: result });
   } catch (err) {
     next(err);

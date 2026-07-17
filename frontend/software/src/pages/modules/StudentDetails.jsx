@@ -17,9 +17,6 @@ import {
   getTransportPayments
 } from "../../api/fee.api";
 import {
-  getExams,
-} from "../../api/exam.api";
-import {
   getStudentSubjectRegistrations,
   replaceStudentSubjectRegistrations,
 } from "../../api/subjects.api";
@@ -367,12 +364,7 @@ const StudentDetails = () => {
     try {
       const res = await (isSelfResultViewer
         ? getAccessibleExams()
-        : getExams({
-            session_id: studentPayload?.session_id,
-            class_id: studentPayload?.class_id,
-            section_id: studentPayload?.section_id,
-            class_scope: studentPayload?.class_scope,
-          }));
+        : getAccessibleExams({ student_id: studentPayload?.id }));
       const examList = res?.data || [];
       setExams(examList);
       setSelectedExamId((current) =>

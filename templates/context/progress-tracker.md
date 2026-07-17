@@ -785,3 +785,9 @@ Update this file after every meaningful implementation change.
 - Added scoped mobile messaging broadcasts for `All Parents`, allowing admins to
   choose All, School, or College parents, with backend recipient filtering based
   on active student enrollment class scope.
+- Changed OTP auth so non-production logins do not require OTP, and guarded the
+  Fast2SMS sender so SMS is skipped outside `NODE_ENV=production` unless
+  `SMS_ALLOW_NON_PRODUCTION=true` is explicitly set.
+- Updated Student Details marksheet exam lists on software and mobile to use a
+  student-specific approved-exam source for admin users and display exams in
+  ascending entry order instead of latest-first.

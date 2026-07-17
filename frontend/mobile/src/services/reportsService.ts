@@ -182,8 +182,8 @@ export async function getMarksGrid(filters: MarksGridFilters) {
   return response.data.data;
 }
 
-export async function getAccessibleExams() {
-  const response = await api.get<ApiEnvelope<AccessibleExamItem[]>>("/marks/exams");
+export async function getAccessibleExams(params: { student_id?: number | string } = {}) {
+  const response = await api.get<ApiEnvelope<AccessibleExamItem[]>>(`/marks/exams${buildQuery(params)}`);
   return response.data.data ?? [];
 }
 

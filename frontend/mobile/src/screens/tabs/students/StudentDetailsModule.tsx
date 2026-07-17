@@ -35,7 +35,7 @@ import TopNotice from "../../../components/feedback/TopNotice";
 
 type TabKey = "overview" | "parents" | "subjects" | "attendance" | "fees" | "transportation" | "reports";
 type ExamOption = { id: number; name: string };
-type Props = { studentId: number | null; exams: ExamOption[] };
+type Props = { studentId: number | null };
 type Notice = { title: string; message: string; tone: "success" | "error" } | null;
 type ParentRole = "father" | "mother";
 type ParentField = "name" | "mobile" | "email" | "occupation" | "qualification";
@@ -263,7 +263,7 @@ function MarksheetPreview({ report, student }: { report: StudentReport; student:
   );
 }
 
-export default function StudentDetailsModule({ studentId, exams }: Props) {
+export default function StudentDetailsModule({ studentId }: Props) {
   const { theme } = useAppTheme();
   const user = useAuthStore((state) => state.user);
   const isParent = Boolean(user?.roles?.includes("parent"));
@@ -280,7 +280,7 @@ export default function StudentDetailsModule({ studentId, exams }: Props) {
   const [feeItems, setFeeItems] = useState<StudentFeeOption[]>([]);
   const [payments, setPayments] = useState<PaymentItem[]>([]);
   const [financeError, setFinanceError] = useState<string | null>(null);
-  const [reportExams, setReportExams] = useState<ExamOption[]>(exams || []);
+  const [reportExams, setReportExams] = useState<ExamOption[]>([]);
   const [selectedExamId, setSelectedExamId] = useState<number | null>(null);
   const [reportLoading, setReportLoading] = useState(false);
   const [reportError, setReportError] = useState<string | null>(null);
@@ -328,7 +328,8 @@ export default function StudentDetailsModule({ studentId, exams }: Props) {
       setLoading(true);
       setError(null);
       try {
-        const [detail, examRows] = await Promise.all([getStudentById(studentId), isParent ? getAccessibleExams() : Promise.resolve(exams)]);
+        const detail = await getStudentById(studentId);
+        const examRows = await getAccessibleExams(isParent ? {} : { student_id: detail.id });
         if (ignore) return;
         setStudent(detail);
         setReportExams((examRows || []).map((item) => ({ id: Number(item.id), name: item.name })));
@@ -346,7 +347,7 @@ export default function StudentDetailsModule({ studentId, exams }: Props) {
       }
     })();
     return () => { ignore = true; };
-  }, [studentId, isParent, exams]);
+  }, [studentId, isParent]);
 
   useEffect(() => {
     if (!studentId) return;
