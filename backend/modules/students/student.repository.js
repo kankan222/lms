@@ -162,7 +162,7 @@ export async function updateParentProfile(conn, parentId, parent) {
        qualification = COALESCE(NULLIF(TRIM(?), ''), qualification),
        occupation = COALESCE(NULLIF(TRIM(?), ''), occupation),
        mobile = COALESCE(NULLIF(TRIM(?), ''), mobile),
-       email = COALESCE(NULLIF(TRIM(?), ''), email)
+       email = NULLIF(TRIM(?), '')
      WHERE id = ?`,
     [
       parent?.name ?? null,
@@ -343,12 +343,12 @@ export async function getStudents(filters = {}) {
          sp.student_id,
          ${fatherNameExpr} AS father_name,
          MAX(CASE WHEN LOWER(sp.relationship) = 'father' THEN u.phone END) AS father_mobile,
-         MAX(CASE WHEN LOWER(sp.relationship) = 'father' THEN u.email END) AS father_email,
+         MAX(CASE WHEN LOWER(sp.relationship) = 'father' THEN CASE WHEN LOWER(TRIM(u.email)) LIKE '%@placeholder.local' THEN NULL ELSE u.email END END) AS father_email,
          MAX(CASE WHEN LOWER(sp.relationship) = 'father' THEN p.occupation END) AS father_occupation,
          MAX(CASE WHEN LOWER(sp.relationship) = 'father' THEN p.qualification END) AS father_qualification,
          ${motherNameExpr} AS mother_name,
          MAX(CASE WHEN LOWER(sp.relationship) = 'mother' THEN u.phone END) AS mother_mobile,
-         MAX(CASE WHEN LOWER(sp.relationship) = 'mother' THEN u.email END) AS mother_email,
+         MAX(CASE WHEN LOWER(sp.relationship) = 'mother' THEN CASE WHEN LOWER(TRIM(u.email)) LIKE '%@placeholder.local' THEN NULL ELSE u.email END END) AS mother_email,
          MAX(CASE WHEN LOWER(sp.relationship) = 'mother' THEN p.occupation END) AS mother_occupation,
          MAX(CASE WHEN LOWER(sp.relationship) = 'mother' THEN p.qualification END) AS mother_qualification
        FROM student_parents sp

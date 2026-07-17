@@ -778,3 +778,7 @@ Update this file after every meaningful implementation change.
   only draft rows can be edited, selected, saved, or submitted, and the backend
   now rejects no-op submit/approve/reject actions instead of returning a
   misleading success.
+- Treated legacy `@placeholder.local` parent emails as empty in the students
+  backend, hid them from student list/detail responses, and allowed Student
+  Details parent email edits to clear both `parents.email` and linked
+  `users.email`.

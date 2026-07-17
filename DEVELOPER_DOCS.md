@@ -363,3 +363,24 @@ SELECT id, username, email, phone, status
   COMMIT;
 
   Use ROLLBACK; instead of COMMIT; if the deleted row count looks wrong.
+
+
+
+
+  SELECT id, phone, email
+  FROM users
+  WHERE LOWER(TRIM(email)) LIKE '%@placeholder.local';
+
+  SELECT id, user_id, mobile, email
+  FROM parents
+  WHERE LOWER(TRIM(email)) LIKE '%@placeholder.local';
+
+  Then remove them:
+
+  UPDATE users
+  SET email = NULL
+  WHERE LOWER(TRIM(email)) LIKE '%@placeholder.local';
+
+  UPDATE parents
+  SET email = NULL
+  WHERE LOWER(TRIM(email)) LIKE '%@placeholder.local';

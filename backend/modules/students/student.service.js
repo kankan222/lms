@@ -5,11 +5,18 @@ import AppError from "../../core/errors/AppError.js";
 
 const EMAIL_REGEX = /^\S+@\S+\.\S+$/;
 const DEFAULT_PARENT_PASSWORD = "123456";
+const PLACEHOLDER_EMAIL_DOMAIN = "@placeholder.local";
+
+function normalizeParentEmail(value) {
+  const email = String(value || "").trim();
+  if (!email) return "";
+  return email.toLowerCase().endsWith(PLACEHOLDER_EMAIL_DOMAIN) ? "" : email;
+}
 
 function hasParentDetails(parent = {}) {
   return Boolean(
     String(parent?.name || "").trim() ||
-      String(parent?.email || "").trim() ||
+      normalizeParentEmail(parent?.email) ||
       String(parent?.occupation || "").trim() ||
       String(parent?.qualification || "").trim()
   );
@@ -19,7 +26,7 @@ function normalizeParentInput(parent = {}) {
   return {
     name: String(parent?.name || "").trim(),
     mobile: String(parent?.mobile || "").trim(),
-    email: String(parent?.email || "").trim(),
+    email: normalizeParentEmail(parent?.email),
     occupation: String(parent?.occupation || "").trim(),
     qualification: String(parent?.qualification || "").trim(),
   };
@@ -123,7 +130,19 @@ function normalizeRelationship(value) {
   return String(value || "").trim().toLowerCase();
 }
 
+function sanitizeStudentParentEmails(student) {
+  if (!Array.isArray(student?.parents)) return student;
+  return {
+    ...student,
+    parents: student.parents.map((parent) => ({
+      ...parent,
+      email: normalizeParentEmail(parent?.email),
+    })),
+  };
+}
+
 function expandGuardianParentRows(student) {
+  student = sanitizeStudentParentEmails(student);
   const parents = Array.isArray(student?.parents) ? student.parents : [];
   if (!parents.length) return student;
 
@@ -428,7 +447,7 @@ async function resolveParent(conn, parent, options = {}) {
     return null; // no parent provided
   }
 
-  const normalizedEmail = String(parent.email || "").trim() || null;
+  const normalizedEmail = normalizeParentEmail(parent.email) || null;
 
   const existingUser = await repo.findUserByPhone(conn, normalizedMobile);
 
@@ -441,12 +460,10 @@ async function resolveParent(conn, parent, options = {}) {
       );
     }
 
-    if (normalizedEmail) {
-      if (overwriteEmail) {
-        await repo.updateUserEmail(conn, existingUser.id, normalizedEmail);
-      } else {
-        await repo.updateUserEmailIfEmpty(conn, existingUser.id, normalizedEmail);
-      }
+    if (overwriteEmail) {
+      await repo.updateUserEmail(conn, existingUser.id, normalizedEmail);
+    } else if (normalizedEmail) {
+      await repo.updateUserEmailIfEmpty(conn, existingUser.id, normalizedEmail);
     }
 
     await repo.assignParentRole(conn, existingUser.id);
