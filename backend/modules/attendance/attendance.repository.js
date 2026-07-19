@@ -641,26 +641,6 @@ export function getAbsentStudentsWithParents(sessionId, studentIds = []) {
   );
 }
 
-export async function createNotification(conn, data) {
-  const [result] = await conn.execute(
-    `
-      INSERT INTO notifications
-      (user_id, type, entity_type, entity_id, title, body)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `,
-    [
-      data.userId,
-      data.type,
-      data.entityType || null,
-      data.entityId || null,
-      data.title,
-      data.body,
-    ]
-  );
-
-  return result.insertId;
-}
-
 export async function logParentMessage(conn, data) {
   const [result] = await conn.execute(
     `

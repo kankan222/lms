@@ -1,5 +1,6 @@
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { useMemo, useState } from "react";
+import { Ionicons } from "@expo/vector-icons";
 import { DashboardSummary } from "../../services/dashboardService";
 import { useAppTheme } from "../../theme/AppThemeProvider";
 import { DEFAULT_MOBILE_THEME, type MobileTheme } from "../../theme/mobileTheme";
@@ -9,43 +10,32 @@ type Props = {
   loading?: boolean;
   error?: string | null;
   onRefresh?: () => void;
+  topInset?: number;
+  notificationUnread?: number;
+  canViewNotifications?: boolean;
+  onOpenNotifications?: () => void;
+  onOpenMessages?: () => void;
+  onOpenMore?: () => void;
+  onToggleTheme?: () => void;
 };
 
-type StatItem = {
-  key: string;
-  label: string;
-  value: number | string;
-  description?: string;
-  tone?: "default" | "success" | "warning";
-};
+type ScopeValue = "all" | "school" | "hs";
+type PaneValue = "overview" | "attendance" | "finance" | "classes";
 
-type CollectionTrendRow = {
-  label: string;
-  admissions?: number;
-  collections?: number;
-  school?: number;
-  hs?: number;
-};
-
-type StudentTrendRow = {
-  label: string;
-  present?: number;
-  absent?: number;
-  late?: number;
-  school?: number;
-  hs?: number;
-};
-
-const CLASS_OVERVIEW_INITIAL_LIMIT = 16;
-const SCOPE_OPTIONS = [
+const SCOPE_OPTIONS: Array<{ value: ScopeValue; label: string }> = [
   { value: "all", label: "All" },
   { value: "school", label: "School" },
   { value: "hs", label: "Higher Secondary" },
-] as const;
+];
 
-type ScopeValue = (typeof SCOPE_OPTIONS)[number]["value"];
+const PANE_OPTIONS: Array<{ value: PaneValue; label: string }> = [
+  { value: "overview", label: "Overview" },
+  { value: "attendance", label: "Attendance" },
+  { value: "finance", label: "Finance" },
+  { value: "classes", label: "Classes" },
+];
 
-const INR_CURRENCY_FORMATTER = new Intl.NumberFormat("en-IN", {
+const INR = new Intl.NumberFormat("en-IN", {
   style: "currency",
   currency: "INR",
   maximumFractionDigits: 0,
@@ -55,58 +45,21 @@ function formatDate(value?: string | null) {
   if (!value) return "-";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleDateString("en-IN", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-  });
+  return date.toLocaleDateString("en-IN", { day: "2-digit", month: "short" });
 }
 
 function formatDateTime(value?: string | null) {
   if (!value) return "-";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleString("en-IN", {
-    day: "2-digit",
-    month: "short",
-    hour: "numeric",
-    minute: "2-digit",
-  });
-}
-
-function toneStyles(theme: MobileTheme, tone?: "default" | "success" | "warning") {
-  if (tone === "success") {
-    return {
-      borderColor: theme.successBorder,
-      backgroundColor: theme.successSoft,
-      valueColor: theme.success,
-    };
-  }
-  if (tone === "warning") {
-    return {
-      borderColor: theme.warningBorder,
-      backgroundColor: theme.warningSoft,
-      valueColor: theme.warningText,
-    };
-  }
-  return {
-    borderColor: theme.border,
-    backgroundColor: theme.card,
-    valueColor: theme.text,
-  };
+  return date.toLocaleString("en-IN", { day: "2-digit", month: "short", hour: "numeric", minute: "2-digit" });
 }
 
 function formatCurrency(value?: number | null) {
-  return INR_CURRENCY_FORMATTER.format(Number(value || 0));
-}
-
-function filterByScope<T extends { class_scope?: string | null }>(rows: T[] = [], selectedScope: ScopeValue = "all") {
-  if (selectedScope === "all") return rows;
-  return rows.filter((row) => String(row.class_scope || "school") === selectedScope);
-}
-
-function sumRows<T extends Record<string, unknown>>(rows: T[], key: string) {
-  return rows.reduce((sum, row) => sum + Number(row[key] || 0), 0);
+  const amount = Number(value || 0);
+  if (Math.abs(amount) >= 10000000) return `₹${(amount / 10000000).toFixed(2)}Cr`;
+  if (Math.abs(amount) >= 100000) return `₹${(amount / 100000).toFixed(2)}L`;
+  return INR.format(amount);
 }
 
 function safePercent(value?: number | null, total?: number | null) {
@@ -114,993 +67,742 @@ function safePercent(value?: number | null, total?: number | null) {
   return safeTotal > 0 ? Math.round((Number(value || 0) / safeTotal) * 100) : 0;
 }
 
-function latestCollection(rows: Array<{ value?: number }> = []) {
-  return Number(rows[rows.length - 1]?.value || 0);
+function filterByScope<T extends { class_scope?: string | null }>(rows: T[] = [], scope: ScopeValue) {
+  if (scope === "all") return rows;
+  return rows.filter((row) => String(row.class_scope || "school") === scope);
 }
 
-function buildCombinedTrend(summary: DashboardSummary, selectedScope: ScopeValue): CollectionTrendRow[] {
-  if (selectedScope === "all" && summary.analytics?.paymentCollectionTrendByScope?.length) {
+function sumRows<T extends Record<string, unknown>>(rows: T[] = [], key: string) {
+  return rows.reduce((sum, row) => sum + Number(row[key] || 0), 0);
+}
+
+function maxValue(values: number[]) {
+  return Math.max(...values, 1);
+}
+
+function latestCollection(summary: DashboardSummary, scope: ScopeValue) {
+  if (scope !== "all" && summary.analytics.paymentCollectionTrendByScope?.length) {
+    const latest = summary.analytics.paymentCollectionTrendByScope[summary.analytics.paymentCollectionTrendByScope.length - 1];
+    return Number(latest?.[scope] || 0);
+  }
+  const latest = summary.analytics.feeCollectionTrend?.[summary.analytics.feeCollectionTrend.length - 1];
+  return Number(latest?.value || 0);
+}
+
+function buildFeeRows(summary: DashboardSummary, scope: ScopeValue) {
+  return scope === "all"
+    ? summary.analytics.feeStatusBreakdown || []
+    : filterByScope(summary.analytics.feeStatusBreakdownByScope || [], scope);
+}
+
+function buildCollectionRows(summary: DashboardSummary, scope: ScopeValue) {
+  if (summary.analytics.paymentCollectionTrendByScope?.length) {
     return summary.analytics.paymentCollectionTrendByScope.map((row) => ({
       label: row.label,
       school: Number(row.school || 0),
       hs: Number(row.hs || 0),
+      collections: scope === "all" ? Number(row.school || 0) + Number(row.hs || 0) : Number(row[scope] || 0),
     }));
   }
-
-  if (selectedScope !== "all" && summary.analytics?.paymentCollectionTrendByScope?.length) {
-    return summary.analytics.paymentCollectionTrendByScope.map((row) => ({
-      label: row.label,
-      collections: Number(row[selectedScope] || 0),
-    }));
-  }
-
-  const collectionMap = new Map(
-    (summary.analytics?.feeCollectionTrend || []).map((row) => [row.label, Number(row.value || 0)])
-  );
-
-  return (summary.analytics?.admissionsTrend || []).map((row) => ({
+  return (summary.analytics.feeCollectionTrend || []).map((row) => ({
     label: row.label,
-    admissions: Number(row.value || 0),
-    collections: Number(collectionMap.get(row.label) || 0),
+    collections: Number(row.value || 0),
+    school: 0,
+    hs: 0,
   }));
 }
 
-function buildFeeRows(summary: DashboardSummary, selectedScope: ScopeValue) {
-  const source =
-    selectedScope === "all"
-      ? summary.analytics?.feeStatusBreakdown || []
-      : filterByScope(summary.analytics?.feeStatusBreakdownByScope || [], selectedScope);
-  return source;
-}
-
-function buildStudentTrendRows(summary: DashboardSummary, selectedScope: ScopeValue): StudentTrendRow[] {
-  const scopedTrend = summary.analytics?.studentAttendanceTrendByScope || [];
-  if (scopedTrend.length) {
-    if (selectedScope === "all") {
-      return scopedTrend.map((row) => ({
-        label: row.label,
-        school: Number(row.school_present || 0) + Number(row.school_late || 0),
-        hs: Number(row.hs_present || 0) + Number(row.hs_late || 0),
-        absent: Number(row.school_absent || 0) + Number(row.hs_absent || 0),
-      }));
-    }
-
-    return scopedTrend.map((row) => ({
+function buildAttendanceRows(summary: DashboardSummary, scope: ScopeValue) {
+  const scoped = summary.analytics.studentAttendanceTrendByScope || [];
+  if (scoped.length) {
+    return scoped.map((row) => ({
       label: row.label,
-      present: Number(row[`${selectedScope}_present`] || 0),
-      late: Number(row[`${selectedScope}_late`] || 0),
-      absent: Number(row[`${selectedScope}_absent`] || 0),
+      school: Number(row.school_present || 0) + Number(row.school_late || 0),
+      hs: Number(row.hs_present || 0) + Number(row.hs_late || 0),
+      present: scope === "all" ? Number(row.school_present || 0) + Number(row.hs_present || 0) : Number(row[`${scope}_present`] || 0),
+      absent: scope === "all" ? Number(row.school_absent || 0) + Number(row.hs_absent || 0) : Number(row[`${scope}_absent`] || 0),
+      late: scope === "all" ? Number(row.school_late || 0) + Number(row.hs_late || 0) : Number(row[`${scope}_late`] || 0),
     }));
   }
-
-  return (summary.analytics?.studentAttendanceTrend || []).map((row) => ({
+  return (summary.analytics.studentAttendanceTrend || []).map((row) => ({
     label: row.label,
+    school: 0,
+    hs: 0,
     present: Number(row.present || 0),
     absent: Number(row.absent || 0),
     late: Number(row.late || 0),
   }));
 }
 
-function buildClassOverviewRows(summary: DashboardSummary, selectedScope: ScopeValue) {
-  return filterByScope(summary.classOverview || [], selectedScope)
+function buildClassBaseRows(summary: DashboardSummary, scope: ScopeValue) {
+  return filterByScope(summary.analytics.studentClassStats || [], scope)
+    .map((row) => ({ ...row, total: Number(row.total || 0) }))
+    .sort((a, b) => b.total - a.total);
+}
+
+function buildClassOverviewRows(summary: DashboardSummary, scope: ScopeValue) {
+  return filterByScope(summary.classOverview || [], scope)
     .map((row) => ({
       ...row,
       students: Number(row.students || 0),
       present_today: Number(row.present_today || 0),
-      attendanceRate: safePercent(Number(row.present_today || 0), Number(row.students || 0)),
+      rate: safePercent(row.present_today, row.students),
     }))
     .sort((a, b) => b.students - a.students);
 }
 
-function buildClassBaseRows(summary: DashboardSummary, selectedScope: ScopeValue) {
-  return filterByScope(summary.analytics?.studentClassStats || [], selectedScope)
-    .map((row) => ({ ...row, total: Number(row.total || 0) }))
-    .sort((a, b) => b.total - a.total)
-    .slice(0, 12);
-}
+export default function DashboardTab({
+  summary,
+  loading,
+  error,
+  onRefresh,
+  topInset = 0,
+  notificationUnread = 0,
+  canViewNotifications = false,
+  onOpenNotifications,
+  onOpenMessages,
+  onOpenMore,
+  onToggleTheme,
+}: Props) {
+  const { theme, isDark } = useAppTheme();
+  styles = useMemo(() => createStyles(theme), [theme]);
+  const [scope, setScope] = useState<ScopeValue>("all");
+  const [pane, setPane] = useState<PaneValue>("overview");
+  const [showAllSections, setShowAllSections] = useState(false);
 
-function buildScopeRows(summary: DashboardSummary) {
-  const rows = summary.analytics?.studentScopeStats || [];
-  return SCOPE_OPTIONS.filter((scope) => scope.value !== "all").map((scope) => ({
-    ...scope,
-    total: Number(rows.find((row) => String(row.class_scope) === scope.value)?.total || 0),
-  }));
-}
-
-function maxMetric<T extends Record<string, unknown>>(rows: T[], keys: string[]) {
-  return rows.reduce((max, row) => {
-    const rowMax = keys.reduce((innerMax, key) => Math.max(innerMax, Number(row[key] || 0)), 0);
-    return Math.max(max, rowMax);
-  }, 0);
-}
-
-export default function DashboardTab({ summary, loading, error, onRefresh }: Props) {
-  const { theme } = useAppTheme();
-  const [selectedScope, setSelectedScope] = useState<ScopeValue>("all");
-  const [showAllClassOverview, setShowAllClassOverview] = useState(false);
-  const styles = useMemo(() => createStyles(theme), [theme]);
-  const stats: StatItem[] = useMemo(() => {
-    if (!summary) return [];
-    const feeRows = buildFeeRows(summary, selectedScope);
-    const outstandingFees = sumRows(feeRows, "outstanding_amount");
-    const collectionRows =
-      selectedScope === "all"
-        ? summary.analytics?.feeCollectionTrend || []
-        : (summary.analytics?.paymentCollectionTrendByScope || []).map((row) => ({
-            value: Number(row[selectedScope] || 0),
-          }));
-    const currentMonthCollection = latestCollection(collectionRows);
-    const studentPresentRate = safePercent(summary.stats.studentsPresentToday, summary.stats.totalStudents);
-    const teacherPresentRate = safePercent(summary.stats.teachersPresentToday, summary.stats.totalTeachers);
-
-    return [
-      {
-        key: "students",
-        label: "Student Base",
-        value: summary.stats.totalStudents,
-        description: `${studentPresentRate}% marked present today`,
-      },
-      {
-        key: "teachers",
-        label: "Teaching Staff",
-        value: summary.stats.totalTeachers,
-        description: `${teacherPresentRate}% available today`,
-      },
-      {
-        key: "monthlyCollection",
-        label: "Monthly Collection",
-        value: formatCurrency(currentMonthCollection),
-        description: "Approved payments booked this month",
-        tone: "success",
-      },
-      {
-        key: "outstandingFees",
-        label: "Outstanding Fees",
-        value: formatCurrency(outstandingFees),
-        description: "Pending plus partial balance",
-        tone: "warning",
-      },
-      {
-        key: "upcomingExams",
-        label: "Upcoming Exams",
-        value: summary.stats.upcomingExams,
-        description: "Scheduled in active sessions",
-      },
-      {
-        key: "newAdmissions",
-        label: "New Admissions",
-        value: summary.stats.newAdmissionsThisMonth,
-        description: "Students admitted this month",
-      },
-    ];
-  }, [selectedScope, summary]);
-  const combinedTrend = useMemo(
-    () => (summary ? buildCombinedTrend(summary, selectedScope) : []),
-    [selectedScope, summary],
+  const header = (
+    <View style={[styles.dashboardHeader, { borderBottomColor: theme.border, paddingTop: Math.max(topInset, 6) }]}>
+      <View style={styles.dashboardTitleBlock}>
+        <Text style={[styles.heroTitle, { color: theme.text }]}>KKV</Text>
+        <Text style={[styles.heroText, { color: theme.subText }]}>Dashboard</Text>
+      </View>
+      <View style={styles.dashboardActions}>
+        {canViewNotifications ? (
+          <Pressable
+            style={[styles.headerIconButton, { borderColor: theme.border, backgroundColor: theme.card }]}
+            onPress={onOpenNotifications}
+          >
+            <Ionicons name="notifications-outline" size={17} color={theme.icon} />
+            {notificationUnread ? (
+              <View style={[styles.headerBadge, { backgroundColor: theme.primary }]}>
+                <Text style={styles.headerBadgeText}>{notificationUnread > 99 ? "99+" : notificationUnread}</Text>
+              </View>
+            ) : null}
+          </Pressable>
+        ) : null}
+        <Pressable
+          style={[styles.headerIconButton, { borderColor: theme.border, backgroundColor: theme.card }]}
+          onPress={onToggleTheme}
+        >
+          <Ionicons name={isDark ? "sunny-outline" : "moon-outline"} size={17} color={theme.icon} />
+        </Pressable>
+        <Pressable
+          style={[styles.headerIconButton, { borderColor: theme.border, backgroundColor: theme.card }]}
+          onPress={onOpenMore}
+        >
+          <Ionicons name="apps-outline" size={17} color={theme.icon} />
+        </Pressable>
+      </View>
+    </View>
   );
-  const studentTrend = useMemo(
-    () => (summary ? buildStudentTrendRows(summary, selectedScope) : []),
-    [selectedScope, summary],
-  );
-  const feeStatus = useMemo(
-    () => (summary ? buildFeeRows(summary, selectedScope) : []),
-    [selectedScope, summary],
-  );
-  const classBaseRows = useMemo(
-    () => (summary ? buildClassBaseRows(summary, selectedScope) : []),
-    [selectedScope, summary],
-  );
-  const scopeRows = useMemo(() => (summary ? buildScopeRows(summary) : []), [summary]);
-  const normalizedClassOverview = useMemo(
-    () => (summary ? buildClassOverviewRows(summary, selectedScope) : []),
-    [selectedScope, summary],
-  );
-  const classOverview = useMemo(
-    () =>
-      showAllClassOverview
-        ? normalizedClassOverview
-        : normalizedClassOverview.slice(0, CLASS_OVERVIEW_INITIAL_LIMIT),
-    [normalizedClassOverview, showAllClassOverview],
-  );
-  const remainingClassOverview = Math.max(normalizedClassOverview.length - classOverview.length, 0);
-  const combinedTrendMax = maxMetric(combinedTrend, ["admissions", "collections", "school", "hs"]) || 1;
-  const studentTrendMax = maxMetric(studentTrend, ["present", "absent", "late", "school", "hs"]) || 1;
 
   if (loading) {
     return (
-      <View style={[styles.messageCard, { borderColor: theme.border, backgroundColor: theme.card }]}>
-        <Text style={[styles.messageTitle, { color: theme.text }]}>Loading dashboard...</Text>
-        <Text style={[styles.messageText, { color: theme.subText }]}>Fetching summary, attendance, exams, and activity.</Text>
+      <View style={styles.container}>
+        {header}
+        <View style={styles.contentBody}>
+          <View style={[styles.messageCard, { borderColor: theme.border, backgroundColor: theme.card }]}>
+            <Text style={[styles.messageTitle, { color: theme.text }]}>Loading dashboard...</Text>
+            <Text style={[styles.messageText, { color: theme.subText }]}>Fetching summary, attendance, exams, and activity.</Text>
+          </View>
+        </View>
       </View>
     );
   }
 
   if (error) {
     return (
-      <View style={[styles.messageCard, styles.errorCard]}>
-        <Text style={styles.errorTitle}>Dashboard unavailable</Text>
-        <Text style={styles.errorText}>{error}</Text>
-        {onRefresh ? (
-          <Pressable style={styles.retryButton} onPress={onRefresh}>
-            <Text style={styles.retryButtonText}>Retry</Text>
-          </Pressable>
-        ) : null}
+      <View style={styles.container}>
+        {header}
+        <View style={styles.contentBody}>
+          <View style={[styles.messageCard, { borderColor: theme.dangerBorder, backgroundColor: theme.dangerSoft }]}>
+            <Text style={[styles.messageTitle, { color: theme.danger }]}>Dashboard unavailable</Text>
+            <Text style={[styles.messageText, { color: theme.danger }]}>{error}</Text>
+            {onRefresh ? (
+              <Pressable style={[styles.retryButton, { backgroundColor: theme.danger }]} onPress={onRefresh}>
+                <Text style={[styles.retryButtonText, { color: theme.primaryText }]}>Retry</Text>
+              </Pressable>
+            ) : null}
+          </View>
+        </View>
       </View>
     );
   }
 
   if (!summary) {
     return (
-      <View style={[styles.messageCard, { borderColor: theme.border, backgroundColor: theme.card }]}>
-        <Text style={[styles.messageTitle, { color: theme.text }]}>No dashboard data available.</Text>
+      <View style={styles.container}>
+        {header}
+        <View style={styles.contentBody}>
+          <View style={[styles.messageCard, { borderColor: theme.border, backgroundColor: theme.card }]}>
+            <Text style={[styles.messageTitle, { color: theme.text }]}>No dashboard data available.</Text>
+          </View>
+        </View>
       </View>
     );
   }
 
+  const feeRows = buildFeeRows(summary, scope);
+  const collectionRows = buildCollectionRows(summary, scope);
+  const attendanceRows = buildAttendanceRows(summary, scope);
+  const classBaseRows = buildClassBaseRows(summary, scope);
+  const classOverviewRows = buildClassOverviewRows(summary, scope);
+  const visibleClassOverview = showAllSections ? classOverviewRows : classOverviewRows.slice(0, 12);
+  const outstandingFees = sumRows(feeRows, "outstanding_amount");
+  const studentPresentRate = safePercent(summary.stats.studentsPresentToday, summary.stats.totalStudents);
+  const teacherPresentRate = safePercent(summary.stats.teachersPresentToday, summary.stats.totalTeachers);
+  const collectionMax = maxValue(collectionRows.flatMap((row) => [row.school, row.hs, row.collections]));
+  const attendanceMax = maxValue(attendanceRows.flatMap((row) => [row.school, row.hs, row.present, row.absent, row.late]));
+  const classMax = maxValue(classBaseRows.map((row) => Number(row.total || 0)));
+  const exposureTotal = Math.max(sumRows(feeRows, "outstanding_amount"), 1);
+
+  const kpis = [
+    { label: "Student base", value: summary.stats.totalStudents, hint: `${studentPresentRate}% present today`, tone: "default" },
+    { label: "Teaching staff", value: summary.stats.totalTeachers, hint: `${teacherPresentRate}% available today`, tone: "default" },
+    { label: "Monthly collection", value: formatCurrency(latestCollection(summary, scope)), hint: "Approved this month", tone: "success" },
+    { label: "Outstanding fees", value: formatCurrency(outstandingFees), hint: "Pending plus partial", tone: "warning" },
+  ];
+  const attendanceChartRows = attendanceRows.slice(-7).map((row) => ({
+    label: row.label,
+    value: scope === "all" ? Number(row.school || 0) + Number(row.hs || 0) : Number(row.present || 0),
+    color: scope === "all" ? theme.info : theme.success,
+  }));
+  const financeChartRows = collectionRows.slice(-6).map((row) => ({
+    label: row.label,
+    value: Number(row.collections || 0),
+    color: theme.success,
+  }));
+  const classChartRows = classBaseRows.slice(0, 6).map((row) => ({
+    label: row.class_name,
+    value: Number(row.total || 0),
+    color: theme.primary,
+  }));
+  const studentAbsentRate = safePercent(summary.attendance.student.absent, summary.stats.totalStudents);
+  const studentLateRate = safePercent(summary.attendance.student.late, summary.stats.totalStudents);
+
   return (
     <View style={styles.container}>
-      <View style={styles.heroCard}>
-        <View>
-          <Text style={styles.heroEyebrow}>Overview</Text>
-          <Text style={styles.heroTitle}>School operational overview</Text>
-          <Text style={styles.heroText}>
-            Live attendance, exam schedule, classroom presence, and recent activity.
-          </Text>
-        </View>
-      </View>
-
-      <View style={styles.grid}>
-        {stats.map((item) => {
-          const tone = toneStyles(theme, item.tone);
-          return (
-            <View
-              key={item.key}
-              style={[
-                styles.statCard,
-                { borderColor: tone.borderColor, backgroundColor: tone.backgroundColor },
-              ]}
-            >
-              <Text style={styles.statLabel}>{item.label}</Text>
-              <Text style={[styles.statValue, { color: tone.valueColor }]}>{item.value}</Text>
-              {item.description ? <Text style={styles.statDescription}>{item.description}</Text> : null}
-            </View>
-          );
-        })}
-      </View>
-
-      <View style={[styles.sectionCard, styles.scopeCard, { borderColor: theme.border, backgroundColor: theme.card }]}>
-        <View>
-          <Text style={[styles.sectionTitle, { color: theme.text }]}>Dashboard Scope</Text>
-          <Text style={[styles.sectionCaption, { color: theme.subText }]}>
-            Filter student base, fees, payments, and attendance visuals by academic scope.
-          </Text>
-        </View>
+      {header}
+      <View style={styles.contentBody}>
+        <View style={styles.topBlock}>
         <View style={styles.scopeControl}>
-          {SCOPE_OPTIONS.map((option) => {
-            const active = selectedScope === option.value;
+          {SCOPE_OPTIONS.map((item) => {
+            const active = scope === item.value;
             return (
               <Pressable
-                key={option.value}
-                style={[
-                  styles.scopeButton,
-                  {
-                    borderColor: active ? theme.primary : theme.border,
-                    backgroundColor: active ? theme.primary : theme.cardMuted,
-                  },
-                ]}
-                onPress={() => setSelectedScope(option.value)}
+                key={item.value}
+                style={[styles.scopeButton, { borderColor: active ? theme.text : theme.border, backgroundColor: active ? theme.text : "transparent" }]}
+                onPress={() => setScope(item.value)}
               >
-                <Text style={[styles.scopeButtonText, { color: active ? theme.primaryText : theme.text }]}>
-                  {option.label}
+                <Text style={[styles.scopeButtonText, { color: active ? theme.card : theme.subText }]} numberOfLines={1}>
+                  {item.label}
                 </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+
+        <View style={[styles.tabBar, { borderBottomColor: theme.border }]}>
+          {PANE_OPTIONS.map((item) => {
+            const active = pane === item.value;
+            return (
+              <Pressable key={item.value} style={[styles.tabButton, active ? { borderBottomColor: theme.text } : null]} onPress={() => setPane(item.value)}>
+                <Text style={[styles.tabText, { color: active ? theme.text : theme.subText }]}>{item.label}</Text>
               </Pressable>
             );
           })}
         </View>
       </View>
 
-      <View style={styles.analyticsRow}>
-        <View style={[styles.sectionCard, styles.analyticsCardWide, { borderColor: theme.border, backgroundColor: theme.card }]}>
-          <Text style={[styles.sectionTitle, { color: theme.text }]}>Student Base by Class</Text>
-          <Text style={[styles.sectionCaption, { color: theme.subText }]}>Active enrollment for the selected scope.</Text>
-          {classBaseRows.length ? (
-            <View style={styles.trendStack}>
-              {classBaseRows.map((row) => {
-                const width = Math.max((Number(row.total || 0) / Math.max(maxMetric(classBaseRows, ["total"]), 1)) * 100, 8);
-                return (
-                  <View key={`${row.class_id}-${row.class_scope || "all"}`} style={styles.classBaseRow}>
-                    <View style={styles.classBaseHeader}>
-                      <Text style={[styles.listTitle, { color: theme.text }]}>{row.class_name}</Text>
-                      <Text style={[styles.listMeta, { color: theme.subText }]}>{row.total}</Text>
-                    </View>
-                    <View style={styles.trendMetric}>
-                      <View style={[styles.trendBar, styles.trendBarPrimary, { width: `${width}%` }]} />
-                    </View>
-                  </View>
-                );
-              })}
-            </View>
-          ) : (
-            <Text style={[styles.emptyText, { color: theme.subText }]}>No student base data available.</Text>
-          )}
-        </View>
-
-        <View style={[styles.sectionCard, styles.analyticsCardNarrow, { borderColor: theme.border, backgroundColor: theme.card }]}>
-          <Text style={[styles.sectionTitle, { color: theme.text }]}>Scope Mix</Text>
-          <Text style={[styles.sectionCaption, { color: theme.subText }]}>Student base split between School and Higher Secondary.</Text>
-          {scopeRows.map((row) => (
-            <View key={row.value} style={styles.scopeMixRow}>
-              <View style={styles.feeStatusLabelWrap}>
-                <View style={[styles.feeStatusDot, row.value === "school" ? styles.dotInfo : styles.dotViolet]} />
-                <Text style={[styles.listTitle, { color: theme.text }]}>{row.label}</Text>
-              </View>
-              <Text style={[styles.scopeMixValue, { color: theme.text }]}>{row.total}</Text>
-            </View>
-          ))}
-        </View>
-      </View>
-
-      <View style={styles.analyticsRow}>
-        <View style={[styles.sectionCard, styles.analyticsCardWide, { borderColor: theme.border, backgroundColor: theme.card }]}>
-          <Text style={[styles.sectionTitle, { color: theme.text }]}>Payment Collection Trend</Text>
-          <Text style={[styles.sectionCaption, { color: theme.subText }]}>Approved payment movement split by academic scope.</Text>
-          {combinedTrend.length ? (
-            <View style={styles.trendStack}>
-              {combinedTrend.map((row) => (
-                <View key={row.label} style={styles.trendRow}>
-                  <View style={styles.trendLabelWrap}>
-                    <Text style={[styles.trendLabel, { color: theme.subText }]}>{row.label}</Text>
-                  </View>
-                  <View style={styles.trendBars}>
-                    {selectedScope === "all" ? (
-                      <>
-                        <View style={styles.trendMetric}>
-                          <View
-                            style={[
-                              styles.trendBar,
-                              styles.trendBarPrimary,
-                              { width: `${Math.max((Number(row.school || 0) / combinedTrendMax) * 100, row.school ? 10 : 0)}%` },
-                            ]}
-                          />
-                        </View>
-                        <View style={styles.trendMetric}>
-                          <View
-                            style={[
-                              styles.trendBar,
-                              styles.trendBarViolet,
-                              { width: `${Math.max((Number(row.hs || 0) / combinedTrendMax) * 100, row.hs ? 10 : 0)}%` },
-                            ]}
-                          />
-                        </View>
-                      </>
-                    ) : (
-                      <View style={styles.trendMetric}>
-                        <View
-                          style={[
-                            styles.trendBar,
-                            styles.trendBarSuccess,
-                            { width: `${Math.max((Number(row.collections || 0) / combinedTrendMax) * 100, row.collections ? 10 : 0)}%` },
-                          ]}
-                        />
-                      </View>
-                    )}
-                  </View>
-                  <View style={styles.trendValues}>
-                    {selectedScope === "all" ? (
-                      <>
-                        <Text style={[styles.trendValue, { color: theme.text }]}>{formatCurrency(Number(row.school || 0))}</Text>
-                        <Text style={[styles.trendSubValue, { color: theme.subText }]}>{formatCurrency(Number(row.hs || 0))}</Text>
-                      </>
-                    ) : (
-                      <Text style={[styles.trendValue, { color: theme.text }]}>{formatCurrency(Number(row.collections || 0))}</Text>
-                    )}
-                  </View>
+      {pane === "overview" ? (
+        <>
+          <View style={styles.kpiGrid}>
+            {kpis.map((item) => {
+              const color = item.tone === "success" ? theme.success : item.tone === "warning" ? theme.warningText : theme.text;
+              const background = item.tone === "success" ? theme.successSoft : item.tone === "warning" ? theme.warningSoft : theme.cardMuted;
+              const borderColor = item.tone === "success" ? theme.successBorder : item.tone === "warning" ? theme.warningBorder : theme.border;
+              return (
+                <View key={item.label} style={[styles.kpiCard, { backgroundColor: background, borderColor }]}>
+                  <Text style={[styles.kpiLabel, { color: item.tone === "default" ? theme.subText : color }]}>{item.label}</Text>
+                  <Text style={[styles.kpiValue, { color }]} numberOfLines={1} adjustsFontSizeToFit>{item.value}</Text>
+                  <Text style={[styles.kpiHint, { color: item.tone === "default" ? theme.mutedText : color }]} numberOfLines={2}>{item.hint}</Text>
                 </View>
-              ))}
-            </View>
-          ) : (
-            <Text style={[styles.emptyText, { color: theme.subText }]}>No payment trend available.</Text>
-          )}
-        </View>
-
-        <View style={[styles.sectionCard, styles.analyticsCardNarrow, { borderColor: theme.border, backgroundColor: theme.card }]}>
-          <Text style={[styles.sectionTitle, { color: theme.text }]}>Fee Status Exposure</Text>
-          <Text style={[styles.sectionCaption, { color: theme.subText }]}>Outstanding amount by status</Text>
-          {feeStatus.length ? (
-            feeStatus.map((row) => (
-              <View key={row.status} style={styles.feeStatusRow}>
-                <View style={styles.feeStatusHeader}>
-                  <View style={styles.feeStatusLabelWrap}>
-                    <View
-                      style={[
-                        styles.feeStatusDot,
-                        row.status === "paid"
-                          ? styles.dotSuccess
-                          : row.status === "partial"
-                            ? styles.dotWarning
-                            : styles.dotDanger,
-                      ]}
-                    />
-                    <Text style={[styles.listTitle, { color: theme.text }]}>{row.status}</Text>
-                  </View>
-                  <Text style={[styles.listMeta, { color: theme.subText }]}>{row.total_items} items</Text>
-                </View>
-                <Text style={styles.feeStatusAmount}>{formatCurrency(row.outstanding_amount)}</Text>
-              </View>
-            ))
-          ) : (
-            <Text style={[styles.emptyText, { color: theme.subText }]}>No fee records available.</Text>
-          )}
-        </View>
-      </View>
-
-      <View style={[styles.sectionCard, { borderColor: theme.border, backgroundColor: theme.card }]}>
-        <Text style={[styles.sectionTitle, { color: theme.text }]}>Attendance Snapshot</Text>
-        <View style={styles.attendanceRow}>
-          <View style={styles.attendanceCard}>
-            <Text style={styles.attendanceTitle}>Students</Text>
-            <Text style={styles.attendanceText}>Present: {summary.attendance.student.present}</Text>
-            <Text style={styles.attendanceText}>Absent: {summary.attendance.student.absent}</Text>
-            <Text style={styles.attendanceText}>Late: {summary.attendance.student.late}</Text>
+              );
+            })}
           </View>
-          <View style={styles.attendanceCard}>
-            <Text style={styles.attendanceTitle}>Teachers</Text>
-            <Text style={styles.attendanceText}>Present: {summary.attendance.teacher.present}</Text>
-            <Text style={styles.attendanceText}>Absent: {summary.attendance.teacher.absent}</Text>
-          </View>
-        </View>
-      </View>
 
-      <View style={[styles.sectionCard, { borderColor: theme.border, backgroundColor: theme.card }]}>
-        <Text style={[styles.sectionTitle, { color: theme.text }]}>Student Attendance by Scope</Text>
-        <Text style={[styles.sectionCaption, { color: theme.subText }]}>
-          {selectedScope === "all"
-            ? "Seven-day School and Higher Secondary attendance split."
-            : "Seven-day movement across present, absent, and late marks for the selected scope."}
-        </Text>
-        {studentTrend.length ? (
-          <View style={styles.trendStack}>
-            {studentTrend.map((row) => (
-              <View key={row.label} style={styles.trendRow}>
-                <View style={styles.trendLabelWrap}>
-                  <Text style={[styles.trendLabel, { color: theme.subText }]}>{row.label}</Text>
-                </View>
-                <View style={styles.tripleTrendBars}>
-                  {selectedScope === "all" ? (
+          <View style={styles.miniGrid}>
+            <View style={[styles.miniCard, { backgroundColor: theme.cardMuted, borderColor: theme.border }]}>
+              <Text style={[styles.kpiLabel, { color: theme.subText }]}>Upcoming exams</Text>
+              <Text style={[styles.miniValue, { color: theme.text }]}>{summary.stats.upcomingExams}</Text>
+            </View>
+            <View style={[styles.miniCard, { backgroundColor: theme.cardMuted, borderColor: theme.border }]}>
+              <Text style={[styles.kpiLabel, { color: theme.subText }]}>New admissions</Text>
+              <Text style={[styles.miniValue, { color: theme.text }]}>{summary.stats.newAdmissionsThisMonth}</Text>
+            </View>
+          </View>
+
+          <Section title="Recent Messages" actionLabel="View all" onAction={onOpenMessages}>
+            {summary.recentMessages.length ? (
+              summary.recentMessages.slice(0, 4).map((message) => (
+                <ListRow key={message.id} title={message.conversation_name} meta={message.last_message || "No message preview available."} side={formatDateTime(message.last_message_time)} theme={theme} />
+              ))
+            ) : (
+              <EmptyText text="No recent messages available." theme={theme} />
+            )}
+          </Section>
+
+          <Section title="Upcoming Exams">
+            {summary.upcomingExams.length ? (
+              summary.upcomingExams.slice(0, 4).map((exam) => (
+                <ListRow
+                  key={`${exam.id}-${exam.class_name || "general"}`}
+                  title={exam.exam_name}
+                  meta={[exam.class_name, exam.section_name].filter(Boolean).join(" / ") || "General scope"}
+                  side={formatDate(exam.exam_date)}
+                  theme={theme}
+                />
+              ))
+            ) : (
+              <EmptyText text="No upcoming exams found." theme={theme} />
+            )}
+          </Section>
+        </>
+      ) : null}
+
+      {pane === "attendance" ? (
+        <>
+          <View style={styles.miniGrid}>
+            <View style={[styles.miniCard, { backgroundColor: theme.cardMuted, borderColor: theme.border }]}>
+              <Text style={[styles.kpiLabel, { color: theme.subText }]}>Students</Text>
+              <Text style={[styles.miniValue, { color: theme.text }]}>{summary.attendance.student.present}/{summary.stats.totalStudents}</Text>
+              <Text style={[styles.kpiHint, { color: theme.mutedText }]}>present today</Text>
+            </View>
+            <View style={[styles.miniCard, { backgroundColor: theme.cardMuted, borderColor: theme.border }]}>
+              <Text style={[styles.kpiLabel, { color: theme.subText }]}>Teachers</Text>
+              <Text style={[styles.miniValue, { color: theme.text }]}>{summary.attendance.teacher.present}/{summary.stats.totalTeachers}</Text>
+              <Text style={[styles.kpiHint, { color: theme.mutedText }]}>available today</Text>
+            </View>
+          </View>
+
+          <ChartPanel title="Today Snapshot" theme={theme}>
+            <View style={styles.statChipGrid}>
+              <StatChip label="Present" value={`${studentPresentRate}%`} color={theme.success} theme={theme} />
+              <StatChip label="Absent" value={`${studentAbsentRate}%`} color={theme.danger} theme={theme} />
+              <StatChip label="Late" value={`${studentLateRate}%`} color={theme.warning} theme={theme} />
+            </View>
+            <StackedMeter
+              items={[
+                { value: summary.attendance.student.present, color: theme.success },
+                { value: summary.attendance.student.absent, color: theme.danger },
+                { value: summary.attendance.student.late, color: theme.warning },
+              ]}
+              theme={theme}
+            />
+          </ChartPanel>
+
+          <ChartPanel title="Attendance Trend" theme={theme}>
+            {attendanceChartRows.length ? (
+              <VerticalBarChart rows={attendanceChartRows} max={attendanceMax} theme={theme} />
+            ) : (
+              <EmptyText text="No attendance trend available." theme={theme} />
+            )}
+          </ChartPanel>
+
+          <Section title="Attendance by Scope" caption={scope === "all" ? "Last seven days split by School and Higher Secondary." : "Last seven days for the selected scope."}>
+            <Legend theme={theme} items={scope === "all" ? ["School", "Higher Secondary"] : ["Present", "Absent", "Late"]} />
+            {attendanceRows.length ? attendanceRows.map((row) => (
+              <View key={row.label} style={styles.metricRow}>
+                <Text style={[styles.metricLabel, { color: theme.subText }]}>{row.label}</Text>
+                <View style={styles.metricBars}>
+                  {scope === "all" ? (
                     <>
-                      <View
-                        style={[
-                          styles.tripleTrendSegment,
-                          styles.trendBarPrimary,
-                          { flex: Math.max(Number(row.school || 0), 0.4) / studentTrendMax },
-                        ]}
-                      />
-                      <View
-                        style={[
-                          styles.tripleTrendSegment,
-                          styles.trendBarViolet,
-                          { flex: Math.max(Number(row.hs || 0), 0.4) / studentTrendMax },
-                        ]}
-                      />
-                      <View
-                        style={[
-                          styles.tripleTrendSegment,
-                          styles.trendBarDanger,
-                          { flex: Math.max(Number(row.absent || 0), 0.4) / studentTrendMax },
-                        ]}
-                      />
+                      <Bar value={row.school} max={attendanceMax} tone="info" theme={theme} />
+                      <Bar value={row.hs} max={attendanceMax} tone="violet" theme={theme} />
                     </>
                   ) : (
                     <>
-                      <View
-                        style={[
-                          styles.tripleTrendSegment,
-                          styles.trendBarSuccess,
-                          { flex: Math.max(Number(row.present || 0), 0.4) / studentTrendMax },
-                        ]}
-                      />
-                      <View
-                        style={[
-                          styles.tripleTrendSegment,
-                          styles.trendBarDanger,
-                          { flex: Math.max(Number(row.absent || 0), 0.4) / studentTrendMax },
-                        ]}
-                      />
-                      <View
-                        style={[
-                          styles.tripleTrendSegment,
-                          styles.trendBarWarning,
-                          { flex: Math.max(Number(row.late || 0), 0.4) / studentTrendMax },
-                        ]}
-                      />
+                      <Bar value={row.present} max={attendanceMax} tone="success" theme={theme} />
+                      <Bar value={row.absent} max={attendanceMax} tone="danger" theme={theme} />
+                      <Bar value={row.late} max={attendanceMax} tone="warning" theme={theme} />
                     </>
                   )}
                 </View>
-                <Text style={[styles.trendValueCompact, { color: theme.text }]}>
-                  {selectedScope === "all"
-                    ? `S ${row.school || 0} / HS ${row.hs || 0}`
-                    : `P ${row.present || 0} / A ${row.absent || 0} / L ${row.late || 0}`}
+                <Text style={[styles.metricValue, { color: theme.text }]}>
+                  {scope === "all" ? `S ${row.school} / HS ${row.hs}` : `P ${row.present} / A ${row.absent}`}
                 </Text>
               </View>
-            ))}
+            )) : <EmptyText text="No attendance trend available." theme={theme} />}
+          </Section>
+
+          <Section title="Section Capacity vs Presence">
+            {visibleClassOverview.length ? visibleClassOverview.map((row) => (
+              <ProgressRow key={`${row.class_id}-${row.section_id}`} title={`${row.class_name} / ${row.section_name}`} side={`${row.present_today}/${row.students}`} percent={row.rate} theme={theme} />
+            )) : <EmptyText text="No active class overview available." theme={theme} />}
+            {classOverviewRows.length > visibleClassOverview.length ? (
+              <Pressable style={[styles.secondaryButton, { borderColor: theme.border, backgroundColor: theme.cardMuted }]} onPress={() => setShowAllSections(true)}>
+                <Text style={[styles.secondaryButtonText, { color: theme.text }]}>Show {classOverviewRows.length - visibleClassOverview.length} More</Text>
+              </Pressable>
+            ) : null}
+          </Section>
+        </>
+      ) : null}
+
+      {pane === "finance" ? (
+        <>
+          <View style={styles.miniGrid}>
+            <View style={[styles.miniCard, { backgroundColor: theme.successSoft, borderColor: theme.successBorder }]}>
+              <Text style={[styles.kpiLabel, { color: theme.success }]}>Latest collection</Text>
+              <Text style={[styles.miniValue, { color: theme.success }]}>{formatCurrency(latestCollection(summary, scope))}</Text>
+            </View>
+            <View style={[styles.miniCard, { backgroundColor: theme.warningSoft, borderColor: theme.warningBorder }]}>
+              <Text style={[styles.kpiLabel, { color: theme.warningText }]}>Outstanding</Text>
+              <Text style={[styles.miniValue, { color: theme.warningText }]}>{formatCurrency(outstandingFees)}</Text>
+            </View>
           </View>
-        ) : (
-          <Text style={[styles.emptyText, { color: theme.subText }]}>No student attendance trend available.</Text>
-        )}
-      </View>
 
-      <View style={[styles.sectionCard, { borderColor: theme.border, backgroundColor: theme.card }]}>
-        <Text style={[styles.sectionTitle, { color: theme.text }]}>Upcoming Exams</Text>
-        {summary.upcomingExams.length ? (
-          summary.upcomingExams.map((exam) => (
-            <View key={`${exam.id}-${exam.class_name || "general"}`} style={styles.listRow}>
-              <View style={styles.listRowContent}>
-                <Text style={[styles.listTitle, { color: theme.text }]}>{exam.exam_name}</Text>
-                <Text style={[styles.listMeta, { color: theme.subText }]}>
-                  {[exam.class_name, exam.section_name].filter(Boolean).join(" / ") || "General scope"}
+          <ChartPanel title="Collection Graph" theme={theme}>
+            {financeChartRows.length ? (
+              <VerticalBarChart rows={financeChartRows} max={collectionMax} theme={theme} formatValue={formatCurrency} />
+            ) : (
+              <EmptyText text="No payment trend available." theme={theme} />
+            )}
+          </ChartPanel>
+
+          <Section title="Fee Status Exposure">
+            <View style={[styles.exposureBar, { backgroundColor: theme.cardMuted }]}>
+              {feeRows.map((row) => (
+                <View key={row.status} style={[styles.exposureSegment, barColorStyle(row.status, theme), { flex: Math.max(Number(row.outstanding_amount || 0), 0.5) / exposureTotal }]} />
+              ))}
+            </View>
+            {feeRows.length ? feeRows.map((row) => (
+              <View key={row.status} style={[styles.feeLine, { borderBottomColor: theme.border }]}>
+                <View style={styles.dotLabel}>
+                  <View style={[styles.dot, barColorStyle(row.status, theme)]} />
+                  <Text style={[styles.listTitle, { color: theme.text, textTransform: "capitalize" }]}>{row.status} - {row.total_items} items</Text>
+                </View>
+                <Text style={[styles.listSide, { color: theme.text }]}>{formatCurrency(row.outstanding_amount)}</Text>
+              </View>
+            )) : <EmptyText text="No fee records available." theme={theme} />}
+          </Section>
+
+          <Section title="Payment Collection Trend">
+            <Legend theme={theme} items={scope === "all" ? ["School", "Higher Secondary"] : ["Collection"]} />
+            {collectionRows.length ? collectionRows.map((row) => (
+              <View key={row.label} style={styles.metricRow}>
+                <Text style={[styles.metricLabel, { color: theme.subText }]}>{row.label}</Text>
+                <View style={styles.metricBars}>
+                  {scope === "all" ? (
+                    <>
+                      <Bar value={row.school} max={collectionMax} tone="info" theme={theme} />
+                      <Bar value={row.hs} max={collectionMax} tone="violet" theme={theme} />
+                    </>
+                  ) : (
+                    <Bar value={row.collections} max={collectionMax} tone="success" theme={theme} />
+                  )}
+                </View>
+                <Text style={[styles.metricValue, { color: theme.text }]}>
+                  {scope === "all" ? formatCurrency(row.school + row.hs) : formatCurrency(row.collections)}
                 </Text>
               </View>
-              <Text style={[styles.listDate, { color: theme.subText }]}>{formatDate(exam.exam_date)}</Text>
-            </View>
-          ))
-        ) : (
-          <Text style={[styles.emptyText, { color: theme.subText }]}>No upcoming exams found.</Text>
-        )}
-      </View>
+            )) : <EmptyText text="No payment trend available." theme={theme} />}
+          </Section>
+        </>
+      ) : null}
 
-      <View style={[styles.sectionCard, { borderColor: theme.border, backgroundColor: theme.card }]}>
-        <Text style={[styles.sectionTitle, { color: theme.text }]}>Recent Messages</Text>
-        {summary.recentMessages.length ? (
-          summary.recentMessages.map((message) => (
-            <View key={message.id} style={styles.listRow}>
-              <View style={styles.listRowContent}>
-                <Text style={[styles.listTitle, { color: theme.text }]}>{message.conversation_name}</Text>
-                <Text style={[styles.listMeta, { color: theme.subText }]} numberOfLines={2}>
-                  {message.last_message || "No message preview available."}
-                </Text>
-              </View>
-              <Text style={[styles.listDate, { color: theme.subText }]}>{formatDateTime(message.last_message_time)}</Text>
-            </View>
-          ))
-        ) : (
-          <Text style={[styles.emptyText, { color: theme.subText }]}>No recent messages available.</Text>
-        )}
-      </View>
+      {pane === "classes" ? (
+        <>
+          <ChartPanel title="Largest Classes" theme={theme}>
+            {classChartRows.length ? (
+              <VerticalBarChart rows={classChartRows} max={classMax} theme={theme} />
+            ) : (
+              <EmptyText text="No student base data available." theme={theme} />
+            )}
+          </ChartPanel>
 
-      <View style={[styles.sectionCard, { borderColor: theme.border, backgroundColor: theme.card }]}>
-        <Text style={[styles.sectionTitle, { color: theme.text }]}>Recent Activity</Text>
-        {summary.recentActivities.length ? (
-          summary.recentActivities.map((activity) => (
-            <View key={activity.id} style={styles.activityRow}>
-              <View style={styles.activityDot} />
-              <View style={styles.activityContent}>
-                <Text style={[styles.listTitle, { color: theme.text }]}>{activity.actor}</Text>
-                <Text style={[styles.listMeta, { color: theme.subText }]}>{activity.description || activity.action}</Text>
-                <Text style={[styles.activityTime, { color: theme.subText }]}>{formatDateTime(activity.created_at)}</Text>
-              </View>
-            </View>
-          ))
-        ) : (
-          <Text style={[styles.emptyText, { color: theme.subText }]}>No recent activity recorded.</Text>
-        )}
-      </View>
+          <Section title="Student Base by Class" caption="Sorted by active enrollment size.">
+            {classBaseRows.length ? classBaseRows.slice(0, 14).map((row) => (
+              <ProgressRow key={`${row.class_id}-${row.class_scope || "all"}`} title={row.class_name} side={String(row.total)} percent={(Number(row.total || 0) / classMax) * 100} theme={theme} />
+            )) : <EmptyText text="No student base data available." theme={theme} />}
+          </Section>
 
-      <View style={[styles.sectionCard, { borderColor: theme.border, backgroundColor: theme.card }]}>
-        <Text style={[styles.sectionTitle, { color: theme.text }]}>Section Capacity vs Presence</Text>
-        <Text style={[styles.sectionCaption, { color: theme.subText }]}>
-          Enrolled students compared to today's attendance across the selected scope.
-        </Text>
-        {classOverview.length ? (
-          classOverview.map((row) => (
-            <View key={`${row.class_id}-${row.section_id}`} style={styles.listRow}>
-              <View style={styles.listRowContent}>
-                <Text style={[styles.listTitle, { color: theme.text }]}>
-                  {row.class_name} / {row.section_name}
-                </Text>
-                <Text style={[styles.listMeta, { color: theme.subText }]}>Students: {row.students}</Text>
-              </View>
-              <View style={styles.classPresenceWrap}>
-                <Text style={styles.presenceBadge}>{row.attendanceRate}%</Text>
-                <Text style={[styles.listMeta, { color: theme.subText }]}>
-                  {row.present_today}/{row.students}
-                </Text>
-              </View>
-            </View>
-          ))
-        ) : (
-          <Text style={[styles.emptyText, { color: theme.subText }]}>No active class overview available.</Text>
-        )}
-        {remainingClassOverview > 0 ? (
-          <Pressable style={[styles.secondaryGhostBtn, { borderColor: theme.border, backgroundColor: theme.cardMuted }]} onPress={() => setShowAllClassOverview(true)}>
-            <Text style={[styles.secondaryGhostBtnText, { color: theme.text }]}>Show {remainingClassOverview} More</Text>
-          </Pressable>
-        ) : null}
+          <Section title="Recent Activity">
+            {summary.recentActivities.length ? summary.recentActivities.slice(0, 6).map((activity) => (
+              <ListRow key={activity.id} title={activity.actor} meta={activity.description || activity.action} side={formatDateTime(activity.created_at)} theme={theme} />
+            )) : <EmptyText text="No recent activity recorded." theme={theme} />}
+          </Section>
+        </>
+      ) : null}
       </View>
     </View>
   );
+}
+
+function Section({
+  title,
+  caption,
+  actionLabel,
+  onAction,
+  children,
+}: {
+  title: string;
+  caption?: string;
+  actionLabel?: string;
+  onAction?: () => void;
+  children: React.ReactNode;
+}) {
+  const { theme } = useAppTheme();
+  return (
+    <View style={styles.sectionBlock}>
+      <View style={styles.sectionHeader}>
+        <View style={styles.sectionTitleRow}>
+          <Text style={[styles.sectionTitle, { color: theme.text }]}>{title}</Text>
+          {actionLabel && onAction ? (
+            <Pressable onPress={onAction} hitSlop={8}>
+              <Text style={[styles.sectionAction, { color: theme.primary }]}>{actionLabel}</Text>
+            </Pressable>
+          ) : null}
+        </View>
+        {caption ? <Text style={[styles.sectionCaption, { color: theme.subText }]}>{caption}</Text> : null}
+      </View>
+      <View style={[styles.dividerList, { borderTopColor: theme.border }]}>{children}</View>
+    </View>
+  );
+}
+
+function ListRow({ title, meta, side, theme }: { title: string; meta: string; side: string; theme: MobileTheme }) {
+  return (
+    <View style={[styles.listRow, { borderBottomColor: theme.border }]}>
+      <View style={styles.listRowContent}>
+        <Text style={[styles.listTitle, { color: theme.text }]} numberOfLines={1}>{title}</Text>
+        <Text style={[styles.listMeta, { color: theme.subText }]} numberOfLines={1}>{meta}</Text>
+      </View>
+      <Text style={[styles.listSide, { color: theme.mutedText }]} numberOfLines={1}>{side}</Text>
+    </View>
+  );
+}
+
+function ProgressRow({ title, side, percent, theme }: { title: string; side: string; percent: number; theme: MobileTheme }) {
+  return (
+    <View style={[styles.progressRow, { borderBottomColor: theme.border }]}>
+      <View style={styles.progressHeader}>
+        <Text style={[styles.listTitle, { color: theme.text }]} numberOfLines={1}>{title}</Text>
+        <Text style={[styles.listSide, { color: theme.subText }]}>{side}</Text>
+      </View>
+      <View style={[styles.progressTrack, { backgroundColor: theme.cardMuted }]}>
+        <View style={[styles.progressFill, { backgroundColor: theme.primary, width: `${Math.max(0, Math.min(100, percent))}%` }]} />
+      </View>
+    </View>
+  );
+}
+
+function EmptyText({ text, theme }: { text: string; theme: MobileTheme }) {
+  return <Text style={[styles.emptyText, { color: theme.subText }]}>{text}</Text>;
+}
+
+function ChartPanel({ title, theme, children }: { title: string; theme: MobileTheme; children: React.ReactNode }) {
+  return (
+    <View style={[styles.chartPanel, { backgroundColor: theme.card, borderColor: theme.border }]}>
+      <Text style={[styles.chartTitle, { color: theme.text }]}>{title}</Text>
+      {children}
+    </View>
+  );
+}
+
+function StatChip({ label, value, color, theme }: { label: string; value: string; color: string; theme: MobileTheme }) {
+  return (
+    <View style={[styles.statChip, { backgroundColor: theme.cardMuted, borderColor: theme.border }]}>
+      <View style={[styles.statChipDot, { backgroundColor: color }]} />
+      <View style={styles.statChipText}>
+        <Text style={[styles.statChipLabel, { color: theme.subText }]}>{label}</Text>
+        <Text style={[styles.statChipValue, { color }]}>{value}</Text>
+      </View>
+    </View>
+  );
+}
+
+function StackedMeter({ items, theme }: { items: Array<{ value: number; color: string }>; theme: MobileTheme }) {
+  const total = Math.max(items.reduce((sum, item) => sum + Number(item.value || 0), 0), 1);
+  return (
+    <View style={[styles.stackedMeter, { backgroundColor: theme.cardMuted }]}>
+      {items.map((item, index) => (
+        <View
+          key={`${item.color}-${index}`}
+          style={[
+            styles.stackedMeterSegment,
+            {
+              backgroundColor: item.color,
+              flex: Math.max(Number(item.value || 0), 0) / total,
+            },
+          ]}
+        />
+      ))}
+    </View>
+  );
+}
+
+function VerticalBarChart({
+  rows,
+  max,
+  theme,
+  formatValue,
+}: {
+  rows: Array<{ label: string; value: number; color: string }>;
+  max: number;
+  theme: MobileTheme;
+  formatValue?: (value: number) => string;
+}) {
+  const safeMax = Math.max(max, ...rows.map((row) => Number(row.value || 0)), 1);
+  return (
+    <View style={styles.verticalChart}>
+      <View style={styles.verticalChartBars}>
+        {rows.map((row) => {
+          const height = row.value > 0 ? Math.max((row.value / safeMax) * 100, 10) : 0;
+          return (
+            <View key={row.label} style={styles.verticalChartItem}>
+              <Text style={[styles.verticalChartValue, { color: theme.subText }]} numberOfLines={1} adjustsFontSizeToFit>
+                {formatValue ? formatValue(row.value) : row.value}
+              </Text>
+              <View style={[styles.verticalBarTrack, { backgroundColor: theme.cardMuted }]}>
+                <View style={[styles.verticalBarFill, { backgroundColor: row.color, height: `${height}%` }]} />
+              </View>
+              <Text style={[styles.verticalChartLabel, { color: theme.mutedText }]} numberOfLines={1}>
+                {row.label}
+              </Text>
+            </View>
+          );
+        })}
+      </View>
+    </View>
+  );
+}
+
+function Legend({ items, theme }: { items: string[]; theme: MobileTheme }) {
+  return (
+    <View style={styles.legendRow}>
+      {items.map((item, index) => (
+        <View key={item} style={styles.legendItem}>
+          <View style={[styles.legendDot, index === 0 ? { backgroundColor: theme.info } : index === 1 ? { backgroundColor: theme.isDark ? "#c4b5fd" : "#7c3aed" } : { backgroundColor: theme.warning }]} />
+          <Text style={[styles.legendText, { color: theme.subText }]}>{item}</Text>
+        </View>
+      ))}
+    </View>
+  );
+}
+
+function Bar({ value, max, tone, theme }: { value: number; max: number; tone: "info" | "violet" | "success" | "danger" | "warning"; theme: MobileTheme }) {
+  const width = value > 0 ? Math.max((value / max) * 100, 8) : 0;
+  const backgroundColor =
+    tone === "info" ? theme.info :
+    tone === "violet" ? (theme.isDark ? "#c4b5fd" : "#7c3aed") :
+    tone === "success" ? theme.success :
+    tone === "danger" ? theme.danger :
+    theme.warning;
+  return (
+    <View style={[styles.progressTrack, { backgroundColor: theme.cardMuted }]}>
+      <View style={[styles.progressFill, { backgroundColor, width: `${width}%` }]} />
+    </View>
+  );
+}
+
+function barColorStyle(status: string, theme: MobileTheme) {
+  if (status === "paid") return { backgroundColor: theme.success };
+  if (status === "partial") return { backgroundColor: theme.warning };
+  return { backgroundColor: theme.danger };
 }
 
 let styles = createStyles(DEFAULT_MOBILE_THEME);
 
 function createStyles(theme: MobileTheme) {
 return StyleSheet.create({
-  container: {
-    gap: 14,
-    paddingHorizontal: 14,
-    paddingTop: 10,
-    paddingBottom: 120,
-  },
-  heroCard: {
-    borderRadius: 18,
-    paddingHorizontal: 0,
-    paddingVertical: 0,
-    gap: 8,
-  },
-  heroEyebrow: {
-    color: theme.subText,
-    fontSize: theme.typography.fontSize.sm,
-    fontWeight: theme.typography.fontWeight.bold,
-    textTransform: "uppercase",
-    letterSpacing: 0.6,
-  },
-  heroTitle: {
-    marginTop: 4,
-    color: theme.text,
-    fontSize: theme.typography.fontSize["2xl"],
-    fontWeight: theme.typography.fontWeight.extrabold,
-  },
-  heroText: {
-    marginTop: 6,
-    color: theme.subText,
-    lineHeight: theme.typography.lineHeight.normal,
-  },
-  grid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 10,
-  },
-  analyticsRow: {
-    gap: 14,
-  },
-  statCard: {
-    width: "48%",
-    borderWidth: 1,
-    borderRadius: 14,
-    padding: 12,
-  },
-  statLabel: {
-    color: theme.subText,
-    fontSize: theme.typography.fontSize.sm,
-  },
-  statValue: {
-    marginTop: 8,
-    fontSize: theme.typography.fontSize["3xl"],
-    fontWeight: theme.typography.fontWeight.extrabold,
-  },
-  statDescription: {
-    marginTop: 8,
-    color: theme.subText,
-    fontSize: theme.typography.fontSize.xs,
-    lineHeight: 16,
-  },
-  scopeCard: {
-    gap: 12,
-  },
-  scopeControl: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
-  },
-  scopeButton: {
-    borderWidth: 1,
-    borderRadius: 999,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-  },
-  scopeButtonText: {
-    fontSize: theme.typography.fontSize.sm,
-    fontWeight: theme.typography.fontWeight.bold,
-  },
-  sectionCard: {
-    borderWidth: 1,
-    borderColor: theme.border,
-    borderRadius: 16,
-    backgroundColor: theme.card,
-    padding: 14,
-    gap: 10,
-  },
-  sectionTitle: {
-    color: theme.text,
-    fontWeight: theme.typography.fontWeight.extrabold,
-    fontSize: theme.typography.fontSize.lg,
-  },
-  sectionCaption: {
-    color: theme.subText,
-    fontSize: theme.typography.fontSize.sm,
-    marginTop: -4,
-  },
-  analyticsCardWide: {
-    gap: 12,
-  },
-  analyticsCardNarrow: {
-    gap: 10,
-  },
-  attendanceRow: {
-    flexDirection: "row",
-    gap: 10,
-  },
-  attendanceCard: {
-    flex: 1,
-    borderWidth: 1,
-    borderColor: theme.border,
-    borderRadius: 12,
-    backgroundColor: theme.cardMuted,
-    padding: 12,
-  },
-  attendanceTitle: {
-    fontWeight: theme.typography.fontWeight.bold,
-    color: theme.text,
-    marginBottom: 8,
-  },
-  attendanceText: {
-    color: theme.subText,
-    marginBottom: 4,
-  },
-  trendStack: {
-    gap: 10,
-  },
-  trendRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-  },
-  trendLabelWrap: {
-    width: 36,
-  },
-  trendLabel: {
-    color: theme.subText,
-    fontSize: theme.typography.fontSize.sm,
-    fontWeight: theme.typography.fontWeight.bold,
-  },
-  trendBars: {
-    flex: 1,
-    gap: 5,
-  },
-  trendMetric: {
-    height: 8,
-    borderRadius: 999,
-    backgroundColor: theme.cardMuted,
-    overflow: "hidden",
-  },
-  trendBar: {
-    height: "100%",
-    borderRadius: 999,
-  },
-  trendBarPrimary: {
-    backgroundColor: theme.info,
-  },
-  trendBarSuccess: {
-    backgroundColor: theme.success,
-  },
-  trendBarDanger: {
-    backgroundColor: theme.danger,
-  },
-  trendBarWarning: {
-    backgroundColor: theme.warning,
-  },
-  trendBarViolet: {
-    backgroundColor: theme.isDark ? "#c4b5fd" : "#7c3aed",
-  },
-  trendValues: {
-    width: 82,
-    alignItems: "flex-end",
-  },
-  trendValue: {
-    color: theme.text,
-    fontSize: theme.typography.fontSize.sm,
-    fontWeight: theme.typography.fontWeight.bold,
-  },
-  trendSubValue: {
-    color: theme.subText,
-    fontSize: theme.typography.fontSize.xs,
-    marginTop: 2,
-  },
-  tripleTrendBars: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    height: 10,
-  },
-  tripleTrendSegment: {
-    height: "100%",
-    borderRadius: 999,
-  },
-  trendValueCompact: {
-    width: 96,
-    textAlign: "right",
-    color: theme.subText,
-    fontSize: theme.typography.fontSize.xs,
-    fontWeight: theme.typography.fontWeight.semibold,
-  },
-  feeStatusRow: {
-    borderTopWidth: 1,
-    borderTopColor: theme.border,
-    paddingTop: 10,
-    gap: 4,
-  },
-  feeStatusHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 12,
-  },
-  feeStatusLabelWrap: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-  },
-  feeStatusDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 999,
-  },
-  dotSuccess: {
-    backgroundColor: theme.success,
-  },
-  dotWarning: {
-    backgroundColor: theme.warning,
-  },
-  dotDanger: {
-    backgroundColor: theme.danger,
-  },
-  dotInfo: {
-    backgroundColor: theme.info,
-  },
-  dotViolet: {
-    backgroundColor: theme.isDark ? "#c4b5fd" : "#7c3aed",
-  },
-  feeStatusAmount: {
-    color: theme.text,
-    fontSize: theme.typography.fontSize.lg,
-    fontWeight: theme.typography.fontWeight.extrabold,
-  },
-  classBaseRow: {
-    gap: 8,
-  },
-  classBaseHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 12,
-  },
-  scopeMixRow: {
-    borderTopWidth: 1,
-    borderTopColor: theme.border,
-    paddingTop: 10,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 12,
-  },
-  scopeMixValue: {
-    fontSize: theme.typography.fontSize["2xl"],
-    fontWeight: theme.typography.fontWeight.extrabold,
-  },
-  listRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "flex-start",
-    gap: 12,
-    borderTopWidth: 1,
-    borderTopColor: theme.border,
-    paddingTop: 10,
-  },
-  listRowContent: {
-    flex: 1,
-    gap: 3,
-  },
-  listTitle: {
-    color: theme.text,
-    fontWeight: theme.typography.fontWeight.bold,
-  },
-  listMeta: {
-    color: theme.subText,
-    fontSize: theme.typography.fontSize.sm,
-    lineHeight: 18,
-  },
-  listDate: {
-    color: theme.subText,
-    fontSize: theme.typography.fontSize.sm,
-    fontWeight: theme.typography.fontWeight.semibold,
-    textAlign: "right",
-    maxWidth: 100,
-  },
-  activityRow: {
-    flexDirection: "row",
-    gap: 10,
-    borderTopWidth: 1,
-    borderTopColor: theme.border,
-    paddingTop: 10,
-  },
-  activityDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 999,
-    marginTop: 5,
-    backgroundColor: theme.info,
-  },
-  activityContent: {
-    flex: 1,
-    gap: 3,
-  },
-  activityTime: {
-    color: theme.mutedText,
-    fontSize: theme.typography.fontSize.xs,
-  },
-  presenceBadge: {
-    color: theme.success,
-    fontSize: theme.typography.fontSize.lg,
-    fontWeight: theme.typography.fontWeight.extrabold,
-    textAlign: "right",
-    maxWidth: 110,
-  },
-  classPresenceWrap: {
-    alignItems: "flex-end",
-    gap: 2,
-    minWidth: 74,
-  },
-  emptyText: {
-    color: theme.subText,
-  },
-  messageCard: {
-    borderWidth: 1,
-    borderColor: theme.border,
-    borderRadius: 16,
-    backgroundColor: theme.card,
-    padding: 16,
-    gap: 8,
-  },
-  messageTitle: {
-    color: theme.text,
-    fontWeight: theme.typography.fontWeight.bold,
-  },
-  messageText: {
-    color: theme.subText,
-  },
-  errorCard: {
-    borderColor: theme.dangerBorder,
-    backgroundColor: theme.dangerSoft,
-  },
-  errorTitle: {
-    color: theme.danger,
-    fontWeight: theme.typography.fontWeight.extrabold,
-  },
-  errorText: {
-    color: theme.danger,
-  },
-  retryButton: {
-    alignSelf: "flex-start",
-    borderRadius: 999,
-    backgroundColor: theme.danger,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-  },
-  retryButtonText: {
-    color: theme.primaryText,
-    fontWeight: theme.typography.fontWeight.bold,
-  },
-  secondaryGhostBtn: {
-    alignSelf: "flex-start",
-    marginTop: 2,
-    borderWidth: 1,
-    borderRadius: 999,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-  },
-  secondaryGhostBtnText: {
-    fontWeight: theme.typography.fontWeight.bold,
-    fontSize: theme.typography.fontSize.sm,
-  },
+  container: { gap: 12, paddingBottom: 118 },
+  contentBody: { gap: 12, paddingHorizontal: 16 },
+  dashboardHeader: { minHeight: 36, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10, paddingHorizontal: 14, paddingBottom: 8, borderBottomWidth: 1 },
+  dashboardTitleBlock: { minWidth: 0 },
+  dashboardActions: { flexDirection: "row", alignItems: "center", gap: 8 },
+  headerIconButton: { width: 38, height: 38, borderRadius: 19, borderWidth: 1, alignItems: "center", justifyContent: "center", position: "relative" },
+  headerBadge: { position: "absolute", top: -5, right: -5, minWidth: 17, height: 17, borderRadius: 9, paddingHorizontal: 4, alignItems: "center", justifyContent: "center" },
+  headerBadgeText: { color: "#ffffff", fontSize: 9, fontWeight: "800" },
+  topBlock: { gap: 10 },
+  heroTitle: { fontSize: 16, lineHeight: 20, fontWeight: "800", letterSpacing: 0.4 },
+  heroText: { fontSize: 12, lineHeight: 16, fontWeight: "400" },
+  scopeControl: { flexDirection: "row", gap: 6 },
+  scopeButton: { flex: 1, minHeight: 30, borderWidth: 1, borderRadius: 16, alignItems: "center", justifyContent: "center", paddingHorizontal: 8 },
+  scopeButtonText: { fontSize: 12, fontWeight: "700" },
+  tabBar: { flexDirection: "row", borderBottomWidth: 1 },
+  tabButton: { flex: 1, minHeight: 34, alignItems: "center", justifyContent: "center", borderBottomWidth: 2, borderBottomColor: "transparent" },
+  tabText: { fontSize: 12, fontWeight: "700" },
+  kpiGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
+  kpiCard: { width: "48%", borderRadius: 8, borderWidth: 1, padding: 12, minHeight: 82 },
+  kpiLabel: { fontSize: 12, fontWeight: "600" },
+  kpiValue: { marginTop: 3, fontSize: 22, lineHeight: 28, fontWeight: "600" },
+  kpiHint: { marginTop: 3, fontSize: 11, lineHeight: 15, fontWeight: "500" },
+  miniGrid: { flexDirection: "row", gap: 10 },
+  miniCard: { flex: 1, borderRadius: 8, borderWidth: 1, padding: 12, minHeight: 70 },
+  miniValue: { marginTop: 2, fontSize: 20, lineHeight: 26, fontWeight: "600" },
+  sectionBlock: { gap: 8 },
+  sectionHeader: { gap: 3 },
+  sectionTitleRow: { minHeight: 20, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
+  sectionTitle: { fontSize: 15, fontWeight: "800" },
+  sectionAction: { fontSize: 12, fontWeight: "700", textDecorationLine: "underline" },
+  sectionCaption: { fontSize: 12, lineHeight: 16 },
+  dividerList: { borderTopWidth: 1 },
+  chartPanel: { borderWidth: 1, borderRadius: 10, padding: 12, gap: 12 },
+  chartTitle: { fontSize: 13, fontWeight: "800" },
+  statChipGrid: { flexDirection: "row", gap: 8 },
+  statChip: { flex: 1, minHeight: 58, borderWidth: 1, borderRadius: 8, padding: 9, flexDirection: "row", alignItems: "center", gap: 8 },
+  statChipDot: { width: 8, height: 8, borderRadius: 4 },
+  statChipText: { flex: 1, minWidth: 0 },
+  statChipLabel: { fontSize: 10, fontWeight: "700" },
+  statChipValue: { marginTop: 2, fontSize: 15, fontWeight: "800" },
+  stackedMeter: { height: 12, borderRadius: 6, overflow: "hidden", flexDirection: "row" },
+  stackedMeterSegment: { height: "100%" },
+  verticalChart: { minHeight: 150 },
+  verticalChartBars: { height: 148, flexDirection: "row", alignItems: "flex-end", gap: 8 },
+  verticalChartItem: { flex: 1, minWidth: 0, height: "100%", alignItems: "center", justifyContent: "flex-end", gap: 5 },
+  verticalChartValue: { width: "100%", textAlign: "center", fontSize: 10, fontWeight: "700" },
+  verticalBarTrack: { width: "78%", maxWidth: 26, height: 92, borderRadius: 7, overflow: "hidden", justifyContent: "flex-end" },
+  verticalBarFill: { width: "100%", borderTopLeftRadius: 7, borderTopRightRadius: 7 },
+  verticalChartLabel: { width: "100%", textAlign: "center", fontSize: 10, fontWeight: "700" },
+  listRow: { minHeight: 54, paddingVertical: 10, borderBottomWidth: 1, flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 10 },
+  listRowContent: { flex: 1, minWidth: 0, gap: 3 },
+  listTitle: { fontSize: 13, fontWeight: "700" },
+  listMeta: { fontSize: 12, lineHeight: 16, fontWeight: "500" },
+  listSide: { maxWidth: 86, textAlign: "right", fontSize: 11, fontWeight: "600" },
+  legendRow: { flexDirection: "row", flexWrap: "wrap", gap: 12, paddingTop: 2 },
+  legendItem: { flexDirection: "row", alignItems: "center", gap: 5 },
+  legendDot: { width: 8, height: 8, borderRadius: 2 },
+  legendText: { fontSize: 11, fontWeight: "600" },
+  metricRow: { flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 5 },
+  metricLabel: { width: 34, fontSize: 11, fontWeight: "700" },
+  metricBars: { flex: 1, gap: 4 },
+  metricValue: { width: 74, textAlign: "right", fontSize: 11, fontWeight: "700" },
+  progressRow: { paddingVertical: 10, borderBottomWidth: 1, gap: 6 },
+  progressHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 },
+  progressTrack: { height: 6, borderRadius: 3, overflow: "hidden" },
+  progressFill: { height: "100%", borderRadius: 3 },
+  exposureBar: { height: 14, borderRadius: 7, overflow: "hidden", flexDirection: "row" },
+  exposureSegment: { height: "100%" },
+  feeLine: { paddingVertical: 9, borderBottomWidth: 1, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 },
+  dotLabel: { flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center", gap: 7 },
+  dot: { width: 8, height: 8, borderRadius: 4 },
+  secondaryButton: { alignSelf: "flex-start", borderWidth: 1, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 8 },
+  secondaryButtonText: { fontSize: 12, fontWeight: "700" },
+  emptyText: { paddingVertical: 12, fontSize: 12, fontWeight: "600" },
+  messageCard: { margin: 14, borderWidth: 1, borderRadius: 16, padding: 16, gap: 8 },
+  messageTitle: { fontWeight: "800", fontSize: 15 },
+  messageText: { fontSize: 13, lineHeight: 18 },
+  retryButton: { alignSelf: "flex-start", borderRadius: 12, paddingHorizontal: 12, paddingVertical: 8 },
+  retryButtonText: { fontSize: 12, fontWeight: "800" },
 });
 }

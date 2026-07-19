@@ -4,6 +4,26 @@ import { publishNotificationEvent } from "./notification.realtime.js";
 import { sendPushNotifications } from "./notification.push.js";
 import AppError from "../../core/errors/AppError.js";
 
+const CATEGORY_BY_TYPE = {
+  message: "message",
+  student_attendance_absent: "attendance",
+  fee_overdue: "fee",
+  fee_due: "fee",
+  payment_received: "fee",
+  marksheet_published: "marksheet",
+  marks_rejected: "marksheet",
+  account_security: "account",
+};
+
+const ALLOWED_CATEGORIES = new Set([
+  "message",
+  "attendance",
+  "marksheet",
+  "fee",
+  "account",
+  "system",
+]);
+
 function normalizeUserIds(input) {
   if (Array.isArray(input)) {
     return [...new Set(input.map((value) => Number(value)).filter(Boolean))];
@@ -13,14 +33,42 @@ function normalizeUserIds(input) {
   return single ? [single] : [];
 }
 
+function normalizeCategory(payload = {}) {
+  const explicit = String(payload.category || "").trim().toLowerCase();
+  if (ALLOWED_CATEGORIES.has(explicit)) return explicit;
+
+  const type = String(payload.type || "").trim().toLowerCase();
+  if (CATEGORY_BY_TYPE[type]) return CATEGORY_BY_TYPE[type];
+  if (type.startsWith("student_attendance")) return "attendance";
+  if (type.startsWith("marks") || type.startsWith("marksheet")) return "marksheet";
+  if (type.startsWith("fee") || type.startsWith("payment")) return "fee";
+  if (type.startsWith("account") || type.startsWith("security") || type.startsWith("otp")) return "account";
+  return "system";
+}
+
+function normalizeNotificationPayload(data = {}) {
+  return {
+    ...data,
+    category: normalizeCategory(data),
+    type: String(data.type || "general").trim() || "general",
+    title: String(data.title || "").trim(),
+    body: String(data.body || "").trim(),
+    actionUrl: data.actionUrl || data.action_url || null,
+    deepLink: data.deepLink || data.deep_link || null,
+  };
+}
+
 function buildRealtimePayload(payload = {}) {
   return {
     event: "notification:new",
+    category: payload.category || normalizeCategory(payload),
     type: payload.type || "general",
     entityType: payload.entityType || null,
     entityId: payload.entityId || null,
     title: payload.title,
     body: payload.body,
+    actionUrl: payload.actionUrl || null,
+    deepLink: payload.deepLink || null,
     created_at: new Date().toISOString(),
   };
 }
@@ -36,8 +84,9 @@ function isMissingNotificationDevicesTable(err) {
 export async function dispatchNotificationUpdate(userIds = [], payload = {}) {
   const normalizedUserIds = normalizeUserIds(userIds);
   if (!normalizedUserIds.length) return;
+  const normalizedPayload = normalizeNotificationPayload(payload);
 
-  publishNotificationEvent(normalizedUserIds, buildRealtimePayload(payload));
+  publishNotificationEvent(normalizedUserIds, buildRealtimePayload(normalizedPayload));
 
   const conn = await pool.getConnection();
   try {
@@ -53,7 +102,7 @@ export async function dispatchNotificationUpdate(userIds = [], payload = {}) {
       }
       throw err;
     }
-    await sendPushNotifications(devices, payload);
+    await sendPushNotifications(devices, normalizedPayload);
   } finally {
     conn.release();
   }
@@ -65,22 +114,30 @@ export async function notify(data){
     throw new AppError("Notification target user is required", 400);
   }
 
+  const payload = normalizeNotificationPayload(data);
+  if (!payload.title || !payload.body) {
+    throw new AppError("Notification title and body are required", 400);
+  }
+
   const conn = await pool.getConnection();
 
   try{
     await conn.beginTransaction();
 
+    let notificationIds = [];
     if(Array.isArray(data.userIds)){
-      await repo.createBulk(conn,targetUserIds,data);
+      notificationIds = await repo.createBulk(conn,targetUserIds,payload);
     }else{
-      await repo.createNotification(conn,{
-        ...data,
+      const notificationId = await repo.createNotification(conn,{
+        ...payload,
         userId: targetUserIds[0],
       });
+      notificationIds = [notificationId];
     }
 
     await conn.commit();
-    await dispatchNotificationUpdate(targetUserIds, data);
+    await dispatchNotificationUpdate(targetUserIds, payload);
+    return { notification_ids: notificationIds };
 
   }catch(err){
     await conn.rollback();

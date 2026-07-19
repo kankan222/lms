@@ -10,8 +10,22 @@ import {
   TextInput,
   View,
 } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 import { useAuthStore } from "../../store/authStore";
 import { changeMyPassword, getMyAccount, type AccountProfile } from "../../services/usersService";
+import {
+  disablePushNotifications,
+  enablePushNotifications,
+  getPushPreference,
+} from "../../services/pushNotificationService";
+import {
+  checkAppUpdate,
+  notifyAppUpdateAvailable,
+  openAppUpdate,
+  showAppUpdatePrompt,
+  type AppUpdateInfo,
+} from "../../services/appUpdateService";
+import { MOBILE_APP_VERSION } from "../../constants/appVersion";
 import { formatDateLabel } from "../../utils/format";
 import TopNotice from "../../components/feedback/TopNotice";
 import { useAppTheme } from "../../theme/AppThemeProvider";
@@ -52,12 +66,31 @@ function SectionCard({
   );
 }
 
-function InfoRow({ label, value }: { label: string; value: string }) {
+function ProfileBadge({ label }: { label: string }) {
   const { theme } = useAppTheme();
   return (
-    <View style={[styles.infoRow, { borderColor: theme.border, backgroundColor: theme.cardMuted }]}>
+    <View style={[styles.profileBadge, { backgroundColor: theme.successSoft, borderColor: theme.successBorder }]}>
+      <Text style={[styles.profileBadgeText, { color: theme.success }]} numberOfLines={1}>{label}</Text>
+    </View>
+  );
+}
+
+function DetailIcon({ name }: { name: keyof typeof Ionicons.glyphMap }) {
+  const { theme } = useAppTheme();
+  return (
+    <View style={[styles.detailIcon, { backgroundColor: theme.successSoft, borderColor: theme.successBorder }]}>
+      <Ionicons name={name} size={18} color={theme.success} />
+    </View>
+  );
+}
+
+function InfoRow({ label, value, icon }: { label: string; value: string; icon: keyof typeof Ionicons.glyphMap }) {
+  const { theme } = useAppTheme();
+  return (
+    <View style={[styles.infoRow, { borderColor: theme.border }]}>
+      <DetailIcon name={icon} />
       <Text style={[styles.infoLabel, { color: theme.subText }]}>{label}</Text>
-      <Text style={[styles.infoValue, { color: theme.text }]}>{value}</Text>
+      <Text style={[styles.infoValue, { color: theme.text }]} numberOfLines={2}>{value}</Text>
     </View>
   );
 }
@@ -67,12 +100,19 @@ export default function ProfileTab() {
   const user = useAuthStore((state) => state.user);
   const logout = useAuthStore((state) => state.logout);
   const isSuperAdmin = Array.isArray(user?.roles) && user.roles.includes("super_admin");
+  const canReceivePush =
+    isSuperAdmin || (Array.isArray(user?.permissions) && user.permissions.includes("notifications.push.receive"));
 
   const [account, setAccount] = useState<AccountProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [passwordOpen, setPasswordOpen] = useState(false);
   const [passwordSaving, setPasswordSaving] = useState(false);
+  const [pushEnabled, setPushEnabled] = useState<boolean | null>(null);
+  const [pushSaving, setPushSaving] = useState(false);
+  const [updateInfo, setUpdateInfo] = useState<AppUpdateInfo | null>(null);
+  const [checkingUpdate, setCheckingUpdate] = useState(false);
+  const [notifyingUpdate, setNotifyingUpdate] = useState(false);
   const [passwordForm, setPasswordForm] = useState({
     current_password: "",
     new_password: "",
@@ -82,10 +122,34 @@ export default function ProfileTab() {
     message: string;
     tone: NoticeTone;
   } | null>(null);
+  const displayName = account?.name || user?.name || "-";
+  const displayUsername = account?.username || "-";
+  const displayRoles = account?.roles || user?.roles || [];
+  const profileInitial = String(displayName || "P").slice(0, 1).toUpperCase();
 
   useEffect(() => {
     loadAccount();
   }, []);
+
+  useEffect(() => {
+    if (!canReceivePush) {
+      setPushEnabled(null);
+      return;
+    }
+
+    let active = true;
+    getPushPreference()
+      .then((value) => {
+        if (active) setPushEnabled(value !== false);
+      })
+      .catch(() => {
+        if (active) setPushEnabled(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [canReceivePush]);
 
   useEffect(() => {
     if (!notice) return undefined;
@@ -142,6 +206,91 @@ export default function ProfileTab() {
     }
   }
 
+  async function togglePushNotifications() {
+    if (!canReceivePush || pushSaving) return;
+    setPushSaving(true);
+    try {
+      const nextEnabled = !pushEnabled;
+      if (nextEnabled) {
+        const enabled = await enablePushNotifications(user);
+        setPushEnabled(enabled);
+        setNotice({
+          title: enabled ? "Notifications Enabled" : "Permission Needed",
+          message: enabled
+            ? "Push notifications are enabled for this device."
+            : "Allow notifications from your device settings to receive push alerts.",
+          tone: enabled ? "success" : "error",
+        });
+      } else {
+        await disablePushNotifications();
+        setPushEnabled(false);
+        setNotice({
+          title: "Notifications Disabled",
+          message: "Push notifications are disabled on this device. The in-app inbox remains available.",
+          tone: "success",
+        });
+      }
+    } catch (err: unknown) {
+      setNotice({
+        title: "Update Failed",
+        message: getErrorMessage(err, "Failed to update push notification settings."),
+        tone: "error",
+      });
+    } finally {
+      setPushSaving(false);
+    }
+  }
+
+  async function handleCheckUpdate() {
+    setCheckingUpdate(true);
+    try {
+      const info = await checkAppUpdate();
+      setUpdateInfo(info);
+      if (info?.update_available) {
+        showAppUpdatePrompt(info, { force: true });
+      } else {
+        setNotice({
+          title: "App Is Current",
+          message: `You are using version ${MOBILE_APP_VERSION}.`,
+          tone: "success",
+        });
+      }
+    } catch (err: unknown) {
+      setNotice({
+        title: "Update Check Failed",
+        message: getErrorMessage(err, "Could not check for app updates."),
+        tone: "error",
+      });
+    } finally {
+      setCheckingUpdate(false);
+    }
+  }
+
+  async function handleOpenUpdate() {
+    await openAppUpdate(updateInfo);
+  }
+
+  async function handleNotifyUpdate() {
+    if (!isSuperAdmin || notifyingUpdate) return;
+    setNotifyingUpdate(true);
+    try {
+      const result = await notifyAppUpdateAvailable();
+      setNotice({
+        title: "Notification Sent",
+        message: `App update notification sent to ${result.notified} users.`,
+        tone: "success",
+      });
+    } catch (err: unknown) {
+      setNotice({
+        title: "Notification Failed",
+        message: getErrorMessage(err, "Could not notify users about the app update."),
+        tone: "error",
+      });
+    } finally {
+      setNotifyingUpdate(false);
+    }
+  }
+
   return (
     <View style={styles.screen}>
       <TopNotice notice={notice} style={styles.topNoticeOverlay} />
@@ -151,12 +300,18 @@ export default function ProfileTab() {
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.innerContent}>
-      <View style={styles.heroCard}>
-        <Text style={[styles.heroEyebrow, { color: theme.subText }]}>Overview</Text>
-        <Text style={[styles.heroTitle, { color: theme.text }]}>My Profile</Text>
-        <Text style={[styles.heroSubtitle, { color: theme.subText }]}>
-          View your account details, update your password, and manage account security.
-        </Text>
+      <View style={[styles.heroCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+        <View style={[styles.avatarBadge, { backgroundColor: theme.successSoft, borderColor: theme.successBorder }]}>
+          <Text style={[styles.avatarText, { color: theme.success }]}>{profileInitial}</Text>
+        </View>
+        <View style={styles.heroCopy}>
+          <Text style={[styles.heroTitle, { color: theme.subText }]} numberOfLines={1}>My Profile</Text>
+          <Text style={[styles.profileName, { color: theme.text }]} numberOfLines={1}>{displayName}</Text>
+          <Text style={[styles.heroSubtitle, { color: theme.subText }]} numberOfLines={1}>{displayUsername}</Text>
+          <View style={styles.profileBadgeRow}>
+            {displayRoles.length ? displayRoles.map((role) => <ProfileBadge key={role} label={role.replace(/_/g, " ")} />) : <ProfileBadge label="user" />}
+          </View>
+        </View>
       </View>
 
       <SectionCard title="Account Information" hint={account?.status || "-"}>
@@ -164,12 +319,12 @@ export default function ProfileTab() {
           <ActivityIndicator size="small" color={theme.text} />
         ) : (
           <>
-            <InfoRow label="Name" value={account?.name || user?.name || "-"} />
-            <InfoRow label="Username" value={account?.username || "-"} />
-            <InfoRow label="Email" value={account?.email || user?.email || "-"} />
-            <InfoRow label="Phone" value={account?.phone || "-"} />
-            <InfoRow label="Roles" value={(account?.roles || user?.roles || []).join(", ") || "-"} />
-            <InfoRow label="Created" value={formatDateLabel(account?.created_at)} />
+            <InfoRow label="Name" value={displayName} icon="person-outline" />
+            <InfoRow label="Username" value={account?.username || "-"} icon="at-outline" />
+            <InfoRow label="Email" value={account?.email || user?.email || "-"} icon="mail-outline" />
+            <InfoRow label="Phone" value={account?.phone || "-"} icon="call-outline" />
+            <InfoRow label="Roles" value={displayRoles.join(", ") || "-"} icon="shield-checkmark-outline" />
+            <InfoRow label="Created" value={formatDateLabel(account?.created_at)} icon="calendar-outline" />
           </>
         )}
       </SectionCard>
@@ -191,6 +346,82 @@ export default function ProfileTab() {
             <Text style={[styles.deleteBtnText, { color: theme.danger }]}>Logout</Text>
           </Pressable>
         </View>
+      </SectionCard>
+
+      {canReceivePush ? (
+        <SectionCard title="Notifications" hint={pushEnabled ? "Push On" : "Push Off"}>
+          <View style={styles.pushRow}>
+            <View style={styles.pushCopy}>
+              <Text style={[styles.pushTitle, { color: theme.text }]}>Push Notifications</Text>
+              <Text style={[styles.muted, { color: theme.subText }]}>
+                Receive message, attendance, marksheet, fee, account, and system alerts on this device.
+              </Text>
+            </View>
+            <Pressable
+              style={[
+                styles.toggle,
+                {
+                  borderColor: pushEnabled ? theme.success : theme.border,
+                  backgroundColor: pushEnabled ? theme.success : theme.cardMuted,
+                  opacity: pushSaving ? 0.65 : 1,
+                },
+              ]}
+              onPress={togglePushNotifications}
+              disabled={pushSaving}
+            >
+              <View
+                style={[
+                  styles.toggleKnob,
+                  {
+                    backgroundColor: pushEnabled ? theme.successText : theme.subText,
+                    transform: [{ translateX: pushEnabled ? 18 : 0 }],
+                  },
+                ]}
+              />
+            </Pressable>
+          </View>
+        </SectionCard>
+      ) : null}
+
+      <SectionCard
+        title="App Updates"
+        hint={updateInfo?.update_available ? (updateInfo.required ? "Required" : "Available") : `v${MOBILE_APP_VERSION}`}
+      >
+        <View style={styles.pushRow}>
+          <View style={styles.pushCopy}>
+            <Text style={[styles.pushTitle, { color: theme.text }]}>Installed Version</Text>
+            <Text style={[styles.muted, { color: theme.subText }]}>
+              {updateInfo
+                ? `Latest version ${updateInfo.latest_version}${updateInfo.latest_build ? ` (${updateInfo.latest_build})` : ""}`
+                : `Current version ${MOBILE_APP_VERSION}`}
+            </Text>
+          </View>
+          <Pressable
+            style={[styles.compactPrimaryBtn, { backgroundColor: theme.primary, opacity: checkingUpdate ? 0.65 : 1 }]}
+            onPress={handleCheckUpdate}
+            disabled={checkingUpdate}
+          >
+            <Text style={[styles.primaryBtnText, { color: theme.primaryText }]}>
+              {checkingUpdate ? "Checking..." : "Check"}
+            </Text>
+          </Pressable>
+        </View>
+        {updateInfo?.update_available ? (
+          <Pressable style={[styles.secondaryBtn, { borderColor: theme.successBorder, backgroundColor: theme.successSoft }]} onPress={handleOpenUpdate}>
+            <Text style={[styles.secondaryBtnText, { color: theme.success }]}>Update App</Text>
+          </Pressable>
+        ) : null}
+        {isSuperAdmin ? (
+          <Pressable
+            style={[styles.secondaryBtn, { borderColor: theme.border, backgroundColor: theme.cardMuted, opacity: notifyingUpdate ? 0.65 : 1 }]}
+            onPress={handleNotifyUpdate}
+            disabled={notifyingUpdate}
+          >
+            <Text style={[styles.secondaryBtnText, { color: theme.text }]}>
+              {notifyingUpdate ? "Sending..." : "Notify Users About Update"}
+            </Text>
+          </Pressable>
+        ) : null}
       </SectionCard>
 
       <Modal visible={isSuperAdmin && passwordOpen} transparent animationType="slide" onRequestClose={() => setPasswordOpen(false)}>
@@ -268,9 +499,17 @@ const styles = StyleSheet.create({
     zIndex: 20,
   },
   heroCard: {
-    borderRadius: 24,
-    paddingVertical: 0,
-    gap: 6,
+    borderWidth: 1,
+    borderRadius: 22,
+    padding: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  heroCopy: {
+    flex: 1,
+    minWidth: 0,
+    gap: 4,
   },
   heroEyebrow: {
     fontSize: 12,
@@ -279,11 +518,47 @@ const styles = StyleSheet.create({
     letterSpacing: 0.6,
   },
   heroTitle: {
+    fontWeight: "700",
+    fontSize: 12,
+  },
+  profileName: {
+    fontSize: 16,
     fontWeight: "800",
-    fontSize: 22,
   },
   heroSubtitle: {
+    fontSize: 12,
     lineHeight: 20,
+  },
+  avatarBadge: {
+    width: 56,
+    height: 56,
+    borderRadius: 18,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  avatarText: {
+    fontSize: 20,
+    fontWeight: "800",
+  },
+  profileBadgeRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 7,
+    marginTop: 2,
+  },
+  profileBadge: {
+    maxWidth: "100%",
+    borderWidth: 1,
+    borderRadius: 9,
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+  },
+  profileBadgeText: {
+    fontSize: 12,
+    lineHeight: 15,
+    fontWeight: "700",
+    textTransform: "capitalize",
   },
   noticeCard: {
     borderWidth: 1,
@@ -327,25 +602,63 @@ const styles = StyleSheet.create({
     fontSize: 12,
   },
   infoRow: {
-    gap: 4,
-    borderWidth: 1,
-    borderRadius: 14,
-    paddingHorizontal: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
     paddingVertical: 10,
+  },
+  detailIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 10,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
   },
   infoLabel: {
     fontSize: 12,
-    textTransform: "uppercase",
     fontWeight: "700",
+    flex: 1,
   },
   infoValue: {
-    fontWeight: "600",
+    fontWeight: "800",
+    flexShrink: 1,
+    maxWidth: "48%",
+    textAlign: "right",
   },
   actionRow: {
     flexDirection: "row",
     alignItems: "stretch",
     gap: 10,
     marginTop: 4,
+  },
+  pushRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  pushCopy: {
+    flex: 1,
+    minWidth: 0,
+    gap: 4,
+  },
+  pushTitle: {
+    fontSize: 14,
+    fontWeight: "800",
+  },
+  toggle: {
+    width: 48,
+    height: 28,
+    borderRadius: 14,
+    borderWidth: 1,
+    padding: 3,
+    justifyContent: "center",
+  },
+  toggleKnob: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
   },
   input: {
     borderWidth: 1,
@@ -365,6 +678,14 @@ const styles = StyleSheet.create({
   primaryBtnText: {
     color: "#ffffff",
     fontWeight: "700",
+  },
+  compactPrimaryBtn: {
+    minHeight: 40,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
   },
   secondaryBtn: {
     flex: 1,

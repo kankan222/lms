@@ -30,7 +30,7 @@ import {
   useAudioRecorder,
   useAudioRecorderState,
 } from "expo-audio";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import TopNotice from "../../components/feedback/TopNotice";
 import SelectField from "../../components/form/SelectField";
 import type { RootStackParamList } from "../../navigation/AppNavigator";
@@ -39,6 +39,7 @@ import { useAuthStore } from "../../store/authStore";
 import { useAppTheme } from "../../theme/AppThemeProvider";
 import { ENV } from "../../constants/env";
 import {
+  deleteConversation,
   deleteMessage,
   editMessage,
   getAttachmentAccess,
@@ -80,6 +81,7 @@ export type ParentConversationIntent = {
 
 type Notice = { title: string; message: string; tone: "success" | "error" } | null;
 type Screen = "list" | "chat";
+type ConversationFilter = "all" | "unread" | "direct" | "parents" | "teachers" | "class" | "section" | "broadcast";
 type Compose = {
   target_type: "direct" | "parent" | "teacher" | "class" | "section" | "broadcast" | "all_classes" | "all_sections" | "all_parents" | "all_teachers";
   recipient_user_id: string;
@@ -116,9 +118,11 @@ const DEFAULT_THEME = {
   inputBg: "#ffffff",
   overlay: "rgba(15, 23, 42, 0.28)",
   icon: "#334155",
-  primary: "#0f172a",
+  primary: "#f9735b",
   primaryText: "#ffffff",
-  success: "#15803d",
+  success: "#f9735b",
+  successSoft: "#fff1ed",
+  successBorder: "#fed7d0",
   successText: "#ffffff",
 };
 let styles = createStyles(DEFAULT_THEME);
@@ -151,6 +155,33 @@ function presenceText(conversation?: ConversationItem | null) {
   return `Last seen ${formatDateLabel(conversation.last_seen_at)} ${formatTimeLabel(conversation.last_seen_at)}`;
 }
 
+function conversationMatchesFilter(
+  conversation: ConversationItem,
+  filter: ConversationFilter,
+  parentUserIds: Set<number> = new Set(),
+  teacherUserIds: Set<number> = new Set(),
+) {
+  const name = String(conversation.name || "").toLowerCase();
+  const otherUserId = Number(conversation.other_user_id) || null;
+  if (filter === "all") return true;
+  if (filter === "unread") return Number(conversation.unread || 0) > 0;
+  if (filter === "direct") return conversation.type === "direct";
+  if (filter === "class") return conversation.type === "class" || name.includes("class");
+  if (filter === "section") return conversation.type === "section" || name.includes("section");
+  if (filter === "parents") return name.includes("parent") || (otherUserId !== null && parentUserIds.has(otherUserId));
+  if (filter === "teachers") return name.includes("teacher") || (otherUserId !== null && teacherUserIds.has(otherUserId));
+  if (filter === "broadcast") {
+    return (
+      conversation.type === "broadcast" &&
+      !name.includes("parent") &&
+      !name.includes("teacher") &&
+      !name.includes("class") &&
+      !name.includes("section")
+    );
+  }
+  return true;
+}
+
 function isGroupTargetType(value: Compose["target_type"]) {
   return (GROUP_TARGET_TYPES as readonly string[]).includes(value);
 }
@@ -166,32 +197,47 @@ function audienceIcon(value: Compose["target_type"]): keyof typeof Ionicons.glyp
   return "chatbubble-ellipses-outline";
 }
 
-function Avatar({ label, online, imageUrl }: { label?: string | null; online?: boolean; imageUrl?: string | null }) {
-  const { theme, isDark } = useAppTheme();
+function Avatar({
+  label,
+  online,
+  imageUrl,
+  size = "regular",
+}: {
+  label?: string | null;
+  online?: boolean;
+  imageUrl?: string | null;
+  size?: "regular" | "large";
+}) {
+  const { theme } = useAppTheme();
   const resolvedImage = resolveMediaUrl(imageUrl);
+  const large = size === "large";
   return (
-    <View style={styles.avatarWrap}>
+    <View style={large ? styles.avatarWrapLarge : styles.avatarWrap}>
       <View
         style={[
-          styles.avatarCircle,
+          large ? styles.avatarCircleLarge : styles.avatarCircle,
           {
-            backgroundColor: isDark ? theme.cardMuted : theme.primary,
+            backgroundColor: "#334155",
+            borderColor: theme.border,
           },
         ]}
       >
         {resolvedImage ? (
-          <Image source={{ uri: resolvedImage }} style={styles.avatarImage} />
+          <Image source={{ uri: resolvedImage }} style={large ? styles.avatarImageLarge : styles.avatarImage} />
         ) : (
-          <Text style={[styles.avatarText, { color: isDark ? theme.text : theme.primaryText }]}>{firstLetter(label)}</Text>
+          <Text style={[large ? styles.avatarTextLarge : styles.avatarText, { color: "#f8fafc" }]}>{firstLetter(label)}</Text>
         )}
       </View>
-      <View style={[styles.presenceDot, online ? styles.presenceOnline : styles.presenceOffline]} />
+      <View style={[large ? styles.presenceDotLarge : styles.presenceDot, online ? styles.presenceOnline : styles.presenceOffline]} />
     </View>
   );
 }
 
 function MessageAttachmentView({ attachment }: { attachment: MessageAttachment }) {
   const { theme } = useAppTheme();
+  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+  const brightText = "#f8fafc";
+  const brightMeta = "#cbd5e1";
   const [url, setUrl] = useState<string | null>(null);
   const player = useAudioPlayer(attachment.category === "voice" ? url : null, {
     updateInterval: 250,
@@ -231,8 +277,11 @@ function MessageAttachmentView({ attachment }: { attachment: MessageAttachment }
 
   if (attachment.category === "image") {
     return (
-      <Pressable onPress={() => void Linking.openURL(url)}>
-        <Image source={{ uri: url }} style={styles.messageImage} resizeMode="contain" />
+      <Pressable
+        style={styles.mediaPressable}
+        onPress={() => navigation.navigate("MessagingPhotoPreview", { uri: url, title: attachment.original_name || "Photo" })}
+      >
+        <Image source={{ uri: url }} style={styles.messageImage} resizeMode="cover" />
       </Pressable>
     );
   }
@@ -240,42 +289,56 @@ function MessageAttachmentView({ attachment }: { attachment: MessageAttachment }
   if (attachment.category === "voice") {
     const duration = Math.max(playerStatus.duration || 0, 0);
     const current = Math.max(playerStatus.currentTime || 0, 0);
+    const progress = duration > 0 ? Math.min(1, current / duration) : 0;
     return (
-      <View style={[styles.voiceCard, { borderColor: theme.border, backgroundColor: theme.inputBg }]}>
-        <Pressable onPress={() => void toggleVoicePlayback()}>
-          <Ionicons name={playerStatus.playing ? "pause" : "play"} size={20} color={theme.icon} />
+      <View style={styles.voiceInline}>
+        <Pressable style={styles.voicePlayBtn} onPress={() => void toggleVoicePlayback()}>
+          <Ionicons name={playerStatus.playing ? "pause" : "play"} size={15} color={theme.successText} />
         </Pressable>
-        <Pressable onPress={() => void player.seekTo(Math.max(0, current - 10))}>
-          <Text style={[styles.voiceAction, { color: theme.text }]}>-10</Text>
-        </Pressable>
-        <Text style={[styles.voiceTime, { color: theme.subText }]}>
-          {Math.floor(current / 60)}:{String(Math.floor(current % 60)).padStart(2, "0")} / {Math.floor(duration / 60)}:{String(Math.floor(duration % 60)).padStart(2, "0")}
-        </Text>
-        <Pressable onPress={() => void player.seekTo(Math.min(duration, current + 10))}>
-          <Text style={[styles.voiceAction, { color: theme.text }]}>+10</Text>
-        </Pressable>
-        <Pressable
-          onPress={() => {
-            const next = speed === 1 ? 1.5 : speed === 1.5 ? 2 : 1;
-            setSpeed(next);
-            player.setPlaybackRate(next);
-          }}
-        >
-          <Text style={[styles.voiceAction, { color: theme.text }]}>{speed}x</Text>
-        </Pressable>
+        <View style={styles.voiceBody}>
+          <View style={styles.voiceWave}>
+            {Array.from({ length: 18 }).map((_, index) => (
+              <View
+                key={index}
+                style={[
+                  styles.voiceBar,
+                  {
+                    height: 8 + ((index * 7) % 18),
+                    backgroundColor: index / 18 <= progress ? brightText : brightMeta,
+                    opacity: index / 18 <= progress ? 1 : 0.45,
+                  },
+                ]}
+              />
+            ))}
+          </View>
+        </View>
+        <View style={styles.voiceSideMeta}>
+          <Text style={[styles.voiceTime, { color: brightMeta }]}>
+            {Math.floor(current / 60)}:{String(Math.floor(current % 60)).padStart(2, "0")}
+          </Text>
+          <Pressable
+            style={styles.voiceSpeedBtn}
+            onPress={() => {
+              const next = speed === 1 ? 1.5 : speed === 1.5 ? 2 : 1;
+              setSpeed(next);
+              player.setPlaybackRate(next);
+            }}
+          >
+            <Text style={[styles.voiceAction, { color: brightText }]}>{speed}x</Text>
+          </Pressable>
+        </View>
       </View>
     );
   }
 
   return (
-    <Pressable
-      style={[styles.fileCard, { borderColor: theme.border, backgroundColor: theme.inputBg }]}
-      onPress={() => void Linking.openURL(url)}
-    >
-      <Ionicons name="document-attach-outline" size={20} color={theme.icon} />
-      <View style={{ flex: 1 }}>
-        <Text style={[styles.fileName, { color: theme.text }]} numberOfLines={1}>{attachment.original_name}</Text>
-        <Text style={[styles.fileMeta, { color: theme.subText }]}>{Math.ceil(Number(attachment.file_size || 0) / 1024)} KB</Text>
+    <Pressable style={styles.fileInline} onPress={() => void Linking.openURL(url)}>
+      <View style={styles.fileIconWrap}>
+        <Ionicons name="document-attach-outline" size={20} color={brightText} />
+      </View>
+      <View style={styles.fileTextWrap}>
+        <Text style={[styles.fileName, { color: brightText }]} numberOfLines={1}>{attachment.original_name}</Text>
+        <Text style={[styles.fileMeta, { color: brightMeta }]}>{Math.ceil(Number(attachment.file_size || 0) / 1024)} KB</Text>
       </View>
     </Pressable>
   );
@@ -324,14 +387,21 @@ export default function MessagingTab({
   styles = useMemo(() => createStyles(theme), [theme]);
   const insets = useSafeAreaInsets();
   const user = useAuthStore((state) => state.user);
-  const isSuperAdmin = Array.isArray(user?.roles) && user.roles.includes("super_admin");
+  const roles = Array.isArray(user?.roles) ? user.roles : [];
+  const permissions = Array.isArray(user?.permissions) ? user.permissions : [];
+  const isSuperAdmin = roles.includes("super_admin");
+  const isParentOrTeacher = !isSuperAdmin && (roles.includes("parent") || roles.includes("teacher"));
+  const canSendMessages = !isParentOrTeacher && (isSuperAdmin || permissions.includes("messages.send"));
 
   const [screen, setScreen] = useState<Screen>("list");
   const [conversations, setConversations] = useState<ConversationItem[]>([]);
+  const [selectedConversationIds, setSelectedConversationIds] = useState<number[]>([]);
+  const [failedMessageIds, setFailedMessageIds] = useState<number[]>([]);
   const [messages, setMessages] = useState<MessageItem[]>([]);
   const [targets, setTargets] = useState<MessagingTargets>(EMPTY_TARGETS);
   const [activeConversationId, setActiveConversationId] = useState<number | null>(null);
   const [search, setSearch] = useState("");
+  const [conversationFilter, setConversationFilter] = useState<ConversationFilter>("all");
   const [reply, setReply] = useState("");
   const [selectedAssets, setSelectedAssets] = useState<UploadAsset[]>([]);
   const [selectedCategory, setSelectedCategory] = useState<"image" | "document" | "voice" | null>(null);
@@ -366,6 +436,7 @@ export default function MessagingTab({
   const [keyboardHeight, setKeyboardHeight] = useState(0);
   const [notice, setNotice] = useState<Notice>(null);
   const lastHandledIntentTokenRef = useRef<number | null>(null);
+  const openingComposeTargetRef = useRef(false);
   const messagesListRef = useRef<FlatList<MessageItem> | null>(null);
   const typingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
@@ -608,11 +679,35 @@ export default function MessagingTab({
     if (isGroupTargetType(compose.target_type)) return Boolean(effectiveConversationName);
     return true;
   }, [compose, effectiveConversationName]);
+  const parentConversationUserIds = useMemo(
+    () => new Set(targets.parents.map((item) => Number(item.user_id)).filter(Boolean)),
+    [targets.parents],
+  );
+  const teacherConversationUserIds = useMemo(
+    () => new Set(targets.teachers.map((item) => Number(item.user_id)).filter(Boolean)),
+    [targets.teachers],
+  );
   const filteredConversations = useMemo(() => {
     const query = search.trim().toLowerCase();
-    if (!query) return conversations;
-    return conversations.filter((item) => [item.name, item.last_message, item.type].join(" - ").toLowerCase().includes(query));
-  }, [conversations, search]);
+    return conversations.filter((item) => {
+      if (!conversationMatchesFilter(item, conversationFilter, parentConversationUserIds, teacherConversationUserIds)) return false;
+      if (!query) return true;
+      return [item.name, item.last_message, item.type].join(" - ").toLowerCase().includes(query);
+    });
+  }, [conversationFilter, conversations, parentConversationUserIds, search, teacherConversationUserIds]);
+  const conversationFilterOptions = useMemo(
+    () => [
+      { label: "All", value: "all" as ConversationFilter, count: conversations.length },
+      { label: "Unread", value: "unread" as ConversationFilter, count: conversations.filter((item) => conversationMatchesFilter(item, "unread", parentConversationUserIds, teacherConversationUserIds)).length },
+      { label: "One-to-One", value: "direct" as ConversationFilter, count: conversations.filter((item) => conversationMatchesFilter(item, "direct", parentConversationUserIds, teacherConversationUserIds)).length },
+      { label: "Parents", value: "parents" as ConversationFilter, count: conversations.filter((item) => conversationMatchesFilter(item, "parents", parentConversationUserIds, teacherConversationUserIds)).length },
+      { label: "Teachers", value: "teachers" as ConversationFilter, count: conversations.filter((item) => conversationMatchesFilter(item, "teachers", parentConversationUserIds, teacherConversationUserIds)).length },
+      { label: "Classes", value: "class" as ConversationFilter, count: conversations.filter((item) => conversationMatchesFilter(item, "class", parentConversationUserIds, teacherConversationUserIds)).length },
+      { label: "Sections", value: "section" as ConversationFilter, count: conversations.filter((item) => conversationMatchesFilter(item, "section", parentConversationUserIds, teacherConversationUserIds)).length },
+      { label: "Broadcasts", value: "broadcast" as ConversationFilter, count: conversations.filter((item) => conversationMatchesFilter(item, "broadcast", parentConversationUserIds, teacherConversationUserIds)).length },
+    ],
+    [conversations, parentConversationUserIds, teacherConversationUserIds],
+  );
 
   useEffect(() => {
     void loadBootstrap();
@@ -705,6 +800,7 @@ export default function MessagingTab({
       target_type: targetType,
       recipient_user_id: Number(intent.recipientUserId),
     };
+    openingComposeTargetRef.current = true;
     setPendingConversationTarget(payload);
     setPendingConversationLabel(intent.recipientName || "Conversation");
     setActiveConversationId(null);
@@ -719,6 +815,7 @@ export default function MessagingTab({
   useEffect(() => {
     const intent = composeTargetIntent;
     if (!intent?.token) return;
+    openingComposeTargetRef.current = true;
     const existing = findConversationForTarget(intent.payload);
     setPendingConversationLabel(intent.label || "Conversation");
     setReply("");
@@ -730,7 +827,10 @@ export default function MessagingTab({
       setPendingConversationTarget(null);
       setActiveConversationId(conversationId);
       setScreen("chat");
-      void loadMessagesForConversation(conversationId, true, { scrollToLatest: true, mode: "reset" });
+      void loadMessagesForConversation(conversationId, true, { scrollToLatest: true, mode: "reset" })
+        .finally(() => {
+          openingComposeTargetRef.current = false;
+        });
     } else {
       setPendingConversationTarget(intent.payload);
       setActiveConversationId(null);
@@ -744,7 +844,10 @@ export default function MessagingTab({
   }, [compose.target_type, composeSearch, composeRoleFilter, composeClassFilter, composeSectionFilter, composeTeacherTypeFilter]);
 
   async function loadBootstrap() {
-    await Promise.all([loadConversations(), loadTargets()]);
+    await Promise.all([
+      loadConversations(),
+      canSendMessages ? loadTargets() : Promise.resolve(),
+    ]);
   }
 
   async function loadConversations(silent = false, mode: "reset" | "loadMore" = "reset") {
@@ -777,7 +880,10 @@ export default function MessagingTab({
       }
 
       const shouldAutoSelectFirst =
-        mode !== "loadMore" && screen === "list" && !pendingConversationTarget;
+        mode !== "loadMore" &&
+        screen === "list" &&
+        !pendingConversationTarget &&
+        !openingComposeTargetRef.current;
       if (shouldAutoSelectFirst) {
         setActiveConversationId((prev) => {
           const hasPrevious = prev !== null && rows.some((item) => Number(item.id) === Number(prev));
@@ -900,7 +1006,10 @@ export default function MessagingTab({
   async function onRefresh() {
     setRefreshing(true);
     try {
-      await Promise.all([loadConversations(true), loadTargets()]);
+      await Promise.all([
+        loadConversations(true),
+        canSendMessages ? loadTargets() : Promise.resolve(),
+      ]);
       if (screen === "chat" && activeConversationId) {
         await loadMessagesForConversation(activeConversationId, true, { scrollToLatest: true, mode: "poll" });
       }
@@ -922,6 +1031,7 @@ export default function MessagingTab({
   }
 
   function closeChatView() {
+    openingComposeTargetRef.current = false;
     setScreen("list");
     setReply("");
     setMessages([]);
@@ -1045,6 +1155,7 @@ export default function MessagingTab({
       const existing = findConversationForTarget(payload);
 
       resetComposeState();
+      openingComposeTargetRef.current = true;
       setPendingConversationLabel(label);
       setReply("");
 
@@ -1057,6 +1168,7 @@ export default function MessagingTab({
         setActiveConversationId(conversationId);
         setScreen("chat");
         await loadMessagesForConversation(conversationId, true, { scrollToLatest: true, mode: "reset" });
+        openingComposeTargetRef.current = false;
         setNotice({ title: "Conversation opened", message: "Send your message below.", tone: "success" });
         return;
       }
@@ -1170,15 +1282,20 @@ export default function MessagingTab({
   function openMessageActions(message: MessageItem) {
     const mine = Number(message.sender_id) === Number(user?.id);
     const buttons = [
-      { text: "Reply", onPress: () => setReplyTo(message) },
-      {
-        text: "Forward",
-        onPress: () => {
-          setForwardingMessage(message);
-          setScreen("list");
-        },
-      },
-      ...(mine && message.message
+      ...(canSendMessages
+        ? [
+          { text: "Reply", onPress: () => setReplyTo(message) },
+          {
+            text: "Forward",
+            onPress: () => {
+              setForwardingMessage(message);
+              clearConversationSelection();
+              setScreen("list");
+            },
+          },
+        ]
+        : []),
+      ...(canSendMessages && mine && message.message
         ? [{ text: "Edit", onPress: () => {
           setEditingMessageId(message.id);
           setReply(message.message || "");
@@ -1192,7 +1309,7 @@ export default function MessagingTab({
           if (activeConversationId) await loadMessagesForConversation(activeConversationId, true, { mode: "poll" });
         },
       },
-      ...(mine || isSuperAdmin
+      ...(canSendMessages && (mine || isSuperAdmin)
         ? [{
           text: "Delete for everyone",
           style: "destructive" as const,
@@ -1217,6 +1334,10 @@ export default function MessagingTab({
   }
 
   async function sendReply() {
+    if (!canSendMessages) {
+      Alert.alert("View only", "Parents and teachers can only view super admin messages.");
+      return;
+    }
     const trimmed = reply.trim();
     if (!trimmed && !selectedAssets.length && !editingMessageId) return;
     if (!activeConversationId && !pendingConversationTarget) {
@@ -1269,6 +1390,7 @@ export default function MessagingTab({
         }
 
         setPendingConversationTarget(null);
+        openingComposeTargetRef.current = false;
         if (conversationId) {
           setActiveConversationId(conversationId);
         }
@@ -1280,12 +1402,110 @@ export default function MessagingTab({
       if (conversationId) {
         await loadMessagesForConversation(conversationId, true, { scrollToLatest: true, mode: "poll" });
       }
-      setNotice({ title: "Sent", message: "Message delivered.", tone: "success" });
     } catch (err) {
-      Alert.alert("Send failed", getErrorMessage(err, "Failed to send message."));
+      if (editingMessageId) {
+        setFailedMessageIds((prev) => [...new Set([...prev, editingMessageId])]);
+      }
     } finally {
       setSending(false);
     }
+  }
+
+  function confirmDeleteConversation(conversation: ConversationItem) {
+    Alert.alert(
+      "Delete chat?",
+      "This will remove the chat from your list only. Other people will still see it.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              await deleteConversation(Number(conversation.id));
+              setConversations((prev) => prev.filter((item) => Number(item.id) !== Number(conversation.id)));
+              if (Number(activeConversationId) === Number(conversation.id)) {
+                closeChatView();
+              }
+              setNotice({ title: "Chat deleted", message: "The chat was removed from your list.", tone: "success" });
+            } catch (err) {
+              Alert.alert("Delete failed", getErrorMessage(err, "Could not delete this chat."));
+            }
+          },
+        },
+      ],
+      { cancelable: true },
+    );
+  }
+
+  function toggleConversationSelection(conversationId: number) {
+    setSelectedConversationIds((prev) =>
+      prev.includes(conversationId)
+        ? prev.filter((id) => id !== conversationId)
+        : [...prev, conversationId],
+    );
+  }
+
+  function clearConversationSelection() {
+    setSelectedConversationIds([]);
+  }
+
+  function cancelForwarding() {
+    setForwardingMessage(null);
+    clearConversationSelection();
+  }
+
+  async function forwardToSelectedConversations() {
+    if (!forwardingMessage || !selectedConversationIds.length) return;
+    const targetIds = [...selectedConversationIds];
+    try {
+      await Promise.all(
+        targetIds.map((conversationId) =>
+          sendMessage({
+            conversation_id: conversationId,
+            forwarded_from_message_id: forwardingMessage.id,
+            message: "",
+          }),
+        ),
+      );
+      setForwardingMessage(null);
+      clearConversationSelection();
+      await loadConversations(false, "reset");
+    } catch (err) {
+      setFailedMessageIds((prev) => [...new Set([...prev, forwardingMessage.id])]);
+      setForwardingMessage(null);
+      clearConversationSelection();
+    }
+  }
+
+  function confirmDeleteSelectedConversations() {
+    const ids = [...selectedConversationIds];
+    if (!ids.length) return;
+    Alert.alert(
+      `Delete ${ids.length} chat${ids.length === 1 ? "" : "s"}?`,
+      "This will remove the selected chats from your list only. Other people will still see them.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              await Promise.all(ids.map((id) => deleteConversation(id)));
+              setConversations((prev) => prev.filter((item) => !ids.includes(Number(item.id))));
+              if (activeConversationId !== null && ids.includes(Number(activeConversationId))) {
+                closeChatView();
+              }
+              clearConversationSelection();
+              setNotice({ title: "Chats deleted", message: "Selected chats were removed from your list.", tone: "success" });
+            } catch (err) {
+              Alert.alert("Delete failed", getErrorMessage(err, "Could not delete the selected chats."));
+            }
+          },
+        },
+      ],
+      { cancelable: true },
+    );
   }
 
   function startNewConversationFlow() {
@@ -1493,7 +1713,7 @@ export default function MessagingTab({
       >
         <TopNotice notice={notice} style={styles.topNoticeOverlay} />
         <View style={[styles.composeHeader, { borderBottomColor: theme.border }]}>
-          <Pressable style={[styles.iconBtn, { backgroundColor: theme.cardMuted }]} onPress={() => composeStep === "audience" ? resetComposeState() : setComposeStep("audience")}>
+          <Pressable style={[styles.iconBtn, { backgroundColor: theme.cardMuted, borderColor: theme.border }]} onPress={() => composeStep === "audience" ? resetComposeState() : setComposeStep("audience")}>
             <Ionicons name="arrow-back-outline" size={20} color={theme.icon} />
           </Pressable>
           <View style={styles.chatHeaderCopy}>
@@ -1545,9 +1765,13 @@ export default function MessagingTab({
   }
 
   return (
-    <>
+    <SafeAreaView edges={["left", "right"]} style={[styles.safeArea, { backgroundColor: theme.bg }]}>
       {screen === "list" ? (
-        <View style={[styles.screen, { backgroundColor: theme.bg }]}>
+        <KeyboardAvoidingView
+          style={[styles.screen, { backgroundColor: theme.bg }]}
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+          keyboardVerticalOffset={0}
+        >
           <TopNotice notice={notice} style={styles.topNoticeOverlay} />
           <FlatList
             style={styles.root}
@@ -1564,29 +1788,62 @@ export default function MessagingTab({
             windowSize={7}
             ListHeaderComponent={
               <View style={styles.innerContent}>
-                <View style={styles.heroCard}>
-                  <View style={styles.heroCopy}>
-                    <Text style={styles.heroEyebrow}>Overview</Text>
-                    <Text style={styles.heroTitle}>Messaging</Text>
-                    <Text style={styles.heroSubtitle}>
-                      Review conversations, continue live chat threads, and send new messages.
-                    </Text>
-                  </View>
-                  {isSuperAdmin ? (
-                    <View style={styles.heroPrimaryActions}>
-                      <Pressable
-                        style={styles.topActionBtn}
-                        onPress={startNewConversationFlow}
-                      >
-                        <Ionicons name="create-outline" size={18} color={theme.successText} />
-                        <Text style={styles.topActionText}>New Conversation</Text>
+                <View style={styles.listTitleRow}>
+                  {forwardingMessage ? (
+                    <>
+                      <Pressable style={[styles.listIconBtn, { backgroundColor: theme.cardMuted, borderColor: theme.border }]} onPress={cancelForwarding}>
+                        <Ionicons name="close-outline" size={20} color={theme.icon} />
                       </Pressable>
-                    </View>
-                  ) : null}
+                      <Text style={[styles.listTitle, { color: theme.text }]}>
+                        {selectedConversationIds.length ? `${selectedConversationIds.length} selected` : "Forward to"}
+                      </Text>
+                      <Pressable
+                        style={[styles.listIconBtn, { backgroundColor: theme.success, borderColor: theme.success }, !selectedConversationIds.length && styles.btnDisabled]}
+                        onPress={() => void forwardToSelectedConversations()}
+                        disabled={!selectedConversationIds.length}
+                      >
+                        <Ionicons name="send" size={18} color={theme.successText} />
+                      </Pressable>
+                    </>
+                  ) : selectedConversationIds.length ? (
+                    <>
+                      <Pressable style={[styles.listIconBtn, { backgroundColor: theme.cardMuted, borderColor: theme.border }]} onPress={clearConversationSelection}>
+                        <Ionicons name="close-outline" size={20} color={theme.icon} />
+                      </Pressable>
+                      <Text style={[styles.listTitle, { color: theme.text }]}>{selectedConversationIds.length} selected</Text>
+                      <Pressable style={[styles.listIconBtn, { backgroundColor: theme.danger, borderColor: theme.danger }]} onPress={confirmDeleteSelectedConversations}>
+                        <Ionicons name="trash-outline" size={19} color="#fff" />
+                      </Pressable>
+                    </>
+                  ) : (
+                    <>
+                      <Text style={[styles.listTitle, { color: theme.text }]}>Messaging</Text>
+                      <View style={styles.listTitleActions}>
+                        <Pressable style={[styles.listIconBtn, { backgroundColor: theme.cardMuted, borderColor: theme.border }]} onPress={() => void onRefresh()}>
+                          <Ionicons name="refresh-outline" size={19} color={theme.icon} />
+                        </Pressable>
+                        {isSuperAdmin ? (
+                          <Pressable
+                            style={[
+                              styles.newMessageBtn,
+                              {
+                                backgroundColor: theme.primary,
+                                shadowColor: theme.primary,
+                              },
+                            ]}
+                            onPress={startNewConversationFlow}
+                          >
+                            <Ionicons name="chatbubble-ellipses-outline" size={16} color={theme.primaryText} />
+                            <Text style={[styles.newMessageBtnText, { color: theme.primaryText }]}>New Message</Text>
+                          </Pressable>
+                        ) : null}
+                      </View>
+                    </>
+                  )}
                 </View>
 
-                <View style={[styles.searchWrap, { borderColor: theme.border, backgroundColor: theme.card }]}>
-                  <Ionicons name="search-outline" size={16} color={theme.icon} />
+                <View style={[styles.searchWrap, { borderColor: theme.border, backgroundColor: isDark ? "#1f2933" : theme.card }]}>
+                  <Ionicons name="search-outline" size={22} color={theme.mutedText} />
                   <TextInput
                     value={search}
                     onChangeText={setSearch}
@@ -1595,6 +1852,37 @@ export default function MessagingTab({
                     style={[styles.searchInput, { color: theme.text }]}
                   />
                 </View>
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={styles.filterChipRow}
+                >
+                  {conversationFilterOptions.map((option) => {
+                    const active = conversationFilter === option.value;
+                    return (
+                      <Pressable
+                        key={option.value}
+                        style={[
+                          styles.filterChip,
+                          {
+                            borderColor: active ? theme.success : theme.border,
+                            backgroundColor: active ? theme.successSoft : "transparent",
+                          },
+                        ]}
+                        onPress={() => setConversationFilter(option.value)}
+                      >
+                        <Text style={[styles.filterChipText, { color: active ? theme.success : theme.subText }]}>
+                          {option.label}
+                        </Text>
+                        {option.count > 0 ? (
+                          <Text style={[styles.filterChipCount, { color: active ? theme.success : theme.mutedText }]}>
+                            {option.count}
+                          </Text>
+                        ) : null}
+                      </Pressable>
+                    );
+                  })}
+                </ScrollView>
                 <Text style={[styles.rowMeta, { color: theme.subText }]}>
                   {filteredConversations.length} visible
                   {conversationsTotal !== null ? ` | ${conversations.length}/${conversationsTotal} loaded` : ""}
@@ -1614,7 +1902,7 @@ export default function MessagingTab({
                 </View>
               )
             }
-            ItemSeparatorComponent={() => <View style={{ height: 10 }} />}
+            ItemSeparatorComponent={null}
             ListFooterComponent={
               !loadingConversations && conversationsHasMore ? (
                 <Pressable
@@ -1628,52 +1916,70 @@ export default function MessagingTab({
                 </Pressable>
               ) : null
             }
-            renderItem={({ item: conversation }) => (
-              <Pressable
-                style={[styles.rowCard, { borderColor: theme.border, backgroundColor: theme.card }]}
-                onPress={async () => {
-                  if (forwardingMessage) {
-                    try {
-                      await sendMessage({
-                        conversation_id: Number(conversation.id),
-                        forwarded_from_message_id: forwardingMessage.id,
-                        message: "",
-                      });
-                      setForwardingMessage(null);
-                      Alert.alert("Forwarded", "The message was forwarded.");
-                    } catch (err) {
-                      Alert.alert("Forward failed", getErrorMessage(err, "Could not forward message."));
+            renderItem={({ item: conversation }) => {
+              const conversationId = Number(conversation.id);
+              const selected = selectedConversationIds.includes(conversationId);
+              return (
+                <Pressable
+                  style={[
+                    styles.rowCard,
+                    {
+                      borderBottomColor: theme.border,
+                      backgroundColor: selected ? theme.successSoft : theme.bg,
+                    },
+                  ]}
+                  onLongPress={() => toggleConversationSelection(conversationId)}
+                  onPress={async () => {
+                    if (forwardingMessage) {
+                      toggleConversationSelection(conversationId);
+                      return;
                     }
-                    return;
-                  }
-                  setMessages([]);
-                  setMessagesPage(1);
-                  setMessagesHasMore(false);
-                  setActiveConversationId(Number(conversation.id));
-                  setScreen("chat");
-                }}
-              >
-                <Avatar
-                  label={conversation.name || conversation.type}
-                  online={conversation.online}
-                  imageUrl={conversation.other_user_image_url}
-                />
-                <View style={styles.rowBody}>
-                  <View style={styles.rowTop}>
+                    if (selectedConversationIds.length) {
+                      toggleConversationSelection(conversationId);
+                      return;
+                    }
+                    setMessages([]);
+                    setMessagesPage(1);
+                    setMessagesHasMore(false);
+                    setActiveConversationId(conversationId);
+                    setScreen("chat");
+                  }}
+                >
+                  <View style={styles.avatarSelectionWrap}>
+                    <Avatar
+                      label={conversation.name || conversation.type}
+                      online={conversation.online}
+                      imageUrl={conversation.other_user_image_url}
+                      size="large"
+                    />
+                    {selected ? (
+                      <View style={[styles.selectionBadge, { backgroundColor: theme.success }]}>
+                        <Ionicons name="checkmark" size={14} color={theme.successText} />
+                      </View>
+                    ) : null}
+                  </View>
+                  <View style={styles.rowBody}>
                     <Text style={[styles.rowTitle, { color: theme.text }]} numberOfLines={1}>
                       {conversation.name || conversation.type}
                     </Text>
-                    {Number(conversation.unread || 0) > 0 ? <Text style={styles.unread}>{conversation.unread}</Text> : null}
+                    {conversation.last_message_at ? (
+                      <Text style={[styles.rowTime, { color: theme.subText }]} numberOfLines={1}>
+                        {formatDateLabel(conversation.last_message_at)} {formatTimeLabel(conversation.last_message_at)}
+                      </Text>
+                    ) : null}
+                    <View style={styles.rowBottom}>
+                      <Text style={[styles.rowPreview, { color: theme.subText }]} numberOfLines={1}>
+                        {conversation.last_message || "No messages yet"}
+                      </Text>
+                      {Number(conversation.unread || 0) > 0 ? <Text style={styles.unread}>{conversation.unread}</Text> : null}
+                    </View>
                   </View>
-                  <Text style={[styles.rowPreview, { color: theme.subText }]} numberOfLines={1}>
-                    {conversation.last_message || "No messages yet"}
-                  </Text>
-                </View>
-              </Pressable>
-            )}
+                </Pressable>
+              );
+            }}
           />
 
-        </View>
+        </KeyboardAvoidingView>
       ) : (
         <KeyboardAvoidingView
           style={[styles.chatScreen, { backgroundColor: theme.bg }]}
@@ -1684,7 +1990,7 @@ export default function MessagingTab({
           <View style={styles.chatInnerContent}>
             <View style={styles.chatHeroCard}>
               <View style={[styles.chatHeader, { borderBottomColor: theme.border, backgroundColor: theme.bg }]}>
-                <Pressable style={[styles.iconBtn, { backgroundColor: theme.cardMuted }]} onPress={closeChatView}>
+                <Pressable style={[styles.iconBtn, { backgroundColor: theme.cardMuted, borderColor: theme.border }]} onPress={closeChatView}>
                   <Ionicons name="arrow-back-outline" size={20} color={theme.icon} />
                 </Pressable>
                 <Avatar
@@ -1701,11 +2007,19 @@ export default function MessagingTab({
                       ? "Typing..."
                       : activeConversation
                         ? presenceText(activeConversation)
-                        : "New conversation"}
+                    : "New conversation"}
                   </Text>
                 </View>
+                {activeConversation ? (
+                  <Pressable
+                    style={[styles.iconBtn, { backgroundColor: theme.cardMuted, borderColor: theme.border }]}
+                    onPress={() => confirmDeleteConversation(activeConversation)}
+                  >
+                    <Ionicons name="trash-outline" size={19} color={theme.danger} />
+                  </Pressable>
+                ) : null}
                 <Pressable
-                  style={[styles.iconBtn, { backgroundColor: theme.cardMuted }]}
+                  style={[styles.iconBtn, { backgroundColor: theme.cardMuted, borderColor: theme.border }]}
                   onPress={() => setChatSearchOpen((value) => !value)}
                 >
                   <Ionicons name="search-outline" size={20} color={theme.icon} />
@@ -1721,7 +2035,7 @@ export default function MessagingTab({
                     style={[styles.searchInput, { color: theme.text }]}
                     onSubmitEditing={() => void runChatSearch()}
                   />
-                  <Pressable onPress={() => void runChatSearch()}>
+                  <Pressable style={[styles.searchSubmitBtn, { borderColor: theme.border, backgroundColor: theme.cardMuted }]} onPress={() => void runChatSearch()}>
                     <Ionicons name="search" size={18} color={theme.icon} />
                   </Pressable>
                 </View>
@@ -1760,7 +2074,9 @@ export default function MessagingTab({
                     <View style={[styles.emptyCard, { borderColor: theme.border, backgroundColor: theme.card }]}>
                     <Ionicons name="chatbox-outline" size={24} color={theme.icon} />
                       <Text style={[styles.emptyTitle, { color: theme.text }]}>No messages yet</Text>
-                      <Text style={[styles.emptyText, { color: theme.subText }]}>Start the conversation with a reply below.</Text>
+                      <Text style={[styles.emptyText, { color: theme.subText }]}>
+                        {canSendMessages ? "Start the conversation with a reply below." : "Super admin messages will appear here."}
+                      </Text>
                     </View>
                   )
                 }
@@ -1770,55 +2086,73 @@ export default function MessagingTab({
                   const statuses = message.statuses || [];
                   const readCount = statuses.filter((item) => item.status === "read").length;
                   const deliveredCount = statuses.filter((item) => ["delivered", "read"].includes(item.status)).length;
+                  const failed = failedMessageIds.includes(Number(message.id));
+                  const attachments = message.attachments || [];
+                  const hasMediaAttachment = attachments.some((attachment) => ["image", "document"].includes(attachment.category));
+                  const bubbleTextColor = "#f8fafc";
+                  const bubbleMetaColor = "#cbd5e1";
+                  const bubbleIconColor = "#e2e8f0";
+                  const sentBubbleColor = isDark ? "#334155" : "#111827";
+                  const receivedBubbleColor = isDark ? "#334155" : "#1f2937";
                   return (
                     <Pressable
                       style={[styles.messageRow, mine ? styles.mine : styles.other]}
-                      onLongPress={() => openMessageActions(message)}
+                      onLongPress={canSendMessages ? () => openMessageActions(message) : undefined}
                     >
                       {!mine ? <Avatar label={message.sender_name || message.username} imageUrl={message.sender_image_url} /> : null}
                       <View style={[
                         styles.bubble,
+                        hasMediaAttachment ? styles.mediaBubble : null,
                         mine
-                          ? { backgroundColor: isDark ? "#064e3b" : "#dcfce7", borderColor: isDark ? "#166534" : "#bbf7d0", borderWidth: 1, borderTopRightRadius: 6 }
-                          : { backgroundColor: theme.card, borderColor: theme.border, borderWidth: 1 },
+                          ? { backgroundColor: sentBubbleColor, borderTopRightRadius: 6 }
+                          : { backgroundColor: receivedBubbleColor, borderTopLeftRadius: 6 },
                       ]}>
-                        <View style={styles.bubbleTopRow}>
-                          {!mine ? <Text style={[styles.senderName, { color: theme.subText }]} numberOfLines={1}>{message.sender_name || message.username}</Text> : <View style={styles.senderNameSpacer} />}
-                          <Pressable style={styles.messageActionBtn} onPress={() => openMessageActions(message)}>
-                            <Ionicons name="ellipsis-horizontal" size={16} color={theme.icon} />
-                          </Pressable>
+                        <View style={[styles.bubbleTopRow, hasMediaAttachment ? styles.mediaBubbleInset : null]}>
+                          {!mine ? <Text style={[styles.senderName, { color: bubbleMetaColor }]} numberOfLines={1}>{message.sender_name || message.username}</Text> : <View style={styles.senderNameSpacer} />}
+                          {canSendMessages ? (
+                            <Pressable style={styles.messageActionBtn} onPress={() => openMessageActions(message)}>
+                              <Ionicons name="ellipsis-horizontal" size={16} color={bubbleIconColor} />
+                            </Pressable>
+                          ) : null}
                         </View>
                         {message.reply_to_message_id ? (
-                          <View style={[styles.replyQuote, { borderColor: theme.primary }]}>
-                            <Text style={[styles.fileMeta, { color: theme.subText }]} numberOfLines={2}>
+                          <View style={[styles.replyQuote, hasMediaAttachment ? styles.mediaBubbleInset : null, { borderColor: bubbleMetaColor }]}>
+                            <Text style={[styles.fileMeta, { color: bubbleMetaColor }]} numberOfLines={2}>
                               {message.reply_sender_name || "Reply"}: {message.reply_message || message.reply_message_type}
                             </Text>
                           </View>
                         ) : null}
                         {message.forwarded_from_message_id ? (
-                          <Text style={[styles.forwardedLabel, { color: theme.subText }]}>Forwarded</Text>
+                          <Text style={[styles.forwardedLabel, hasMediaAttachment ? styles.mediaBubbleInset : null, { color: bubbleMetaColor }]}>Forwarded</Text>
                         ) : null}
                         {deleted ? (
-                          <Text style={[styles.deletedMessage, { color: theme.subText }]}>This message was deleted</Text>
+                          <Text style={[styles.deletedMessage, hasMediaAttachment ? styles.mediaBubbleInset : null, { color: bubbleMetaColor }]}>This message was deleted</Text>
                         ) : (
                           <>
-                            {message.message ? <Text style={[styles.messageText, { color: theme.text }]}>{message.message}</Text> : null}
-                            {(message.attachments || []).map((attachment) => (
+                            {hasMediaAttachment ? attachments.map((attachment) => (
                               <MessageAttachmentView key={`${message.id}-${attachment.id}`} attachment={attachment} />
-                            ))}
+                            )) : null}
+                            {message.message ? <Text style={[styles.messageText, hasMediaAttachment ? styles.mediaBubbleInset : null, { color: bubbleTextColor }]}>{message.message}</Text> : null}
+                            {!hasMediaAttachment ? attachments.map((attachment) => (
+                              <MessageAttachmentView key={`${message.id}-${attachment.id}`} attachment={attachment} />
+                            )) : null}
                           </>
                         )}
-                        <View style={styles.messageMetaRow}>
-                          {message.edited_at ? <Text style={[styles.bubbleTime, { color: theme.subText }]}>Edited</Text> : null}
-                          <Text style={[styles.bubbleTime, { color: theme.subText }]}>{formatTimeLabel(message.created_at)}</Text>
-                          {mine && statuses.length ? (
-                            <Text style={[styles.bubbleTime, { color: theme.subText }]}>
-                              {readCount === statuses.length
-                                ? `Read ${readCount}/${statuses.length}`
-                                : deliveredCount
-                                  ? `Delivered ${deliveredCount}/${statuses.length}`
-                                  : "Sent"}
-                            </Text>
+                        <View style={[styles.messageMetaRow, hasMediaAttachment ? styles.mediaBubbleMeta : null]}>
+                          {message.edited_at ? <Text style={[styles.bubbleTime, { color: bubbleMetaColor }]}>Edited</Text> : null}
+                          <Text style={[styles.bubbleTime, { color: bubbleMetaColor }]}>{formatTimeLabel(message.created_at)}</Text>
+                          {mine ? (
+                            <View style={styles.deliveryIconWrap}>
+                              {failed ? (
+                                <Ionicons name="alert-circle" size={14} color={theme.success} />
+                              ) : statuses.length && readCount === statuses.length ? (
+                                <Ionicons name="checkmark-done" size={15} color={theme.success} />
+                              ) : deliveredCount ? (
+                                <Ionicons name="checkmark-done" size={15} color={theme.success} />
+                              ) : (
+                                <Ionicons name="checkmark" size={15} color={theme.success} />
+                              )}
+                            </View>
                           ) : null}
                         </View>
                       </View>
@@ -1840,85 +2174,122 @@ export default function MessagingTab({
               },
             ]}
           >
-            {replyTo || editingMessageId ? (
-              <View style={[styles.composerContext, { borderColor: theme.border, backgroundColor: theme.card }]}>
-                <Text style={[styles.fileMeta, { color: theme.subText }]} numberOfLines={2}>
-                  {editingMessageId
-                    ? "Editing message"
-                    : `Replying to ${replyTo?.sender_name || replyTo?.username}: ${replyTo?.message || replyTo?.message_type}`}
+            {canSendMessages ? (
+              <>
+                {replyTo || editingMessageId ? (
+                  <View style={[styles.composerContext, { borderColor: theme.border, backgroundColor: theme.card }]}>
+                    <Text style={[styles.fileMeta, { color: theme.subText }]} numberOfLines={2}>
+                      {editingMessageId
+                        ? "Editing message"
+                        : `Replying to ${replyTo?.sender_name || replyTo?.username}: ${replyTo?.message || replyTo?.message_type}`}
+                    </Text>
+                    <Pressable onPress={() => {
+                      setReplyTo(null);
+                      setEditingMessageId(null);
+                      if (editingMessageId) setReply("");
+                    }}>
+                      <Ionicons name="close" size={18} color={theme.icon} />
+                    </Pressable>
+                  </View>
+                ) : null}
+                {selectedAssets.length ? (
+                  <View style={[styles.composerContext, { borderColor: theme.border, backgroundColor: theme.card }]}>
+                    {selectedCategory === "voice" ? (
+                      <VoicePreview uri={selectedAssets[0].uri} />
+                    ) : (
+                      <Text style={[styles.fileMeta, { color: theme.subText }]} numberOfLines={2}>
+                        {selectedAssets.map((asset) => asset.name).join(", ")}
+                      </Text>
+                    )}
+                    <Pressable onPress={clearSelectedMedia}>
+                      <Ionicons name="close" size={18} color={theme.icon} />
+                    </Pressable>
+                  </View>
+                ) : null}
+                <View style={styles.composerOuterRow}>
+                  <View style={[styles.replyBar, { borderColor: theme.border, backgroundColor: isDark ? "#1f2933" : theme.card }]}>
+                    <TextInput
+                      value={reply}
+                      onChangeText={(value) => {
+                        setReply(value);
+                        if (activeConversation?.type === "direct" && activeConversationId) {
+                          void sendTyping(activeConversationId, true);
+                          if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
+                          typingTimerRef.current = setTimeout(() => {
+                            void sendTyping(activeConversationId, false);
+                          }, 1200);
+                        }
+                      }}
+                      multiline
+                      placeholder={recorderState.isRecording ? `Recording ${Math.floor(recorderState.durationMillis / 1000)}s` : "Message"}
+                      placeholderTextColor={isDark ? "#9ca3af" : theme.mutedText}
+                      style={[styles.replyInput, { color: isDark ? "#f8fafc" : theme.text }]}
+                    />
+                    <Pressable style={styles.composerIconBtn} onPress={() => void pickDocuments()}>
+                      <Ionicons name="attach-outline" size={24} color={isDark ? "#a7b0ba" : theme.icon} />
+                    </Pressable>
+                    <Pressable style={styles.composerIconBtn} onPress={() => void pickImages()}>
+                      <Ionicons name="camera-outline" size={23} color={isDark ? "#a7b0ba" : theme.icon} />
+                    </Pressable>
+                  </View>
+                  <Pressable
+                    style={[
+                      styles.composerActionBtn,
+                      recorderState.isRecording ? styles.recordingActionBtn : null,
+                      sending ? styles.composerActionDisabled : null,
+                    ]}
+                    onPress={() => {
+                      if (recorderState.isRecording) {
+                        void stopVoiceRecording();
+                        return;
+                      }
+                      if (reply.trim() || selectedAssets.length || editingMessageId) {
+                        void sendReply();
+                        return;
+                      }
+                      void startVoiceRecording();
+                    }}
+                    disabled={sending}
+                  >
+                    <Ionicons
+                      name={
+                        recorderState.isRecording
+                          ? "stop"
+                          : reply.trim() || selectedAssets.length || editingMessageId
+                            ? "send"
+                            : "mic"
+                      }
+                      size={22}
+                      color="#fff"
+                    />
+                  </Pressable>
+                </View>
+              </>
+            ) : (
+              <View style={[styles.readOnlyNotice, { borderColor: theme.border, backgroundColor: theme.card }]}>
+                <Ionicons name="eye-outline" size={18} color={theme.icon} />
+                <Text style={[styles.readOnlyNoticeText, { color: theme.subText }]}>
+                  Parents and teachers can view super admin messages only.
                 </Text>
-                <Pressable onPress={() => {
-                  setReplyTo(null);
-                  setEditingMessageId(null);
-                  if (editingMessageId) setReply("");
-                }}>
-                  <Ionicons name="close" size={18} color={theme.icon} />
-                </Pressable>
               </View>
-            ) : null}
-            {selectedAssets.length ? (
-              <View style={[styles.composerContext, { borderColor: theme.border, backgroundColor: theme.card }]}>
-                {selectedCategory === "voice" ? (
-                  <VoicePreview uri={selectedAssets[0].uri} />
-                ) : (
-                  <Text style={[styles.fileMeta, { color: theme.subText }]} numberOfLines={2}>
-                    {selectedAssets.map((asset) => asset.name).join(", ")}
-                  </Text>
-                )}
-                <Pressable onPress={clearSelectedMedia}>
-                  <Ionicons name="close" size={18} color={theme.icon} />
-                </Pressable>
-              </View>
-            ) : null}
-            <View style={[styles.replyBar, { borderColor: theme.border, backgroundColor: theme.card }]}>
-              <Pressable style={styles.composerIconBtn} onPress={() => void pickImages()}>
-                <Ionicons name="image-outline" size={21} color={theme.icon} />
-              </Pressable>
-              <Pressable style={styles.composerIconBtn} onPress={() => void pickDocuments()}>
-                <Ionicons name="attach-outline" size={21} color={theme.icon} />
-              </Pressable>
-              <Pressable
-                onPress={() => void (recorderState.isRecording ? stopVoiceRecording() : startVoiceRecording())}
-                style={recorderState.isRecording ? styles.recordingButton : styles.composerIconBtn}
-              >
-                <Ionicons name={recorderState.isRecording ? "stop" : "mic-outline"} size={21} color={recorderState.isRecording ? "#fff" : theme.icon} />
-              </Pressable>
-              <TextInput
-                value={reply}
-                onChangeText={(value) => {
-                  setReply(value);
-                  if (activeConversation?.type === "direct" && activeConversationId) {
-                    void sendTyping(activeConversationId, true);
-                    if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
-                    typingTimerRef.current = setTimeout(() => {
-                      void sendTyping(activeConversationId, false);
-                    }, 1200);
-                  }
-                }}
-                placeholder={recorderState.isRecording ? `Recording ${Math.floor(recorderState.durationMillis / 1000)}s` : "Type a message or caption"}
-                placeholderTextColor={theme.mutedText}
-                style={[styles.replyInput, { borderColor: theme.border, backgroundColor: theme.inputBg, color: theme.text }]}
-              />
-              <Pressable style={styles.sendBtn} onPress={() => void sendReply()} disabled={sending}>
-                <Ionicons name="send" size={18} color="#fff" />
-              </Pressable>
-            </View>
+            )}
           </View>
         </KeyboardAvoidingView>
       )}
 
-    </>
+    </SafeAreaView>
   );
 }
 
 function createStyles(theme: typeof DEFAULT_THEME) {
 return StyleSheet.create({
+  safeArea: { flex: 1 },
   screen: { flex: 1 },
   root: { flex: 1 },
   chatScreen: { flex: 1, minHeight: 0 },
   chatInnerContent: { flex: 1, minHeight: 0 },
-  content: { paddingHorizontal: 14, paddingTop: 10, paddingBottom: 120 },
-  innerContent: { gap: 12 },
+  content: { paddingHorizontal: 0, paddingTop: 10, paddingBottom: 120 },
+  innerContent: { gap: 8, paddingHorizontal: 14, paddingTop: 0, paddingBottom: 8 },
   topNoticeOverlay: {
     position: "absolute",
     top: 10,
@@ -1934,6 +2305,28 @@ return StyleSheet.create({
   heroEyebrow: { color: theme.subText, fontSize: 12, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.6 },
   heroTitle: { color: theme.text, fontWeight: "800", fontSize: 22 },
   heroSubtitle: { color: theme.subText, lineHeight: 20 },
+  listTitleRow: { minHeight: 36, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 },
+  listTitle: { flex: 1, fontSize: 20, lineHeight: 25, fontWeight: "800" },
+  listTitleActions: { flexDirection: "row", alignItems: "center", gap: 8 },
+  listIconBtn: { width: 36, height: 36, borderRadius: 12, borderWidth: 1, alignItems: "center", justifyContent: "center" },
+  newMessageBtn: {
+    minHeight: 36,
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 7,
+    shadowOpacity: 0.18,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 3,
+  },
+  newMessageBtnText: { fontSize: 12, fontWeight: "800" },
+  filterChipRow: { gap: 7, paddingRight: 14 },
+  filterChip: { minHeight: 34, flexDirection: "row", alignItems: "center", gap: 5, borderWidth: 1, borderRadius: 12, paddingHorizontal: 11 },
+  filterChipText: { fontSize: 13, fontWeight: "700" },
+  filterChipCount: { fontSize: 11, fontWeight: "700" },
   chatMessagesScroll: { flex: 1, minHeight: 0 },
   chatMessagesContent: { gap: 10, paddingTop: 2 },
   chatMessagesPanel: {
@@ -1948,27 +2341,36 @@ return StyleSheet.create({
   topActionRow: { alignItems: "flex-end" },
   topActionBtn: { flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: theme.success, paddingHorizontal: 14, paddingVertical: 10, borderRadius: 14 },
   topActionText: { color: theme.successText, fontWeight: "700" },
-  searchWrap: { flexDirection: "row", alignItems: "center", gap: 8, borderWidth: 1, borderRadius: 16, paddingHorizontal: 11, minHeight: 44 },
-  searchInput: { flex: 1, fontSize: 14 },
-  rowCard: { flexDirection: "row", gap: 12, borderWidth: 1, borderRadius: 20, padding: 12 },
-  rowBody: { flex: 1, gap: 4, justifyContent: "center" },
-  rowTop: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 },
+  searchWrap: { flexDirection: "row", alignItems: "center", gap: 8, borderWidth: 1, borderRadius: 14, paddingHorizontal: 12, paddingVertical: 6, minHeight: 44 },
+  searchInput: { flex: 1, fontSize: 14, paddingHorizontal: 2, paddingVertical: 6 },
+  searchSubmitBtn: { width: 32, height: 32, borderRadius: 10, borderWidth: 1, alignItems: "center", justifyContent: "center" },
+  rowCard: { flexDirection: "row", gap: 12, borderBottomWidth: 1, paddingHorizontal: 14, paddingVertical: 11 },
+  rowBody: { flex: 1, gap: 3, justifyContent: "center", minWidth: 0 },
+  rowTop: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 },
+  rowBottom: { flexDirection: "row", alignItems: "center", gap: 8 },
   rowTitle: { fontSize: 15, fontWeight: "800", flex: 1 },
-  rowTime: { fontSize: 11 },
-  rowPreview: { fontSize: 13 },
+  avatarSelectionWrap: { position: "relative" },
+  selectionBadge: { position: "absolute", right: 0, bottom: 0, width: 20, height: 20, borderRadius: 10, alignItems: "center", justifyContent: "center" },
+  rowTime: { fontSize: 11, flexShrink: 0 },
+  rowPreview: { flex: 1, fontSize: 13, fontWeight: "600" },
   rowMeta: { fontSize: 12, flex: 1 },
   unread: { minWidth: 20, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 999, textAlign: "center", backgroundColor: theme.success, color: theme.successText, fontSize: 11, fontWeight: "700" },
   emptyCard: { borderWidth: 1, borderRadius: 20, paddingHorizontal: 18, paddingVertical: 24, alignItems: "center", justifyContent: "center", gap: 8 },
   emptyTitle: { fontSize: 15, fontWeight: "800" },
   avatarWrap: { width: 46, height: 46, alignItems: "center", justifyContent: "center", position: "relative" },
-  avatarCircle: { width: 42, height: 42, borderRadius: 21, alignItems: "center", justifyContent: "center" },
+  avatarWrapLarge: { width: 58, height: 58, alignItems: "center", justifyContent: "center", position: "relative" },
+  avatarCircle: { width: 42, height: 42, borderRadius: 21, borderWidth: 1, alignItems: "center", justifyContent: "center", overflow: "hidden" },
+  avatarCircleLarge: { width: 52, height: 52, borderRadius: 26, borderWidth: 1, alignItems: "center", justifyContent: "center", overflow: "hidden" },
   avatarImage: { width: 42, height: 42, borderRadius: 21 },
+  avatarImageLarge: { width: 52, height: 52, borderRadius: 26 },
   avatarText: { color: theme.text, fontWeight: "800", fontSize: 16 },
+  avatarTextLarge: { color: theme.text, fontWeight: "800", fontSize: 19 },
   presenceDot: { position: "absolute", right: 2, bottom: 2, width: 12, height: 12, borderRadius: 6, borderWidth: 2, borderColor: theme.card },
-  presenceOnline: { backgroundColor: "#22c55e" },
+  presenceDotLarge: { position: "absolute", right: 4, bottom: 4, width: 12, height: 12, borderRadius: 6, borderWidth: 2, borderColor: theme.card },
+  presenceOnline: { backgroundColor: theme.success },
   presenceOffline: { backgroundColor: "#ef4444" },
   chatHeader: { flexDirection: "row", alignItems: "center", gap: 10, borderBottomWidth: 1, paddingHorizontal: 14, paddingVertical: 10 },
-  iconBtn: { width: 36, height: 36, borderRadius: 12, alignItems: "center", justifyContent: "center" },
+  iconBtn: { width: 36, height: 36, borderRadius: 12, borderWidth: 1, alignItems: "center", justifyContent: "center" },
   chatHeaderCopy: { flex: 1, gap: 2 },
   chatTitle: { fontSize: 15, fontWeight: "800" },
   chatMeta: { fontSize: 12 },
@@ -1976,32 +2378,51 @@ return StyleSheet.create({
   mine: { justifyContent: "flex-end" },
   other: { justifyContent: "flex-start" },
   bubble: { maxWidth: "80%", borderRadius: 18, paddingHorizontal: 12, paddingVertical: 8 },
+  mediaBubble: { paddingHorizontal: 0, paddingVertical: 0, overflow: "hidden" },
+  mediaBubbleInset: { marginHorizontal: 10, marginTop: 8 },
+  mediaBubbleMeta: { paddingHorizontal: 10, paddingBottom: 7 },
   bubbleMine: { borderTopRightRadius: 6 },
   bubbleTopRow: { minHeight: 18, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 2 },
   senderName: { flex: 1, fontSize: 11, fontWeight: "700" },
   senderNameSpacer: { flex: 1 },
   messageActionBtn: { width: 24, height: 20, alignItems: "center", justifyContent: "center", borderRadius: 10 },
-  messageText: { fontSize: 14, lineHeight: 20 },
+  messageText: { fontSize: 14, lineHeight: 20, fontWeight: "600" },
   bubbleTime: { fontSize: 11 },
   messageMetaRow: { marginTop: 6, flexDirection: "row", flexWrap: "wrap", justifyContent: "flex-end", gap: 6 },
+  deliveryIconWrap: { width: 16, height: 14, alignItems: "center", justifyContent: "center" },
   replyQuote: { borderLeftWidth: 3, paddingLeft: 8, paddingVertical: 4, marginBottom: 6 },
   forwardedLabel: { fontSize: 11, fontStyle: "italic", marginBottom: 4 },
   deletedMessage: { fontStyle: "italic" },
-  messageImage: { width: 230, height: 220, borderRadius: 12, marginTop: 8 },
-  voiceCard: { marginTop: 8, borderWidth: 1, borderRadius: 14, padding: 10, flexDirection: "row", alignItems: "center", gap: 10 },
-  voiceAction: { fontSize: 11, fontWeight: "800" },
-  voiceTime: { flex: 1, fontSize: 11, textAlign: "center" },
-  fileCard: { marginTop: 8, borderWidth: 1, borderRadius: 14, padding: 10, flexDirection: "row", alignItems: "center", gap: 10 },
+  mediaPressable: { alignSelf: "stretch" },
+  messageImage: { width: 238, height: 220, borderRadius: 16 },
+  voiceInline: { marginTop: 4, minWidth: 210, maxWidth: 250, flexDirection: "row", alignItems: "center", gap: 8 },
+  voicePlayBtn: { width: 30, height: 30, borderRadius: 15, alignItems: "center", justifyContent: "center", backgroundColor: theme.success },
+  voiceBody: { flex: 1, minWidth: 0, gap: 2 },
+  voiceWave: { height: 26, flexDirection: "row", alignItems: "center", gap: 2 },
+  voiceBar: { width: 3, borderRadius: 2 },
+  voiceSideMeta: { alignItems: "flex-end", gap: 2 },
+  voiceSpeedBtn: { minWidth: 30, height: 20, alignItems: "center", justifyContent: "center" },
+  voiceAction: { fontSize: 10, fontWeight: "800" },
+  voiceTime: { fontSize: 10 },
+  fileInline: { minWidth: 230, maxWidth: 250, flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 10, paddingVertical: 9 },
+  fileIconWrap: { width: 34, height: 34, borderRadius: 10, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(248, 250, 252, 0.12)" },
+  fileTextWrap: { flex: 1, minWidth: 0 },
   fileName: { flex: 1, fontSize: 12, fontWeight: "700" },
   fileMeta: { fontSize: 11 },
-  replyBarWrap: { paddingTop: 8, paddingHorizontal: 10, marginTop: "auto", borderTopWidth: 1, borderTopColor: theme.border },
+  replyBarWrap: { paddingTop: 8, paddingHorizontal: 8, marginTop: "auto", borderTopWidth: 0 },
   composerContext: { marginBottom: 6, borderWidth: 1, borderRadius: 14, padding: 9, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 },
   voicePreview: { flex: 1, borderWidth: 1, borderRadius: 12, padding: 8, flexDirection: "row", alignItems: "center", gap: 8 },
-  replyBar: { flexDirection: "row", gap: 8, alignItems: "center", borderWidth: 1, borderRadius: 20, paddingHorizontal: 8, paddingVertical: 7 },
-  composerIconBtn: { width: 32, height: 32, borderRadius: 16, alignItems: "center", justifyContent: "center" },
-  replyInput: { flex: 1, borderWidth: 1, borderRadius: 16, paddingHorizontal: 12, paddingVertical: 8, maxHeight: 96 },
+  composerOuterRow: { flexDirection: "row", alignItems: "flex-end", gap: 8 },
+  replyBar: { flex: 1, minHeight: 54, maxHeight: 118, flexDirection: "row", alignItems: "center", borderWidth: 1, borderRadius: 27, paddingLeft: 18, paddingRight: 8, paddingVertical: 6 },
+  composerIconBtn: { width: 38, height: 38, borderRadius: 19, alignItems: "center", justifyContent: "center" },
+  replyInput: { flex: 1, minHeight: 40, maxHeight: 96, paddingTop: 9, paddingBottom: 8, paddingHorizontal: 0, fontSize: 17 },
   sendBtn: { width: 44, height: 44, borderRadius: 22, backgroundColor: theme.success, alignItems: "center", justifyContent: "center" },
+  composerActionBtn: { width: 54, height: 54, borderRadius: 27, backgroundColor: theme.success, alignItems: "center", justifyContent: "center" },
+  composerActionDisabled: { opacity: 0.55 },
+  recordingActionBtn: { backgroundColor: "#dc2626" },
   recordingButton: { width: 32, height: 32, borderRadius: 16, backgroundColor: "#dc2626", alignItems: "center", justifyContent: "center" },
+  readOnlyNotice: { minHeight: 44, borderWidth: 1, borderRadius: 14, paddingHorizontal: 12, paddingVertical: 10, flexDirection: "row", alignItems: "center", gap: 8 },
+  readOnlyNoticeText: { flex: 1, fontSize: 12, lineHeight: 16, fontWeight: "600" },
   composeHeader: { flexDirection: "row", alignItems: "center", gap: 10, borderBottomWidth: 1, paddingHorizontal: 14, paddingBottom: 12 },
   composeScreenContent: { gap: 16, paddingHorizontal: 14, paddingTop: 14, paddingBottom: 120 },
   composeSection: { gap: 10, marginBottom: 12 },

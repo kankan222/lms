@@ -6,6 +6,7 @@ import sharp from "sharp";
 import jwt from "jsonwebtoken";
 import AppError from "../../core/errors/AppError.js";
 import * as repo from "./messaging.repository.js";
+import { assertCanViewConversation } from "./messaging.service.js";
 import {
   createMessagingObjectAccess,
   deleteMessagingObject,
@@ -251,9 +252,13 @@ export async function uploadAttachments(files, data, actor) {
   );
 }
 
-export async function getAttachmentAccess(attachmentId, userId, variant = "original") {
+export async function getAttachmentAccess(attachmentId, actorInput, variant = "original") {
+  const userId = Number(typeof actorInput === "number" ? actorInput : actorInput?.userId);
   const attachment = await repo.getAuthorizedAttachment(attachmentId, userId);
   if (!attachment) throw new AppError("Attachment not found", 404);
+  if (attachment.conversation_id) {
+    await assertCanViewConversation(actorInput, attachment.conversation_id);
+  }
 
   const useThumbnail = variant === "thumbnail" && attachment.thumbnail_key;
   const objectKey = useThumbnail ? attachment.thumbnail_key : attachment.object_key;

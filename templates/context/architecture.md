@@ -61,6 +61,11 @@
   `backend/.env.messaging.example`. The implementation is compatible
   with AWS S3, Cloudflare R2, DigitalOcean Spaces, Backblaze B2, and
   MinIO-style endpoints.
+- **Notification delivery**: MySQL stores the in-app notification feed.
+  SSE publishes optional realtime updates to connected software clients.
+  Push delivery is best-effort and must be gated by
+  `notifications.push.receive`; lack of push delivery must not prevent
+  the in-app notification record from being created.
 - **Browser storage**: internal web app stores `accessToken`,
   `refreshToken`, and serialized `user` in `localStorage`.
 - **Mobile secure storage/cache**: mobile auth state uses Zustand and
@@ -136,13 +141,20 @@
    perspective; core data should still be retrievable by normal APIs.
 9. Do not commit real local environment secrets.
 10. Messaging media must remain private and may be accessed only after
-    backend conversation-membership authorization.
+    backend conversation-membership authorization plus parent/teacher
+    scope eligibility where those roles are involved.
 11. Existing text messages and conversations must remain readable
     after messaging schema upgrades.
 12. Broadcast conversations are announcement-only; class and section
     conversations allow member replies.
 13. Only super admin may initiate conversations. Student-directed
     communication targets linked parents or guardians.
+14. Notifications should represent attention-worthy events only, not
+    generic CRUD changes. Notification records are the source of truth;
+    push is an optional delivery channel.
+15. Push-device registration and push dispatch require
+    `notifications.push.receive`. Notification inbox access requires
+    `notifications.view`.
 
 ## Messaging Model
 
@@ -173,3 +185,21 @@
   runs it daily at 03:30 unless `MESSAGING_CLEANUP_ENABLED=false`.
 - Moderation includes search, reports, audit history, attachment
   removal, conversation export, and user suspension.
+
+## Notification Model
+
+- Notification categories are `message`, `attendance`, `marksheet`,
+  `fee`, `account`, and `system`.
+- Supported high-value events include new messages, approved absence
+  notices sent to parents, marksheets published, marks rejected or
+  needing correction, fee due/overdue reminders, payment confirmations,
+  account/security alerts, and operational system alerts.
+- Avoid generic notifications for every create/update/delete action or
+  background sync success. Background sync should notify only when a
+  failure needs user action.
+- Every producer should call the shared notification service rather
+  than inserting notification rows directly. The service owns category
+  normalization, persistence, realtime publication, and push dispatch.
+- Notifications may include `entity_type`, `entity_id`, and an
+  `action_url`/`deep_link` so clients can route users to the relevant
+  message, student, marksheet, fee, or account screen when supported.

@@ -24,9 +24,12 @@ export async function sendPushNotifications(devices = [], payload = {}) {
       title: payload.title,
       body: payload.body,
       data: {
+        category: payload.category || "system",
         notificationType: payload.type || "general",
         entityType: payload.entityType || null,
         entityId: payload.entityId || null,
+        actionUrl: payload.actionUrl || null,
+        deepLink: payload.deepLink || null,
       },
     }));
 

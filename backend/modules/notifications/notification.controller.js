@@ -6,6 +6,7 @@ export async function myNotifications(req,res,next){
     const data =
       await service.getMyNotifications(req.user.userId, {
         limit: req.query.limit,
+        category: req.query.category,
       });
 
     res.json({ success:true, data });

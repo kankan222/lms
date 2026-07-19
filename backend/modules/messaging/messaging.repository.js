@@ -184,8 +184,8 @@ export async function createConversation(data) {
 export async function addConversationMember(conversationId, userId) {
   await execute(
     `INSERT IGNORE INTO conversation_members
-     (conversation_id, user_id, last_read_at)
-     VALUES (?, ?, NULL)`,
+     (conversation_id, user_id, last_read_at, hidden_at)
+     VALUES (?, ?, NULL, NULL)`,
     [conversationId, userId]
   );
 }
@@ -365,6 +365,7 @@ export async function getUserConversations(userId, filters = {}) {
     JOIN conversation_members cm
       ON cm.conversation_id = c.id
     WHERE cm.user_id = ?
+      AND cm.hidden_at IS NULL
     ORDER BY COALESCE(c.last_message_at, c.created_at) DESC`;
 
   const rows = await query(
@@ -379,7 +380,8 @@ export async function getUserConversations(userId, filters = {}) {
   const countRows = await query(
     `SELECT COUNT(*) AS total
      FROM conversation_members cm
-     WHERE cm.user_id = ?`,
+     WHERE cm.user_id = ?
+       AND cm.hidden_at IS NULL`,
     [userId]
   );
   const total = Number(countRows?.[0]?.total || 0);
@@ -415,6 +417,24 @@ export async function markConversationRead(conversationId, userId) {
   );
 }
 
+export async function hideConversationForUser(conversationId, userId) {
+  await execute(
+    `UPDATE conversation_members
+     SET hidden_at = NOW()
+     WHERE conversation_id = ? AND user_id = ?`,
+    [conversationId, userId]
+  );
+}
+
+export async function unhideConversationForMembers(conversationId) {
+  await execute(
+    `UPDATE conversation_members
+     SET hidden_at = NULL
+     WHERE conversation_id = ?`,
+    [conversationId]
+  );
+}
+
 export async function getUnreadCounts(userId) {
   return query(
     `SELECT
@@ -428,6 +448,7 @@ export async function getUnreadCounts(userId) {
       AND m.created_at > IFNULL(cm.last_read_at, '1970-01-01')
       AND m.sender_id <> cm.user_id
     WHERE cm.user_id=?
+      AND cm.hidden_at IS NULL
     GROUP BY c.id`,
     [userId]
   );
@@ -695,7 +716,7 @@ export async function getTeacherByUserId(userId) {
 }
 
 export async function getTeacherVisibleConversationIds({ teacherId, classScope = "school" }) {
-  const broadcastNames = ["All Users", "All Teachers"];
+  const broadcastNames = ["All Teachers"];
   if (classScope === "hs") {
     broadcastNames.push("All College Teachers");
   } else {
@@ -706,6 +727,20 @@ export async function getTeacherVisibleConversationIds({ teacherId, classScope =
   const rows = await query(
     `SELECT DISTINCT conversation_id
      FROM (
+       SELECT c.id AS conversation_id
+       FROM conversations c
+       JOIN conversation_members cm
+         ON cm.conversation_id = c.id
+        AND cm.user_id = (
+          SELECT user_id
+          FROM teachers
+          WHERE id = ?
+          LIMIT 1
+        )
+       WHERE c.type = 'direct'
+
+       UNION
+
        SELECT c.id AS conversation_id
        FROM conversations c
        WHERE c.type = 'broadcast'
@@ -729,7 +764,113 @@ export async function getTeacherVisibleConversationIds({ teacherId, classScope =
         AND c.type = 'section'
         AND c.section_id = tca.section_id
      ) visible`,
-    [...broadcastNames, teacherId, teacherId]
+    [teacherId, ...broadcastNames, teacherId, teacherId]
+  );
+
+  return rows.map((row) => Number(row.conversation_id)).filter(Boolean);
+}
+
+export async function getParentVisibleConversationIds(userId) {
+  const hasClassScope = await hasClassClassScopeColumn();
+  const schoolParentBroadcastSql = hasClassScope
+    ? `UNION
+
+       SELECT c.id AS conversation_id
+       FROM conversations c
+       WHERE c.type = 'broadcast'
+         AND c.name = 'All School Parents'
+         AND EXISTS (
+           SELECT 1
+           FROM parents p
+           JOIN student_parents sp ON sp.parent_id = p.id
+           JOIN student_enrollments e
+             ON e.student_id = sp.student_id
+            AND e.status = 'active'
+           JOIN classes cls ON cls.id = e.class_id
+           WHERE p.user_id = ?
+             AND cls.class_scope = 'school'
+         )
+
+       UNION
+
+       SELECT c.id AS conversation_id
+       FROM conversations c
+       WHERE c.type = 'broadcast'
+         AND c.name = 'All College Parents'
+         AND EXISTS (
+           SELECT 1
+           FROM parents p
+           JOIN student_parents sp ON sp.parent_id = p.id
+           JOIN student_enrollments e
+             ON e.student_id = sp.student_id
+            AND e.status = 'active'
+           JOIN classes cls ON cls.id = e.class_id
+           WHERE p.user_id = ?
+             AND cls.class_scope = 'hs'
+         )`
+    : "";
+
+  const params = hasClassScope
+    ? [userId, userId, userId, userId, userId, userId]
+    : [userId, userId, userId, userId];
+
+  const rows = await query(
+    `SELECT DISTINCT conversation_id
+     FROM (
+       SELECT c.id AS conversation_id
+       FROM conversations c
+       JOIN conversation_members cm
+         ON cm.conversation_id = c.id
+        AND cm.user_id = ?
+       WHERE c.type = 'direct'
+
+       UNION
+
+       SELECT c.id AS conversation_id
+       FROM conversations c
+       JOIN parents p
+         ON p.user_id = ?
+       JOIN student_parents sp
+         ON sp.parent_id = p.id
+       JOIN student_enrollments e
+         ON e.student_id = sp.student_id
+        AND e.status = 'active'
+       WHERE c.type = 'class'
+         AND c.class_id = e.class_id
+
+       UNION
+
+       SELECT c.id AS conversation_id
+       FROM conversations c
+       JOIN parents p
+         ON p.user_id = ?
+       JOIN student_parents sp
+         ON sp.parent_id = p.id
+       JOIN student_enrollments e
+         ON e.student_id = sp.student_id
+        AND e.status = 'active'
+       WHERE c.type = 'section'
+         AND c.section_id = e.section_id
+
+       UNION
+
+       SELECT c.id AS conversation_id
+       FROM conversations c
+       WHERE c.type = 'broadcast'
+         AND c.name = 'All Parents'
+         AND EXISTS (
+           SELECT 1
+           FROM parents p
+           JOIN student_parents sp ON sp.parent_id = p.id
+           JOIN student_enrollments e
+             ON e.student_id = sp.student_id
+            AND e.status = 'active'
+           WHERE p.user_id = ?
+         )
+
+       ${schoolParentBroadcastSql}
+     ) visible`,
+    params
   );
 
   return rows.map((row) => Number(row.conversation_id)).filter(Boolean);
@@ -873,7 +1014,21 @@ export async function getAttachmentsForMessageIds(messageIds) {
 
 export async function getAuthorizedAttachment(attachmentId, userId) {
   const rows = await query(
-    `SELECT a.*
+    `SELECT
+       a.*,
+       CASE
+         WHEN a.status = 'pending' OR a.uploaded_by = ? OR cm.user_id IS NOT NULL
+           THEN m.conversation_id
+         ELSE (
+           SELECT forwarded.conversation_id
+           FROM messages forwarded
+           JOIN conversation_members forwarded_member
+             ON forwarded_member.conversation_id = forwarded.conversation_id
+            AND forwarded_member.user_id = ?
+           WHERE forwarded.forwarded_from_message_id = a.message_id
+           LIMIT 1
+         )
+       END AS conversation_id
      FROM message_attachments a
      LEFT JOIN messages m ON m.id = a.message_id
      LEFT JOIN conversation_members cm
@@ -899,7 +1054,7 @@ export async function getAuthorizedAttachment(attachmentId, userId) {
          )
        )
      LIMIT 1`,
-    [userId, attachmentId, userId, userId, userId]
+    [userId, userId, userId, attachmentId, userId, userId, userId]
   );
   return rows[0] || null;
 }

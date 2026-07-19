@@ -17,6 +17,7 @@ import {
   updateStream,
 } from "../api/academic.api";
 import { adminResetPassword, getMyAccount, getUsers, changeMyPassword } from "../api/users.api";
+import { getAppUpdatePolicies, notifyAppUpdate, saveAppUpdatePolicy } from "../api/appUpdates.api";
 import { usePermissions } from "../hooks/usePermissions";
 import { formatReadableDate } from "../lib/dateTime";
 
@@ -805,6 +806,202 @@ function InfoTile({ label, value, spanTwo = false, capitalize = false }) {
   );
 }
 
+const emptyUpdateForm = {
+  platform: "android",
+  latest_version: "",
+  latest_build: "",
+  minimum_version: "",
+  minimum_build: "",
+  store_url: "",
+  title: "App update available",
+  message: "A newer version of the app is available.",
+  is_active: true,
+};
+
+function AppUpdatePolicyPanel({ showNotice }) {
+  const [policies, setPolicies] = useState([]);
+  const [platform, setPlatform] = useState("android");
+  const [form, setForm] = useState(emptyUpdateForm);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [notifying, setNotifying] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    loadPolicies();
+  }, []);
+
+  useEffect(() => {
+    const selected = policies.find((item) => item.platform === platform);
+    setForm({
+      ...emptyUpdateForm,
+      platform,
+      latest_version: selected?.latest_version || "",
+      latest_build: selected?.latest_build ? String(selected.latest_build) : "",
+      minimum_version: selected?.minimum_version || "",
+      minimum_build: selected?.minimum_build ? String(selected.minimum_build) : "",
+      store_url: selected?.store_url || "",
+      title: selected?.title || "App update available",
+      message: selected?.message || "A newer version of the app is available.",
+      is_active: selected?.is_active !== false,
+    });
+  }, [platform, policies]);
+
+  async function loadPolicies() {
+    setLoading(true);
+    setError("");
+    try {
+      const res = await getAppUpdatePolicies();
+      setPolicies(Array.isArray(res?.data) ? res.data : []);
+    } catch (err) {
+      setError(err?.message || "Failed to load app update policy.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleSave(e) {
+    e.preventDefault();
+    setError("");
+    if (!form.latest_version || !form.minimum_version) {
+      setError("Latest version and minimum version are required.");
+      return;
+    }
+
+    setSaving(true);
+    try {
+      await saveAppUpdatePolicy({
+        ...form,
+        latest_build: form.latest_build ? Number(form.latest_build) : null,
+        minimum_build: form.minimum_build ? Number(form.minimum_build) : null,
+      });
+      await loadPolicies();
+      showNotice("Policy Saved", `${platform === "android" ? "Android" : "iOS"} app update policy updated.`);
+    } catch (err) {
+      setError(err?.message || "Failed to save app update policy.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleNotify() {
+    setError("");
+    setNotifying(true);
+    try {
+      const res = await notifyAppUpdate({ platform });
+      showNotice("Notification Sent", `App update notification sent to ${res?.data?.notified || 0} users.`);
+    } catch (err) {
+      setError(err?.message || "Failed to notify users.");
+    } finally {
+      setNotifying(false);
+    }
+  }
+
+  const selectedLabel = platform === "android" ? "Android" : "iOS";
+
+  return (
+    <div className="grid gap-4 lg:grid-cols-[380px_minmax(0,1fr)]">
+      <Card>
+        <CardHeader>
+          <CardTitle>Mobile App Update Policy</CardTitle>
+          <CardDescription>
+            Manage optional and required app updates without editing production environment files.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <form onSubmit={handleSave} className="grid gap-4">
+            <Tabs value={platform} onValueChange={setPlatform}>
+              <TabsList>
+                <TabsTrigger value="android">Android</TabsTrigger>
+                <TabsTrigger value="ios">iOS</TabsTrigger>
+              </TabsList>
+            </Tabs>
+
+            <div className="grid gap-2">
+              <Label>Latest Version *</Label>
+              <Input value={form.latest_version} onChange={(e) => setForm((prev) => ({ ...prev, latest_version: e.target.value }))} placeholder="1.1.5" />
+            </div>
+            <div className="grid gap-2">
+              <Label>Latest Build / Version Code</Label>
+              <Input value={form.latest_build} onChange={(e) => setForm((prev) => ({ ...prev, latest_build: e.target.value.replace(/\D/g, "") }))} placeholder={platform === "android" ? "27" : "1"} />
+            </div>
+            <div className="grid gap-2">
+              <Label>Minimum Supported Version *</Label>
+              <Input value={form.minimum_version} onChange={(e) => setForm((prev) => ({ ...prev, minimum_version: e.target.value }))} placeholder="1.1.4" />
+            </div>
+            <div className="grid gap-2">
+              <Label>Minimum Build / Version Code</Label>
+              <Input value={form.minimum_build} onChange={(e) => setForm((prev) => ({ ...prev, minimum_build: e.target.value.replace(/\D/g, "") }))} placeholder={platform === "android" ? "26" : "1"} />
+            </div>
+            <div className="grid gap-2">
+              <Label>Store URL</Label>
+              <Input value={form.store_url} onChange={(e) => setForm((prev) => ({ ...prev, store_url: e.target.value }))} placeholder={platform === "android" ? "https://play.google.com/store/apps/details?id=..." : "https://apps.apple.com/app/id..."} />
+            </div>
+            <div className="grid gap-2">
+              <Label>Prompt Title</Label>
+              <Input value={form.title} onChange={(e) => setForm((prev) => ({ ...prev, title: e.target.value }))} />
+            </div>
+            <div className="grid gap-2">
+              <Label>Prompt Message</Label>
+              <Input value={form.message} onChange={(e) => setForm((prev) => ({ ...prev, message: e.target.value }))} />
+            </div>
+            <label className="flex items-center gap-2 text-sm">
+              <input type="checkbox" checked={form.is_active} onChange={(e) => setForm((prev) => ({ ...prev, is_active: e.target.checked }))} />
+              Enable {selectedLabel} update checks
+            </label>
+
+            {error && <p className="text-sm text-red-600">{error}</p>}
+
+            <div className="flex flex-wrap gap-2">
+              <Button type="submit" disabled={saving || loading}>
+                {saving ? "Saving..." : "Save Policy"}
+              </Button>
+              <Button type="button" variant="outline" onClick={handleNotify} disabled={notifying || loading}>
+                {notifying ? "Sending..." : "Notify Users"}
+              </Button>
+            </div>
+          </form>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Current Policies</CardTitle>
+          <CardDescription>
+            Latest version prompts are optional. Minimum supported version prompts are mandatory.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="grid gap-3">
+          {loading ? (
+            <p className="text-sm text-muted-foreground">Loading app update policies...</p>
+          ) : policies.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No app update policy has been configured.</p>
+          ) : (
+            policies.map((item) => (
+              <div key={item.platform} className="rounded-lg border bg-muted/30 px-4 py-3">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <p className="font-semibold capitalize">{item.platform}</p>
+                    <p className="text-sm text-muted-foreground">
+                      Latest {item.latest_version}{item.latest_build ? ` (${item.latest_build})` : ""} · Minimum {item.minimum_version}{item.minimum_build ? ` (${item.minimum_build})` : ""}
+                    </p>
+                    <p className="mt-1 max-w-xl truncate text-sm text-muted-foreground">
+                      {item.store_url || "Store URL not configured"}
+                    </p>
+                  </div>
+                  <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${item.is_active ? "bg-emerald-100 text-emerald-700" : "bg-stone-100 text-stone-600"}`}>
+                    {item.is_active ? "Active" : "Inactive"}
+                  </span>
+                </div>
+              </div>
+            ))
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
 export default function Settings() {
   const [notice, setNotice] = useState(null);
 
@@ -833,6 +1030,7 @@ export default function Settings() {
           <TabsTrigger value="academic-sessions">Academic Sessions</TabsTrigger>
           <TabsTrigger value="streams">Streams</TabsTrigger>
           <TabsTrigger value="security">Security</TabsTrigger>
+          <TabsTrigger value="app-updates">App Updates</TabsTrigger>
           <TabsTrigger value="general">General</TabsTrigger>
         </TabsList>
 
@@ -850,6 +1048,10 @@ export default function Settings() {
 
         <TabsContent value="security">
           <SecurityPanel showNotice={showNotice} />
+        </TabsContent>
+
+        <TabsContent value="app-updates">
+          <AppUpdatePolicyPanel showNotice={showNotice} />
         </TabsContent>
 
         <TabsContent value="general">

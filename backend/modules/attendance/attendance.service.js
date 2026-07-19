@@ -528,7 +528,8 @@ export async function notifyAbsentParents(sessionId, data, actor) {
           recipient_user_id: row.parent_user_id,
           message: messageBody,
         },
-        actor.userId
+        actor.userId,
+        { suppressNotification: true }
       );
 
       sent.push({
@@ -543,14 +544,18 @@ export async function notifyAbsentParents(sessionId, data, actor) {
       try {
         await conn.beginTransaction();
 
-        const notificationId = await repo.createNotification(conn, {
+        const notificationResult = await notificationService.notify({
           userId: row.parent_user_id,
+          category: "attendance",
           type: "student_attendance_absent",
           entityType: "attendance_session",
           entityId: Number(sessionId),
           title: notificationTitle,
           body: messageBody,
+          deepLink: `app://attendance/sessions/${sessionId}`,
+          actionUrl: `/attendance?session_id=${sessionId}`,
         });
+        const notificationId = Number(notificationResult?.notification_ids?.[0]) || null;
 
         await repo.logParentMessage(conn, {
           attendanceSessionId: Number(sessionId),
@@ -571,17 +576,6 @@ export async function notifyAbsentParents(sessionId, data, actor) {
         conn.release();
       }
 
-      try {
-        await notificationService.dispatchNotificationUpdate([row.parent_user_id], {
-          type: "student_attendance_absent",
-          entityType: "attendance_session",
-          entityId: Number(sessionId),
-          title: notificationTitle,
-          body: messageBody,
-        });
-      } catch (err) {
-        console.error("Parent notification dispatch failed after send", err);
-      }
     } catch (err) {
       failed.push({
         student_id: row.student_id,

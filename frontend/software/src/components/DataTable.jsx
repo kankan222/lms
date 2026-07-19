@@ -317,7 +317,7 @@ export default function DataTable({
       </div>
 
       {/* Pagination */}
-      <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-2">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border bg-card px-4 py-3 text-foreground">
         <div className="flex items-center mt-4">
           <p className="text-sm text-muted-foreground">
             {selectedRows.length} of {totalRowsCount} row(s) selected
@@ -325,9 +325,9 @@ export default function DataTable({
         </div>
         <div className="flex flex-wrap items-center gap-3">
           <div className="flex flex-wrap items-center gap-2">
-            <p>Rows per page</p>
+            <p className="text-sm text-muted-foreground">Rows per page</p>
             <select
-              className="border rounded-lg"
+              className="rounded-lg border border-border bg-background px-2 py-1 text-sm text-foreground shadow-sm outline-none transition-colors hover:bg-muted focus:border-ring focus:ring-2 focus:ring-ring/40 dark:bg-input/30 dark:hover:bg-input/50"
               value={effectiveRowsPerPage}
               onChange={(e) => {
                 const nextValue = Number(e.target.value);
@@ -349,7 +349,7 @@ export default function DataTable({
               }}
             >
               {rowsPerPageOptions.map((option) => (
-                <option key={option} value={option}>
+                <option key={option} value={option} className="bg-background text-foreground">
                   {option}
                 </option>
               ))}
@@ -369,7 +369,7 @@ export default function DataTable({
                   setCurrentPage(nextPage);
                 }
               }}
-              className="rounded-lg border px-3 py-1 transition-colors disabled:opacity-50 hover:bg-muted"
+              className="rounded-lg border border-border bg-background px-3 py-1 text-sm text-foreground shadow-sm transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50 dark:bg-input/30 dark:hover:bg-input/50"
             >
               Prev
             </button>
@@ -384,7 +384,7 @@ export default function DataTable({
                   setCurrentPage(nextPage);
                 }
               }}
-              className="rounded-lg border px-3 py-1 transition-colors disabled:opacity-50 hover:bg-muted"
+              className="rounded-lg border border-border bg-background px-3 py-1 text-sm text-foreground shadow-sm transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50 dark:bg-input/30 dark:hover:bg-input/50"
             >
               Next
             </button>

@@ -74,8 +74,6 @@ const columns = [
   { header: "Email", accessor: "email" },
   { header: "Phone", accessor: "phone" },
   { header: "Role", accessor: "roles" },
-  { header: "Parent Class", accessor: "parent_classes" },
-  { header: "Parent Section", accessor: "parent_sections" },
   { header: "Status", accessor: "status" },
 ];
 
@@ -227,8 +225,6 @@ export default function Users() {
       email: row.email || "-",
       phone: row.phone || "-",
       roles: row.roles || "-",
-      parent_classes: row.parent_classes || "-",
-      parent_sections: row.parent_sections || "-",
     }));
     setUsers(rows);
     setPagination(

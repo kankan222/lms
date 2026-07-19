@@ -12,7 +12,7 @@ router.get(
 );
 router.get(
   "/targets",
-  requirePermission("messages.view"),
+  requirePermission("messages.send"),
   controller.getTargets
 );
 router.get(
@@ -94,6 +94,11 @@ router.get(
   "/conversations/:conversationId/search",
   requirePermission("messages.view"),
   controller.searchMessages
+);
+router.delete(
+  "/conversations/:conversationId",
+  requirePermission("messages.view"),
+  controller.deleteConversation
 );
 router.post(
   "/conversations/:conversationId/typing",

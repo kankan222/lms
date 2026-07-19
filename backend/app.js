@@ -50,6 +50,7 @@ import teacherAttendanceSyncRoutes from "./modules/teacherAttendanceSync/teacher
 import messagingMediaPublicRoutes from "./modules/messaging/messaging.media.public.routes.js"
 
 import notificationRoutes from "./modules/notifications/notification.routes.js"
+import appUpdateRoutes from "./modules/appUpdates/appUpdate.routes.js"
 
 import dashboardRoutes from "./modules/dashboard/dashboard.routes.js"
 
@@ -92,6 +93,7 @@ app.use("/api/v1/website", staffWebsiteRoutes)
 
 
 app.use("/api/v1/notifications", notificationRoutes)
+app.use("/api/v1/app-updates", appUpdateRoutes)
 
 
 app.use(errorHandler)

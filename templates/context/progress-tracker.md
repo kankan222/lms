@@ -62,6 +62,113 @@ Update this file after every meaningful implementation change.
 - Fixed mobile Messaging voice playback replay by rewinding voice attachments
   and unsent voice previews to the start when playback has already reached the
   end.
+- Made Messaging read-only for parent and teacher roles by revoking
+  `messages.send` from those role defaults, adding a production migration to
+  remove existing send grants, enforcing the restriction in backend
+  send/edit/typing paths, and hiding reply/forward/composer controls on web
+  and mobile.
+- Restyled the mobile Messaging conversation composer to follow the attached
+  rounded chat-input reference while preserving current text, image, document,
+  voice-recording, reply, edit, and send behavior.
+- Added conversation-level delete-for-me in Messaging by storing per-member
+  hidden timestamps, filtering hidden chats from lists and unread counts,
+  restoring hidden chats when a new message arrives, and exposing delete
+  controls in mobile and software chat lists.
+- Updated the mobile Messaging conversation list header to a WhatsApp-inspired
+  title, action-icon, rounded-search, and filter-chip layout, grouping loaded
+  chats by All, Unread, One-to-One, Parents, Teachers, Classes, Sections, and
+  Broadcasts without changing backend recipient rules.
+- Refined the mobile Messaging list rows to match the WhatsApp-style reference
+  with flat divider rows, larger list avatars, last-message times, compact row
+  metadata, safe-area/keyboard-aware wrappers, and a smaller sent voice-note UI.
+- Tuned the mobile Messaging list back toward the app's compact patterns with a
+  smaller header/search/filter layout, date-time under each chat name, restored
+  row name sizing, selection coloring, and multi-select delete from the top bar
+  instead of per-row delete buttons.
+- Switched the shared mobile accent theme from slate/green to the software
+  primary red (`#da271f`) for primary and success accent tokens, kept the user's
+  Messaging top padding, rounded the new-conversation icon, and added a border
+  to the message composer input tray.
+- Changed mobile Messaging voice notes from bordered attachment cards to
+  WhatsApp-style inline waveform strips inside the existing message bubble,
+  keeping play/pause and speed controls while removing the bulky visible box.
+- Increased mobile Messaging chat message and conversation preview font weight
+  for stronger readability.
+- Added multi-select forwarding in mobile Messaging, removed forward/send
+  success and failure dialogs, and replaced textual sent/delivered/read status
+  labels in message bubbles with tick/error icons.
+- Reduced mobile Messaging photo/document bubble padding so media sits closer
+  to the chat bubble edge, captions stay inset, and document attachments render
+  as compact inline rows instead of nested cards.
+- Made mobile Messaging avatars neutral by replacing accent-colored initials
+  backgrounds with muted surfaces and adding a subtle border around avatar
+  circles.
+- Added an in-app mobile Messaging photo preview screen so tapped chat photos
+  open inside the app, and darkened generated avatar initials backgrounds while
+  preserving the subtle avatar border.
+- Added pinch, pan, and double-tap zoom controls to the mobile Messaging
+  in-app photo preview screen.
+- Changed mobile Messaging chat bubbles from accent/bordered styling to dark
+  neutral fills with bright message, metadata, status, voice, and document text.
+- Updated mobile Messaging outgoing chat status and failed-send icons to use
+  the app accent color inside dark chat bubbles.
+- Matched mobile Messaging dark-mode chat bubble colors by using a shared dark
+  neutral fill for sent and received bubbles while keeping bright text and
+  accent status icons.
+- Updated the notification direction in project context: notifications are now
+  scoped to high-value message, attendance, marksheet, fee, account, and system
+  events; push delivery is permission-gated separately from inbox access.
+- Added a notification migration for `category`, `action_url`, and `deep_link`,
+  plus `notifications.push.receive`, `notifications.manage`, and
+  `notifications.send` permissions with role defaults.
+- Standardized notification creation through the shared notification service,
+  added category/deep-link normalization, gated push-device registration and
+  dispatch by `notifications.push.receive`, suppressed duplicate message
+  notifications for attendance absence notices, removed the old attendance
+  direct notification insert helper, and disabled the stale fee reminder job
+  that targeted student IDs instead of user IDs.
+- Refined the software Notifications page with category filters, category
+  badges, filtered unread counts, and action links for notification records
+  that provide an action URL.
+- Added a mobile Notifications inbox screen, mobile notification API service,
+  header unread badge, and More-menu entry for users with `notifications.view`.
+- Rounded the main mobile app header icon buttons to circular controls while
+  preserving the existing theme and header actions.
+- Added an unread-message badge to the mobile footer Messaging icon using the
+  existing `/messages/unread/count` API.
+- Installed and configured `expo-notifications`, added mobile push
+  registration/unregistration helpers, prompt-and-register behavior after
+  sign-in for users with `notifications.push.receive`, and a Profile toggle
+  for enabling or disabling push delivery per device.
+- Expanded default notification inbox and push receive permissions to every
+  role while keeping notification visibility scoped to the logged-in user's
+  own notification records.
+- Redesigned the mobile Dashboard tab using the attached compact dashboard as
+  visual and UX inspiration: scope pills, Overview/Attendance/Finance/Classes
+  panes, dense KPI tiles, divider lists, compact progress bars, and existing
+  dashboard summary data without changing backend behavior.
+- Refined the mobile Dashboard against the latest dark-mode screenshot by
+  moving dashboard title/actions into the dashboard content instead of using
+  the global app header, tightening the top controls/cards/lists, adding a
+  recent-message View all action, and restyling the bottom footer as a compact
+  rounded dock with active accent icons.
+- Added bordered visual chart panels to the mobile Dashboard Attendance,
+  Finance, and Classes panes, including attendance snapshot chips, stacked
+  attendance status meter, collection graph, and largest-class bar chart built
+  from the existing dashboard summary API.
+- Redesigned the mobile More screen as a modules hub inspired by the supplied
+  reference: compact Modules header, searchable module list, frequently used
+  tiles, expandable category cards, and a recent-module strip while preserving
+  existing role/permission visibility and navigation behavior.
+- Added an authenticated mobile app-update policy endpoint, automatic
+  app-start update prompts, Profile update checking/opening controls, and a
+  super-admin notification action for announcing available mobile updates via
+  the existing notification/push pipeline.
+- Moved mobile app update policy management into the database with a new
+  software Settings > App Updates panel for Android/iOS latest version,
+  minimum supported version, build numbers, store URLs, prompt text, active
+  state, and update notifications, removing the need to edit backend env values
+  for normal release announcements.
 - Removed placeholder text from mobile and software login/OTP inputs while
   preserving labels, validation, and authentication behavior.
 - Made auth refresh sessions role-aware: super admin and admin refresh tokens
@@ -794,3 +901,55 @@ Update this file after every meaningful implementation change.
 - Fixed production OTP trusted-device behavior so verifying OTP stores the
   device in production too, and later logins from the same mobile device do not
   resend OTP just because the app was updated or the session expired.
+- Removed grand total, percentage, and subject count from the mobile Student
+  Details marksheet preview while leaving the downloadable marksheet unchanged.
+- Removed parent class/section columns from the software Users directory and
+  updated shared DataTable pagination controls to use dark-mode-safe colors.
+- Increased the Users API pagination limit cap from 50 to 100 so the software
+  Users table keeps the selected 100-row page size.
+- Added exact-match OTP bypass environment settings for dedicated app-review
+  accounts, preventing Play Store/App Store test-device logins from sending OTP
+  to real admin phones while keeping OTP active for normal production users.
+- Restored grand total and percentage in the mobile Student Details marksheet
+  preview and replaced subject count with grade, without extra seal/school-name
+  or signature placeholders.
+- Fixed a mobile Messaging race where opening a new class/group conversation
+  could be overwritten by the conversation list auto-selecting the first chat.
+- Tightened Messaging visibility for parent and teacher logins by filtering
+  conversation lists, unread counts, message reads, deletes, reports, searches,
+  typing reads, and media access through role-specific eligibility: teachers
+  see direct chats plus assigned class/section and teacher-audience broadcasts,
+  while parents see direct chats plus conversations tied to their active
+  children's class/section or parent-audience broadcasts; read-only clients no
+  longer fetch recipient target directories.
+- Added rounded bordered controls to mobile Messaging conversation delete/search
+  actions and padded the in-conversation search input for clearer touch targets.
+- Matched mobile Student Details tab chips to the Messaging filter badge style
+  with soft accent active backgrounds, accent borders, and accent text.
+- Simplified the mobile More screen by removing accordion category cards,
+  frequent tiles, and recent tiles in favor of grouped module lists with small
+  uppercase section headers.
+- Refreshed the mobile Student Details overview using the supplied layout as
+  inspiration: profile title row, larger identity card, four metric tiles,
+  icon-led tab chips, and icon-led student information rows while retaining the
+  app theme colors.
+- Corrected the mobile Student Details refresh by removing the duplicated
+  header, Active badge, Fee Status, and Approved Days overview tiles, and
+  returning typography and avatar sizing to the app's compact scale.
+- Extended the compact icon-led Student Details hierarchy across Parents,
+  Subject Selection, Attendance, Fees & Payments, Transportation, and Marksheet
+  tabs without changing the underlying tab behavior.
+- Added a subtle themed border to the mobile Student Details avatar and gave
+  top identity badges distinct gender, scope, and stream colors.
+- Updated the main mobile Students list cards using the supplied student-info
+  reference for badge styling and class/section presentation, while keeping the
+  existing project theme colors and avoiding the reference reports CTA.
+- Refined the main mobile Students list cards by removing the class/section
+  icon, changing badges to `Roll No -` and `Medium -` wording, and applying the
+  app accent treatment to avatars and the filter button.
+- Refreshed the mobile Profile screen using the supplied reference as design
+  direction: compact accent avatar header, role badges, and icon-led account
+  information rows while preserving the existing font scale.
+- Corrected the mobile Profile overview hierarchy by removing the Overview
+  eyebrow, reducing the My Profile label, and making the account name the
+  primary text without touching other profile sections.

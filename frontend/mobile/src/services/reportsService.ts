@@ -65,6 +65,7 @@ export type StudentReport = {
     total?: number;
     max_total?: number;
     percentage: number;
+    grade?: string | null;
   };
   subjects?: Array<{
     subject: string;

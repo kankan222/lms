@@ -251,6 +251,10 @@ export async function deleteMessage(messageId: number, mode: "self" | "everyone"
   await api.delete(`/messages/messages/${messageId}`, { data: { mode } });
 }
 
+export async function deleteConversation(conversationId: number) {
+  await api.delete(`/messages/conversations/${conversationId}`);
+}
+
 export async function reportMessage(messageId: number, reason: string, details = "") {
   await api.post(`/messages/messages/${messageId}/report`, { reason, details });
 }
@@ -274,6 +278,12 @@ export async function getTyping(conversationId: number) {
     `/messages/conversations/${conversationId}/typing`,
   );
   return response.data.data?.user_ids ?? [];
+}
+
+export async function getUnreadMessageTotal() {
+  const response = await api.get<ApiEnvelope<Array<{ conversation_id: number; unread: number }>>>("/messages/unread/count");
+  const rows = response.data.data ?? [];
+  return rows.reduce((sum, row) => sum + Number(row.unread || 0), 0);
 }
 
 export async function markAsRead(conversationId: number) {

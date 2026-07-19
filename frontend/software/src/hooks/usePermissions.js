@@ -8,14 +8,12 @@ const rolePermissionFallbacks = {
     "attendance.take",
     "subjects.view",
     "messages.view",
-    "messages.send",
   ],
   parent: [
     "student.view",
     "fee.view",
     "marks.view",
     "messages.view",
-    "messages.send",
   ],
   accounts: [
     "payment.view",

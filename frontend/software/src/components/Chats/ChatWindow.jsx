@@ -170,6 +170,7 @@ export default function ChatWindow({
   onSearch,
   onTyping,
   canModerate,
+  canSendMessages = true,
   onRemoveAttachment,
 }) {
   const [input, setInput] = useState("");
@@ -219,6 +220,7 @@ export default function ChatWindow({
   };
 
   const handleSend = async () => {
+    if (!canSendMessages) return;
     if (!input.trim() && !files.length) return;
     await onSendMessage({
       message: input.trim(),
@@ -362,7 +364,7 @@ export default function ChatWindow({
                       {mine ? <Receipt statuses={msg.statuses} /> : null}
                     </div>
                   </div>
-                  {!deleted ? (
+                  {!deleted && canSendMessages ? (
                     <div className={`mt-1 hidden gap-1 group-hover:flex ${mine ? "justify-end" : ""}`}>
                       <button title="Reply" onClick={() => setReplyTo(msg)}><Reply className="size-3.5" /></button>
                       <button title="Forward" onClick={() => onForwardMessage(msg, conversations)}><Forward className="size-3.5" /></button>
@@ -383,6 +385,12 @@ export default function ChatWindow({
       </div>
 
       <div className="border-t bg-card p-3">
+        {!canSendMessages ? (
+          <div className="rounded-lg border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
+            Parents and teachers can view super admin messages only.
+          </div>
+        ) : (
+          <>
         {replyTo ? (
           <div className="mb-2 flex items-center justify-between rounded-lg border-l-4 border-primary bg-muted px-3 py-2 text-xs">
             <span className="truncate">Replying to {replyTo.sender_name || replyTo.username}: {replyTo.message || replyTo.message_type}</span>
@@ -450,6 +458,8 @@ export default function ChatWindow({
             <Send className="size-5" />
           </button>
         </div>
+          </>
+        )}
       </div>
     </div>
   );

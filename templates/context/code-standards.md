@@ -59,6 +59,14 @@
   mutation.
 - Keep SSE endpoints compatible with browser `EventSource`; token
   query support exists for those streams.
+- Notification producers must use `backend/modules/notifications`
+  service functions. Do not insert into `notifications` directly from
+  another domain module unless that module is inside a larger
+  transaction and immediately delegates delivery through the
+  notification service.
+- Push notification token registration and push dispatch must be
+  gated by `notifications.push.receive`; `notifications.view` controls
+  in-app inbox access only.
 - Preserve refresh-token behavior for 401 responses in web and mobile
   clients.
 - Login clients must send stable `x-device-id` and `x-device-type`

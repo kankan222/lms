@@ -99,7 +99,7 @@ function buildUserFilters(filters = {}) {
 
 export async function listUsers(filters = {}) {
   const page = Math.max(1, Number(filters.page || 1));
-  const limit = Math.min(50, Math.max(1, Number(filters.limit || 5)));
+  const limit = Math.min(100, Math.max(1, Number(filters.limit || 5)));
   const offset = (page - 1) * limit;
 
   const { whereSql, params } = buildUserFilters(filters);

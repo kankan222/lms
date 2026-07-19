@@ -2,10 +2,26 @@ import TopBar from "../components/TopBar";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { useMemo, useState } from "react";
 import { useNotifications } from "../notifications/useNotifications";
 import { formatReadableDateTime } from "../lib/dateTime";
 
+const CATEGORY_OPTIONS = [
+  { label: "All", value: "all" },
+  { label: "Messages", value: "message" },
+  { label: "Attendance", value: "attendance" },
+  { label: "Marksheets", value: "marksheet" },
+  { label: "Fees", value: "fee" },
+  { label: "Account", value: "account" },
+  { label: "System", value: "system" },
+];
+
+function getCategory(item) {
+  return String(item.category || "system").toLowerCase();
+}
+
 function NotificationRow({ item, onRead }) {
+  const actionHref = item.action_url || item.actionUrl || null;
   return (
     <div
       className={`rounded-xl border p-4 transition ${
@@ -16,6 +32,7 @@ function NotificationRow({ item, onRead }) {
         <div>
           <div className="flex items-center gap-2">
             <p className="font-semibold">{item.title}</p>
+            <Badge variant="outline" className="capitalize">{getCategory(item)}</Badge>
             {!item.is_read ? <Badge variant="secondary">New</Badge> : null}
           </div>
           <p className="mt-1 text-sm text-muted-foreground">{item.body}</p>
@@ -23,11 +40,18 @@ function NotificationRow({ item, onRead }) {
             {formatReadableDateTime(item.created_at)}
           </p>
         </div>
-        {!item.is_read ? (
-          <Button size="sm" variant="outline" onClick={() => onRead(item.id)}>
-            Mark Read
-          </Button>
-        ) : null}
+        <div className="flex shrink-0 flex-wrap justify-end gap-2">
+          {actionHref ? (
+            <Button size="sm" variant="outline" asChild>
+              <a href={actionHref}>Open</a>
+            </Button>
+          ) : null}
+          {!item.is_read ? (
+            <Button size="sm" variant="outline" onClick={() => onRead(item.id)}>
+              Mark Read
+            </Button>
+          ) : null}
+        </div>
       </div>
     </div>
   );
@@ -42,8 +66,13 @@ export default function Notifications() {
     markRead,
     markAllRead,
   } = useNotifications();
+  const [category, setCategory] = useState("all");
 
-  const unreadItems = notifications.filter((item) => !item.is_read);
+  const filteredNotifications = useMemo(
+    () => notifications.filter((item) => category === "all" || getCategory(item) === category),
+    [category, notifications]
+  );
+  const unreadItems = filteredNotifications.filter((item) => !item.is_read);
 
   if (!canViewNotifications) {
     return (
@@ -63,19 +92,19 @@ export default function Notifications() {
 
   return (
     <div className="space-y-4">
-      <TopBar title="Notifications" subTitle="Software notification feed shared with future mobile delivery" />
+      <TopBar title="Notifications" subTitle="Action-focused feed for messages, attendance, marksheets, fees, account, and system alerts" />
 
       <section className="grid gap-4 md:grid-cols-3">
         <Card>
           <CardHeader>
             <CardDescription>Total Feed</CardDescription>
-            <CardTitle className="text-3xl">{notifications.length}</CardTitle>
+            <CardTitle className="text-3xl">{filteredNotifications.length}</CardTitle>
           </CardHeader>
         </Card>
         <Card>
           <CardHeader>
             <CardDescription>Unread</CardDescription>
-            <CardTitle className="text-3xl">{unread}</CardTitle>
+            <CardTitle className="text-3xl">{unreadItems.length}</CardTitle>
           </CardHeader>
         </Card>
         <Card>
@@ -98,12 +127,24 @@ export default function Notifications() {
             <CardDescription>Latest 50 notifications delivered to this account.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
+            <div className="flex flex-wrap gap-2">
+              {CATEGORY_OPTIONS.map((option) => (
+                <Button
+                  key={option.value}
+                  size="sm"
+                  variant={category === option.value ? "default" : "outline"}
+                  onClick={() => setCategory(option.value)}
+                >
+                  {option.label}
+                </Button>
+              ))}
+            </div>
             {loading ? (
               <p className="text-sm text-muted-foreground">Loading notifications...</p>
-            ) : notifications.length === 0 ? (
+            ) : filteredNotifications.length === 0 ? (
               <p className="text-sm text-muted-foreground">No notifications found.</p>
             ) : (
-              notifications.map((item) => (
+              filteredNotifications.map((item) => (
                 <NotificationRow key={item.id} item={item} onRead={markRead} />
               ))
             )}

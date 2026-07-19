@@ -5,6 +5,9 @@ export function getMyNotifications(options = {}) {
   if (options.limit) {
     params.set("limit", String(options.limit));
   }
+  if (options.category) {
+    params.set("category", String(options.category));
+  }
 
   const suffix = params.toString() ? `?${params.toString()}` : "";
   return apiRequest(`/notifications/me${suffix}`);

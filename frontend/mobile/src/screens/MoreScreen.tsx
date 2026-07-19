@@ -1,7 +1,8 @@
 import { Ionicons } from "@expo/vector-icons";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
+import { useMemo, useState } from "react";
 import type { RootStackParamList } from "../navigation/AppNavigator";
 import { useAuthStore } from "../store/authStore";
 import { useAppTheme } from "../theme/AppThemeProvider";
@@ -22,12 +23,15 @@ type ModuleKey =
   | "messaging"
   | "exams"
   | "reports"
-  | "users";
+  | "users"
+  | "notifications";
 
 type ModuleItem = {
   key: ModuleKey;
   label: string;
   icon: keyof typeof Ionicons.glyphMap;
+  description: string;
+  tone: "blue" | "green" | "violet" | "orange" | "coral";
 };
 
 type ModuleSection = {
@@ -36,32 +40,32 @@ type ModuleSection = {
 };
 
 const MODULES: Record<ModuleKey, ModuleItem> = {
-  dashboard: { key: "dashboard", label: "Dashboard", icon: "grid-outline" },
-  classes: { key: "classes", label: "Class", icon: "school-outline" },
-  subjects: { key: "subjects", label: "Subject", icon: "book-outline" },
-  activities: { key: "activities", label: "Activity", icon: "sparkles-outline" },
-  students: { key: "students", label: "Student Info", icon: "people-outline" },
-  teachers: { key: "teachers", label: "Teacher", icon: "person-outline" },
-  attendance: { key: "attendance", label: "Student Attendance", icon: "calendar-outline" },
-  teacherAttendance: { key: "teacherAttendance", label: "Teacher Attendance", icon: "finger-print-outline" },
-  fees: { key: "fees", label: "Fee Setup", icon: "wallet-outline" },
-  payments: { key: "payments", label: "Payment", icon: "card-outline" },
-  transportationFee: { key: "transportationFee", label: "Transportation Fee", icon: "bus-outline" },
-  messaging: { key: "messaging", label: "Chat", icon: "chatbubble-ellipses-outline" },
-  exams: { key: "exams", label: "Exam Setup", icon: "document-text-outline" },
-  reports: { key: "reports", label: "Marksheet", icon: "bar-chart-outline" },
-  users: { key: "users", label: "Profile", icon: "person-circle-outline" },
+  dashboard: { key: "dashboard", label: "Dashboard", icon: "grid-outline", description: "School overview", tone: "blue" },
+  classes: { key: "classes", label: "Class", icon: "school-outline", description: "Manage classes", tone: "blue" },
+  subjects: { key: "subjects", label: "Subject", icon: "book-outline", description: "Manage subjects", tone: "green" },
+  activities: { key: "activities", label: "Activity", icon: "sparkles-outline", description: "Co-curricular", tone: "violet" },
+  students: { key: "students", label: "Student Info", icon: "people-outline", description: "Manage students", tone: "green" },
+  teachers: { key: "teachers", label: "Teacher", icon: "person-outline", description: "Teaching staff", tone: "violet" },
+  attendance: { key: "attendance", label: "Attendance", icon: "calendar-outline", description: "Today's records", tone: "violet" },
+  teacherAttendance: { key: "teacherAttendance", label: "Teacher Attendance", icon: "finger-print-outline", description: "Staff attendance", tone: "blue" },
+  fees: { key: "fees", label: "Fee Setup", icon: "wallet-outline", description: "Fee structure", tone: "orange" },
+  payments: { key: "payments", label: "Payment", icon: "card-outline", description: "Fee collections", tone: "orange" },
+  transportationFee: { key: "transportationFee", label: "Transportation Fee", icon: "bus-outline", description: "Transport dues", tone: "orange" },
+  messaging: { key: "messaging", label: "Chat", icon: "chatbubble-ellipses-outline", description: "Messages", tone: "blue" },
+  exams: { key: "exams", label: "Exam Setup", icon: "document-text-outline", description: "Configure exams", tone: "coral" },
+  reports: { key: "reports", label: "Marksheet", icon: "bar-chart-outline", description: "Result reports", tone: "blue" },
+  users: { key: "users", label: "Profile", icon: "person-circle-outline", description: "Account settings", tone: "violet" },
+  notifications: { key: "notifications", label: "Notifications", icon: "notifications-outline", description: "Alerts inbox", tone: "coral" },
 };
 
-const SECTION_DEFINITIONS: Array<{ title: string; keys: ModuleKey[] }> = [
-  { title: "Dashboard", keys: ["dashboard"] },
-  { title: "Academics", keys: ["classes", "subjects", "activities", "exams"] },
-  { title: "Student", keys: ["students", "attendance"] },
-  { title: "Fee", keys: ["fees", "payments", "transportationFee"] },
-  { title: "Staff", keys: ["teachers", "teacherAttendance"] },
-  { title: "Utilities", keys: ["messaging"] },
-  { title: "Marksheet", keys: ["reports"] },
-  { title: "Settings", keys: ["users"] },
+const SECTION_DEFINITIONS: Array<{ title: string; description: string; icon: keyof typeof Ionicons.glyphMap; tone: ModuleItem["tone"]; keys: ModuleKey[] }> = [
+  { title: "Dashboard", description: "School summary and activity", icon: "grid-outline", tone: "blue", keys: ["dashboard"] },
+  { title: "Academics", description: "Classes, subjects, exams and activities", icon: "book-outline", tone: "blue", keys: ["classes", "subjects", "activities", "exams"] },
+  { title: "Students", description: "Student lifecycle and attendance", icon: "people-outline", tone: "green", keys: ["students", "attendance"] },
+  { title: "Fees", description: "Fees, payments and transport dues", icon: "wallet-outline", tone: "orange", keys: ["fees", "payments", "transportationFee"] },
+  { title: "Staff", description: "Teaching and non-teaching staff", icon: "person-outline", tone: "violet", keys: ["teachers", "teacherAttendance"] },
+  { title: "Utilities", description: "Messages, alerts and account tools", icon: "apps-outline", tone: "coral", keys: ["messaging", "notifications", "users"] },
+  { title: "Reports", description: "Marksheets and result reports", icon: "bar-chart-outline", tone: "blue", keys: ["reports"] },
 ];
 
 function hasAny(permissions: string[], list: string[]) {
@@ -127,6 +131,8 @@ function canViewModule(moduleKey: ModuleKey, roles: string[], permissions: strin
       return hasAny(permissions, ["marks.view", "marks.enter", "marks.approve"]);
     case "users":
       return true;
+    case "notifications":
+      return hasRole(roles, "super_admin") || permissions.includes("notifications.view");
     default:
       return false;
   }
@@ -138,16 +144,60 @@ export default function MoreScreen({ navigation }: Props) {
   const user = useAuthStore((state) => state.user);
   const roles = Array.isArray(user?.roles) ? user.roles : [];
   const permissions = Array.isArray(user?.permissions) ? user.permissions : [];
-
-  const sections = SECTION_DEFINITIONS.map<ModuleSection>((section) => ({
-    title: section.title,
-    items: section.keys
-      .filter((key) => canViewModule(key, roles, permissions))
-      .map((key) => MODULES[key]),
-  })).filter((section) => section.items.length);
+  const [search, setSearch] = useState("");
+  const normalizedSearch = search.trim().toLowerCase();
+  const sections = useMemo(
+    () => SECTION_DEFINITIONS.map<ModuleSection>((section) => ({
+      title: section.title,
+      items: section.keys
+        .filter((key) => canViewModule(key, roles, permissions))
+        .map((key) => MODULES[key])
+        .filter((item) =>
+          !normalizedSearch ||
+          item.label.toLowerCase().includes(normalizedSearch) ||
+          item.description.toLowerCase().includes(normalizedSearch) ||
+          section.title.toLowerCase().includes(normalizedSearch)
+        ),
+    })).filter((section) => section.items.length),
+    [normalizedSearch, permissions, roles],
+  );
 
   function openModule(key: ModuleKey) {
+    if (key === "notifications") {
+      navigation.navigate("Notifications");
+      return;
+    }
     navigation.navigate("AppShell", { tab: key });
+  }
+
+  function toneColors(tone: ModuleItem["tone"]) {
+    if (tone === "green") return { color: "#16a34a", soft: theme.isDark ? "#052e16" : "#ecfdf3", border: theme.isDark ? "#166534" : "#bbf7d0" };
+    if (tone === "violet") return { color: theme.isDark ? "#c4b5fd" : "#7c3aed", soft: theme.isDark ? "#2e1065" : "#f3e8ff", border: theme.isDark ? "#6d28d9" : "#e9d5ff" };
+    if (tone === "orange") return { color: "#ea580c", soft: theme.isDark ? "#431407" : "#fff7ed", border: theme.isDark ? "#9a3412" : "#fed7aa" };
+    if (tone === "coral") return { color: theme.primary, soft: theme.successSoft, border: theme.successBorder };
+    return { color: theme.info, soft: theme.infoSoft, border: theme.infoBorder };
+  }
+
+  function renderModuleRow(item: ModuleItem, isLast = false) {
+    const tone = toneColors(item.tone);
+    return (
+      <Pressable
+        key={item.key}
+        accessibilityRole="button"
+        accessibilityLabel={item.label}
+        style={[styles.moduleRow, { borderBottomColor: theme.border }, isLast && styles.moduleRowLast]}
+        onPress={() => openModule(item.key)}
+      >
+        <View style={[styles.moduleIcon, { backgroundColor: tone.soft, borderColor: tone.border }]}>
+          <Ionicons name={item.icon} size={22} color={tone.color} />
+        </View>
+        <View style={styles.moduleCopy}>
+          <Text style={[styles.moduleTitle, { color: theme.text }]} numberOfLines={1}>{item.label}</Text>
+          <Text style={[styles.moduleDescription, { color: theme.subText }]} numberOfLines={1}>{item.description}</Text>
+        </View>
+        <Ionicons name="chevron-forward" size={18} color={theme.mutedText} />
+      </Pressable>
+    );
   }
 
   return (
@@ -172,9 +222,16 @@ export default function MoreScreen({ navigation }: Props) {
           <Ionicons name="arrow-back" size={18} color={theme.icon} />
         </Pressable>
         <View style={styles.headerCopy}>
-          <Text style={[styles.headerTitle, { color: theme.text }]}>More</Text>
-          <Text style={[styles.headerSubtitle, { color: theme.subText }]}>Open available LMS modules by section.</Text>
+          <Text style={[styles.headerTitle, { color: theme.text }]}>Modules</Text>
+          <Text style={[styles.headerSubtitle, { color: theme.subText }]}>Open available LMS modules.</Text>
         </View>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Search modules"
+          style={[styles.backBtn, { borderColor: theme.border, backgroundColor: theme.card }]}
+        >
+          <Ionicons name="search-outline" size={18} color={theme.icon} />
+        </Pressable>
       </View>
 
       <ScrollView
@@ -183,26 +240,32 @@ export default function MoreScreen({ navigation }: Props) {
         contentInsetAdjustmentBehavior="automatic"
         showsVerticalScrollIndicator={false}
       >
+        <View style={styles.searchRow}>
+          <View style={[styles.searchBox, { backgroundColor: theme.card, borderColor: theme.border }]}>
+            <Ionicons name="search-outline" size={18} color={theme.subText} />
+            <TextInput
+              value={search}
+              onChangeText={setSearch}
+              style={[styles.searchInput, { color: theme.text }]}
+              placeholder="Search modules..."
+              placeholderTextColor={theme.mutedText}
+            />
+          </View>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Clear search"
+            style={[styles.filterButton, { backgroundColor: theme.card, borderColor: theme.border }]}
+            onPress={() => setSearch("")}
+          >
+            <Ionicons name="options-outline" size={18} color={theme.icon} />
+          </Pressable>
+        </View>
+
         {sections.map((section) => (
-          <View key={section.title} style={styles.sectionBlock}>
-            <Text style={[styles.sectionTitle, { color: theme.subText }]}>{section.title}</Text>
-            <View style={styles.grid}>
-              {section.items.map((item) => (
-                <Pressable
-                  key={item.key}
-                  accessibilityRole="button"
-                  accessibilityLabel={item.label}
-                  style={[styles.gridItem, { backgroundColor: theme.card, borderColor: theme.border }]}
-                  onPress={() => openModule(item.key)}
-                >
-                  <View style={[styles.iconWrap, { backgroundColor: theme.cardMuted, borderColor: theme.border }]}>
-                    <Ionicons name={item.icon} size={22} color={theme.icon} />
-                  </View>
-                  <Text style={[styles.itemText, { color: theme.text }]} numberOfLines={2}>
-                    {item.label}
-                  </Text>
-                </Pressable>
-              ))}
+          <View key={section.title} style={styles.moduleSection}>
+            <Text style={[styles.sectionHeader, { color: theme.mutedText }]}>{section.title.toUpperCase()}</Text>
+            <View style={[styles.moduleList, { backgroundColor: theme.card, borderColor: theme.border }]}>
+              {section.items.map((item, index) => renderModuleRow(item, index === section.items.length - 1))}
             </View>
           </View>
         ))}
@@ -231,31 +294,27 @@ const styles = StyleSheet.create({
   },
   headerCopy: { flex: 1, minWidth: 0 },
   headerTitle: { fontSize: 18, fontWeight: "800" },
-  headerSubtitle: { fontSize: 12, fontWeight: "600", marginTop: 2 },
+  headerSubtitle: { fontSize: 12, fontWeight: "400", marginTop: 2 },
   body: { flex: 1 },
-  content: { paddingHorizontal: 14, paddingTop: 14, paddingBottom: 30, gap: 18 },
-  sectionBlock: { gap: 10 },
-  sectionTitle: { fontSize: 11, fontWeight: "800", textTransform: "uppercase", letterSpacing: 0.8 },
-  grid: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
-  gridItem: {
-    width: "31%",
-    minWidth: 96,
-    aspectRatio: 1,
-    borderRadius: 16,
-    borderWidth: 1,
+  content: { paddingHorizontal: 14, paddingTop: 14, paddingBottom: 112, gap: 18 },
+  searchRow: { flexDirection: "row", gap: 10 },
+  searchBox: { flex: 1, minHeight: 46, borderWidth: 1, borderRadius: 14, paddingHorizontal: 14, flexDirection: "row", alignItems: "center", gap: 10 },
+  searchInput: { flex: 1, minWidth: 0, fontSize: 14, fontWeight: "600", paddingVertical: 0 },
+  filterButton: { width: 46, height: 46, borderRadius: 14, borderWidth: 1, alignItems: "center", justifyContent: "center" },
+  moduleSection: { gap: 8 },
+  sectionHeader: { paddingHorizontal: 4, fontSize: 11, lineHeight: 14, fontWeight: "800", letterSpacing: 0.8 },
+  moduleList: { borderWidth: 1, borderRadius: 14, overflow: "hidden" },
+  moduleRow: {
+    minHeight: 68,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 12,
+    flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-    paddingHorizontal: 8,
-    paddingVertical: 10,
+    gap: 12,
   },
-  iconWrap: {
-    width: 42,
-    height: 42,
-    borderRadius: 14,
-    borderWidth: 1,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  itemText: { fontSize: 12, fontWeight: "700", textAlign: "center", lineHeight: 16 },
+  moduleRowLast: { borderBottomWidth: 0 },
+  moduleIcon: { width: 42, height: 42, borderRadius: 12, borderWidth: 1, alignItems: "center", justifyContent: "center" },
+  moduleCopy: { flex: 1, minWidth: 0 },
+  moduleTitle: { fontSize: 14, fontWeight: "800" },
+  moduleDescription: { marginTop: 3, fontSize: 12, fontWeight: "600" },
 });

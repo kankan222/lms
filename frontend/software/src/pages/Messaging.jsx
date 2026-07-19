@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/dialog";
 import {
   addConversationMember,
+  deleteConversation,
   deleteMessage,
   editMessage,
   exportConversation,
@@ -59,8 +60,10 @@ function targetTypeLabel(value) {
 }
 
 export default function Messaging() {
-  const { hasRole } = usePermissions();
+  const { can, hasRole } = usePermissions();
   const isSuperAdmin = hasRole("super_admin");
+  const isParentOrTeacher = !isSuperAdmin && (hasRole("parent") || hasRole("teacher"));
+  const canSendMessages = !isParentOrTeacher && (isSuperAdmin || can("messages.send"));
   const [conversations, setConversations] = useState([]);
   const [activeChatId, setActiveChatId] = useState(null);
   const [messages, setMessages] = useState([]);
@@ -300,7 +303,9 @@ export default function Messaging() {
 
   const loadInitialMessaging = useEffectEvent(() => {
     fetchConversations();
-    fetchTargets();
+    if (canSendMessages) {
+      fetchTargets();
+    }
   });
 
   const loadActiveConversation = useEffectEvent((conversationId) => {
@@ -346,6 +351,7 @@ export default function Messaging() {
   });
 
   async function handleSendMessage(payload) {
+    if (!canSendMessages) return;
     if (!activeChatId) return;
     let attachmentIds = [];
     if (payload.files?.length) {
@@ -365,6 +371,7 @@ export default function Messaging() {
   }
 
   async function handleEditMessage(message) {
+    if (!canSendMessages) return;
     const next = window.prompt("Edit message", message.message || "");
     if (next === null || !next.trim()) return;
     await editMessage(message.id, next.trim());
@@ -379,6 +386,18 @@ export default function Messaging() {
     await fetchConversations();
   }
 
+  async function handleDeleteConversation(conversation) {
+    if (!conversation?.id) return;
+    const confirmed = window.confirm("Delete this chat from your list only? Other people will still see it.");
+    if (!confirmed) return;
+    await deleteConversation(conversation.id);
+    setConversations((prev) => prev.filter((item) => Number(item.id) !== Number(conversation.id)));
+    if (Number(activeChatId) === Number(conversation.id)) {
+      setActiveChatId(null);
+      setMessages([]);
+    }
+  }
+
   async function handleReportMessage(message) {
     const reason = window.prompt("Reason for reporting this message");
     if (!reason?.trim()) return;
@@ -387,6 +406,7 @@ export default function Messaging() {
   }
 
   async function handleForwardMessage(message) {
+    if (!canSendMessages) return;
     const options = conversations
       .filter((item) => Number(item.id) !== Number(message.conversation_id))
       .map((item) => `${item.id}: ${item.name}`)
@@ -412,6 +432,7 @@ export default function Messaging() {
   }
 
   function handleTyping(isTyping) {
+    if (!canSendMessages) return;
     if (!activeChatId || activeChat?.type !== "direct") return;
     sendTyping(activeChatId, isTyping).catch(() => {});
   }
@@ -1231,6 +1252,7 @@ export default function Messaging() {
           activeChatId={activeChatId}
           onSelect={setActiveChatId}
           onNewChat={isSuperAdmin ? () => setOpenCompose(true) : null}
+          onDeleteChat={handleDeleteConversation}
         />
 
         <ChatWindow
@@ -1247,6 +1269,7 @@ export default function Messaging() {
           onSearch={handleSearch}
           onTyping={handleTyping}
           canModerate={isSuperAdmin}
+          canSendMessages={canSendMessages}
           onRemoveAttachment={handleRemoveAttachment}
         />
       </div>

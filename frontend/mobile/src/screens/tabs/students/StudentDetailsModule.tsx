@@ -41,6 +41,7 @@ type ParentRole = "father" | "mother";
 type ParentField = "name" | "mobile" | "email" | "occupation" | "qualification";
 type ParentDraft = Record<ParentRole, Record<ParentField, string>>;
 type TransportForm = { enabled: boolean; monthly_fee: string; start_month: string; start_year: string };
+type SummaryTone = "default" | "blue" | "green" | "violet" | "orange";
 
 const EMPTY_PARENT_DRAFT: ParentDraft = {
   father: { name: "", mobile: "", email: "", occupation: "", qualification: "" },
@@ -74,6 +75,15 @@ const norm = (value?: string | null, fallback = "-") => String(value || "").trim
 const title = (value: string) => value ? value.charAt(0).toUpperCase() + value.slice(1) : "";
 const displayMarkValue = (value?: string | number | null, status?: string | null) => norm(status, "") === "absent" ? "AB" : value ?? "-";
 const tabLabel = (value: TabKey) => value === "subjects" ? "Subject Selection" : value === "fees" ? "Fees & Payments" : value === "reports" ? "Marksheet" : title(value);
+const tabIcon = (value: TabKey): keyof typeof Ionicons.glyphMap => {
+  if (value === "parents") return "people-outline";
+  if (value === "subjects") return "book-outline";
+  if (value === "attendance") return "calendar-outline";
+  if (value === "fees") return "wallet-outline";
+  if (value === "transportation") return "bus-outline";
+  if (value === "reports") return "document-text-outline";
+  return "grid-outline";
+};
 const formatTransportMonth = (month?: number | string | null, year?: number | string | null) => `${TRANSPORT_MONTHS.find(([value]) => Number(value) === Number(month))?.[1] || month || "-"}${year ? ` ${year}` : ""}`;
 const resolvePhoto = (photoUrl?: string | null) => !photoUrl ? null : /^https?:\/\//i.test(photoUrl) ? photoUrl : `https://kalongkapilividyapith.com${String(photoUrl).startsWith("/") ? photoUrl : `/${photoUrl}`}`;
 const toDialablePhone = (value?: string | null) => {
@@ -112,7 +122,22 @@ function statusPalette(value: string) {
   return { borderColor: "#cbd5e1", backgroundColor: "#f8fafc", color: "#475569" };
 }
 
-function summaryPalette(tone: "default" | "blue" | "green" | "violet", isDark: boolean) {
+function identityPalette(kind: "gender" | "scope" | "stream", value: string, isDark: boolean) {
+  const normalized = norm(value, "");
+  if (kind === "gender") {
+    if (normalized === "male") return summaryPalette("blue", isDark);
+    if (normalized === "female") return summaryPalette("violet", isDark);
+    return summaryPalette("orange", isDark);
+  }
+  if (kind === "scope") {
+    return normalized.includes("higher") || normalized === "hs"
+      ? summaryPalette("green", isDark)
+      : summaryPalette("blue", isDark);
+  }
+  return summaryPalette("orange", isDark);
+}
+
+function summaryPalette(tone: SummaryTone, isDark: boolean) {
   if (tone === "blue") {
     return {
       borderColor: isDark ? "#1d4ed8" : "#bfdbfe",
@@ -134,6 +159,13 @@ function summaryPalette(tone: "default" | "blue" | "green" | "violet", isDark: b
       color: isDark ? "#ddd6fe" : "#6d28d9",
     };
   }
+  if (tone === "orange") {
+    return {
+      borderColor: isDark ? "#9a3412" : "#fed7aa",
+      backgroundColor: isDark ? "#431407" : "#fff7ed",
+      color: isDark ? "#fed7aa" : "#ea580c",
+    };
+  }
   return {
     borderColor: isDark ? "#475569" : "#e2e8f0",
     backgroundColor: isDark ? "#1e293b" : "#ffffff",
@@ -141,13 +173,33 @@ function summaryPalette(tone: "default" | "blue" | "green" | "violet", isDark: b
   };
 }
 
-function FilterChip({ label, active, onPress }: { label: string; active: boolean; onPress: () => void }) {
+function FilterChip({ label, active, onPress, icon }: { label: string; active: boolean; onPress: () => void; icon?: keyof typeof Ionicons.glyphMap }) {
   const { theme } = useAppTheme();
-  return <Pressable style={[styles.filterChip, { borderColor: theme.border, backgroundColor: theme.cardMuted }, active && { borderColor: theme.primary, backgroundColor: theme.primary }]} onPress={onPress}><Text style={[styles.filterChipText, { color: theme.subText }, active && { color: theme.primaryText }]}>{label}</Text></Pressable>;
+  return (
+    <Pressable
+      style={[
+        styles.filterChip,
+        {
+          borderColor: active ? theme.success : theme.border,
+          backgroundColor: active ? theme.successSoft : "transparent",
+        },
+      ]}
+      onPress={onPress}
+    >
+      {icon ? <Ionicons name={icon} size={16} color={active ? theme.success : theme.subText} /> : null}
+      <Text style={[styles.filterChipText, { color: active ? theme.success : theme.subText }]}>{label}</Text>
+    </Pressable>
+  );
 }
 
 function StatusChip({ value }: { value: string }) {
   const palette = statusPalette(norm(value));
+  return <View style={[styles.statusChip, { borderColor: palette.borderColor, backgroundColor: palette.backgroundColor }]}><Text style={[styles.statusChipText, { color: palette.color }]}>{title(norm(value))}</Text></View>;
+}
+
+function IdentityChip({ value, kind }: { value: string; kind: "gender" | "scope" | "stream" }) {
+  const { theme } = useAppTheme();
+  const palette = identityPalette(kind, value, theme.isDark);
   return <View style={[styles.statusChip, { borderColor: palette.borderColor, backgroundColor: palette.backgroundColor }]}><Text style={[styles.statusChipText, { color: palette.color }]}>{title(norm(value))}</Text></View>;
 }
 
@@ -156,13 +208,30 @@ function SectionCard({ title: heading, hint, children }: { title: string; hint?:
   return <View style={[styles.sectionCard, { backgroundColor: theme.card, borderColor: theme.border }]}><View style={styles.rowBetween}><Text style={[styles.sectionTitle, { color: theme.text }]}>{heading}</Text>{hint ? <Text style={[styles.sectionHint, { color: theme.subText }]}>{hint}</Text> : null}</View>{children}</View>;
 }
 
-function SummaryCard({ label, value, tone = "default" }: { label: string; value: string | number; tone?: "default" | "blue" | "green" | "violet" }) {
+function SummaryCard({ label, value, tone = "default", icon }: { label: string; value: string | number; tone?: SummaryTone; icon?: keyof typeof Ionicons.glyphMap }) {
   const { theme } = useAppTheme();
   const palette = summaryPalette(tone, theme.isDark);
   return (
     <View style={[styles.summaryCard, { borderColor: palette.borderColor, backgroundColor: palette.backgroundColor }]}>
-      <Text style={[styles.summaryLabel, { color: theme.subText }]}>{label}</Text>
+      <View style={styles.summaryLabelRow}>
+        {icon ? (
+          <View style={[styles.summaryIcon, { backgroundColor: theme.card, borderColor: palette.borderColor }]}>
+            <Ionicons name={icon} size={17} color={palette.color} />
+          </View>
+        ) : null}
+        <Text style={[styles.summaryLabel, { color: theme.subText }]}>{label}</Text>
+      </View>
       <Text style={[styles.summaryValue, { color: palette.color }]} numberOfLines={2}>{value}</Text>
+    </View>
+  );
+}
+
+function DetailIcon({ name, tone = "green" }: { name: keyof typeof Ionicons.glyphMap; tone?: SummaryTone }) {
+  const { theme } = useAppTheme();
+  const palette = summaryPalette(tone, theme.isDark);
+  return (
+    <View style={[styles.detailIcon, { backgroundColor: palette.backgroundColor, borderColor: palette.borderColor }]}>
+      <Ionicons name={name} size={18} color={palette.color} />
     </View>
   );
 }
@@ -173,25 +242,32 @@ function MetricBar({ label, value, total, color, trackColor, caption }: { label:
   return <View style={[styles.metricBarCard, { borderColor: theme.border, backgroundColor: theme.cardMuted }]}><View style={styles.rowBetween}><Text style={[styles.metricBarLabel, { color: theme.text }]}>{label}</Text><Text style={[styles.metricBarCaption, { color: theme.subText }]}>{caption}</Text></View><View style={[styles.metricTrack, { backgroundColor: trackColor }]}><View style={[styles.metricFill, { width: `${width}%`, backgroundColor: color }]} /></View></View>;
 }
 
-function InfoRow({ label, value, onPress }: { label: string; value: string; onPress?: (() => void) | undefined }) {
+function InfoRow({ label, value, onPress, icon }: { label: string; value: string; onPress?: (() => void) | undefined; icon?: keyof typeof Ionicons.glyphMap }) {
   const { theme } = useAppTheme();
+  const iconNode = icon ? (
+    <View style={[styles.infoIcon, { backgroundColor: theme.successSoft }]}>
+      <Ionicons name={icon} size={18} color={theme.success} />
+    </View>
+  ) : null;
   if (onPress) {
     return (
       <Pressable
         onPress={onPress}
-        style={[styles.infoRow, { borderColor: theme.border, backgroundColor: theme.cardMuted }]}
+        style={[styles.infoRow, { borderColor: theme.border, backgroundColor: "transparent" }]}
       >
+        {iconNode}
         <Text style={[styles.infoLabel, { color: theme.subText }]}>{label}</Text>
-        <Text style={[styles.infoValue, styles.infoValueLink, { color: theme.primary }]}>{value}</Text>
+        <Text style={[styles.infoValue, styles.infoValueLink, { color: theme.primary }]} numberOfLines={2}>{value}</Text>
       </Pressable>
     );
   }
-  return <View style={[styles.infoRow, { borderColor: theme.border, backgroundColor: theme.cardMuted }]}><Text style={[styles.infoLabel, { color: theme.subText }]}>{label}</Text><Text style={[styles.infoValue, { color: theme.text }]}>{value}</Text></View>;
+  return <View style={[styles.infoRow, { borderColor: theme.border, backgroundColor: "transparent" }]}>{iconNode}<Text style={[styles.infoLabel, { color: theme.subText }]}>{label}</Text><Text style={[styles.infoValue, { color: theme.text }]} numberOfLines={2}>{value}</Text></View>;
 }
 
 function MarksheetPreview({ report, student }: { report: StudentReport; student: StudentDetails }) {
   const { theme } = useAppTheme();
   const subjects = report.subjects || [];
+  const grade = String(report.summary?.grade || "-").trim() || "-";
 
   return (
     <View style={[styles.marksheetPreview, { borderColor: theme.border, backgroundColor: theme.card }]}>
@@ -206,20 +282,32 @@ function MarksheetPreview({ report, student }: { report: StudentReport; student:
 
       <View style={[styles.marksheetInfoGrid, { borderBottomColor: theme.border }]}>
         <View style={styles.marksheetInfoItem}>
-          <Text style={[styles.marksheetInfoLabel, { color: theme.subText }]}>Student</Text>
-          <Text style={[styles.marksheetInfoValue, { color: theme.text }]}>{report.student?.name || student.name || "-"}</Text>
+          <DetailIcon name="person-outline" />
+          <View style={styles.marksheetInfoCopy}>
+            <Text style={[styles.marksheetInfoLabel, { color: theme.subText }]}>Student</Text>
+            <Text style={[styles.marksheetInfoValue, { color: theme.text }]}>{report.student?.name || student.name || "-"}</Text>
+          </View>
         </View>
         <View style={styles.marksheetInfoItem}>
-          <Text style={[styles.marksheetInfoLabel, { color: theme.subText }]}>Roll No</Text>
-          <Text style={[styles.marksheetInfoValue, { color: theme.text }]}>{report.student?.roll_number || student.roll_number || "-"}</Text>
+          <DetailIcon name="reader-outline" tone="blue" />
+          <View style={styles.marksheetInfoCopy}>
+            <Text style={[styles.marksheetInfoLabel, { color: theme.subText }]}>Roll No</Text>
+            <Text style={[styles.marksheetInfoValue, { color: theme.text }]}>{report.student?.roll_number || student.roll_number || "-"}</Text>
+          </View>
         </View>
         <View style={styles.marksheetInfoItem}>
-          <Text style={[styles.marksheetInfoLabel, { color: theme.subText }]}>Admission No</Text>
-          <Text style={[styles.marksheetInfoValue, { color: theme.text }]}>{student.admission_no || "-"}</Text>
+          <DetailIcon name="document-text-outline" tone="orange" />
+          <View style={styles.marksheetInfoCopy}>
+            <Text style={[styles.marksheetInfoLabel, { color: theme.subText }]}>Admission No</Text>
+            <Text style={[styles.marksheetInfoValue, { color: theme.text }]}>{student.admission_no || "-"}</Text>
+          </View>
         </View>
         <View style={styles.marksheetInfoItem}>
-          <Text style={[styles.marksheetInfoLabel, { color: theme.subText }]}>Session</Text>
-          <Text style={[styles.marksheetInfoValue, { color: theme.text }]}>{student.session || "-"}</Text>
+          <DetailIcon name="calendar-outline" tone="violet" />
+          <View style={styles.marksheetInfoCopy}>
+            <Text style={[styles.marksheetInfoLabel, { color: theme.subText }]}>Session</Text>
+            <Text style={[styles.marksheetInfoValue, { color: theme.text }]}>{student.session || "-"}</Text>
+          </View>
         </View>
       </View>
 
@@ -238,7 +326,7 @@ function MarksheetPreview({ report, student }: { report: StudentReport; student:
             <Text style={[styles.marksheetMarksCell, { color: theme.text }]}>{subject.max_marks ?? "-"}</Text>
           </View>
         ))}
-        <View style={[styles.marksheetTableRow, styles.marksheetTotalRow]}>
+        <View style={[styles.marksheetTableRow, styles.marksheetTotalRow, { borderTopColor: theme.border }]}>
           <Text style={[styles.marksheetSubjectCell, styles.marksheetTotalText, { color: theme.text }]}>Grand Total</Text>
           <Text style={[styles.marksheetMarksCell, styles.marksheetTotalText, { color: theme.text }]}>{report.summary?.total ?? 0}</Text>
           <Text style={[styles.marksheetMarksCell, styles.marksheetTotalText, { color: theme.text }]}>{report.summary?.max_total ?? 0}</Text>
@@ -251,8 +339,8 @@ function MarksheetPreview({ report, student }: { report: StudentReport; student:
           <Text style={[styles.marksheetSummaryValue, { color: theme.text }]}>{report.summary?.percentage ?? 0}%</Text>
         </View>
         <View style={styles.marksheetSummaryItem}>
-          <Text style={[styles.marksheetInfoLabel, { color: theme.subText }]}>Subjects</Text>
-          <Text style={[styles.marksheetSummaryValue, { color: theme.text }]}>{subjects.length}</Text>
+          <Text style={[styles.marksheetInfoLabel, { color: theme.subText }]}>Grade</Text>
+          <Text style={[styles.marksheetSummaryValue, { color: theme.primary }]}>{grade}</Text>
         </View>
       </View>
 
@@ -470,6 +558,7 @@ export default function StudentDetailsModule({ studentId }: Props) {
   const totalPaid = useMemo(() => payments.reduce((sum, item) => sum + Number(item.amount_paid || 0), 0), [payments]);
   const approvedAttendance = useMemo(() => attendanceRows.filter((row) => norm(row.approval_status, "") === "approved").length, [attendanceRows]);
   const attendanceTotal = attendanceRows.length;
+  const attendanceSummary = attendanceTotal ? `${approvedAttendance}/${attendanceTotal}` : "-";
   const paymentTotal = totalPaid + totalDue;
   const activeTransportAssignment = useMemo(
     () => transportAssignments.find((item) => norm(item.status, "") === "active") || null,
@@ -784,45 +873,45 @@ export default function StudentDetailsModule({ studentId }: Props) {
     <View style={styles.root}>
       <TopNotice notice={notice} style={styles.topNoticeOverlay} />
       <View style={[styles.heroCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
-        <Text style={[styles.heroEyebrow, { color: theme.subText }]}>Overview</Text>
         <View style={styles.heroTop}>
-          {photoUri ? <Image source={{ uri: photoUri }} style={[styles.photo, { backgroundColor: theme.cardMuted }]} /> : <View style={[styles.avatarFallback, { backgroundColor: theme.cardMuted }]}><Text style={[styles.avatarText, { color: theme.text }]}>{(student.name || "S").slice(0, 1).toUpperCase()}</Text></View>}
+          {photoUri ? <Image source={{ uri: photoUri }} style={[styles.photo, { backgroundColor: theme.cardMuted, borderColor: theme.border }]} /> : <View style={[styles.avatarFallback, { backgroundColor: theme.cardMuted, borderColor: theme.border }]}><Text style={[styles.avatarText, { color: theme.text }]}>{(student.name || "S").slice(0, 1).toUpperCase()}</Text></View>}
           <View style={styles.heroCopy}>
-            <Text style={[styles.title, { color: theme.text }]}>{student.name}</Text>
+            <Text style={[styles.title, { color: theme.text }]} numberOfLines={2}>{student.name}</Text>
             <Text style={[styles.subtitle, { color: theme.subText }]}>{student.class || "-"} / {student.section || "-"} • {fmtScope(student.class_scope)}</Text>
             <Text style={[styles.heroMeta, { color: theme.subText }]}>Admission {student.admission_no || "-"} • Roll {student.roll_number || "-"}</Text>
             <View style={styles.identityBadgeWrap}>
-              <StatusChip value={String(student.gender || "-")} />
-              <StatusChip value={fmtScope(student.class_scope)} />
-              {student.class_scope === "hs" && student.stream_name ? <StatusChip value={student.stream_name} /> : null}
+              <IdentityChip value={String(student.gender || "-")} kind="gender" />
+              <IdentityChip value={fmtScope(student.class_scope)} kind="scope" />
+              {student.class_scope === "hs" && student.stream_name ? <IdentityChip value={student.stream_name} kind="stream" /> : null}
             </View>
           </View>
         </View>
         <View style={styles.summaryGrid}>
-          <SummaryCard label="Session" value={student.session || "-"} tone="blue" />
-          <SummaryCard label="Approved Days" value={approvedAttendance} tone="green" />
+          <SummaryCard label="Session" value={student.session || "-"} tone="blue" icon="calendar-outline" />
+          <SummaryCard label="Attendance" value={attendanceSummary} tone="orange" icon="person-outline" />
         </View>
       </View>
 
       <View style={styles.tabsGrid}>
-        {tabs.map((tab) => <FilterChip key={tab} label={tabLabel(tab)} active={activeTab === tab} onPress={() => setActiveTab(tab)} />)}
+        {tabs.map((tab) => <FilterChip key={tab} label={tabLabel(tab)} icon={tabIcon(tab)} active={activeTab === tab} onPress={() => setActiveTab(tab)} />)}
       </View>
 
       {activeTab === "overview" ? (
-        <SectionCard title="Student Overview" hint={`#${student.id}`}>
+        <SectionCard title="Student Information">
           <View style={styles.infoGrid}>
-            <InfoRow label="Class" value={student.class || "-"} />
-            <InfoRow label="Section" value={student.section || "-"} />
+            <InfoRow label="Class" value={student.class || "-"} icon="school-outline" />
+            <InfoRow label="Section" value={student.section || "-"} icon="people-outline" />
             <InfoRow
               label="Mobile"
               value={student.mobile || "-"}
+              icon="phone-portrait-outline"
               onPress={toDialablePhone(student.mobile) ? () => handleCallPress(student.mobile) : undefined}
             />
-            <InfoRow label="Gender" value={student.gender || "-"} />
-            <InfoRow label="DOB" value={formatDateLabel(student.dob)} />
-            <InfoRow label="Admission" value={formatDateLabel(student.date_of_admission)} />
-            <InfoRow label="Scope" value={fmtScope(student.class_scope)} />
-            <InfoRow label="Stream" value={String(student.class_scope || "").toLowerCase() === "hs" ? student.stream_name || "-" : "-"} />
+            <InfoRow label="Gender" value={student.gender || "-"} icon="male-female-outline" />
+            <InfoRow label="Date of Birth" value={formatDateLabel(student.dob)} icon="calendar-clear-outline" />
+            <InfoRow label="Admission Date" value={formatDateLabel(student.date_of_admission)} icon="calendar-outline" />
+            <InfoRow label="Scope" value={fmtScope(student.class_scope)} icon="radio-button-on-outline" />
+            <InfoRow label="Stream" value={String(student.class_scope || "").toLowerCase() === "hs" ? student.stream_name || "-" : "-"} icon="flask-outline" />
           </View>
         </SectionCard>
       ) : null}
@@ -900,19 +989,21 @@ export default function StudentDetailsModule({ studentId }: Props) {
               </View>
             ) : (
               <>
-                <InfoRow label="Name" value={fatherDisplay?.name || "-"} />
+                <InfoRow label="Name" value={fatherDisplay?.name || "-"} icon="person-outline" />
                 <InfoRow
                   label="Phone"
                   value={fatherDisplay?.mobile || "-"}
+                  icon="call-outline"
                   onPress={toDialablePhone(fatherDisplay?.mobile) ? () => handleCallPress(fatherDisplay?.mobile) : undefined}
                 />
                 <InfoRow
                   label="Email"
                   value={fatherDisplay?.email || "-"}
+                  icon="mail-outline"
                   onPress={toMailAddress(fatherDisplay?.email) ? () => handleEmailPress(fatherDisplay?.email) : undefined}
                 />
-                <InfoRow label="Occupation" value={fatherDisplay?.occupation || "-"} />
-                <InfoRow label="Qualification" value={fatherDisplay?.qualification || "-"} />
+                <InfoRow label="Occupation" value={fatherDisplay?.occupation || "-"} icon="briefcase-outline" />
+                <InfoRow label="Qualification" value={fatherDisplay?.qualification || "-"} icon="school-outline" />
               </>
             )}
           </SectionCard>
@@ -966,19 +1057,21 @@ export default function StudentDetailsModule({ studentId }: Props) {
               </View>
             ) : (
               <>
-                <InfoRow label="Name" value={motherDisplay?.name || "-"} />
+                <InfoRow label="Name" value={motherDisplay?.name || "-"} icon="person-outline" />
                 <InfoRow
                   label="Phone"
                   value={motherDisplay?.mobile || "-"}
+                  icon="call-outline"
                   onPress={toDialablePhone(motherDisplay?.mobile) ? () => handleCallPress(motherDisplay?.mobile) : undefined}
                 />
                 <InfoRow
                   label="Email"
                   value={motherDisplay?.email || "-"}
+                  icon="mail-outline"
                   onPress={toMailAddress(motherDisplay?.email) ? () => handleEmailPress(motherDisplay?.email) : undefined}
                 />
-                <InfoRow label="Occupation" value={motherDisplay?.occupation || "-"} />
-                <InfoRow label="Qualification" value={motherDisplay?.qualification || "-"} />
+                <InfoRow label="Occupation" value={motherDisplay?.occupation || "-"} icon="briefcase-outline" />
+                <InfoRow label="Qualification" value={motherDisplay?.qualification || "-"} icon="school-outline" />
               </>
             )}
           </SectionCard>
@@ -1017,7 +1110,9 @@ export default function StudentDetailsModule({ studentId }: Props) {
                     ]}
                     onPress={() => toggleSubjectOffering(offeringId, disabled)}
                   >
-                    <View style={[styles.checkboxBox, { borderColor: checked ? theme.primary : theme.border, backgroundColor: checked ? theme.primary : "transparent" }]} />
+                    <View style={[styles.detailIcon, { borderColor: checked ? theme.success : theme.border, backgroundColor: checked ? theme.successSoft : theme.cardMuted }]}>
+                      <Ionicons name={checked ? "checkmark-circle" : "ellipse-outline"} size={18} color={checked ? theme.success : theme.subText} />
+                    </View>
                     <View style={styles.listCopy}>
                       <Text style={[styles.listTitle, { color: theme.text }]}>
                         {offering.subject_name}{offering.subject_code ? ` (${offering.subject_code})` : ""}
@@ -1073,6 +1168,7 @@ export default function StudentDetailsModule({ studentId }: Props) {
           {attendanceRows.length ? attendanceRows.map((row) => (
             <View key={row.id} style={[styles.listCard, { borderColor: theme.border, backgroundColor: theme.cardMuted }]}>
               <View style={styles.rowBetween}>
+                <DetailIcon name="calendar-outline" tone="orange" />
                 <View style={styles.listCopy}>
                   <Text style={[styles.listTitle, { color: theme.text }]}>{formatDateLabel(row.date)}</Text>
                   <Text style={[styles.listMeta, { color: theme.subText }]}>{row.class_name || "-"} / {row.section_name || "-"} • {row.session_name || "-"}</Text>
@@ -1102,6 +1198,7 @@ export default function StudentDetailsModule({ studentId }: Props) {
             {feeItems.length ? feeItems.map((item) => (
               <View key={item.id} style={[styles.listCard, { borderColor: theme.border, backgroundColor: theme.cardMuted }]}>
                 <View style={styles.rowBetween}>
+                  <DetailIcon name="receipt-outline" tone="orange" />
                   <View style={styles.listCopy}>
                     <Text style={[styles.listTitle, { color: theme.text }]}>{getFeeName(item)}</Text>
                     <Text style={[styles.listMeta, { color: theme.subText }]}>Due {formatDateLabel(item.due_date)}</Text>
@@ -1121,6 +1218,7 @@ export default function StudentDetailsModule({ studentId }: Props) {
             {payments.length ? payments.map((payment) => (
               <View key={`${payment.id}-${payment.created_at}`} style={[styles.listCard, { borderColor: theme.border, backgroundColor: theme.cardMuted }]}>
                 <View style={styles.rowBetween}>
+                  <DetailIcon name="card-outline" tone="violet" />
                   <View style={styles.listCopy}>
                     <Text style={[styles.listTitle, { color: theme.text }]}>{getFeeName(payment)}</Text>
                     <Text style={[styles.listMeta, { color: theme.subText }]}>{formatDateLabel(payment.payment_date || payment.created_at)}</Text>
@@ -1162,7 +1260,9 @@ export default function StudentDetailsModule({ studentId }: Props) {
               ]}
               onPress={() => canEditTransportation && !transportSaving ? setTransportForm((prev) => ({ ...prev, enabled: !prev.enabled })) : undefined}
             >
-              <View style={[styles.checkboxBox, { borderColor: transportForm.enabled ? theme.primary : theme.border, backgroundColor: transportForm.enabled ? theme.primary : "transparent" }]} />
+              <View style={[styles.detailIcon, { borderColor: transportForm.enabled ? theme.success : theme.border, backgroundColor: transportForm.enabled ? theme.successSoft : theme.cardMuted }]}>
+                <Ionicons name={transportForm.enabled ? "checkmark-circle" : "bus-outline"} size={18} color={transportForm.enabled ? theme.success : theme.subText} />
+              </View>
               <View style={styles.listCopy}>
                 <Text style={[styles.listTitle, { color: theme.text }]}>Enable transportation fee</Text>
                 <Text style={[styles.listMeta, { color: theme.subText }]}>Creates monthly transportation dues from the selected start month.</Text>
@@ -1201,9 +1301,9 @@ export default function StudentDetailsModule({ studentId }: Props) {
             />
             {activeTransportAssignment ? (
               <View style={styles.summaryGrid}>
-                <SummaryCard label="Monthly Fee" value={fmtCurrency(activeTransportAssignment.monthly_fee)} tone="green" />
-                <SummaryCard label="Started From" value={formatTransportMonth(activeTransportAssignment.start_month, activeTransportAssignment.start_year)} tone="blue" />
-                <SummaryCard label="Pending Months" value={activeTransportAssignment.pending_count || 0} tone="violet" />
+                <SummaryCard label="Monthly Fee" value={fmtCurrency(activeTransportAssignment.monthly_fee)} tone="green" icon="wallet-outline" />
+                <SummaryCard label="Started From" value={formatTransportMonth(activeTransportAssignment.start_month, activeTransportAssignment.start_year)} tone="blue" icon="calendar-outline" />
+                <SummaryCard label="Pending Months" value={activeTransportAssignment.pending_count || 0} tone="violet" icon="time-outline" />
               </View>
             ) : null}
             {canEditTransportation ? (
@@ -1217,6 +1317,7 @@ export default function StudentDetailsModule({ studentId }: Props) {
             {transportDues.length ? transportDues.map((due) => (
               <View key={due.id} style={[styles.listCard, { borderColor: theme.border, backgroundColor: theme.cardMuted }]}>
                 <View style={styles.rowBetween}>
+                  <DetailIcon name="bus-outline" tone="blue" />
                   <View style={styles.listCopy}>
                     <Text style={[styles.listTitle, { color: theme.text }]}>{formatTransportMonth(due.due_month, due.due_year)}</Text>
                     <Text style={[styles.listMeta, { color: theme.subText }]}>Total {fmtCurrency(due.amount)} | Paid {fmtCurrency(due.paid)} | Remaining {fmtCurrency(due.remaining)}</Text>
@@ -1230,6 +1331,7 @@ export default function StudentDetailsModule({ studentId }: Props) {
             {transportPayments.length ? transportPayments.map((payment) => (
               <View key={payment.id} style={[styles.listCard, { borderColor: theme.border, backgroundColor: theme.cardMuted }]}>
                 <View style={styles.rowBetween}>
+                  <DetailIcon name="receipt-outline" tone="green" />
                   <View style={styles.listCopy}>
                     <Text style={[styles.listTitle, { color: theme.text }]}>{payment.receipt_no || `TR-${String(payment.id).padStart(6, "0")}`}</Text>
                     <Text style={[styles.listMeta, { color: theme.subText }]}>{formatDateLabel(payment.created_at)} | {payment.covered_months || "-"}</Text>
@@ -1256,7 +1358,7 @@ export default function StudentDetailsModule({ studentId }: Props) {
           <SectionCard title="Marksheet" hint={selectedExamId ? "Exam selected" : "Select an exam"}>
             <Text style={styles.inputLabel}>Exam</Text>
             <View style={styles.examPickerGrid}>
-              {reportExams.map((exam) => <FilterChip key={exam.id} label={exam.name} active={selectedExamId === exam.id} onPress={() => setSelectedExamId(exam.id)} />)}
+              {reportExams.map((exam) => <FilterChip key={exam.id} label={exam.name} icon="document-text-outline" active={selectedExamId === exam.id} onPress={() => setSelectedExamId(exam.id)} />)}
             </View>
             <View style={styles.actionRow}>
               <Pressable style={[styles.primaryBtn, { backgroundColor: theme.primary }, (!selectedExamId || !report) && styles.btnDisabled]} disabled={!selectedExamId || !report} onPress={handleDownloadMarksheet}>
@@ -1281,28 +1383,30 @@ const styles = StyleSheet.create({
   root: { position: "relative", gap: 14, paddingBottom: 8 },
   centered: { minHeight: 260, alignItems: "center", justifyContent: "center" },
   topNoticeOverlay: { position: "absolute", top: 0, left: 0, right: 0, zIndex: 20, elevation: 20 },
-  heroCard: { backgroundColor: "#ffffff", borderRadius: 24, borderWidth: 1, borderColor: "#e2e8f0", padding: 16, gap: 12 },
+  heroCard: { backgroundColor: "#ffffff", borderRadius: 22, borderWidth: 1, borderColor: "#e2e8f0", padding: 16, gap: 12 },
   heroEyebrow: { fontSize: 12, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.6, marginBottom: -2 },
-  heroTop: { flexDirection: "row", gap: 14 },
-  photo: { width: 76, height: 76, borderRadius: 22, backgroundColor: "#e2e8f0" },
-  avatarFallback: { width: 76, height: 76, borderRadius: 22, backgroundColor: "#e2e8f0", alignItems: "center", justifyContent: "center" },
+  heroTop: { flexDirection: "row", alignItems: "center", gap: 14 },
+  photo: { width: 76, height: 76, borderRadius: 22, borderWidth: 1, backgroundColor: "#e2e8f0" },
+  avatarFallback: { width: 76, height: 76, borderRadius: 22, borderWidth: 1, backgroundColor: "#e2e8f0", alignItems: "center", justifyContent: "center" },
   avatarText: { color: "#0f172a", fontWeight: "800", fontSize: 28 },
-  heroCopy: { flex: 1, gap: 4 },
-  title: { color: "#0f172a", fontWeight: "800", fontSize: 22 },
-  subtitle: { color: "#475569", fontWeight: "700" },
+  heroCopy: { flex: 1, gap: 4, minWidth: 0 },
+  title: { color: "#0f172a", fontWeight: "800", fontSize: 22, lineHeight: 27, flex: 1 },
+  subtitle: { color: "#475569", fontWeight: "700", fontSize: 13 },
   heroMeta: { color: "#64748b", lineHeight: 18 },
   badgeRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 4 },
   identityBadgeWrap: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 4, alignItems: "center" },
   tabsRow: { gap: 8, paddingBottom: 2 },
   tabsGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-  filterChip: { minWidth: "23%", flexGrow: 1, borderWidth: 1, borderColor: "#cbd5e1", borderRadius: 12, paddingHorizontal: 10, paddingVertical: 8, backgroundColor: "#f8fafc", alignItems: "center", justifyContent: "center" },
+  filterChip: { minWidth: "31%", flexGrow: 1, minHeight: 42, borderWidth: 1, borderColor: "#cbd5e1", borderRadius: 12, paddingHorizontal: 10, paddingVertical: 8, backgroundColor: "#f8fafc", alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 7 },
   filterChipActive: { borderColor: "#0f172a", backgroundColor: "#0f172a" },
   filterChipText: { color: "#475569", fontWeight: "700", fontSize: 12 },
   filterChipTextActive: { color: "#ffffff" },
   summaryGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
-  summaryCard: { flexBasis: "48%", flexGrow: 1, minHeight: 62, borderWidth: 1, borderRadius: 16, paddingHorizontal: 10, paddingVertical: 9, justifyContent: "flex-start", gap: 4 },
+  summaryCard: { flexBasis: "48%", flexGrow: 1, minHeight: 66, borderWidth: 1, borderRadius: 16, paddingHorizontal: 10, paddingVertical: 9, justifyContent: "flex-start", gap: 5 },
+  summaryLabelRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  summaryIcon: { width: 26, height: 26, borderRadius: 9, borderWidth: 1, alignItems: "center", justifyContent: "center" },
   summaryValue: { fontSize: 15, lineHeight: 19, fontWeight: "800" },
-  summaryLabel: { color: "#64748b", fontSize: 12, fontWeight: "700" },
+  summaryLabel: { color: "#64748b", fontSize: 12, fontWeight: "700", flexShrink: 1 },
   metricBarCard: { gap: 6, borderWidth: 1, borderColor: "#e2e8f0", borderRadius: 14, backgroundColor: "#f8fafc", paddingHorizontal: 12, paddingVertical: 10 },
   metricBarLabel: { color: "#334155", fontWeight: "700", fontSize: 12 },
   metricBarCaption: { color: "#64748b", fontSize: 12, fontWeight: "700" },
@@ -1317,10 +1421,12 @@ const styles = StyleSheet.create({
   rowBetween: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 10 },
   sectionTitle: { color: "#0f172a", fontWeight: "800", fontSize: 16 },
   sectionHint: { color: "#64748b", fontSize: 12, fontWeight: "600" },
-  infoGrid: { gap: 8 },
-  infoRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 12, borderWidth: 1, borderColor: "#e2e8f0", borderRadius: 12, backgroundColor: "#f8fafc", paddingHorizontal: 12, paddingVertical: 9 },
-  infoLabel: { color: "#64748b", fontWeight: "700" },
-  infoValue: { color: "#0f172a", fontWeight: "700", flexShrink: 1, textAlign: "right" },
+  infoGrid: { gap: 0 },
+  infoRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 12, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: "#e2e8f0", paddingVertical: 10 },
+  infoIcon: { width: 34, height: 34, borderRadius: 10, alignItems: "center", justifyContent: "center" },
+  detailIcon: { width: 34, height: 34, borderRadius: 10, borderWidth: 1, alignItems: "center", justifyContent: "center", flexShrink: 0 },
+  infoLabel: { color: "#64748b", fontWeight: "700", flex: 1 },
+  infoValue: { color: "#0f172a", fontWeight: "800", flexShrink: 1, textAlign: "right", maxWidth: "45%" },
   infoValueLink: { textDecorationLine: "underline" },
   twoColumn: { gap: 14 },
   parentActionBar: { gap: 8 },
@@ -1334,18 +1440,17 @@ const styles = StyleSheet.create({
   examPickerGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   subjectSelectionList: { gap: 8 },
   checkRow: { flexDirection: "row", alignItems: "flex-start", gap: 10, borderWidth: 1, borderRadius: 14, paddingHorizontal: 12, paddingVertical: 11 },
-  checkboxBox: { width: 18, height: 18, borderRadius: 5, borderWidth: 1, marginTop: 1 },
   secondaryBtn: { alignSelf: "flex-start", borderWidth: 1, borderColor: "#cbd5e1", backgroundColor: "#ffffff", paddingHorizontal: 14, paddingVertical: 11, borderRadius: 12, alignItems: "center", justifyContent: "center" },
   secondaryBtnText: { color: "#334155", fontWeight: "700" },
   primaryBtn: { backgroundColor: "#0f172a", paddingHorizontal: 16, paddingVertical: 11, borderRadius: 12, alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 7 },
   primaryBtnText: { color: "#ffffff", fontWeight: "700" },
   btnDisabled: { opacity: 0.45 },
   actionRow: { flexDirection: "row", gap: 10, flexWrap: "wrap" },
-  listCard: { borderWidth: 1, borderColor: "#e2e8f0", borderRadius: 14, backgroundColor: "#f8fafc", padding: 10, gap: 5 },
+  listCard: { borderWidth: 1, borderColor: "#e2e8f0", borderRadius: 14, backgroundColor: "#f8fafc", padding: 10, gap: 7 },
   listCopy: { flex: 1, gap: 2 },
-  listTitle: { color: "#0f172a", fontWeight: "700", fontSize: 14 },
-  listMeta: { color: "#64748b", fontSize: 12, lineHeight: 18 },
-  listAmount: { color: "#0f172a", fontWeight: "800", fontSize: 18 },
+  listTitle: { color: "#0f172a", fontWeight: "800", fontSize: 13 },
+  listMeta: { color: "#64748b", fontSize: 12, lineHeight: 17, fontWeight: "600" },
+  listAmount: { color: "#0f172a", fontWeight: "800", fontSize: 15 },
   metaStack: { gap: 2 },
   metaPillRow: { flexDirection: "row", flexWrap: "wrap", gap: 10, alignItems: "center" },
   statusChip: { borderWidth: 1, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 5 },
@@ -1360,7 +1465,8 @@ const styles = StyleSheet.create({
   marksheetTitle: { marginTop: 3, fontSize: 17, lineHeight: 22, fontWeight: "800", textAlign: "center" },
   marksheetSubTitle: { marginTop: 2, fontSize: 12, fontWeight: "700", textAlign: "center" },
   marksheetInfoGrid: { flexDirection: "row", flexWrap: "wrap", borderBottomWidth: 1, paddingHorizontal: 12, paddingVertical: 10, gap: 8 },
-  marksheetInfoItem: { flexBasis: "48%", flexGrow: 1, gap: 2 },
+  marksheetInfoItem: { flexBasis: "48%", flexGrow: 1, flexDirection: "row", alignItems: "center", gap: 9, minWidth: 0 },
+  marksheetInfoCopy: { flex: 1, minWidth: 0, gap: 2 },
   marksheetInfoLabel: { fontSize: 10, fontWeight: "800", textTransform: "uppercase" },
   marksheetInfoValue: { fontSize: 12, lineHeight: 16, fontWeight: "700" },
   marksheetTable: { paddingHorizontal: 12, paddingVertical: 8 },
@@ -1370,11 +1476,11 @@ const styles = StyleSheet.create({
   marksheetMarksHead: { width: 74, textAlign: "right", fontSize: 10, lineHeight: 12, fontWeight: "800", textTransform: "uppercase" },
   marksheetSubjectCell: { flex: 1, fontSize: 12, lineHeight: 17, fontWeight: "700" },
   marksheetMarksCell: { width: 74, textAlign: "right", fontSize: 13, fontWeight: "800" },
-  marksheetTotalRow: { borderBottomWidth: 0 },
+  marksheetTotalRow: { borderTopWidth: 1, borderBottomWidth: 0, marginTop: 2 },
   marksheetTotalText: { fontSize: 13 },
   marksheetSummaryRow: { flexDirection: "row", borderTopWidth: 1, paddingHorizontal: 12, paddingVertical: 10, gap: 10 },
   marksheetSummaryItem: { flex: 1, gap: 2 },
-  marksheetSummaryValue: { fontSize: 15, fontWeight: "800" },
+  marksheetSummaryValue: { fontSize: 15, fontWeight: "900" },
   marksheetFootnote: { borderTopWidth: 1, paddingHorizontal: 12, paddingVertical: 10, fontSize: 11, lineHeight: 15 },
   emptyText: { color: "#64748b" },
   successText: { color: "#15803d", fontWeight: "600" },

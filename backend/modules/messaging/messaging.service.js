@@ -13,12 +13,13 @@ const MESSAGE_CHANGE_WINDOW_MS = 60 * 60 * 1000;
 
 function normalizeActor(actor) {
   if (typeof actor === "number") {
-    return { userId: actor, roles: [] };
+    return { userId: actor, roles: [], permissions: [] };
   }
 
   return {
     userId: Number(actor?.userId || actor?.id),
     roles: Array.isArray(actor?.roles) ? actor.roles : [],
+    permissions: Array.isArray(actor?.permissions) ? actor.permissions : [],
   };
 }
 
@@ -28,6 +29,69 @@ async function canInitiateConversation(actor) {
   }
 
   return repo.isSuperAdminUser(actor.userId);
+}
+
+function isParentOrTeacher(actor) {
+  return actor.roles.includes("parent") || actor.roles.includes("teacher");
+}
+
+function hasPrivilegedMessagingRole(actor) {
+  return actor.roles.some((role) =>
+    ["super_admin", "admin", "accounts", "staff"].includes(role)
+  );
+}
+
+function requiresScopedConversationVisibility(actor) {
+  return isParentOrTeacher(actor) && !hasPrivilegedMessagingRole(actor);
+}
+
+function assertCanSendMessages(actor) {
+  if (actor.roles.includes("super_admin")) return;
+  if (isParentOrTeacher(actor)) {
+    throw new AppError("Parents and teachers can only view super admin messages", 403);
+  }
+}
+
+export async function getScopedVisibleConversationIdSet(actorInput) {
+  const actor = normalizeActor(actorInput);
+  const ids = new Set();
+
+  if (actor.roles.includes("teacher")) {
+    const teacher = await repo.getTeacherByUserId(actor.userId);
+    if (teacher?.id) {
+      const teacherIds = await repo.getTeacherVisibleConversationIds({
+        teacherId: teacher.id,
+        classScope: teacher.class_scope || "school",
+      });
+      for (const id of teacherIds) ids.add(Number(id));
+    }
+  }
+
+  if (actor.roles.includes("parent")) {
+    const parentIds = await repo.getParentVisibleConversationIds(actor.userId);
+    for (const id of parentIds) ids.add(Number(id));
+  }
+
+  return ids;
+}
+
+async function canViewConversation(actor, conversationId) {
+  if (!(await repo.findMember(conversationId, actor.userId))) {
+    return false;
+  }
+  if (!requiresScopedConversationVisibility(actor)) {
+    return true;
+  }
+
+  const visibleIds = await getScopedVisibleConversationIdSet(actor);
+  return visibleIds.has(Number(conversationId));
+}
+
+export async function assertCanViewConversation(actorInput, conversationId) {
+  const actor = normalizeActor(actorInput);
+  if (!(await canViewConversation(actor, conversationId))) {
+    throw new AppError("Conversation not found", 404);
+  }
 }
 
 async function getOrCreateDirectConversation(senderId, recipientUserId) {
@@ -92,7 +156,7 @@ async function syncTeacherMemberships(userId) {
   }
 }
 
-export async function sendMessage(data, actorInput) {
+export async function sendMessage(data, actorInput, options = {}) {
   const actor = normalizeActor(actorInput);
   const senderUserId = actor.userId;
 
@@ -100,6 +164,7 @@ export async function sendMessage(data, actorInput) {
     throw new AppError("Sender is required", 400);
   }
 
+  assertCanSendMessages(actor);
   await repo.assertMessagingUserActive(senderUserId);
 
   const messageText = String(data?.message || "").trim();
@@ -297,6 +362,7 @@ export async function sendMessage(data, actorInput) {
 
   await repo.attachPendingAttachments(messageId, attachmentIds, senderUserId);
   await repo.createMessageStatuses(messageId, conversationId, senderUserId);
+  await repo.unhideConversationForMembers(conversationId);
   await repo.updateConversationLastMessage(conversationId);
 
   const memberUserIds = await repo.getConversationMemberUserIds(conversationId);
@@ -316,15 +382,18 @@ export async function sendMessage(data, actorInput) {
           ? "Sent a voice message"
           : messageText.slice(0, 120);
 
-  if (recipients.length) {
+  if (recipients.length && !options.suppressNotification) {
     notificationService
       .notify({
         userIds: recipients,
+        category: "message",
         type: "message",
         entityType: "conversation",
         entityId: conversationId,
         title: conversation.name || "New message",
         body: preview,
+        deepLink: `app://messages/conversations/${conversationId}`,
+        actionUrl: `/messages?conversation_id=${conversationId}`,
       })
       .catch(() => {});
   }
@@ -345,9 +414,7 @@ export async function sendMessage(data, actorInput) {
 
 export async function fetchMessages(conversationId, actorInput, page = 1, limit = 30) {
   const actor = normalizeActor(actorInput);
-  if (!(await repo.findMember(conversationId, actor.userId))) {
-    throw new AppError("Conversation not found", 404);
-  }
+  await assertCanViewConversation(actor, conversationId);
   const offset = (page - 1) * limit;
   await repo.markMessagesDelivered(conversationId, actor.userId);
   const rows = await repo.getConversationMessages(
@@ -400,13 +467,30 @@ export async function fetchMessages(conversationId, actorInput, page = 1, limit 
   }));
 }
 
-export async function fetchUserConversations(userId, filters = {}) {
+export async function fetchUserConversations(actorInput, filters = {}) {
+  const actor = normalizeActor(actorInput);
+  const userId = actor.userId;
   await repo.assertMessagingUserActive(userId);
   await syncTeacherMemberships(userId);
-  const payload = await repo.getUserConversations(userId, filters);
+  const scopedVisibility = requiresScopedConversationVisibility(actor);
+  const rawPage = Number(filters.page);
+  const rawLimit = Number(filters.limit);
+  const hasPagination = Number.isFinite(rawPage) || Number.isFinite(rawLimit);
+  const page = Math.max(1, Number.isFinite(rawPage) ? Math.trunc(rawPage) : 1);
+  const limit = Math.min(100, Math.max(1, Number.isFinite(rawLimit) ? Math.trunc(rawLimit) : 25));
+  const payload = await repo.getUserConversations(userId, scopedVisibility ? {} : filters);
   const rows = Array.isArray(payload) ? payload : payload?.data || [];
+  const visibleIds = scopedVisibility
+    ? await getScopedVisibleConversationIdSet(actor)
+    : null;
+  const visibleRows = visibleIds
+    ? rows.filter((row) => visibleIds.has(Number(row.id)))
+    : rows;
+  const pageRows = scopedVisibility && hasPagination
+    ? visibleRows.slice((page - 1) * limit, page * limit)
+    : visibleRows;
 
-  const mappedRows = rows.map((row) => {
+  const mappedRows = pageRows.map((row) => {
     if (row.type !== "direct" || !row.other_user_id) {
       return row;
     }
@@ -420,20 +504,27 @@ export async function fetchUserConversations(userId, filters = {}) {
     };
   });
 
-  if (Array.isArray(payload)) {
+  if (Array.isArray(payload) && !(scopedVisibility && hasPagination)) {
     return mappedRows;
   }
 
   return {
     data: mappedRows,
-    pagination: payload?.pagination || null,
+    pagination: scopedVisibility && hasPagination
+      ? {
+          page,
+          limit,
+          total: visibleRows.length,
+          totalPages: Math.ceil(visibleRows.length / limit),
+        }
+      : payload?.pagination || null,
   };
 }
 
-export async function markRead(conversationId, userId) {
-  if (!(await repo.findMember(conversationId, userId))) {
-    throw new AppError("Conversation not found", 404);
-  }
+export async function markRead(conversationId, actorInput) {
+  const actor = normalizeActor(actorInput);
+  const userId = actor.userId;
+  await assertCanViewConversation(actor, conversationId);
   await repo.markConversationRead(conversationId, userId);
   await repo.markMessagesRead(conversationId, userId);
   const memberUserIds = await repo.getConversationMemberUserIds(conversationId);
@@ -443,11 +534,33 @@ export async function markRead(conversationId, userId) {
   });
 }
 
-export async function unreadCounts(userId) {
-  return repo.getUnreadCounts(userId);
+export async function deleteConversationForMe(conversationId, actorInput) {
+  const actor = normalizeActor(actorInput);
+  await assertCanViewConversation(actor, conversationId);
+
+  await repo.hideConversationForUser(conversationId, actor.userId);
+  await repo.createMessagingAudit({
+    actorUserId: actor.userId,
+    action: "conversation.deleted_for_self",
+    conversationId,
+  });
+  return { deleted: true, mode: "self" };
 }
 
-export async function getTargets() {
+export async function unreadCounts(actorInput) {
+  const actor = normalizeActor(actorInput);
+  const rows = await repo.getUnreadCounts(actor.userId);
+  if (!requiresScopedConversationVisibility(actor)) {
+    return rows;
+  }
+
+  const visibleIds = await getScopedVisibleConversationIdSet(actor);
+  return rows.filter((row) => visibleIds.has(Number(row.conversation_id)));
+}
+
+export async function getTargets(actorInput) {
+  const actor = normalizeActor(actorInput);
+  assertCanSendMessages(actor);
   const [parents, teachers, classes, sections] = await Promise.all([
     repo.getParentTargets(),
     repo.getTeacherTargets(),
@@ -472,6 +585,7 @@ export async function getTargets() {
 
 export async function editMessage(messageId, message, actorInput) {
   const actor = normalizeActor(actorInput);
+  assertCanSendMessages(actor);
   await repo.assertMessagingUserActive(actor.userId);
   const existing = await repo.getMessageById(messageId);
   if (!existing) throw new AppError("Message not found", 404);
@@ -506,9 +620,7 @@ export async function deleteMessage(messageId, mode, actorInput) {
   const actor = normalizeActor(actorInput);
   const existing = await repo.getMessageById(messageId);
   if (!existing) throw new AppError("Message not found", 404);
-  if (!(await repo.findMember(existing.conversation_id, actor.userId))) {
-    throw new AppError("Message not found", 404);
-  }
+  await assertCanViewConversation(actor, existing.conversation_id);
 
   if (mode === "self") {
     await repo.hideMessageForUser(messageId, actor.userId);
@@ -557,9 +669,7 @@ export async function searchMessages(conversationId, search, actorInput, limit) 
   const actor = normalizeActor(actorInput);
   const normalized = String(search || "").trim();
   if (!normalized) return [];
-  if (!(await repo.findMember(conversationId, actor.userId))) {
-    throw new AppError("Conversation not found", 404);
-  }
+  await assertCanViewConversation(actor, conversationId);
   return repo.searchConversationMessages(
     conversationId,
     actor.userId,
@@ -570,13 +680,12 @@ export async function searchMessages(conversationId, search, actorInput, limit) 
 
 export async function publishTyping(conversationId, isTyping, actorInput) {
   const actor = normalizeActor(actorInput);
+  assertCanSendMessages(actor);
   const conversation = await repo.getConversationById(conversationId);
   if (!conversation || conversation.type !== "direct") {
     throw new AppError("Typing indicators are only available in direct conversations", 400);
   }
-  if (!(await repo.findMember(conversationId, actor.userId))) {
-    throw new AppError("Conversation not found", 404);
-  }
+  await assertCanViewConversation(actor, conversationId);
   const members = await repo.getConversationMemberUserIds(conversationId);
   setConversationTyping(conversationId, actor.userId, Boolean(isTyping));
   publishMessagingEvent(
@@ -595,9 +704,7 @@ export async function getTyping(conversationId, actorInput) {
   const actor = normalizeActor(actorInput);
   const conversation = await repo.getConversationById(conversationId);
   if (!conversation || conversation.type !== "direct") return { user_ids: [] };
-  if (!(await repo.findMember(conversationId, actor.userId))) {
-    throw new AppError("Conversation not found", 404);
-  }
+  await assertCanViewConversation(actor, conversationId);
   return {
     user_ids: getConversationTyping(conversationId, actor.userId),
   };
@@ -606,9 +713,10 @@ export async function getTyping(conversationId, actorInput) {
 export async function reportMessage(messageId, data, actorInput) {
   const actor = normalizeActor(actorInput);
   const message = await repo.getMessageById(messageId);
-  if (!message || !(await repo.findMember(message.conversation_id, actor.userId))) {
+  if (!message) {
     throw new AppError("Message not found", 404);
   }
+  await assertCanViewConversation(actor, message.conversation_id);
   const reason = String(data.reason || "").trim();
   if (!reason) throw new AppError("Report reason is required", 400);
   const reportId = await repo.createMessageReport({

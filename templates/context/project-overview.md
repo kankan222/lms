@@ -37,6 +37,10 @@ one Express/MySQL backend.
    persist changes in MySQL.
 6. Notifications and messaging updates stream to the internal
    app through SSE where supported.
+7. Mobile clients check an authenticated app-update policy after
+   sign-in and from Profile; update notifications can announce a
+   release, while the in-app prompt/store link remains the primary
+   update path.
 
 ## Features
 
@@ -75,7 +79,11 @@ one Express/MySQL backend.
   deletion for everyone, delivery/read state, search, and moderation.
 - Students are contacted through their linked parents or guardians;
   students are not direct messaging accounts.
-- Notifications with read/read-all handling and realtime updates.
+- Notifications with category filters, read/read-all handling,
+  realtime updates, permission-gated push delivery, and action
+  deep links for high-value events such as messages, attendance
+  notices, marksheets, fees, payments, account security, and system
+  alerts.
 
 ### Public Website and Mobile
 
@@ -83,6 +91,9 @@ one Express/MySQL backend.
   staff lists, gallery, fees, rules, privacy, and contact.
 - Expo mobile app with role-aware tabs, secure token storage,
   cached API reads, and stale data fallback.
+- Mobile app update prompts compare the installed app version/build
+  with server-configured latest and minimum supported versions, then
+  open the configured Play Store/App Store URL when available.
 
 ## Scope
 

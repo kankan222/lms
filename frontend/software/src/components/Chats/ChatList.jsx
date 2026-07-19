@@ -1,4 +1,4 @@
-import { User } from "lucide-react";
+import { Trash2, User } from "lucide-react";
 import { formatReadableDateTime } from "../../lib/dateTime";
 import { resolveServerImageUrl } from "../../lib/serverImage";
 
@@ -36,7 +36,8 @@ export default function ChatList({
   conversations,
   activeChatId,
   onSelect,
-  onNewChat
+  onNewChat,
+  onDeleteChat
 }) {
   function statusMeta(conversation) {
     if (conversation?.type !== "direct") return null;
@@ -95,6 +96,19 @@ export default function ChatList({
                     {conv.last_message || "No messages yet"}
                   </p>
                 </div>
+                {onDeleteChat ? (
+                  <button
+                    type="button"
+                    title="Delete chat"
+                    className="rounded-md p-1.5 text-muted-foreground opacity-70 transition hover:bg-destructive/10 hover:text-destructive"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onDeleteChat(conv);
+                    }}
+                  >
+                    <Trash2 className="size-4" />
+                  </button>
+                ) : null}
               </div>
             </div>
           );

@@ -14,6 +14,10 @@ import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
 import type { RootStackParamList } from "../navigation/AppNavigator";
 import { useAuthStore } from "../store/authStore";
 import { DashboardSummary, getDashboardSummary } from "../services/dashboardService";
+import { getUnreadMessageTotal } from "../services/messagingService";
+import { getMyNotifications } from "../services/notificationsService";
+import { syncPushNotificationsAfterSignIn } from "../services/pushNotificationService";
+import { checkAppUpdate, showAppUpdatePrompt } from "../services/appUpdateService";
 import { useAppTheme } from "../theme/AppThemeProvider";
 import DashboardTab from "./tabs/DashboardTab";
 import ClassesTab from "./tabs/ClassesTab";
@@ -261,6 +265,7 @@ export default function AppShellScreen({ navigation, route }: Props) {
   const { theme, isDark, toggleTheme } = useAppTheme();
   const roles = Array.isArray(user?.roles) ? user.roles : [];
   const permissions = Array.isArray(user?.permissions) ? user.permissions : [];
+  const canViewNotifications = hasRole(roles, "super_admin") || permissions.includes("notifications.view");
   const visibleTabs = useMemo(
     () => TABS.filter((tab) => canViewTab(tab.key, roles, permissions)).map((tab) => tab.key),
     [permissions, roles],
@@ -281,6 +286,8 @@ export default function AppShellScreen({ navigation, route }: Props) {
   const [parentConversationIntent, setParentConversationIntent] = useState<ParentConversationIntent | null>(null);
   const [messagingComposeTarget, setMessagingComposeTarget] = useState<MessagingComposeResult | null>(null);
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
+  const [notificationUnread, setNotificationUnread] = useState(0);
+  const [messageUnread, setMessageUnread] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -289,6 +296,74 @@ export default function AppShellScreen({ navigation, route }: Props) {
       setActiveTab(defaultTab);
     }
   }, [activeTab, defaultTab, visibleTabs]);
+
+  useEffect(() => {
+    if (!canViewNotifications) {
+      setNotificationUnread(0);
+      return;
+    }
+
+    let active = true;
+    getMyNotifications({ limit: 1 })
+      .then((data) => {
+        if (active) setNotificationUnread(Number(data.unread || 0));
+      })
+      .catch(() => {
+        if (active) setNotificationUnread(0);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [canViewNotifications, user?.id]);
+
+  useEffect(() => {
+    if (!user?.id || !canViewNotifications) return;
+    void syncPushNotificationsAfterSignIn(user);
+  }, [canViewNotifications, user]);
+
+  useEffect(() => {
+    if (!user?.id) return;
+    let active = true;
+    checkAppUpdate()
+      .then((info) => {
+        if (active && info?.update_available) {
+          showAppUpdatePrompt(info);
+        }
+      })
+      .catch(() => {});
+
+    return () => {
+      active = false;
+    };
+  }, [user?.id]);
+
+  useEffect(() => {
+    if (!permissions.includes("messages.view") && !hasRole(roles, "super_admin")) {
+      setMessageUnread(0);
+      return;
+    }
+
+    let active = true;
+    async function refreshUnreadMessages() {
+      try {
+        const total = await getUnreadMessageTotal();
+        if (active) setMessageUnread(total);
+      } catch {
+        if (active) setMessageUnread(0);
+      }
+    }
+
+    void refreshUnreadMessages();
+    const timer = setInterval(() => {
+      void refreshUnreadMessages();
+    }, 30000);
+
+    return () => {
+      active = false;
+      clearInterval(timer);
+    };
+  }, [activeTab, permissions, roles]);
 
   useEffect(() => {
     const requestedTab = route.params?.tab;
@@ -421,6 +496,13 @@ export default function AppShellScreen({ navigation, route }: Props) {
             loading={isLoading}
             error={error}
             onRefresh={refreshDashboard}
+            topInset={insets.top}
+            notificationUnread={notificationUnread}
+            canViewNotifications={canViewNotifications}
+            onOpenNotifications={() => navigation.navigate("Notifications")}
+            onOpenMessages={() => selectTab("messaging")}
+            onOpenMore={() => navigation.navigate("More")}
+            onToggleTheme={toggleTheme}
           />
         );
       case "classes":
@@ -469,53 +551,76 @@ export default function AppShellScreen({ navigation, route }: Props) {
     }
   }
 
+  const showAppHeader = activeTab !== "dashboard";
+
   return (
     <SafeAreaView edges={["left", "right", "bottom"]} style={[styles.safeArea, { backgroundColor: theme.bg }]}>
-      <View
-        style={[
-          styles.header,
-          {
-            backgroundColor: theme.bg,
-            borderBottomColor: theme.border,
-            paddingTop: Math.max(insets.top, 6),
-            minHeight: 52 + Math.max(insets.top, 6),
-          },
-        ]}
-      >
-        <View style={styles.headerLeft}>
-          <View>
-            <Text style={[styles.brandText, { color: theme.text }]}>{headerBrand}</Text>
-            <Text style={[styles.subtitle, { color: theme.subText }]}>{headerSubtitle}</Text>
+      {showAppHeader ? (
+        <View
+          style={[
+            styles.header,
+            {
+              backgroundColor: theme.bg,
+              borderBottomColor: theme.border,
+              paddingTop: Math.max(insets.top, 6),
+              minHeight: 52 + Math.max(insets.top, 6),
+            },
+          ]}
+        >
+          <View style={styles.headerLeft}>
+            <View>
+              <Text style={[styles.brandText, { color: theme.text }]}>{headerBrand}</Text>
+              <Text style={[styles.subtitle, { color: theme.subText }]}>{headerSubtitle}</Text>
+            </View>
+          </View>
+
+          <View style={styles.headerRight}>
+            {canViewNotifications ? (
+              <Pressable
+                style={[
+                  styles.iconButton,
+                  {
+                    backgroundColor: isDark ? theme.card : "#ffffff",
+                    borderColor: theme.border,
+                  },
+                ]}
+                onPress={() => navigation.navigate("Notifications")}
+              >
+                <Ionicons name="notifications-outline" size={18} color={theme.icon} />
+                {notificationUnread ? (
+                  <View style={[styles.headerBadge, { backgroundColor: theme.success }]}>
+                    <Text style={styles.headerBadgeText}>{notificationUnread > 99 ? "99+" : notificationUnread}</Text>
+                  </View>
+                ) : null}
+              </Pressable>
+            ) : null}
+            <Pressable
+              style={[
+                styles.iconButton,
+                {
+                  backgroundColor: isDark ? theme.card : "#ffffff",
+                  borderColor: theme.border,
+                },
+              ]}
+              onPress={toggleTheme}
+            >
+              <Ionicons name={isDark ? "sunny-outline" : "moon-outline"} size={18} color={theme.icon} />
+            </Pressable>
+            <Pressable
+              style={[
+                styles.iconButton,
+                {
+                  backgroundColor: isDark ? theme.card : "#ffffff",
+                  borderColor: theme.border,
+                },
+              ]}
+              onPress={() => navigation.navigate("More")}
+            >
+              <Ionicons name="apps-outline" size={18} color={theme.icon} />
+            </Pressable>
           </View>
         </View>
-
-        <View style={styles.headerRight}>
-          <Pressable
-            style={[
-              styles.iconButton,
-              {
-                backgroundColor: isDark ? theme.card : "#ffffff",
-                borderColor: theme.border,
-              },
-            ]}
-            onPress={toggleTheme}
-          >
-            <Ionicons name={isDark ? "sunny-outline" : "moon-outline"} size={18} color={theme.icon} />
-          </Pressable>
-          <Pressable
-            style={[
-              styles.iconButton,
-              {
-                backgroundColor: isDark ? theme.card : "#ffffff",
-                borderColor: theme.border,
-              },
-            ]}
-            onPress={() => navigation.navigate("More")}
-          >
-            <Ionicons name="apps-outline" size={18} color={theme.icon} />
-          </Pressable>
-        </View>
-      </View>
+      ) : null}
 
       <View style={styles.contentStatic}>
         {mountedTabs.map((tab) => {
@@ -556,8 +661,18 @@ export default function AppShellScreen({ navigation, route }: Props) {
       </View>
 
       {!isMessagingConversationOpen ? (
-        <View pointerEvents="box-none" style={[styles.floatingNavWrap, { paddingBottom: Math.max(insets.bottom, 10) }]}>
-          <View style={[styles.floatingNav, { backgroundColor: theme.card, borderColor: theme.border }]}>
+        <View
+          pointerEvents="box-none"
+          style={[
+            styles.floatingNavWrap,
+            {
+              backgroundColor: theme.bg,
+              borderTopColor: theme.border,
+              paddingBottom: Math.max(insets.bottom, 8),
+            },
+          ]}
+        >
+          <View style={styles.floatingNav}>
             {primaryTabs.map((tab) => {
               const isMore = tab.key === "more";
               const isActive = !isMore && activeTab === tab.key;
@@ -576,16 +691,21 @@ export default function AppShellScreen({ navigation, route }: Props) {
                   <View style={styles.floatingIconWrap}>
                     <Ionicons
                       name={tab.icon}
-                      size={20}
-                      color={isActive ? theme.text : theme.subText}
+                      size={19}
+                      color={isActive ? theme.primary : theme.subText}
                     />
+                    {tab.key === "messaging" && messageUnread ? (
+                      <View style={[styles.floatingBadge, { backgroundColor: theme.success }]}>
+                        <Text style={styles.floatingBadgeText}>{messageUnread > 99 ? "99+" : messageUnread}</Text>
+                      </View>
+                    ) : null}
                   </View>
                   <Text
                     style={[
                       styles.floatingNavText,
                       {
-                        color: isActive ? theme.text : theme.subText,
-                        fontWeight: isActive ? "700" : "500",
+                        color: isActive ? theme.primary : theme.subText,
+                        fontWeight: isActive ? "800" : "600",
                       },
                     ]}
                     numberOfLines={1}
@@ -636,11 +756,36 @@ const styles = StyleSheet.create({
   iconButton: {
     width: 38,
     height: 38,
-    borderRadius: 12,
+    borderRadius: 19,
     borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
+    position: "relative",
   },
+  headerBadge: {
+    position: "absolute",
+    top: -5,
+    right: -5,
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
+    paddingHorizontal: 4,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  headerBadgeText: { color: "#ffffff", fontSize: 10, fontWeight: "800" },
+  floatingBadge: {
+    position: "absolute",
+    top: -7,
+    right: -12,
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
+    paddingHorizontal: 4,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  floatingBadgeText: { color: "#ffffff", fontSize: 10, fontWeight: "800" },
   content: {
     flex: 1,
   },
@@ -669,21 +814,15 @@ const styles = StyleSheet.create({
     bottom: 0,
     alignItems: "center",
     zIndex: 30,
+    borderTopWidth: 1,
   },
   floatingNav: {
-    width: "92%",
-    borderRadius: 34,
-    borderWidth: 1,
-    paddingHorizontal: 12,
-    paddingVertical: 12,
+    width: "100%",
+    paddingHorizontal: 10,
+    paddingTop: 9,
+    paddingBottom: 8,
     flexDirection: "row",
     justifyContent: "space-around",
-    overflow: "hidden",
-    shadowColor: "#0f172a",
-    shadowOpacity: 0.16,
-    shadowRadius: 24,
-    shadowOffset: { width: 0, height: 10 },
-    elevation: 10,
   },
   floatingNavItem: {
     width: "25%",
@@ -692,15 +831,16 @@ const styles = StyleSheet.create({
     gap: 0,
   },
   floatingIconWrap: {
-    width: 30,
-    height: 28,
-    borderRadius: 10,
+    width: 34,
+    height: 26,
+    borderRadius: 13,
     alignItems: "center",
     justifyContent: "center",
+    position: "relative",
   },
   floatingNavText: {
     fontSize: 10,
     textAlign: "center",
-    marginTop: -1,
+    marginTop: 1,
   },
 });

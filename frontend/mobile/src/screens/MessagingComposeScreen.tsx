@@ -329,7 +329,7 @@ export default function MessagingComposeScreen({ navigation }: Props) {
 
   return (
     <SafeAreaView edges={["top", "left", "right", "bottom"]} style={[styles.safeArea, { backgroundColor: theme.bg }]}>
-      <KeyboardAvoidingView style={styles.screen} behavior={Platform.OS === "ios" ? "padding" : "height"}>
+      <KeyboardAvoidingView style={styles.screen} behavior={Platform.OS === "ios" ? "padding" : "height"} keyboardVerticalOffset={0}>
         <View style={[styles.header, { borderBottomColor: theme.border }]}>
           <Pressable style={[styles.iconBtn, { backgroundColor: theme.cardMuted }]} onPress={() => (step === "audience" ? navigation.goBack() : setStep("audience"))}>
             <Ionicons name="arrow-back-outline" size={20} color={theme.icon} />

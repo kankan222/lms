@@ -115,6 +115,39 @@ function CardIconAction({ icon, tone = "default", onPress }: { icon: keyof typeo
   return <Pressable style={[styles.iconActionBtn, { borderColor: isDanger ? theme.dangerBorder : theme.border, backgroundColor: isDanger ? theme.dangerSoft : theme.card }, isDanger && styles.iconActionBtnDanger]} onPress={onPress}><Ionicons name={icon} size={18} color={isDanger ? theme.danger : theme.text} /></Pressable>;
 }
 
+function StudentListBadge({ label, tone = "neutral" }: { label: string; tone?: "accent" | "neutral" | "success" }) {
+  const { theme } = useAppTheme();
+  const palette = tone === "accent"
+    ? { backgroundColor: theme.successSoft, borderColor: theme.successBorder, color: theme.success }
+    : tone === "success"
+      ? { backgroundColor: theme.successSoft, borderColor: theme.successBorder, color: theme.success }
+      : { backgroundColor: theme.cardMuted, borderColor: theme.border, color: theme.subText };
+  return (
+    <View style={[styles.studentListBadge, { backgroundColor: palette.backgroundColor, borderColor: palette.borderColor }]}>
+      <Text style={[styles.studentListBadgeText, { color: palette.color }]} numberOfLines={1}>{label}</Text>
+    </View>
+  );
+}
+
+function ClassSectionBlock({ className, section }: { className?: string | number | null; section?: string | number | null }) {
+  const { theme } = useAppTheme();
+  return (
+    <View style={styles.classSectionWrap}>
+      <View style={styles.classSectionValues}>
+        <View style={styles.classSectionItem}>
+          <Text style={[styles.classSectionValue, { color: theme.text }]} numberOfLines={1}>{className || "-"}</Text>
+          <Text style={[styles.classSectionLabel, { color: theme.subText }]}>Class</Text>
+        </View>
+        <View style={[styles.classSectionDivider, { backgroundColor: theme.border }]} />
+        <View style={styles.classSectionItem}>
+          <Text style={[styles.classSectionValue, { color: theme.text }]} numberOfLines={1}>{section || "-"}</Text>
+          <Text style={[styles.classSectionLabel, { color: theme.subText }]}>Section</Text>
+        </View>
+      </View>
+    </View>
+  );
+}
+
 export default function StudentsTab({ onStartParentMessage }: Props) {
   const { theme, isDark } = useAppTheme();
   const user = useAuthStore((state) => state.user);
@@ -598,8 +631,8 @@ export default function StudentsTab({ onStartParentMessage }: Props) {
                 <View style={styles.searchWrap}>
                   <TextInput style={[styles.input, styles.searchInput, { borderColor: theme.border, backgroundColor: theme.inputBg, color: theme.text }]} value={search} onChangeText={setSearch} placeholder={isParent ? "Search child..." : "Search..."} placeholderTextColor={theme.mutedText} />
                 </View>
-                <Pressable style={[styles.iconUtilityBtn, { borderColor: theme.border, backgroundColor: theme.card }]} onPress={() => setFiltersOpen(true)}>
-                  <Ionicons name="options-outline" size={18} color={theme.icon} />
+                <Pressable style={[styles.iconUtilityBtn, { borderColor: theme.successBorder, backgroundColor: theme.successSoft }]} onPress={() => setFiltersOpen(true)}>
+                  <Ionicons name="options-outline" size={18} color={theme.success} />
                 </Pressable>
               </View>
               {(classId !== null || sectionId !== null) ? (
@@ -654,14 +687,6 @@ export default function StudentsTab({ onStartParentMessage }: Props) {
             class_scope: student.class_scope || matched?.class_scope,
             scope_name: (student as Student & { scope_name?: string | null }).scope_name || matched?.scope_name,
           }) === "hs";
-          const summaryLine = [
-            `Roll ${student.roll_number || "-"}`,
-            scopeLabel,
-            `Medium ${medium}`,
-            isHsScope ? `Stream ${student.stream_name || "-"}` : null,
-          ]
-            .filter(Boolean)
-            .join(" | ");
           const contactLine = [
             `Phone ${student.phone || student.mobile || "-"}`,
             `Admission ${fmtDate(student.date_of_admission)}`,
@@ -670,8 +695,8 @@ export default function StudentsTab({ onStartParentMessage }: Props) {
             <View style={styles.rowWrap}>
               <Pressable style={[styles.studentCard, { backgroundColor: theme.card, borderColor: theme.border }]} onPress={() => openDetails(student)}>
                 <View style={styles.cardTop}>
-                  <View style={[styles.avatarBadge, { backgroundColor: theme.cardMuted }]}>
-                    <Text style={[styles.avatarText, { color: theme.text }]}>{student.name?.slice(0, 1)?.toUpperCase() || "S"}</Text>
+                  <View style={[styles.avatarBadge, { backgroundColor: theme.successSoft, borderColor: theme.successBorder }]}>
+                    <Text style={[styles.avatarText, { color: theme.success }]}>{student.name?.slice(0, 1)?.toUpperCase() || "S"}</Text>
                   </View>
                   <View style={styles.cardCopy}>
                     <Text style={[styles.studentName, { color: theme.text }]} numberOfLines={1}>
@@ -681,20 +706,16 @@ export default function StudentsTab({ onStartParentMessage }: Props) {
                       {student.admission_no ? `Adm ${student.admission_no}` : `KKV-${student.id}`}
                     </Text>
                   </View>
-                  <View style={styles.compactClassBlock}>
-                    <Text style={[styles.compactClassValue, { color: theme.text }]} numberOfLines={1}>
-                      {student.class || "-"}
-                    </Text>
-                    <Text style={[styles.compactClassMeta, { color: theme.subText }]} numberOfLines={1}>
-                      {student.section || "-"}
-                    </Text>
-                  </View>
+                  <ClassSectionBlock className={student.class} section={student.section} />
                 </View>
 
                 <View style={styles.metaStack}>
-                  <Text style={[styles.detailText, styles.metaLineText, { color: theme.subText }]} numberOfLines={1}>
-                    {summaryLine}
-                  </Text>
+                  <View style={styles.studentBadgeRow}>
+                    <StudentListBadge label={`Roll No - ${student.roll_number || "-"}`} tone="accent" />
+                    <StudentListBadge label={scopeLabel} />
+                    <StudentListBadge label={`Medium - ${medium}`} />
+                    {isHsScope ? <StudentListBadge label={`Stream ${student.stream_name || "-"}`} tone="success" /> : null}
+                  </View>
                   <Text style={[styles.detailText, styles.metaLineText, { color: theme.subText }]} numberOfLines={1}>
                     {contactLine}
                   </Text>
@@ -893,16 +914,22 @@ const styles = StyleSheet.create({
   grid: { gap: 12 },
   studentCard: { backgroundColor: "#fff", borderRadius: 20, borderWidth: 1, borderColor: "#e2e8f0", padding: 14, gap: 8 },
   cardTop: { flexDirection: "row", alignItems: "center", gap: 10 },
-  avatarBadge: { width: 40, height: 40, borderRadius: 12, backgroundColor: "#e2e8f0", alignItems: "center", justifyContent: "center" },
+  avatarBadge: { width: 40, height: 40, borderRadius: 12, borderWidth: 1, backgroundColor: "#e2e8f0", alignItems: "center", justifyContent: "center" },
   avatarText: { color: "#0f172a", fontWeight: "800", fontSize: 16 },
   cardCopy: { flex: 1, minWidth: 0, gap: 3 },
   studentName: { color: "#0f172a", fontWeight: "800", fontSize: 16 },
   studentMeta: { color: "#475569", fontWeight: "700", fontSize: 12 },
-  compactClassBlock: { alignItems: "flex-end", minWidth: 64, maxWidth: 112, gap: 2 },
-  compactClassValue: { fontSize: 14, fontWeight: "800" },
-  compactClassMeta: { fontSize: 11, fontWeight: "700" },
-  metaStack: { gap: 2 },
+  classSectionWrap: { flexDirection: "row", alignItems: "center", flexShrink: 0, maxWidth: 92 },
+  classSectionValues: { alignItems: "center", gap: 4, minWidth: 46 },
+  classSectionItem: { alignItems: "center", maxWidth: 76 },
+  classSectionValue: { fontSize: 14, lineHeight: 17, fontWeight: "800" },
+  classSectionLabel: { fontSize: 10, lineHeight: 13, fontWeight: "700" },
+  classSectionDivider: { width: 18, height: 1 },
+  metaStack: { gap: 7 },
   metaLine: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
+  studentBadgeRow: { flexDirection: "row", flexWrap: "wrap", gap: 7, alignItems: "center" },
+  studentListBadge: { maxWidth: "100%", borderWidth: 1, borderRadius: 9, paddingHorizontal: 9, paddingVertical: 5 },
+  studentListBadgeText: { fontSize: 12, lineHeight: 15, fontWeight: "700" },
   detailText: { color: "#475569", lineHeight: 18 },
   metaLineText: { fontSize: 12 },
   rowActions: { flexDirection: "row", gap: 10, marginTop: 14 },

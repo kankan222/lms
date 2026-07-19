@@ -26,12 +26,11 @@ export async function getMessages(req, res, next) {
 
 export async function getConversations(req, res, next) {
   try {
-    const userId = req.user.userId;
     const filters = {};
     if (req.query.page !== undefined) filters.page = req.query.page;
     if (req.query.limit !== undefined) filters.limit = req.query.limit;
 
-    const data = await service.fetchUserConversations(userId, filters);
+    const data = await service.fetchUserConversations(req.user, filters);
     if (data && typeof data === "object" && Array.isArray(data.data)) {
       return res.json({ success: true, data: data.data, pagination: data.pagination || null });
     }
@@ -44,10 +43,18 @@ export async function getConversations(req, res, next) {
 
 export async function markAsRead(req, res, next) {
   try {
-    const userId = req.user.userId;
     const { conversation_id } = req.body;
-    await service.markRead(conversation_id, userId);
+    await service.markRead(conversation_id, req.user);
     res.json({ success: true });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function deleteConversation(req, res, next) {
+  try {
+    const data = await service.deleteConversationForMe(Number(req.params.conversationId), req.user);
+    res.json({ success: true, data });
   } catch (err) {
     next(err);
   }
@@ -55,8 +62,7 @@ export async function markAsRead(req, res, next) {
 
 export async function unreadMessages(req, res, next) {
   try {
-    const userId = req.user.userId;
-    const data = await service.unreadCounts(userId);
+    const data = await service.unreadCounts(req.user);
     res.json({ success: true, data });
   } catch (err) {
     next(err);
@@ -65,7 +71,7 @@ export async function unreadMessages(req, res, next) {
 
 export async function getTargets(req, res, next) {
   try {
-    const data = await service.getTargets();
+    const data = await service.getTargets(req.user);
     res.json({ success: true, data });
   } catch (err) {
     next(err);
@@ -103,7 +109,7 @@ export async function getAttachmentAccess(req, res, next) {
   try {
     const access = await mediaService.getAttachmentAccess(
       Number(req.params.attachmentId),
-      req.user.userId,
+      req.user,
       req.query.variant
     );
     res.json({
@@ -127,7 +133,7 @@ export async function streamAttachment(req, res, next) {
   try {
     const access = await mediaService.getAttachmentAccess(
       Number(req.params.attachmentId),
-      req.user.userId,
+      req.user,
       req.query.variant
     );
     if (access.signedUrl) {

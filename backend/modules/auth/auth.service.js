@@ -40,6 +40,42 @@ function isProductionEnvironment() {
   return String(process.env.NODE_ENV || "").trim().toLowerCase() === "production";
 }
 
+function parseEnvList(name) {
+  return String(process.env[name] || "")
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function normalizeIdentifier(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function normalizePhoneDigits(value) {
+  const digits = String(value || "").replace(/\D/g, "");
+  return digits.length === 12 && digits.startsWith("91") ? digits.slice(2) : digits;
+}
+
+function listContainsExact(list, value, normalize = normalizeIdentifier) {
+  const normalizedValue = normalize(value);
+  if (!normalizedValue) return false;
+  return list.some((item) => normalize(item) === normalizedValue);
+}
+
+function canBypassOtp(user) {
+  if (!user?.id) return false;
+
+  return (
+    listContainsExact(parseEnvList("OTP_BYPASS_USER_IDS"), user.id, (value) => String(value || "").trim()) ||
+    listContainsExact(parseEnvList("OTP_BYPASS_EMAILS"), user.email) ||
+    listContainsExact(parseEnvList("OTP_BYPASS_USERNAMES"), user.username) ||
+    listContainsExact(parseEnvList("OTP_BYPASS_PHONES"), user.phone, normalizePhoneDigits) ||
+    listContainsExact(parseEnvList("OTP_BYPASS_IDENTIFIERS"), user.email) ||
+    listContainsExact(parseEnvList("OTP_BYPASS_IDENTIFIERS"), user.username) ||
+    listContainsExact(parseEnvList("OTP_BYPASS_IDENTIFIERS"), user.phone, normalizePhoneDigits)
+  );
+}
+
 function parseDurationMs(value, fallbackMs) {
   const raw = String(value || "").trim().toLowerCase();
   const match = raw.match(/^(\d+)\s*(ms|s|m|h|d)?$/);
@@ -178,6 +214,10 @@ async function resolveOtpRequirement(user, roles, meta) {
     return { required: false, reason: null };
   }
 
+  if (canBypassOtp(user)) {
+    return { required: false, reason: "otp_bypass_account" };
+  }
+
   if (!meta.deviceId) {
     return { required: true, reason: "new_device" };
   }
@@ -294,13 +334,13 @@ export async function login(data, meta) {
   }
 
   const { permissions, roles } = await loadAccessData(user.id);
-  const storedPhone = normalizeStoredIndianPhone(user.phone);
-  if (!storedPhone) {
-    throw new AppError("No valid phone number found. Contact administrator to update phone number.", 400);
-  }
-
   const otpRequirement = await resolveOtpRequirement(user, roles, meta);
   if (otpRequirement.required) {
+    const storedPhone = normalizeStoredIndianPhone(user.phone);
+    if (!storedPhone) {
+      throw new AppError("No valid phone number found. Contact administrator to update phone number.", 400);
+    }
+
     return createAndSendOtpChallenge({
       user,
       roles,

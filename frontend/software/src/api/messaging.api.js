@@ -54,6 +54,12 @@ export function deleteMessage(messageId, mode) {
   });
 }
 
+export function deleteConversation(conversationId) {
+  return apiRequest(`/messages/conversations/${conversationId}`, {
+    method: "DELETE"
+  });
+}
+
 export function reportMessage(messageId, reason, details = "") {
   return apiRequest(`/messages/messages/${messageId}/report`, {
     method: "POST",
