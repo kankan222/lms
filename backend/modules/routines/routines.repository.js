@@ -336,8 +336,8 @@ export function listClassRoutineBoardRows(filters = {}) {
         e.room,
         e.notes,
         e.sort_order,
-        COALESCE(ts_exact.label, ts_day.label, ts_all.label) AS slot_label,
-        COALESCE(ts_exact.default_entry_type, ts_day.default_entry_type, ts_all.default_entry_type) AS slot_default_entry_type,
+        MAX(COALESCE(ts_exact.label, ts_day.label, ts_all.label)) AS slot_label,
+        MAX(COALESCE(ts_exact.default_entry_type, ts_day.default_entry_type, ts_all.default_entry_type)) AS slot_default_entry_type,
         GROUP_CONCAT(t.id ORDER BY et.teacher_role, t.name SEPARATOR ',') AS teacher_ids,
         GROUP_CONCAT(t.name ORDER BY et.teacher_role, t.name SEPARATOR ', ') AS teacher_names
       FROM class_routine_versions v
@@ -439,8 +439,8 @@ export async function getClassRoutineEntries(versionId) {
         e.*,
         sub.name AS subject_name,
         act.name AS activity_name,
-        COALESCE(ts_exact.label, ts_day.label, ts_all.label) AS slot_label,
-        COALESCE(ts_exact.default_entry_type, ts_day.default_entry_type, ts_all.default_entry_type) AS slot_default_entry_type,
+        MAX(COALESCE(ts_exact.label, ts_day.label, ts_all.label)) AS slot_label,
+        MAX(COALESCE(ts_exact.default_entry_type, ts_day.default_entry_type, ts_all.default_entry_type)) AS slot_default_entry_type,
         GROUP_CONCAT(t.id ORDER BY et.teacher_role, t.name SEPARATOR ',') AS teacher_ids,
         GROUP_CONCAT(t.name ORDER BY et.teacher_role, t.name SEPARATOR ', ') AS teacher_names
       FROM class_routine_entries e
