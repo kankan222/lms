@@ -243,6 +243,38 @@ export function listClassRoutineBoardRows(filters = {}) {
             AND other.stream_id_dedupe = v.stream_id_dedupe
             AND other.status IN ('draft', 'published')
             AND (
+              other.status = 'published'
+              OR (
+                other.status = 'draft'
+                AND (
+                  EXISTS (
+                    SELECT 1
+                    FROM class_routine_versions other_parent
+                    WHERE other_parent.id = other.parent_version_id
+                      AND other_parent.session_id = other.session_id
+                      AND other_parent.class_id = other.class_id
+                      AND other_parent.section_id = other.section_id
+                      AND other_parent.medium = other.medium
+                      AND other_parent.stream_id_dedupe = other.stream_id_dedupe
+                      AND other_parent.status = 'published'
+                  )
+                  OR (
+                    other.parent_version_id IS NULL
+                    AND NOT EXISTS (
+                      SELECT 1
+                      FROM class_routine_versions other_published
+                      WHERE other_published.session_id = other.session_id
+                        AND other_published.class_id = other.class_id
+                        AND other_published.section_id = other.section_id
+                        AND other_published.medium = other.medium
+                        AND other_published.stream_id_dedupe = other.stream_id_dedupe
+                        AND other_published.status = 'published'
+                    )
+                  )
+                )
+              )
+            )
+            AND (
               CASE other.status WHEN 'draft' THEN 1 WHEN 'published' THEN 2 ELSE 3 END
                 < CASE v.status WHEN 'draft' THEN 1 WHEN 'published' THEN 2 ELSE 3 END
               OR (
@@ -257,6 +289,40 @@ export function listClassRoutineBoardRows(filters = {}) {
                 AND other.id > v.id
               )
             )
+        )
+      `);
+      where.push(`
+        (
+          v.status = 'published'
+          OR (
+            v.status = 'draft'
+            AND (
+              EXISTS (
+                SELECT 1
+                FROM class_routine_versions parent
+                WHERE parent.id = v.parent_version_id
+                  AND parent.session_id = v.session_id
+                  AND parent.class_id = v.class_id
+                  AND parent.section_id = v.section_id
+                  AND parent.medium = v.medium
+                  AND parent.stream_id_dedupe = v.stream_id_dedupe
+                  AND parent.status = 'published'
+              )
+              OR (
+                v.parent_version_id IS NULL
+                AND NOT EXISTS (
+                  SELECT 1
+                  FROM class_routine_versions published
+                  WHERE published.session_id = v.session_id
+                    AND published.class_id = v.class_id
+                    AND published.section_id = v.section_id
+                    AND published.medium = v.medium
+                    AND published.stream_id_dedupe = v.stream_id_dedupe
+                    AND published.status = 'published'
+                )
+              )
+            )
+          )
         )
       `);
     } else if (hasValue(filters.status) && filters.status !== "all") {
@@ -364,21 +430,17 @@ export async function getClassRoutineWithEntries(id) {
   return { ...version, entries };
 }
 
-export async function getLatestClassRoutineDraftForScope(scope) {
+export async function getLatestClassRoutineDraftForParent(parentVersionId) {
   const rows = await query(
     `
       SELECT id
       FROM class_routine_versions
-      WHERE session_id = ?
-        AND class_id = ?
-        AND section_id = ?
-        AND medium = ?
-        AND stream_id_dedupe = ${STREAM_DEDUPE_SQL}
+      WHERE parent_version_id = ?
         AND status = 'draft'
       ORDER BY updated_at DESC, id DESC
       LIMIT 1
     `,
-    [scope.session_id, scope.class_id, scope.section_id, scope.medium, scope.stream_id]
+    [parentVersionId]
   );
   const draft = rows[0] || null;
   return draft ? getClassRoutineWithEntries(draft.id) : null;
@@ -589,7 +651,7 @@ export async function createDraftFromClassRoutine(sourceId, userId) {
   const source = await getClassRoutineWithEntries(sourceId);
   if (!source) return null;
   if (source.status === "draft") return source;
-  const existingDraft = await getLatestClassRoutineDraftForScope(source);
+  const existingDraft = await getLatestClassRoutineDraftForParent(source.id);
   if (existingDraft) return existingDraft;
   const entries = source.entries.map((entry) => ({
     ...entry,
