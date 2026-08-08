@@ -929,17 +929,50 @@ export function listExamRoutineVersions(filters = {}) {
   appendFilter(where, params, "v.section_id", filters.section_id);
   appendFilter(where, params, "v.medium", filters.medium);
   appendFilter(where, params, "v.stream_id", filters.stream_id);
-  appendFilter(where, params, "v.status", filters.status);
+  if (filters.status === "current") {
+    where.push("v.status IN ('draft', 'published')");
+    where.push(`
+      NOT EXISTS (
+        SELECT 1
+        FROM exam_routine_versions other
+        WHERE other.exam_id = v.exam_id
+          AND other.session_id = v.session_id
+          AND COALESCE(other.class_scope, '') = COALESCE(v.class_scope, '')
+          AND COALESCE(other.class_id, 0) = COALESCE(v.class_id, 0)
+          AND COALESCE(other.section_id, 0) = COALESCE(v.section_id, 0)
+          AND COALESCE(other.medium, '') = COALESCE(v.medium, '')
+          AND COALESCE(other.stream_id, 0) = COALESCE(v.stream_id, 0)
+          AND other.status IN ('draft', 'published')
+          AND (
+            CASE other.status WHEN 'published' THEN 1 WHEN 'draft' THEN 2 ELSE 3 END
+              < CASE v.status WHEN 'published' THEN 1 WHEN 'draft' THEN 2 ELSE 3 END
+            OR (
+              CASE other.status WHEN 'published' THEN 1 WHEN 'draft' THEN 2 ELSE 3 END
+                = CASE v.status WHEN 'published' THEN 1 WHEN 'draft' THEN 2 ELSE 3 END
+              AND COALESCE(other.updated_at, other.created_at, '1000-01-01') > COALESCE(v.updated_at, v.created_at, '1000-01-01')
+            )
+            OR (
+              CASE other.status WHEN 'published' THEN 1 WHEN 'draft' THEN 2 ELSE 3 END
+                = CASE v.status WHEN 'published' THEN 1 WHEN 'draft' THEN 2 ELSE 3 END
+              AND COALESCE(other.updated_at, other.created_at, '1000-01-01') = COALESCE(v.updated_at, v.created_at, '1000-01-01')
+              AND other.id > v.id
+            )
+          )
+      )
+    `);
+  } else if (hasValue(filters.status) && filters.status !== "all") {
+    appendFilter(where, params, "v.status", filters.status);
+  }
   return query(
     `
       SELECT
         v.*,
-        e.name AS exam_name,
-        ses.name AS session_name,
-        COALESCE(v.class_scope, cls.class_scope, 'school') AS class_scope,
-        cls.name AS class_name,
-        sec.name AS section_name,
-        st.name AS stream_name,
+        MAX(e.name) AS exam_name,
+        MAX(ses.name) AS session_name,
+        MAX(COALESCE(v.class_scope, cls.class_scope, 'school')) AS class_scope,
+        MAX(cls.name) AS class_name,
+        MAX(sec.name) AS section_name,
+        MAX(st.name) AS stream_name,
         COUNT(re.id) AS entry_count
       FROM exam_routine_versions v
       JOIN exams e ON e.id = v.exam_id
@@ -980,6 +1013,31 @@ export function getExamRoutineVersionById(id) {
   ).then((rows) => rows[0] || null);
 }
 
+export async function getCanonicalExamRoutineForScope(scope) {
+  const rows = await query(
+    `
+      SELECT id
+      FROM exam_routine_versions
+      WHERE exam_id = ?
+        AND session_id = ?
+        AND COALESCE(class_scope, '') = COALESCE(?, '')
+        AND COALESCE(class_id, 0) = COALESCE(?, 0)
+        AND COALESCE(section_id, 0) = COALESCE(?, 0)
+        AND COALESCE(medium, '') = COALESCE(?, '')
+        AND COALESCE(stream_id, 0) = COALESCE(?, 0)
+        AND status IN ('published', 'draft')
+      ORDER BY
+        CASE status WHEN 'published' THEN 1 WHEN 'draft' THEN 2 ELSE 3 END,
+        updated_at DESC,
+        id DESC
+      LIMIT 1
+    `,
+    [scope.exam_id, scope.session_id, scope.class_scope, scope.class_id, scope.section_id, scope.medium, scope.stream_id]
+  );
+  const routine = rows[0] || null;
+  return routine ? getExamRoutineWithEntries(routine.id) : null;
+}
+
 export async function getExamRoutineWithEntries(id) {
   const version = await getExamRoutineVersionById(id);
   if (!version) return null;
@@ -987,11 +1045,11 @@ export async function getExamRoutineWithEntries(id) {
     `
       SELECT
         e.*,
-        c.name AS class_name,
-        COALESCE(c.class_scope, 'school') AS class_scope,
-        sec.name AS section_name,
-        st.name AS stream_name,
-        sub.name AS subject_name,
+        MAX(c.name) AS class_name,
+        MAX(COALESCE(c.class_scope, 'school')) AS class_scope,
+        MAX(sec.name) AS section_name,
+        MAX(st.name) AS stream_name,
+        MAX(sub.name) AS subject_name,
         GROUP_CONCAT(t.id ORDER BY inv.invigilation_role, t.name SEPARATOR ',') AS invigilator_ids,
         GROUP_CONCAT(t.name ORDER BY inv.invigilation_role, t.name SEPARATOR ', ') AS invigilator_names
       FROM exam_routine_entries e
@@ -1106,7 +1164,15 @@ export async function createExamRoutineVersion(data, entries) {
   }
 }
 
-export async function updateExamRoutineDraft(id, data, entries) {
+export async function upsertExamRoutineForScope(data, entries) {
+  const existing = await getCanonicalExamRoutineForScope(data);
+  if (!existing) {
+    return createExamRoutineVersion(data, entries);
+  }
+  return updateExamRoutineRecord(existing.id, data, entries);
+}
+
+export async function updateExamRoutineRecord(id, data, entries) {
   const conn = await pool.getConnection();
   try {
     await conn.beginTransaction();
@@ -1121,7 +1187,7 @@ export async function updateExamRoutineDraft(id, data, entries) {
             title = ?,
             publish_announcement_requested = ?,
             updated_by = ?
-        WHERE id = ? AND status = 'draft'
+        WHERE id = ?
       `,
       [
         data.class_scope,
@@ -1152,33 +1218,13 @@ export async function updateExamRoutineDraft(id, data, entries) {
   }
 }
 
+export const updateExamRoutineDraft = updateExamRoutineRecord;
+
 export async function createDraftFromExamRoutine(sourceId, userId) {
   const source = await getExamRoutineWithEntries(sourceId);
   if (!source) return null;
-  const entries = source.entries.map((entry) => ({
-    ...entry,
-    invigilators: entry.invigilator_ids.map((teacherId) => ({
-      teacher_id: teacherId,
-      invigilation_role: "invigilator",
-    })),
-  }));
-  return createExamRoutineVersion(
-    {
-      exam_id: source.exam_id,
-      session_id: source.session_id,
-      class_scope: source.class_scope,
-      class_id: source.class_id,
-      section_id: source.section_id,
-      medium: source.medium,
-      stream_id: source.stream_id,
-      title: source.title,
-      source: "manual",
-      parent_version_id: source.id,
-      publish_announcement_requested: source.publish_announcement_requested,
-      user_id: userId,
-    },
-    entries
-  );
+  await query("UPDATE exam_routine_versions SET updated_by = ? WHERE id = ?", [userId, source.id]);
+  return getExamRoutineWithEntries(source.id);
 }
 
 export function deleteExamRoutineVersion(id) {

@@ -50,7 +50,6 @@ import {
   cancelSubstitution,
   createClassRoutine,
   createExamRoutine,
-  createExamRoutineDraft,
   createSubstitution,
   createTimeSlotTemplate,
   deleteExamRoutine,
@@ -587,35 +586,54 @@ function ExamRoutineBoard({ routine }) {
     }));
 
   if (!rows.length) {
-    return <EmptyState title="No exam rows added" description="Create or import exam routine rows for this draft." />;
+    return <EmptyState title="No exam rows added" description="Create or import exam routine rows for this routine." />;
   }
 
+  const displayRows = rows.flatMap((row) =>
+    row.entries.map((entry, index) => ({
+      date: row.date,
+      showDate: index === 0,
+      entry,
+    }))
+  );
+
   return (
-    <div className="overflow-hidden rounded-lg border border-border bg-card">
-      <div className="grid border-b border-border bg-muted/20 md:grid-cols-[140px_minmax(0,1fr)_160px]">
-        <div className="px-3 py-3 text-xs font-semibold text-foreground">Date</div>
-        <div className="border-t border-border px-3 py-3 text-xs font-semibold text-foreground md:border-t-0 md:border-l">Subject</div>
-        <div className="border-t border-border px-3 py-3 text-xs font-semibold text-foreground md:border-t-0 md:border-l md:text-right">Time</div>
+    <div className="min-w-[720px] overflow-hidden rounded-lg border border-border bg-card text-xs">
+      <div className="grid border-b border-border bg-muted/20" style={{ gridTemplateColumns: "132px minmax(0,1fr) 132px" }}>
+        <div className="px-3 py-3 text-center font-semibold text-foreground">Date</div>
+        <div className="border-l border-border px-3 py-3 font-semibold text-foreground">Subject / Invigilator</div>
+        <div className="border-l border-border px-3 py-3 text-center font-semibold text-foreground">Time</div>
       </div>
       <div>
-        {rows.map((row) => (
-          <div key={row.date} className="grid border-b border-border last:border-b-0 md:grid-cols-[140px_minmax(0,1fr)_160px]">
-            <div className="flex flex-col justify-center px-3 py-3">
-              <span className="text-sm font-semibold text-foreground">{row.date}</span>
-              {weekdayFromDate(row.date) ? <span className="mt-1 text-xs text-muted-foreground">{weekdayFromDate(row.date)}</span> : null}
+        {displayRows.map(({ date, showDate, entry }) => (
+          <div
+            key={entry.id || `${date}-${entry.subject_id}-${entry.start_time}-${entry.sort_order}`}
+            className="grid min-h-[56px] border-b border-border last:border-b-0"
+            style={{ gridTemplateColumns: "132px minmax(0,1fr) 132px" }}
+          >
+            <div className="flex min-w-0 flex-col justify-center px-3 py-3 text-center">
+              {showDate ? (
+                <>
+                  <span className="truncate text-sm font-semibold text-foreground">{date}</span>
+                  {weekdayFromDate(date) ? <span className="mt-1 truncate text-[11px] text-muted-foreground">{weekdayFromDate(date)}</span> : null}
+                </>
+              ) : null}
             </div>
-            <div className="grid border-t border-border md:col-span-2 md:border-t-0 md:border-l">
-              {row.entries.map((entry) => (
-                <div key={entry.id || `${row.date}-${entry.subject_id}-${entry.start_time}`} className="grid border-b border-border last:border-b-0 md:grid-cols-[minmax(0,1fr)_160px]">
-                  <div className="min-w-0 px-3 py-3">
-                    <p className="truncate text-sm font-semibold text-foreground">{examEntryTitle(entry)}</p>
-                    <p className="mt-1 truncate text-muted-foreground">{entry.invigilator_names || "No invigilator"}{entry.room ? ` / ${entry.room}` : ""}</p>
-                  </div>
-                  <div className="border-t border-border px-3 py-3 text-sm font-semibold text-foreground md:border-t-0 md:border-l md:text-right">
-                    {timeInputValue(entry.start_time, "--:--")} - {timeInputValue(entry.end_time, "--:--")}
-                  </div>
+            <div className="min-w-0 border-l border-border px-3 py-2.5">
+              <div className="flex min-w-0 items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-semibold text-foreground">{examEntryTitle(entry)}</p>
+                  <p className="mt-0.5 truncate text-[11px] text-muted-foreground">{entry.invigilator_names || "No invigilator"}{entry.room ? ` / ${entry.room}` : ""}</p>
                 </div>
-              ))}
+                {entry.entry_type && entry.entry_type !== "subject" ? (
+                  <Badge variant="outline" className="shrink-0 text-[10px] capitalize">
+                    {displayChangeType(entry.entry_type)}
+                  </Badge>
+                ) : null}
+              </div>
+            </div>
+            <div className="flex items-center justify-center border-l border-border px-2 py-2.5 text-center text-xs font-semibold text-foreground">
+              {timeInputValue(entry.start_time, "--:--")} - {timeInputValue(entry.end_time, "--:--")}
             </div>
           </div>
         ))}
@@ -849,7 +867,8 @@ export default function Routines() {
       String(a.class_scope || "").localeCompare(String(b.class_scope || ""), undefined, { numeric: true, sensitivity: "base" }) ||
       String(a.class_name || "").localeCompare(String(b.class_name || ""), undefined, { numeric: true, sensitivity: "base" }) ||
       String(a.section_name || "").localeCompare(String(b.section_name || ""), undefined, { numeric: true, sensitivity: "base" }) ||
-      Number(a.version_number || 0) - Number(b.version_number || 0)
+      String(a.medium || "").localeCompare(String(b.medium || ""), undefined, { numeric: true, sensitivity: "base" }) ||
+      String(a.stream_name || "").localeCompare(String(b.stream_name || ""), undefined, { numeric: true, sensitivity: "base" })
     ),
     [examRoutines]
   );
@@ -1358,21 +1377,6 @@ export default function Routines() {
 
   async function openEditExamRoutine() {
     if (!selectedExamRoutine) return;
-    if (selectedExamRoutine.status === "published") {
-      setError("");
-      try {
-        const response = await createExamRoutineDraft(selectedExamRoutine.id);
-        const draft = response.data;
-        if (draft?.id) setSelectedExamRoutineId(String(draft.id));
-        populateExamFormFromRoutine(draft);
-        setExamOpen(true);
-        showNotice("Draft created from published exam routine.");
-        await loadRoutineData();
-      } catch (err) {
-        showError(err.message || "Failed to create exam routine draft");
-      }
-      return;
-    }
     populateExamFormFromRoutine(selectedExamRoutine);
     setExamOpen(true);
   }
@@ -1729,7 +1733,7 @@ export default function Routines() {
       setExamOpen(false);
       setEditingExamRoutineId(null);
       if (savedRoutine?.id) setSelectedExamRoutineId(String(savedRoutine.id));
-      showNotice(editingExamRoutineId ? "Exam routine draft updated." : "Exam routine draft created.");
+      showNotice(editingExamRoutineId ? "Exam routine updated." : "Exam routine created.");
       await loadRoutineData();
     } catch (err) {
       showError(err.message || "Failed to save exam routine");
@@ -1762,7 +1766,7 @@ export default function Routines() {
       const result = response.data || {};
       setExamImportOpen(false);
       setExamImportFile(null);
-      showNotice(`Imported ${result.imported_count || 0} exam routine draft${Number(result.imported_count || 0) === 1 ? "" : "s"}.`);
+      showNotice(`Imported ${result.imported_count || 0} exam routine${Number(result.imported_count || 0) === 1 ? "" : "s"}.`);
       if (result.failed_count) {
         showError(`${result.failed_count} row or group${Number(result.failed_count) === 1 ? "" : "s"} failed during exam routine import.`);
       }
@@ -2355,11 +2359,6 @@ export default function Routines() {
                   </div>
                   {selectedExamRoutine ? (
                     <div className="mt-2 flex items-center justify-start gap-2">
-                      {selectedExamRoutine.version_number ? (
-                        <Badge variant="outline" className="border-primary/20 bg-primary/10 text-primary">
-                          v{selectedExamRoutine.version_number}
-                        </Badge>
-                      ) : null}
                       {selectedExamRoutine.status ? <StatusBadge status={selectedExamRoutine.status} /> : null}
                     </div>
                   ) : null}
@@ -2371,6 +2370,20 @@ export default function Routines() {
                     <span className="inline-flex items-center gap-1.5"><CheckCircle2 className="size-4" />{selectedExamRoutineSummary.invigilators} invigilators</span>
                   </div>
                   <div className="flex w-full max-w-full flex-nowrap items-center justify-start gap-2 overflow-x-auto lg:justify-end [&>*]:h-9 [&>*]:shrink-0">
+                    <select
+                      className={`${selectClassName} h-9 !w-[min(62vw,360px)] !min-w-[240px] rounded-md px-3 py-1.5 text-sm`}
+                      value={selectedExamRoutineId}
+                      onChange={(event) => setSelectedExamRoutineId(event.target.value)}
+                    >
+                      {examRoutineNavigationItems.map((routine) => (
+                        <option key={routine.id} value={routine.id}>
+                          {routine.exam_name || "Exam"} | {routine.class_name || "Class"}
+                          {routine.section_name ? ` | ${routine.section_name}` : ""}
+                          {routine.medium ? ` | ${routine.medium}` : ""}
+                          {routine.stream_name ? ` | ${routine.stream_name}` : ""}
+                        </option>
+                      ))}
+                    </select>
                     {["draft", "published"].includes(selectedExamRoutine?.status) ? (
                       <>
                         <Button type="button" size="sm" variant="outline" onClick={openEditExamRoutine}>
@@ -2399,7 +2412,7 @@ export default function Routines() {
                           </div>
                           <div className="flex justify-end gap-2">
                             <Button type="button" variant="outline" onClick={() => setExamImportOpen(false)}>Cancel</Button>
-                            <Button type="button" onClick={handleImportExamRoutine} disabled={!examImportFile}>Import Drafts</Button>
+                            <Button type="button" onClick={handleImportExamRoutine} disabled={!examImportFile}>Import</Button>
                           </div>
                         </div>
                       </DialogContent>
@@ -2423,7 +2436,7 @@ export default function Routines() {
               >
                   <DialogContent className="max-h-[85vh] w-[min(96vw,1040px)] max-w-none overflow-y-auto sm:max-w-[min(96vw,1040px)]">
                   <DialogHeader>
-                    <DialogTitle>{editingExamRoutineId ? "Edit Exam Routine Draft" : "Create Exam Routine Draft"}</DialogTitle>
+                    <DialogTitle>{editingExamRoutineId ? "Edit Exam Routine" : "Create Exam Routine"}</DialogTitle>
                     <DialogDescription>Select an existing exam and scope, then add one or more routine rows.</DialogDescription>
                   </DialogHeader>
                   <form className="space-y-4" onSubmit={handleSaveExamRoutine}>
@@ -2529,7 +2542,7 @@ export default function Routines() {
                     </div>
                     <div className="flex justify-end gap-2">
                       <Button type="button" variant="outline" onClick={() => setExamOpen(false)}>Cancel</Button>
-                      <Button type="submit">{editingExamRoutineId ? "Save Changes" : "Create Draft"}</Button>
+                      <Button type="submit">{editingExamRoutineId ? "Save Changes" : "Create Routine"}</Button>
                     </div>
                   </form>
                   </DialogContent>
@@ -2537,7 +2550,9 @@ export default function Routines() {
 
               {examRoutines.length ? (
                 <>
-                  <ExamRoutineBoard routine={selectedExamRoutine} />
+                  <div className="overflow-x-auto">
+                    <ExamRoutineBoard routine={selectedExamRoutine} />
+                  </div>
                   <div className="flex flex-col gap-2 border-t border-border pt-4 sm:flex-row sm:justify-end">
                     {selectedExamRoutine?.status === "draft" ? (
                       <Button onClick={() => runAction(() => publishExamRoutine(selectedExamRoutine.id), "Exam routine published.")}>
@@ -2547,7 +2562,7 @@ export default function Routines() {
                     ) : null}
                   </div>
                 </>
-              ) : <EmptyState title="No exam routines found" description="Create an exam routine draft linked to an existing exam." />}
+              ) : <EmptyState title="No exam routines found" description="Create an exam routine linked to an existing exam." />}
             </CardContent>
           </RoutineCard>
         </TabsContent>

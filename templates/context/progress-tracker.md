@@ -14,6 +14,22 @@ Update this file after every meaningful implementation change.
 
 ## Completed
 
+- Removed visible Exam Routine versioning from the software UI and PDF output:
+  exam routine editing now opens the selected routine directly, selectors no
+  longer append version numbers, and user-facing labels no longer call exam
+  routines drafts.
+- Aligned Exam Routine persistence with class routine's canonical current-row
+  behavior: list calls default to current published/draft rows, create/import
+  upsert by exam/class scope, draft creation redirects to the same row, and
+  updates no longer require a draft-only record.
+- Flattened the Exam Routine board so each exam entry renders as one full
+  Date/Subject-Time row, preventing subject and time cells from being hidden or
+  misaligned by separate nested grids.
+- Restyled the Exam Routine board to match the compact class-routine grid
+  language with fixed Date/Subject-Time columns, denser rows, smaller
+  invigilator text, and horizontal overflow safety.
+- Added an Exam Routine selector dropdown beside the routine actions so admins
+  can jump directly between exam routines instead of only using previous/next.
 - Made Exam Routine section and medium optional so routines can be class-wide
   by default, while still allowing optional section/medium/stream narrowing and
   class-wide subject eligibility.

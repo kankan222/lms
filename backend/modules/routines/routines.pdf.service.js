@@ -253,7 +253,7 @@ export async function buildExamRoutinePdf(routine) {
   const width = doc.page.width - doc.page.margins.left - doc.page.margins.right;
   const tableTop = drawHeader(doc, "EXAM ROUTINE", [
     `Exam : ${text(routine.exam_name)}    Session : ${text(routine.session_name)}`,
-    `Version : v${text(routine.version_number)}    Status : ${displayType(routine.status)}`,
+    `Status : ${displayType(routine.status)}`,
   ]);
 
   const columns = [

@@ -1015,8 +1015,11 @@ async function ensureExamRoutineSubjectsAllowed(examId, scope, entries) {
   }
 }
 
-export function listExamRoutines(filters) {
-  return repo.listExamRoutineVersions(filters);
+export function listExamRoutines(filters = {}) {
+  return repo.listExamRoutineVersions({
+    ...filters,
+    status: normalizeBoardStatus(filters.status),
+  });
 }
 
 export async function getExamRoutine(id) {
@@ -1031,7 +1034,7 @@ export async function createExamRoutine(body, userId) {
   const payload = normalizeExamRoutinePayload(body, exam, userId);
   const entries = normalizeExamRoutineEntries(applyExamRoutineScopeToEntries(body.entries, payload));
   await ensureExamRoutineSubjectsAllowed(exam.id, payload, entries);
-  return repo.createExamRoutineVersion(payload, entries);
+  return repo.upsertExamRoutineForScope(payload, entries);
 }
 
 export async function importExamRoutine(file, body = {}, userId) {
@@ -1112,9 +1115,9 @@ export async function importExamRoutine(file, body = {}, userId) {
   const imported = [];
   for (const group of groups.values()) {
     try {
-      imported.push(await repo.createExamRoutineVersion(group.data, normalizeExamRoutineEntries(group.entries)));
+      imported.push(await repo.upsertExamRoutineForScope(group.data, normalizeExamRoutineEntries(group.entries)));
     } catch (err) {
-      errors.push({ row: null, message: err.message || "Could not create exam routine draft" });
+      errors.push({ row: null, message: err.message || "Could not create exam routine" });
     }
   }
   return { imported_count: imported.length, failed_count: errors.length, routines: imported, errors };
@@ -1150,12 +1153,14 @@ export async function updateExamRoutine(id, body, userId) {
     payload,
     entries
   );
-  if (!result) throw new AppError("Only draft exam routines can be updated", 400);
+  if (!result) throw new AppError("Exam routine could not be updated", 400);
   return result;
 }
 
 export async function createExamRoutineDraftFromPublished(id, userId) {
-  const result = await repo.createDraftFromExamRoutine(intValue(id, "exam routine id"), userId);
+  const routine = await repo.getExamRoutineWithEntries(intValue(id, "exam routine id"));
+  if (!routine) throw new AppError("Exam routine not found", 404);
+  const result = await repo.getCanonicalExamRoutineForScope(routine) || await repo.createDraftFromExamRoutine(routine.id, userId);
   if (!result) throw new AppError("Exam routine not found", 404);
   return result;
 }
@@ -1171,17 +1176,63 @@ export async function publishExamRoutine(id, userId) {
   const routine = await repo.getExamRoutineWithEntries(routineId);
   if (!routine) throw new AppError("Exam routine not found", 404);
   if (!routine.entries?.length) throw new AppError("Cannot publish an empty exam routine", 400);
-  const invalidSubjects = await repo.findInvalidExamSubjects(routineId);
+  const canonical = await repo.getCanonicalExamRoutineForScope(routine);
+  const targetRoutine = canonical && canonical.status === "published" && canonical.id !== routine.id
+    ? await repo.updateExamRoutineDraft(
+        canonical.id,
+        {
+          exam_id: routine.exam_id,
+          session_id: routine.session_id,
+          class_scope: routine.class_scope,
+          class_id: routine.class_id,
+          section_id: routine.section_id,
+          medium: routine.medium,
+          stream_id: routine.stream_id,
+          title: routine.title,
+          publish_announcement_requested: routine.publish_announcement_requested,
+          user_id: userId,
+        },
+        normalizeExamRoutineEntries(applyExamRoutineScopeToEntries(routine.entries.map(examRoutineEntryToPayload), routine))
+      )
+    : routine;
+  const targetRoutineId = Number(targetRoutine.id);
+  const invalidSubjects = await repo.findInvalidExamSubjects(targetRoutineId);
   if (invalidSubjects.length) {
     throw new AppError("One or more exam routine subjects are not configured for the linked exam", 400);
   }
-  const conflicts = await repo.findExamRoutineInvigilatorConflicts(routineId);
+  const conflicts = await repo.findExamRoutineInvigilatorConflicts(targetRoutineId);
   if (conflicts.length) {
     throw new AppError("Invigilator time conflict found. Resolve conflicts before publishing.", 400);
   }
-  const result = await repo.publishExamRoutineVersion(routineId, userId);
+  const result = await repo.publishExamRoutineVersion(targetRoutineId, userId);
   if (!result) throw new AppError("Exam routine not found", 404);
+  if (targetRoutineId !== routineId && routine.status === "draft") {
+    await repo.deleteExamRoutineVersion(routineId);
+  }
   return result;
+}
+
+function examRoutineEntryToPayload(entry) {
+  return {
+    class_id: entry.class_id,
+    section_id: entry.section_id,
+    medium: entry.medium,
+    stream_id: entry.stream_id,
+    subject_id: entry.subject_id,
+    exam_subject_id: entry.exam_subject_id,
+    entry_type: entry.entry_type,
+    title: entry.title,
+    exam_date: entry.exam_date,
+    start_time: entry.start_time,
+    end_time: entry.end_time,
+    room: entry.room,
+    instructions: entry.instructions,
+    sort_order: entry.sort_order,
+    invigilators: (entry.invigilator_ids || []).map((teacherId) => ({
+      teacher_id: teacherId,
+      invigilation_role: "invigilator",
+    })),
+  };
 }
 
 function normalizeSubstitutionPayload(body, userId) {
