@@ -218,18 +218,22 @@ export function listClassRoutineVersions(filters = {}) {
 export function listClassRoutineBoardRows(filters = {}) {
   const where = [];
   const params = [];
-  appendFilter(where, params, "v.session_id", filters.session_id);
-  appendFilter(where, params, "v.class_id", filters.class_id);
-  appendFilter(where, params, "v.section_id", filters.section_id);
-  appendFilter(where, params, "v.medium", filters.medium);
-  appendFilter(where, params, "v.stream_id", filters.stream_id);
-  if (hasValue(filters.class_scope)) {
-    where.push("COALESCE(c.class_scope, 'school') = ?");
-    params.push(filters.class_scope);
-  }
-  if (hasValue(filters.status) && filters.status !== "all") {
-    where.push("v.status = ?");
-    params.push(filters.status);
+  const hasRoutineVersionFilter = hasValue(filters.routine_version_id);
+  appendFilter(where, params, "v.id", filters.routine_version_id);
+  if (!hasRoutineVersionFilter) {
+    appendFilter(where, params, "v.session_id", filters.session_id);
+    appendFilter(where, params, "v.class_id", filters.class_id);
+    appendFilter(where, params, "v.section_id", filters.section_id);
+    appendFilter(where, params, "v.medium", filters.medium);
+    appendFilter(where, params, "v.stream_id", filters.stream_id);
+    if (hasValue(filters.class_scope)) {
+      where.push("COALESCE(c.class_scope, 'school') = ?");
+      params.push(filters.class_scope);
+    }
+    if (hasValue(filters.status) && filters.status !== "all") {
+      where.push("v.status = ?");
+      params.push(filters.status);
+    }
   }
   if (hasValue(filters.weekday)) {
     where.push("e.weekday = ?");

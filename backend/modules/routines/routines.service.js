@@ -606,6 +606,7 @@ function mapRoutineBoardCard(row) {
 
 export async function getClassRoutineBoard(filters = {}) {
   const normalizedFilters = {
+    routine_version_id: intValue(filters.routine_version_id ?? filters.routineVersionId, "routine_version_id", { required: false }),
     session_id: intValue(filters.session_id, "session_id", { required: false }),
     class_id: intValue(filters.class_id, "class_id", { required: false }),
     section_id: intValue(filters.section_id, "section_id", { required: false }),

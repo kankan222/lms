@@ -14,6 +14,10 @@ Update this file after every meaningful implementation change.
 
 ## Completed
 
+- Synced the Routine Day view with the selected class routine version by adding
+  exact `routine_version_id` board filtering and passing the selected routine id
+  from the UI, so draft/published values no longer diverge between Week and Day
+  views.
 - Added routine-only custom class routine slots so admins can place timetable
   labels such as English Dictation without creating formal marks subjects:
   custom slots require a title, may optionally select any teacher, skip
