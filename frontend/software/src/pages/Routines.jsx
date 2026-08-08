@@ -108,6 +108,7 @@ const emptyExamEntry = {
 
 function createInitialExamForm() {
   return {
+    class_scope: "school",
     exam_id: "",
     class_id: "",
     section_id: "",
@@ -686,6 +687,11 @@ export default function Routines() {
     [classes, examForm.class_id]
   );
 
+  const examScopeClasses = useMemo(
+    () => classes.filter((item) => String(item.class_scope || "school") === String(examForm.class_scope || "school")),
+    [classes, examForm.class_scope]
+  );
+
   const filterClass = useMemo(
     () => classes.find((item) => String(item.id) === String(filters.class_id)),
     [classes, filters.class_id]
@@ -746,6 +752,9 @@ export default function Routines() {
   const examRoutineNavigationItems = useMemo(
     () => [...examRoutines].sort((a, b) =>
       String(a.exam_name || "").localeCompare(String(b.exam_name || ""), undefined, { numeric: true, sensitivity: "base" }) ||
+      String(a.class_scope || "").localeCompare(String(b.class_scope || ""), undefined, { numeric: true, sensitivity: "base" }) ||
+      String(a.class_name || "").localeCompare(String(b.class_name || ""), undefined, { numeric: true, sensitivity: "base" }) ||
+      String(a.section_name || "").localeCompare(String(b.section_name || ""), undefined, { numeric: true, sensitivity: "base" }) ||
       Number(a.version_number || 0) - Number(b.version_number || 0)
     ),
     [examRoutines]
@@ -770,9 +779,10 @@ export default function Routines() {
     const firstEntry = Array.isArray(selectedExamRoutine.entries) ? selectedExamRoutine.entries[0] : null;
     return [
       selectedExamRoutine.exam_name || "Exam Routine",
-      firstEntry?.class_name,
-      firstEntry?.section_name,
-      firstEntry?.stream_name,
+      selectedExamRoutine.class_scope === "hs" ? "Higher Secondary" : "School",
+      selectedExamRoutine.class_name || firstEntry?.class_name,
+      selectedExamRoutine.section_name || firstEntry?.section_name,
+      selectedExamRoutine.stream_name || firstEntry?.stream_name,
     ].filter(Boolean).join(" | ");
   }, [selectedExamRoutine]);
 
@@ -1100,11 +1110,12 @@ export default function Routines() {
     const firstEntry = entries[0] || {};
     setEditingExamRoutineId(routine.id);
     setExamForm({
+      class_scope: routine.class_scope || firstEntry.class_scope || "school",
       exam_id: routine.exam_id ? String(routine.exam_id) : "",
-      class_id: firstEntry.class_id ? String(firstEntry.class_id) : "",
-      section_id: firstEntry.section_id ? String(firstEntry.section_id) : "",
-      medium: firstEntry.medium || "",
-      stream_id: firstEntry.stream_id ? String(firstEntry.stream_id) : "",
+      class_id: routine.class_id ? String(routine.class_id) : firstEntry.class_id ? String(firstEntry.class_id) : "",
+      section_id: routine.section_id ? String(routine.section_id) : firstEntry.section_id ? String(firstEntry.section_id) : "",
+      medium: routine.medium || firstEntry.medium || "",
+      stream_id: routine.stream_id ? String(routine.stream_id) : firstEntry.stream_id ? String(firstEntry.stream_id) : "",
       publish_announcement_requested: Boolean(routine.publish_announcement_requested),
       entries: entries.length
         ? entries.map((entry) => ({
@@ -1346,6 +1357,12 @@ export default function Routines() {
   function updateExamForm(key, value) {
     setExamForm((current) => {
       const next = { ...current, [key]: value };
+      if (key === "class_scope") {
+        next.class_id = "";
+        next.section_id = "";
+        next.medium = "";
+        next.stream_id = "";
+      }
       if (key === "class_id") {
         next.section_id = "";
         next.medium = "";
@@ -1440,7 +1457,12 @@ export default function Routines() {
 
   function buildExamRoutinePayload() {
     return {
+      class_scope: examForm.class_scope,
       exam_id: examForm.exam_id,
+      class_id: Number(examForm.class_id),
+      section_id: toNumberOrNull(examForm.section_id),
+      medium: examForm.medium,
+      stream_id: toNumberOrNull(examForm.stream_id),
       publish_announcement_requested: examForm.publish_announcement_requested,
       entries: examForm.entries.map((entry) => ({
         ...entry,
@@ -2174,6 +2196,12 @@ export default function Routines() {
                   </DialogHeader>
                   <form className="space-y-4" onSubmit={handleSaveExamRoutine}>
                     <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
+                      <Field label="Scope">
+                        <select required className={selectClassName} value={examForm.class_scope} onChange={(event) => updateExamForm("class_scope", event.target.value)}>
+                          <option value="school">School</option>
+                          <option value="hs">Higher Secondary</option>
+                        </select>
+                      </Field>
                       <Field label="Exam">
                         <select required className={selectClassName} value={examForm.exam_id} onChange={(event) => updateExamForm("exam_id", event.target.value)}>
                           <option value="">Select exam</option>
@@ -2183,7 +2211,7 @@ export default function Routines() {
                       <Field label="Class">
                         <select required className={selectClassName} value={examForm.class_id} onChange={(event) => updateExamForm("class_id", event.target.value)}>
                           <option value="">Select class</option>
-                          {classes.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+                          {examScopeClasses.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
                         </select>
                       </Field>
                       <Field label="Section">

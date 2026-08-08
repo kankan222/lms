@@ -28,6 +28,10 @@ Update this file after every meaningful implementation change.
 - Made the class routine list default to canonical Current routines only, with
   an explicit All versions filter for old duplicate rows, matching the Day
   board's published-first/draft-fallback selection.
+- Added routine-level exam scope support with a migration for
+  `exam_routine_versions` scope/class/section/medium/stream, backend
+  create/update/import handling, scoped publish archiving, and a Scope -> Exam
+  -> Class -> Section creation flow in the software Exam Routine dialog.
 - Added routine-only custom class routine slots so admins can place timetable
   labels such as English Dictation without creating formal marks subjects:
   custom slots require a title, may optionally select any teacher, skip

@@ -895,6 +895,11 @@ export function listExamRoutineVersions(filters = {}) {
   const params = [];
   appendFilter(where, params, "v.exam_id", filters.exam_id);
   appendFilter(where, params, "v.session_id", filters.session_id);
+  appendFilter(where, params, "v.class_scope", filters.class_scope);
+  appendFilter(where, params, "v.class_id", filters.class_id);
+  appendFilter(where, params, "v.section_id", filters.section_id);
+  appendFilter(where, params, "v.medium", filters.medium);
+  appendFilter(where, params, "v.stream_id", filters.stream_id);
   appendFilter(where, params, "v.status", filters.status);
   return query(
     `
@@ -902,10 +907,17 @@ export function listExamRoutineVersions(filters = {}) {
         v.*,
         e.name AS exam_name,
         ses.name AS session_name,
+        COALESCE(v.class_scope, cls.class_scope, 'school') AS class_scope,
+        cls.name AS class_name,
+        sec.name AS section_name,
+        st.name AS stream_name,
         COUNT(re.id) AS entry_count
       FROM exam_routine_versions v
       JOIN exams e ON e.id = v.exam_id
       JOIN academic_sessions ses ON ses.id = v.session_id
+      LEFT JOIN classes cls ON cls.id = v.class_id
+      LEFT JOIN sections sec ON sec.id = v.section_id
+      LEFT JOIN streams st ON st.id = v.stream_id
       LEFT JOIN exam_routine_entries re ON re.exam_routine_version_id = v.id
       ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
       GROUP BY v.id
@@ -918,10 +930,20 @@ export function listExamRoutineVersions(filters = {}) {
 export function getExamRoutineVersionById(id) {
   return query(
     `
-      SELECT v.*, e.name AS exam_name, ses.name AS session_name
+      SELECT
+        v.*,
+        e.name AS exam_name,
+        ses.name AS session_name,
+        v.class_scope AS class_scope,
+        c.name AS class_name,
+        sec.name AS section_name,
+        st.name AS stream_name
       FROM exam_routine_versions v
       JOIN exams e ON e.id = v.exam_id
       JOIN academic_sessions ses ON ses.id = v.session_id
+      LEFT JOIN classes c ON c.id = v.class_id
+      LEFT JOIN sections sec ON sec.id = v.section_id
+      LEFT JOIN streams st ON st.id = v.stream_id
       WHERE v.id = ?
       LIMIT 1
     `,
@@ -937,6 +959,7 @@ export async function getExamRoutineWithEntries(id) {
       SELECT
         e.*,
         c.name AS class_name,
+        COALESCE(c.class_scope, 'school') AS class_scope,
         sec.name AS section_name,
         st.name AS stream_name,
         sub.name AS subject_name,
@@ -995,13 +1018,19 @@ export async function createExamRoutineVersion(data, entries) {
     const [result] = await conn.execute(
       `
         INSERT INTO exam_routine_versions
-        (exam_id, session_id, title, version_number, status, source, parent_version_id,
+        (exam_id, session_id, class_scope, class_id, section_id, medium, stream_id,
+         title, version_number, status, source, parent_version_id,
          publish_announcement_requested, created_by, updated_by)
-        VALUES (?, ?, ?, ?, 'draft', ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?, ?, ?)
       `,
       [
         data.exam_id,
         data.session_id,
+        data.class_scope,
+        data.class_id,
+        data.section_id,
+        data.medium,
+        data.stream_id,
         data.title,
         Number(versionRows[0]?.next_version || 1),
         data.source,
@@ -1029,10 +1058,27 @@ export async function updateExamRoutineDraft(id, data, entries) {
     const [result] = await conn.execute(
       `
         UPDATE exam_routine_versions
-        SET title = ?, publish_announcement_requested = ?, updated_by = ?
+        SET class_scope = ?,
+            class_id = ?,
+            section_id = ?,
+            medium = ?,
+            stream_id = ?,
+            title = ?,
+            publish_announcement_requested = ?,
+            updated_by = ?
         WHERE id = ? AND status = 'draft'
       `,
-      [data.title, data.publish_announcement_requested, data.user_id, id]
+      [
+        data.class_scope,
+        data.class_id,
+        data.section_id,
+        data.medium,
+        data.stream_id,
+        data.title,
+        data.publish_announcement_requested,
+        data.user_id,
+        id,
+      ]
     );
     if (!result.affectedRows) {
       await conn.rollback();
@@ -1065,6 +1111,11 @@ export async function createDraftFromExamRoutine(sourceId, userId) {
     {
       exam_id: source.exam_id,
       session_id: source.session_id,
+      class_scope: source.class_scope,
+      class_id: source.class_id,
+      section_id: source.section_id,
+      medium: source.medium,
+      stream_id: source.stream_id,
       title: source.title,
       source: "manual",
       parent_version_id: source.id,
@@ -1134,9 +1185,16 @@ export async function publishExamRoutineVersion(id, userId) {
       `
         UPDATE exam_routine_versions
         SET status = 'archived', archived_at = NOW(), updated_by = ?
-        WHERE id <> ? AND exam_id = ? AND status = 'published'
+        WHERE id <> ?
+          AND exam_id = ?
+          AND COALESCE(class_scope, '') = COALESCE(?, '')
+          AND COALESCE(class_id, 0) = COALESCE(?, 0)
+          AND COALESCE(section_id, 0) = COALESCE(?, 0)
+          AND COALESCE(medium, '') = COALESCE(?, '')
+          AND COALESCE(stream_id, 0) = COALESCE(?, 0)
+          AND status = 'published'
       `,
-      [userId, id, version.exam_id]
+      [userId, id, version.exam_id, version.class_scope, version.class_id, version.section_id, version.medium, version.stream_id]
     );
     await conn.execute(
       `

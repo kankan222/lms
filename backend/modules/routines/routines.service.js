@@ -955,6 +955,33 @@ function normalizeExamRoutineEntries(entries = []) {
   });
 }
 
+function normalizeExamRoutinePayload(body, exam, userId) {
+  return {
+    exam_id: exam.id,
+    session_id: exam.session_id,
+    class_scope: normalizeClassScope(body.class_scope || body.scope || "school"),
+    class_id: intValue(body.class_id, "class_id"),
+    section_id: intValue(body.section_id, "section_id"),
+    medium: requiredString(body.medium, "medium"),
+    stream_id: intValue(body.stream_id, "stream_id", { required: false }),
+    title: optionalString(body.title),
+    source: optionalString(body.source) || "manual",
+    parent_version_id: intValue(body.parent_version_id, "parent_version_id", { required: false }),
+    publish_announcement_requested: Boolean(body.publish_announcement_requested) ? 1 : 0,
+    user_id: userId,
+  };
+}
+
+function applyExamRoutineScopeToEntries(entries, scope) {
+  return entries.map((entry) => ({
+    ...entry,
+    class_id: scope.class_id,
+    section_id: scope.section_id,
+    medium: scope.medium,
+    stream_id: scope.stream_id,
+  }));
+}
+
 export function listExamRoutines(filters) {
   return repo.listExamRoutineVersions(filters);
 }
@@ -968,18 +995,8 @@ export async function getExamRoutine(id) {
 export async function createExamRoutine(body, userId) {
   const exam = await repo.getExamById(intValue(body.exam_id, "exam_id"));
   if (!exam) throw new AppError("Exam not found", 404);
-  return repo.createExamRoutineVersion(
-    {
-      exam_id: exam.id,
-      session_id: exam.session_id,
-      title: optionalString(body.title),
-      source: "manual",
-      parent_version_id: intValue(body.parent_version_id, "parent_version_id", { required: false }),
-      publish_announcement_requested: Boolean(body.publish_announcement_requested) ? 1 : 0,
-      user_id: userId,
-    },
-    normalizeExamRoutineEntries(body.entries)
-  );
+  const payload = normalizeExamRoutinePayload(body, exam, userId);
+  return repo.createExamRoutineVersion(payload, normalizeExamRoutineEntries(applyExamRoutineScopeToEntries(body.entries, payload)));
 }
 
 export async function importExamRoutine(file, body = {}, userId) {
@@ -1003,13 +1020,19 @@ export async function importExamRoutine(file, body = {}, userId) {
       const section = sectionValue ? resolveSection(lookups, sectionValue, classRow.id, medium, rowNumber, false) : null;
       const streamValue = rowValue(row, body, ["stream_id", "stream", "stream_name"], ["stream_id", "stream"]);
       const stream = streamValue ? resolveLookup(lookups.streams, streamValue, "stream", rowNumber, false) : null;
+      const classScope = normalizeClassScope(classRow.class_scope || body.class_scope || body.scope || "school");
       const title = rowValue(row, body, ["routine_title", "title"], ["title"]) || `${exam.name} Routine`;
-      const groupKey = `${exam.id}|${title}`;
+      const groupKey = [exam.id, classScope, classRow.id, section?.id || 0, medium || "", stream?.id || 0, title].join("|");
       if (!groups.has(groupKey)) {
         groups.set(groupKey, {
           data: {
             exam_id: exam.id,
             session_id: exam.session_id,
+            class_scope: classScope,
+            class_id: classRow.id,
+            section_id: section?.id || null,
+            medium,
+            stream_id: stream?.id || null,
             title,
             source: "import",
             parent_version_id: null,
@@ -1063,14 +1086,28 @@ export async function importExamRoutine(file, body = {}, userId) {
 }
 
 export async function updateExamRoutine(id, body, userId) {
-  const result = await repo.updateExamRoutineDraft(
-    intValue(id, "exam routine id"),
+  const current = await repo.getExamRoutineWithEntries(intValue(id, "exam routine id"));
+  if (!current) throw new AppError("Exam routine not found", 404);
+  const exam = body.exam_id ? await repo.getExamById(intValue(body.exam_id, "exam_id")) : { id: current.exam_id, session_id: current.session_id };
+  if (!exam) throw new AppError("Exam not found", 404);
+  const payload = normalizeExamRoutinePayload(
     {
-      title: optionalString(body.title),
-      publish_announcement_requested: Boolean(body.publish_announcement_requested) ? 1 : 0,
-      user_id: userId,
+      ...body,
+      class_scope: body.class_scope || current.class_scope,
+      class_id: body.class_id || current.class_id,
+      section_id: body.section_id || current.section_id,
+      medium: body.medium || current.medium,
+      stream_id: body.stream_id ?? current.stream_id,
+      source: current.source,
+      parent_version_id: current.parent_version_id,
     },
-    Array.isArray(body.entries) ? normalizeExamRoutineEntries(body.entries) : undefined
+    exam,
+    userId
+  );
+  const result = await repo.updateExamRoutineDraft(
+    current.id,
+    payload,
+    Array.isArray(body.entries) ? normalizeExamRoutineEntries(applyExamRoutineScopeToEntries(body.entries, payload)) : undefined
   );
   if (!result) throw new AppError("Only draft exam routines can be updated", 400);
   return result;
