@@ -1073,3 +1073,5 @@ Update this file after every meaningful implementation change.
 - Improved class routine publish conflict errors so teacher time conflicts now
   include the teacher, day/time, and conflicting class/section instead of only
   the generic publish failure text.
+- Refined class routine conflict details to show readable weekday labels and
+  both the selected period/time and the conflicting period/time.
