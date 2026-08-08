@@ -1001,7 +1001,8 @@ export function getExamRoutineSubjectEligibility(examId, scope) {
         es.subject_id,
         es.subject_offering_id,
         so.id AS offered_subject_offering_id,
-        so.subject_id AS offered_subject_id
+        so.subject_id AS offered_subject_id,
+        cs.subject_id AS class_subject_id
       FROM exam_subjects es
       LEFT JOIN subject_offerings so
         ON so.is_active = TRUE
@@ -1009,9 +1010,12 @@ export function getExamRoutineSubjectEligibility(examId, scope) {
        AND so.class_id = ?
        AND (so.section_id IS NULL OR so.section_id = ?)
        AND (so.stream_id IS NULL OR so.stream_id = ?)
+      LEFT JOIN class_subjects cs
+        ON cs.class_id = ?
+       AND cs.subject_id = es.subject_id
       WHERE es.exam_id = ?
     `,
-    [scope.class_id, scope.section_id, scope.stream_id, examId]
+    [scope.class_id, scope.section_id, scope.stream_id, scope.class_id, examId]
   );
 }
 

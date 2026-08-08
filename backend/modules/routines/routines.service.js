@@ -993,6 +993,7 @@ async function ensureExamRoutineSubjectsAllowed(examId, scope, entries) {
     if (row.subject_id) examSubjectsBySubject.set(String(row.subject_id), row);
     if (row.exam_subject_id) examSubjectsById.set(String(row.exam_subject_id), row);
     if (row.offered_subject_id) offeredSubjectIds.add(String(row.offered_subject_id));
+    if (row.class_subject_id) offeredSubjectIds.add(String(row.class_subject_id));
   });
   for (const entry of subjectEntries) {
     const subjectKey = String(entry.subject_id || "");

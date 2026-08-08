@@ -37,6 +37,9 @@ Update this file after every meaningful implementation change.
 - Scoped Exam Routine subject choices to the selected exam and selected
   class/section/stream offerings, with backend validation rejecting subjects
   outside the exam or class scope.
+- Allowed Exam Routine subject scope checks to use both active
+  `subject_offerings` and legacy `class_subjects`, keeping the UI options and
+  backend validator consistent on servers with mixed subject-assignment data.
 - Added routine-only custom class routine slots so admins can place timetable
   labels such as English Dictation without creating formal marks subjects:
   custom slots require a title, may optionally select any teacher, skip

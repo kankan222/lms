@@ -1004,32 +1004,39 @@ export default function Routines() {
       Promise.all([
         getExamById(examForm.exam_id),
         getSubjectOfferings(offeringParams),
+        getClassSubjects(examForm.class_id),
       ])
-        .then(async ([examResponse, offeringResponse]) => {
+        .then(([examResponse, offeringResponse, classSubjectResponse]) => {
           const examSubjects = unwrap({ data: examResponse.data?.subjects || [] });
+          const legacySubjects = unwrap(classSubjectResponse).map((subject) => ({
+            subject_id: subject.id,
+            subject_name: subject.name,
+            subject_code: subject.code,
+            subject_group: subject.subject_group,
+          }));
           let offerings = unwrap(offeringResponse);
           if (!offerings.length) {
-            offerings = unwrap(await getClassSubjects(examForm.class_id)).map((subject) => ({
-              subject_id: subject.id,
-              subject_name: subject.name,
-              subject_code: subject.code,
-              subject_group: subject.subject_group,
-            }));
+            offerings = legacySubjects;
           }
+          const classSubjectIds = new Set(legacySubjects.map((subject) => String(subject.subject_id)).filter(Boolean));
           const offeringIds = new Set(offerings.map((offering) => String(offering.id)).filter(Boolean));
           const offeringSubjectIds = new Set(offerings.map((offering) => String(offering.subject_id)).filter(Boolean));
+          const allowedSubjectIds = new Set([...offeringSubjectIds, ...classSubjectIds]);
           const rawOptions = examSubjects.length
             ? examSubjects.filter((subject) => {
                 const offeringId = subject.subject_offering_id;
-                if (offeringId) return offeringIds.has(String(offeringId)) || offeringSubjectIds.has(String(subject.subject_id));
-                return offeringSubjectIds.has(String(subject.subject_id));
+                if (offeringId) return offeringIds.has(String(offeringId)) || allowedSubjectIds.has(String(subject.subject_id));
+                return allowedSubjectIds.has(String(subject.subject_id));
               })
-            : offerings.map((offering) => ({
-                subject_id: offering.subject_id,
-                subject_name: offering.subject_name,
-                subject_code: offering.subject_code,
-                subject_group: offering.subject_group,
-              }));
+            : Array.from(new Map([...offerings, ...legacySubjects].map((offering) => [
+                String(offering.subject_id),
+                {
+                  subject_id: offering.subject_id,
+                  subject_name: offering.subject_name,
+                  subject_code: offering.subject_code,
+                  subject_group: offering.subject_group,
+                },
+              ])).values());
           const options = Array.from(
             new Map(rawOptions
               .filter((subject) => subject.subject_id && subject.subject_name)
