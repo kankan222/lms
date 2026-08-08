@@ -165,19 +165,30 @@
     conversation-based Messaging.
 17. Offline announcement SMS may be sent only after announcement publish and
     must use a registered DLT template.
-18. Published routine edits must create a new draft version; old published
-    routine versions must remain archived.
+18. Exam routine and substitution publish flows must preserve draft/published
+    state history and archive the previous published record for the same scope.
+    Class routine normal edits update the canonical routine for that class
+    scope instead of creating duplicate draft rows.
 19. Routine and announcement management is limited to admin and super admin
     permissions, while teachers and parents receive scoped read access.
 
 ## Routine Model
 
 - Class routines are scoped by academic session, class, section, medium, and
-  stream where applicable.
-- Class routine versions use draft and published states. Editing a published
-  routine creates a new draft version instead of mutating the live version.
-- Publishing a new routine archives the previous published version for that
-  scope.
+  stream where applicable. Normal create, import, full-edit, and slot-edit
+  operations upsert the canonical routine for that class scope instead of
+  creating duplicate version rows.
+- Class routine reads default to the canonical Current row for each class
+  scope, with explicit All versions access retained for old duplicate rows.
+  Current selection prefers the published routine for the scope and falls back
+  to a draft when no published routine exists.
+- Draft creation for class routines is currently a compatibility redirect to
+  the canonical routine. Publishing validates that canonical routine and may
+  merge an older stale draft into it before publish.
+- Exam routine versions remain scoped draft/published records. Publishing a
+  new exam routine archives only the previous published exam routine for the
+  same exam, class scope, class, and any optional section, medium, or stream
+  narrowing.
 - Period timing may come from reusable school-wide, higher-secondary-wide, or
   class/section-specific time-slot templates. Break periods should be modeled
   in reusable templates where possible while still allowing per-class
@@ -186,15 +197,20 @@
   remedial, free, and custom entry types.
 - Subject entries require subject and teacher assignment. Teacher assignment
   validation should use existing academic assignment data where applicable.
+- Exam routine subject entries must belong to the selected exam and selected
+  class scope. Section and medium are optional because exam routines are
+  class-wide by default. Eligibility uses active `subject_offerings` and also
+  accepts legacy `class_subjects` where older assignment data still exists.
 - Teacher time conflicts must be blocked at publish time for routines and
   substitutions. Multiple teachers may be assigned to one period when needed.
 - Rooms are optional.
 - Parent/student routine views expose only subject and time. Teacher views
   include assigned class/section, subject, room, and substitution duties.
 - Published class and exam routines must support PDF output.
-- Excel import is a later workflow. Imports should create draft routines only
-  and expose unresolved class, section, subject, teacher, and conflict mappings
-  before save.
+- Excel import is a later workflow. Class routine imports should upsert the
+  canonical routine for each resolved class scope, while exam routine imports
+  should create draft routines. Imports should expose unresolved class,
+  section, subject, teacher, and conflict mappings before save.
 
 ## Routine Substitution Model
 

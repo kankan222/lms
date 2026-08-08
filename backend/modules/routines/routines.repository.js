@@ -336,6 +336,8 @@ export function listClassRoutineBoardRows(filters = {}) {
         e.room,
         e.notes,
         e.sort_order,
+        COALESCE(ts_exact.label, ts_day.label, ts_all.label) AS slot_label,
+        COALESCE(ts_exact.default_entry_type, ts_day.default_entry_type, ts_all.default_entry_type) AS slot_default_entry_type,
         GROUP_CONCAT(t.id ORDER BY et.teacher_role, t.name SEPARATOR ',') AS teacher_ids,
         GROUP_CONCAT(t.name ORDER BY et.teacher_role, t.name SEPARATOR ', ') AS teacher_names
       FROM class_routine_versions v
@@ -346,6 +348,18 @@ export function listClassRoutineBoardRows(filters = {}) {
       JOIN class_routine_entries e ON e.routine_version_id = v.id
       LEFT JOIN subjects sub ON sub.id = e.subject_id
       LEFT JOIN marksheet_activities act ON act.id = e.activity_id
+      LEFT JOIN routine_time_slots ts_exact
+        ON ts_exact.id = e.time_slot_id
+      LEFT JOIN routine_time_slots ts_day
+        ON e.time_slot_id IS NULL
+       AND ts_day.template_id = v.time_slot_template_id
+       AND ts_day.period_number = e.period_number
+       AND ts_day.weekday = e.weekday
+      LEFT JOIN routine_time_slots ts_all
+        ON e.time_slot_id IS NULL
+       AND ts_all.template_id = v.time_slot_template_id
+       AND ts_all.period_number = e.period_number
+       AND ts_all.weekday IS NULL
       LEFT JOIN class_routine_entry_teachers et ON et.routine_entry_id = e.id
       LEFT JOIN teachers t ON t.id = et.teacher_id
       ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
@@ -425,11 +439,26 @@ export async function getClassRoutineEntries(versionId) {
         e.*,
         sub.name AS subject_name,
         act.name AS activity_name,
+        COALESCE(ts_exact.label, ts_day.label, ts_all.label) AS slot_label,
+        COALESCE(ts_exact.default_entry_type, ts_day.default_entry_type, ts_all.default_entry_type) AS slot_default_entry_type,
         GROUP_CONCAT(t.id ORDER BY et.teacher_role, t.name SEPARATOR ',') AS teacher_ids,
         GROUP_CONCAT(t.name ORDER BY et.teacher_role, t.name SEPARATOR ', ') AS teacher_names
       FROM class_routine_entries e
+      JOIN class_routine_versions v ON v.id = e.routine_version_id
       LEFT JOIN subjects sub ON sub.id = e.subject_id
       LEFT JOIN marksheet_activities act ON act.id = e.activity_id
+      LEFT JOIN routine_time_slots ts_exact
+        ON ts_exact.id = e.time_slot_id
+      LEFT JOIN routine_time_slots ts_day
+        ON e.time_slot_id IS NULL
+       AND ts_day.template_id = v.time_slot_template_id
+       AND ts_day.period_number = e.period_number
+       AND ts_day.weekday = e.weekday
+      LEFT JOIN routine_time_slots ts_all
+        ON e.time_slot_id IS NULL
+       AND ts_all.template_id = v.time_slot_template_id
+       AND ts_all.period_number = e.period_number
+       AND ts_all.weekday IS NULL
       LEFT JOIN class_routine_entry_teachers et ON et.routine_entry_id = e.id
       LEFT JOIN teachers t ON t.id = et.teacher_id
       WHERE e.routine_version_id = ?
@@ -1008,14 +1037,14 @@ export function getExamRoutineSubjectEligibility(examId, scope) {
         ON so.is_active = TRUE
        AND so.subject_id = es.subject_id
        AND so.class_id = ?
-       AND (so.section_id IS NULL OR so.section_id = ?)
-       AND (so.stream_id IS NULL OR so.stream_id = ?)
+       AND (? IS NULL OR so.section_id IS NULL OR so.section_id = ?)
+       AND (? IS NULL OR so.stream_id IS NULL OR so.stream_id = ?)
       LEFT JOIN class_subjects cs
         ON cs.class_id = ?
        AND cs.subject_id = es.subject_id
       WHERE es.exam_id = ?
     `,
-    [scope.class_id, scope.section_id, scope.stream_id, scope.class_id, examId]
+    [scope.class_id, scope.section_id, scope.section_id, scope.stream_id, scope.stream_id, scope.class_id, examId]
   );
 }
 

@@ -14,13 +14,26 @@ Update this file after every meaningful implementation change.
 
 ## Completed
 
-- Synced the Routine Day view with current class routine versions by making the
-  board choose one draft-first/published fallback routine per class scope, so it
-  still displays all classes for the selected day while showing in-progress
-  edits instead of stale published values.
-- Made class routine draft reuse parent-aware so editing a published routine
-  reuses only that published version's existing draft, and adjusted the Day
-  board to ignore stale unrelated drafts when choosing the current routine.
+- Made Exam Routine section and medium optional so routines can be class-wide
+  by default, while still allowing optional section/medium/stream narrowing and
+  class-wide subject eligibility.
+- Added per-row removal to the Exam Routine add/edit dialog while preserving at
+  least one editable exam row.
+- Made the class routine slot editor dialog scrollable with sticky actions so
+  multiple subject rows can be edited without losing access to Save or Cancel.
+- Kept class routine cells compact when multiple subjects share one slot by
+  rendering one visible block with a `+N` marker and showing the full subject
+  list on hover/focus.
+- Updated class routine timetable headers and PDFs to display time-slot
+  template labels first, so breaks can occupy internal slot order without
+  shifting visible academic period names.
+- Synced the Routine Day view with canonical current class routines by making
+  the board choose one published-first/draft-fallback routine per class scope,
+  so it still displays all classes for the selected day without showing stale
+  duplicate rows.
+- Replaced class routine draft reuse with a canonical routine lookup so editing
+  a published routine writes through the current class-scope row instead of
+  creating or reusing separate draft copies.
 - Removed version creation from normal class routine operations: create/import
   now upsert the canonical class routine for the class scope, slot/full updates
   write to that canonical row directly, draft creation is a no-op redirect, and

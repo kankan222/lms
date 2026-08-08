@@ -50,9 +50,9 @@ staff content, and mobile access around one Express/MySQL backend.
   streams.
 - Subject creation and class/teacher subject assignments.
 - Student, parent, teacher, and staff record management.
-- Class routines with draft/published versions, reusable time
-  slots, break/activity/free/custom entries, teacher assignment
-  validation, archived published versions, PDFs, and role-specific
+- Class routines with canonical current rows per academic scope,
+  reusable time slots, break/activity/free/custom entries, teacher
+  assignment validation, publish state, PDFs, and role-specific
   teacher/parent/student views.
 - Routine substitutions for date-specific or date-range temporary
   changes such as extra classes, cancelled periods, teacher
@@ -66,9 +66,12 @@ staff content, and mobile access around one Express/MySQL backend.
   sync agents.
 - Exams, marks entry, approval, student reports, and report PDFs.
 - Exam routines managed from the Routine module, linked to existing
-  exams while supporting configured exam subjects, practical/custom
-  entries, optional invigilators, optional rooms, publish actions,
-  student detail visibility, and school notice-style PDFs.
+  exams and scoped by school/higher-secondary class, with optional
+  section, medium, and stream narrowing where needed. They support
+  configured exam subjects, active `subject_offerings` plus legacy
+  `class_subjects` eligibility, practical/custom entries, optional
+  invigilators, optional rooms, publish actions, student detail
+  visibility, and school notice-style PDFs.
 
 ### Finance
 

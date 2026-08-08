@@ -63,6 +63,15 @@ function entryLabel(entry) {
   return text(entry.subject_name || entry.activity_name || entry.title || displayType(entry.entry_type));
 }
 
+function periodLabel(entry) {
+  const slotLabel = text(entry.slot_label);
+  if (slotLabel !== "-") return slotLabel;
+  if (entry.entry_type === "break" || entry.slot_default_entry_type === "break") return "Break";
+  const customTitle = text(entry.title);
+  if (entry.entry_type !== "subject" && customTitle !== "-") return customTitle;
+  return `Period ${text(entry.period_number)}`;
+}
+
 function drawCenteredUnderlinedText(doc, value, x, y, width, options = {}) {
   const fontSize = options.fontSize || 13;
   doc.font(options.font || "Helvetica-Bold").fontSize(fontSize).fillColor(TEXT);
@@ -154,7 +163,7 @@ function classRoutineRows(routine) {
     )
     .map((entry) => ({
       day: WEEKDAYS[Number(entry.weekday)] || text(entry.weekday),
-      period: entry.entry_type === "break" ? "Break" : `Period ${text(entry.period_number)}`,
+      period: periodLabel(entry),
       time: timeRange(entry),
       type: displayType(entry.entry_type),
       subject: entryLabel(entry),
