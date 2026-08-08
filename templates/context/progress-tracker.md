@@ -1087,3 +1087,13 @@ Update this file after every meaningful implementation change.
 - Added bulk-day editing to the software class routine slot dialog: users can
   select multiple days for one period, add multiple subject rows once, and save
   the same slot entries across all selected days.
+- Added Replace/Add save modes to the software class routine slot dialog so HS
+  parallel subjects can be appended to existing selected-day slots without
+  rewriting the common subjects.
+- Added HS stream-level class routine support: class routine versions can omit
+  section/medium, routine entries can target a medium and selected sections,
+  student routines filter by entry applicability and selected subjects, and the
+  software slot dialog exposes per-subject medium/section applicability.
+- Updated the HS routine migration to replace the old one-entry-per-period
+  unique key with a normal period index so parallel subject rows can coexist in
+  the same slot.

@@ -23,6 +23,9 @@ export type RoutineEntry = {
   title?: string | null;
   subject_name?: string | null;
   activity_name?: string | null;
+  applies_medium?: string | null;
+  applies_section_ids?: number[];
+  applies_section_names?: string | null;
   teacher_name?: string | null;
   teacher_names?: string | null;
   room?: string | null;
@@ -89,6 +92,9 @@ export type ExamRoutineEntry = {
   subject_name?: string | null;
   title?: string | null;
   entry_type?: "subject" | "activity" | string | null;
+  applies_medium?: string | null;
+  applies_section_ids?: number[];
+  applies_section_names?: string | null;
   exam_date?: string | null;
   start_time?: string | null;
   end_time?: string | null;
@@ -115,7 +121,7 @@ export type ExamRoutineDetails = ExamRoutineSummary & {
 
 export type StudentRoutineResponse = {
   date?: string;
-  routine?: RoutineEntry[];
+  routine?: RoutineEntry[] | { entries?: RoutineEntry[] };
   substitutions?: RoutineEntry[];
 };
 

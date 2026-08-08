@@ -428,6 +428,9 @@ function normalizeClassRoutineEntries(entries = []) {
     if (entryType === "custom" && !optionalString(entry.title)) {
       throw new AppError("Custom routine entries require a title", 400);
     }
+    const sectionIds = Array.isArray(entry.section_ids)
+      ? entry.section_ids.map((sectionId) => intValue(sectionId, "entry.section_ids", { required: false })).filter(Boolean)
+      : [];
     return {
       time_slot_id: intValue(entry.time_slot_id, "entry.time_slot_id", { required: false }),
       weekday: normalizeWeekday(entry.weekday, "entry.weekday"),
@@ -441,6 +444,8 @@ function normalizeClassRoutineEntries(entries = []) {
       room: optionalString(entry.room),
       notes: optionalString(entry.notes),
       sort_order: Number.isInteger(Number(entry.sort_order)) ? Number(entry.sort_order) : index,
+      applies_medium: optionalString(entry.applies_medium),
+      section_ids: sectionIds,
       teachers,
     };
   });
@@ -460,6 +465,8 @@ function classRoutineEntryToPayload(entry) {
     room: entry.room,
     notes: entry.notes,
     sort_order: entry.sort_order,
+    applies_medium: entry.applies_medium,
+    section_ids: entry.applies_section_ids || entry.section_ids || [],
     teachers: (entry.teacher_ids || []).map((teacherId, index) => ({
       teacher_id: teacherId,
       teacher_role: index === 0 ? "primary" : "co_teacher",
@@ -471,8 +478,8 @@ function normalizeClassRoutinePayload(body, userId) {
   return {
     session_id: intValue(body.session_id, "session_id"),
     class_id: intValue(body.class_id, "class_id"),
-    section_id: intValue(body.section_id, "section_id"),
-    medium: requiredString(body.medium, "medium"),
+    section_id: intValue(body.section_id, "section_id", { required: false }),
+    medium: optionalString(body.medium),
     stream_id: intValue(body.stream_id, "stream_id", { required: false }),
     time_slot_template_id: intValue(body.time_slot_template_id, "time_slot_template_id", { required: false }),
     title: optionalString(body.title),
@@ -591,6 +598,11 @@ function mapRoutineBoardEntry(row) {
     subject_name: row.subject_name,
     activity_id: row.activity_id ? Number(row.activity_id) : null,
     activity_name: row.activity_name,
+    applies_medium: row.applies_medium,
+    applies_section_ids: row.applies_section_ids
+      ? String(row.applies_section_ids).split(",").map((id) => Number(id)).filter(Boolean)
+      : [],
+    applies_section_names: row.applies_section_names || "",
     title: row.entry_title,
     room: row.room,
     notes: row.notes,
@@ -945,13 +957,38 @@ export async function getEffectiveClassRoutine(filters) {
   return { routine, substitutions, date };
 }
 
+function filterRoutineEntriesForStudent(entries = [], enrollment = {}, registeredSubjectIds = []) {
+  const registeredSubjects = new Set(registeredSubjectIds.map((id) => Number(id)).filter(Boolean));
+  const hasSubjectRegistrations = registeredSubjects.size > 0;
+  return entries.filter((entry) => {
+    const appliesMedium = optionalString(entry.applies_medium);
+    if (appliesMedium && enrollment.medium && appliesMedium !== enrollment.medium) return false;
+
+    const sectionIds = Array.isArray(entry.applies_section_ids) ? entry.applies_section_ids.map(Number).filter(Boolean) : [];
+    if (sectionIds.length && enrollment.section_id && !sectionIds.includes(Number(enrollment.section_id))) return false;
+
+    if (entry.entry_type === "subject" && hasSubjectRegistrations && entry.subject_id) {
+      return registeredSubjects.has(Number(entry.subject_id));
+    }
+    return true;
+  });
+}
+
 export async function getStudentRoutine(studentId, userId, query) {
   const enrollment = await repo.getStudentEnrollmentForUser(intValue(studentId, "student id"), userId);
   if (!enrollment) throw new AppError("Student routine not found", 404);
-  return getEffectiveClassRoutine({
+  const result = await getEffectiveClassRoutine({
     ...enrollment,
     date: query.date || new Date().toISOString().slice(0, 10),
   });
+  const registeredSubjectIds = await repo.getRegisteredSubjectIdsForStudent(enrollment.student_id);
+  return {
+    ...result,
+    routine: {
+      ...result.routine,
+      entries: filterRoutineEntriesForStudent(result.routine?.entries || [], enrollment, registeredSubjectIds),
+    },
+  };
 }
 
 export async function getMyTeacherRoutine(userId, filters) {

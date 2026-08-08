@@ -703,6 +703,7 @@ export default function Routines() {
     activity_id: "",
     custom_title: "",
     custom_teacher_id: "",
+    save_mode: "replace",
     weekdays: [],
     subjectRows: [{ key: "subject-1", subject_id: "", teacher_id: "" }],
   });
@@ -763,6 +764,10 @@ export default function Routines() {
   const selectedExamClass = useMemo(
     () => classes.find((item) => String(item.id) === String(examForm.class_id)),
     [classes, examForm.class_id]
+  );
+  const selectedRoutineClass = useMemo(
+    () => classes.find((item) => String(item.id) === String(selectedClassRoutine?.class_id)),
+    [classes, selectedClassRoutine?.class_id]
   );
 
   const examScopeClasses = useMemo(
@@ -1399,7 +1404,7 @@ export default function Routines() {
   }
 
   function emptySubjectSlotRow(index = 1) {
-    return { key: `subject-${Date.now()}-${index}`, subject_id: "", teacher_id: "" };
+    return { key: `subject-${Date.now()}-${index}`, subject_id: "", teacher_id: "", applies_medium: "", section_ids: [] };
   }
 
   function openSlotEditor(context) {
@@ -1414,12 +1419,15 @@ export default function Routines() {
       activity_id: primaryEntry?.activity_id ? String(primaryEntry.activity_id) : "",
       custom_title: entryType === "custom" ? primaryEntry?.title || "" : "",
       custom_teacher_id: entryType === "custom" && primaryEntry?.teacher_ids?.[0] ? String(primaryEntry.teacher_ids[0]) : "",
+      save_mode: "replace",
       weekdays: [String(context.day.value)],
       subjectRows: subjectEntries.length
         ? subjectEntries.map((entry, index) => ({
             key: `subject-${entry.id || entry.entry_id || index}`,
             subject_id: entry.subject_id ? String(entry.subject_id) : "",
             teacher_id: entry.teacher_ids?.[0] ? String(entry.teacher_ids[0]) : "",
+            applies_medium: entry.applies_medium || "",
+            section_ids: (entry.applies_section_ids || []).map((sectionId) => String(sectionId)),
           }))
         : [emptySubjectSlotRow(1)],
     });
@@ -1448,6 +1456,21 @@ export default function Routines() {
     }));
   }
 
+  function toggleSlotSubjectSection(rowKey, sectionId) {
+    const value = String(sectionId);
+    setSlotForm((current) => ({
+      ...current,
+      subjectRows: (current.subjectRows || []).map((row) => {
+        if (row.key !== rowKey) return row;
+        const currentSections = (row.section_ids || []).map(String);
+        const section_ids = currentSections.includes(value)
+          ? currentSections.filter((item) => item !== value)
+          : [...currentSections, value];
+        return { ...row, section_ids };
+      }),
+    }));
+  }
+
   function addSlotSubjectRow() {
     setSlotForm((current) => ({
       ...current,
@@ -1460,6 +1483,49 @@ export default function Routines() {
       const nextRows = (current.subjectRows || []).filter((row) => row.key !== key);
       return { ...current, subjectRows: nextRows.length ? nextRows : [emptySubjectSlotRow(1)] };
     });
+  }
+
+  function classRoutineEntryToSlotPayload(entry, baseSlotPayload, fallbackSortOrder = 0) {
+    return {
+      ...baseSlotPayload,
+      entry_type: entry.entry_type || "subject",
+      subject_id: entry.subject_id ? Number(entry.subject_id) : null,
+      activity_id: entry.activity_id ? Number(entry.activity_id) : null,
+      title: entry.title || "",
+      applies_medium: entry.applies_medium || null,
+      section_ids: (entry.applies_section_ids || entry.section_ids || []).map(Number).filter(Boolean),
+      room: entry.room || baseSlotPayload.room || "",
+      notes: entry.notes || baseSlotPayload.notes || "",
+      sort_order: Number.isFinite(Number(entry.sort_order)) ? Number(entry.sort_order) : fallbackSortOrder,
+      teachers: (entry.teacher_ids || []).map((teacherId, index) => ({
+        teacher_id: Number(teacherId),
+        teacher_role: index === 0 ? "primary" : "co_teacher",
+      })),
+    };
+  }
+
+  function slotPayloadDedupeKey(entry) {
+    return [
+      entry.entry_type || "",
+      entry.subject_id || "",
+      entry.activity_id || "",
+      String(entry.title || "").trim().toLowerCase(),
+      entry.applies_medium || "",
+      (entry.section_ids || []).map(Number).filter(Boolean).sort((a, b) => a - b).join(","),
+      (entry.teachers || []).map((teacher) => Number(teacher.teacher_id)).filter(Boolean).sort((a, b) => a - b).join(","),
+    ].join("|");
+  }
+
+  function mergeSlotPayloadEntries(existingEntries, newEntries) {
+    const seen = new Set();
+    const merged = [];
+    [...existingEntries, ...newEntries].forEach((entry, index) => {
+      const key = slotPayloadDedupeKey(entry);
+      if (seen.has(key)) return;
+      seen.add(key);
+      merged.push({ ...entry, sort_order: Number.isFinite(Number(entry.sort_order)) ? Number(entry.sort_order) : index });
+    });
+    return merged.map((entry, index) => ({ ...entry, sort_order: index }));
   }
 
   async function handleSaveSlot(event) {
@@ -1498,13 +1564,15 @@ export default function Routines() {
     });
     const buildSlotPayloadEntries = (weekday) => {
       const baseSlotPayload = buildBaseSlotPayload(weekday);
-      return slotForm.entry_type === "subject"
+      const newEntries = slotForm.entry_type === "subject"
         ? subjectRows.map((row, index) => ({
           ...baseSlotPayload,
           entry_type: "subject",
           subject_id: Number(row.subject_id),
           activity_id: null,
           title: "",
+          applies_medium: row.applies_medium || null,
+          section_ids: (row.section_ids || []).map(Number).filter(Boolean),
           sort_order: Number(period) * 100 + index,
           teachers: [{ teacher_id: Number(row.teacher_id), teacher_role: "primary" }],
         }))
@@ -1523,6 +1591,16 @@ export default function Routines() {
             ? [{ teacher_id: Number(slotForm.custom_teacher_id), teacher_role: "primary" }]
             : [],
         }];
+      if (slotForm.save_mode !== "add") return newEntries;
+
+      const currentEntries = Array.isArray(selectedClassRoutine?.entries) ? selectedClassRoutine.entries : [];
+      const existingSlotEntries = currentEntries
+        .filter((item) =>
+          String(item.weekday) === String(weekday) &&
+          Number(item.period_number) === Number(period)
+        )
+        .map((item, index) => classRoutineEntryToSlotPayload(item, baseSlotPayload, index));
+      return mergeSlotPayloadEntries(existingSlotEntries, newEntries);
     };
     const buildSlotPayload = (weekday) => {
       return { entries: buildSlotPayloadEntries(weekday) };
@@ -1679,14 +1757,11 @@ export default function Routines() {
     event.preventDefault();
     setError("");
     const selectedSection = (selectedClass?.sections || []).find((section) => String(section.id) === String(classForm.section_id));
-    const medium = selectedSection?.medium || classForm.medium;
-    if (!medium) {
-      showError("Selected section does not have a medium.");
-      return;
-    }
+    const medium = selectedSection?.medium || classForm.medium || "";
     try {
       const response = await createClassRoutine({
         ...classForm,
+        section_id: toNumberOrNull(classForm.section_id),
         medium,
         stream_id: toNumberOrNull(classForm.stream_id),
         time_slot_template_id: toNumberOrNull(classForm.time_slot_template_id),
@@ -2041,9 +2116,15 @@ export default function Routines() {
                 </select>
               </Field>
               <Field label="Section">
-                <select required className={selectClassName} value={classForm.section_id} onChange={(event) => updateClassForm("section_id", event.target.value)}>
-                  <option value="">Select section</option>
+                <select className={selectClassName} value={classForm.section_id} onChange={(event) => updateClassForm("section_id", event.target.value)}>
+                  <option value="">All sections</option>
                   {(selectedClass?.sections || []).map((section) => <option key={`${section.id}-${section.medium}`} value={section.id}>{section.name} - {section.medium}</option>)}
+                </select>
+              </Field>
+              <Field label="Medium">
+                <select className={selectClassName} value={classForm.medium} onChange={(event) => updateClassForm("medium", event.target.value)}>
+                  <option value="">All mediums</option>
+                  {(selectedClass?.mediums || []).map((medium) => <option key={medium} value={medium}>{medium}</option>)}
                 </select>
               </Field>
               {selectedClass?.class_scope === "hs" ? (
@@ -2240,6 +2321,39 @@ export default function Routines() {
                             Save the same period and subject rows across the selected days.
                           </p>
                         </Field>
+                        <Field label="Save Mode">
+                          <div className="grid gap-2 sm:grid-cols-2">
+                            {[
+                              {
+                                value: "replace",
+                                label: "Replace slot",
+                                description: "Clear this period for selected days, then save these rows.",
+                              },
+                              {
+                                value: "add",
+                                label: "Add to slot",
+                                description: "Keep existing rows and add these subjects to selected days.",
+                              },
+                            ].map((option) => {
+                              const selected = slotForm.save_mode === option.value;
+                              return (
+                                <button
+                                  key={option.value}
+                                  type="button"
+                                  className={`rounded-md border p-3 text-left transition ${
+                                    selected
+                                      ? "border-primary bg-primary/10 text-foreground"
+                                      : "border-border bg-background text-foreground hover:bg-muted"
+                                  }`}
+                                  onClick={() => setSlotForm((current) => ({ ...current, save_mode: option.value }))}
+                                >
+                                  <span className="block text-sm font-semibold">{option.label}</span>
+                                  <span className="mt-1 block text-xs text-muted-foreground">{option.description}</span>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </Field>
                         <Field label="Type">
                           <select
                             className={selectClassName}
@@ -2247,6 +2361,7 @@ export default function Routines() {
                             onChange={(event) => setSlotForm((current) => ({
                               ...current,
                               entry_type: event.target.value,
+                              save_mode: event.target.value === "subject" ? current.save_mode : "replace",
                               subjectRows: event.target.value === "subject" ? current.subjectRows : [emptySubjectSlotRow(1)],
                               activity_id: event.target.value === "activity" ? current.activity_id : "",
                               custom_title: event.target.value === "custom" ? current.custom_title : "",
@@ -2306,6 +2421,48 @@ export default function Routines() {
                                         <option value="">Select assigned teacher</option>
                                         {teacherOptions.map((teacher) => <option key={teacher.id} value={teacher.id}>{teacher.name}</option>)}
                                       </select>
+                                    </Field>
+                                  </div>
+                                  <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                                    <Field label="Medium Applies To">
+                                      <select
+                                        className={selectClassName}
+                                        value={row.applies_medium || ""}
+                                        onChange={(event) => updateSlotSubjectRow(row.key, { applies_medium: event.target.value, section_ids: [] })}
+                                      >
+                                        <option value="">All mediums</option>
+                                        {(selectedRoutineClass?.mediums || []).map((medium) => (
+                                          <option key={medium} value={medium}>{medium}</option>
+                                        ))}
+                                      </select>
+                                    </Field>
+                                    <Field label="Sections Applies To">
+                                      <div className="rounded-md border border-border bg-background p-2">
+                                        <div className="flex flex-wrap gap-2">
+                                          {(selectedRoutineClass?.sections || [])
+                                            .filter((section) => !row.applies_medium || section.medium === row.applies_medium)
+                                            .map((section) => {
+                                              const selected = (row.section_ids || []).map(String).includes(String(section.id));
+                                              return (
+                                                <button
+                                                  key={`${row.key}-${section.id}`}
+                                                  type="button"
+                                                  className={`rounded-md border px-2 py-1 text-xs font-medium transition ${
+                                                    selected
+                                                      ? "border-primary bg-primary text-primary-foreground"
+                                                      : "border-border bg-muted/30 text-foreground hover:bg-muted"
+                                                  }`}
+                                                  onClick={() => toggleSlotSubjectSection(row.key, section.id)}
+                                                >
+                                                  {section.name}{section.medium ? ` - ${section.medium}` : ""}
+                                                </button>
+                                              );
+                                            })}
+                                        </div>
+                                        <p className="mt-2 text-xs text-muted-foreground">
+                                          No section selected means all matching sections.
+                                        </p>
+                                      </div>
                                     </Field>
                                   </div>
                                 </div>

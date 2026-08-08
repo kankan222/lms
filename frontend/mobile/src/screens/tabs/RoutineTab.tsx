@@ -106,6 +106,12 @@ function sortExamEntries(a: ExamRoutineEntry, b: ExamRoutineEntry) {
     String(a.start_time || "").localeCompare(String(b.start_time || ""));
 }
 
+function routineEntriesFromResponse(response: { routine?: RoutineEntry[] | { entries?: RoutineEntry[] } } | null | undefined) {
+  if (Array.isArray(response?.routine)) return response.routine;
+  if (Array.isArray(response?.routine?.entries)) return response.routine.entries;
+  return [];
+}
+
 export default function RoutineTab() {
   const { theme } = useAppTheme();
   const user = useAuthStore((state) => state.user);
@@ -224,7 +230,7 @@ export default function RoutineTab() {
           return;
         }
         const response = await getStudentRoutine(studentId, { date: todayDate() });
-        setEntries([...(response.routine || []), ...(response.substitutions || [])]);
+        setEntries([...routineEntriesFromResponse(response), ...(response.substitutions || [])]);
         return;
       }
 
@@ -264,7 +270,7 @@ export default function RoutineTab() {
     const student = students.find((item) => Number(item.id) === Number(selectedStudentId)) ?? null;
     void getStudentRoutine(selectedStudentId, { date: todayDate() })
       .then(async (response) => {
-        setEntries([...(response.routine || []), ...(response.substitutions || [])]);
+        setEntries([...routineEntriesFromResponse(response), ...(response.substitutions || [])]);
         await loadExamRoutineEntries(student);
       })
       .catch(() => setError("Could not load routine right now."));

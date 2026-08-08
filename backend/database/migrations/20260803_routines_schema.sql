@@ -58,8 +58,8 @@ CREATE TABLE IF NOT EXISTS class_routine_versions (
   id BIGINT PRIMARY KEY AUTO_INCREMENT,
   session_id INT NOT NULL,
   class_id INT NOT NULL,
-  section_id INT NOT NULL,
-  medium VARCHAR(40) NOT NULL,
+  section_id INT NULL,
+  medium VARCHAR(40) NULL,
   stream_id INT NULL,
   stream_id_dedupe INT GENERATED ALWAYS AS (COALESCE(stream_id, 0)) STORED,
   time_slot_template_id BIGINT NULL,
@@ -110,13 +110,14 @@ CREATE TABLE IF NOT EXISTS class_routine_entries (
   entry_type ENUM('subject','break','activity','assembly','games','library','remedial','free','custom') NOT NULL DEFAULT 'subject',
   subject_id INT NULL,
   activity_id BIGINT NULL,
+  applies_medium VARCHAR(40) NULL,
   title VARCHAR(160) NULL,
   room VARCHAR(120) NULL,
   notes TEXT NULL,
   sort_order INT NOT NULL DEFAULT 0,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  UNIQUE KEY uq_class_routine_entry_period (routine_version_id, weekday, period_number),
+  KEY idx_class_routine_entry_period (routine_version_id, weekday, period_number),
   KEY idx_class_routine_entries_subject (subject_id),
   KEY idx_class_routine_entries_activity (activity_id),
   KEY idx_class_routine_entries_day_time (weekday, start_time, end_time),
@@ -136,6 +137,19 @@ CREATE TABLE IF NOT EXISTS class_routine_entries (
     CHECK (weekday BETWEEN 1 AND 7),
   CONSTRAINT chk_class_routine_entries_time
     CHECK (start_time < end_time)
+);
+
+CREATE TABLE IF NOT EXISTS class_routine_entry_sections (
+  routine_entry_id BIGINT NOT NULL,
+  section_id INT NOT NULL,
+  PRIMARY KEY (routine_entry_id, section_id),
+  KEY idx_class_routine_entry_sections_section (section_id),
+  CONSTRAINT fk_class_routine_entry_sections_entry
+    FOREIGN KEY (routine_entry_id) REFERENCES class_routine_entries(id)
+    ON DELETE CASCADE,
+  CONSTRAINT fk_class_routine_entry_sections_section
+    FOREIGN KEY (section_id) REFERENCES sections(id)
+    ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS class_routine_entry_teachers (

@@ -2,9 +2,33 @@ import { query } from "../../core/db/query.js";
 import { pool } from "../../database/pool.js";
 
 const STREAM_DEDUPE_SQL = "COALESCE(?, 0)";
+let classRoutineApplicabilityPromise;
 
 function hasValue(value) {
   return value !== undefined && value !== null && value !== "";
+}
+
+function normalizeScopeValue(value, fallback = null) {
+  return hasValue(value) ? value : fallback;
+}
+
+async function hasClassRoutineApplicabilitySchema() {
+  if (!classRoutineApplicabilityPromise) {
+    classRoutineApplicabilityPromise = query(
+      `
+        SELECT
+          SUM(TABLE_NAME = 'class_routine_entry_sections') AS has_sections,
+          SUM(TABLE_NAME = 'class_routine_entries' AND COLUMN_NAME = 'applies_medium') AS has_medium
+        FROM information_schema.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND (
+            TABLE_NAME = 'class_routine_entry_sections'
+            OR (TABLE_NAME = 'class_routine_entries' AND COLUMN_NAME = 'applies_medium')
+          )
+      `
+    ).then((rows) => Boolean(Number(rows[0]?.has_sections || 0) && Number(rows[0]?.has_medium || 0)));
+  }
+  return classRoutineApplicabilityPromise;
 }
 
 function appendFilter(where, params, column, value) {
@@ -185,8 +209,14 @@ export function listClassRoutineVersions(filters = {}) {
   const params = [];
   appendFilter(where, params, "v.session_id", filters.session_id);
   appendFilter(where, params, "v.class_id", filters.class_id);
-  appendFilter(where, params, "v.section_id", filters.section_id);
-  appendFilter(where, params, "v.medium", filters.medium);
+  if (hasValue(filters.section_id)) {
+    where.push("(v.section_id = ? OR v.section_id IS NULL)");
+    params.push(filters.section_id);
+  }
+  if (hasValue(filters.medium)) {
+    where.push("(v.medium = ? OR v.medium IS NULL)");
+    params.push(filters.medium);
+  }
   appendFilter(where, params, "v.stream_id", filters.stream_id);
   if (filters.status === "current") {
     where.push("v.status IN ('draft', 'published')");
@@ -196,8 +226,8 @@ export function listClassRoutineVersions(filters = {}) {
         FROM class_routine_versions other
         WHERE other.session_id = v.session_id
           AND other.class_id = v.class_id
-          AND other.section_id = v.section_id
-          AND other.medium = v.medium
+          AND COALESCE(other.section_id, 0) = COALESCE(v.section_id, 0)
+          AND COALESCE(other.medium, '') = COALESCE(v.medium, '')
           AND other.stream_id_dedupe = v.stream_id_dedupe
           AND other.status IN ('draft', 'published')
           AND (
@@ -234,7 +264,7 @@ export function listClassRoutineVersions(filters = {}) {
       FROM class_routine_versions v
       JOIN academic_sessions ses ON ses.id = v.session_id
       JOIN classes c ON c.id = v.class_id
-      JOIN sections sec ON sec.id = v.section_id
+      LEFT JOIN sections sec ON sec.id = v.section_id
       LEFT JOIN streams st ON st.id = v.stream_id
       LEFT JOIN users creator ON creator.id = v.created_by
       LEFT JOIN class_routine_entries e ON e.routine_version_id = v.id
@@ -247,15 +277,26 @@ export function listClassRoutineVersions(filters = {}) {
 }
 
 export function listClassRoutineBoardRows(filters = {}) {
+  return listClassRoutineBoardRowsImpl(filters);
+}
+
+export async function listClassRoutineBoardRowsImpl(filters = {}) {
   const where = [];
   const params = [];
+  const hasApplicability = await hasClassRoutineApplicabilitySchema();
   const hasRoutineVersionFilter = hasValue(filters.routine_version_id);
   appendFilter(where, params, "v.id", filters.routine_version_id);
   if (!hasRoutineVersionFilter) {
     appendFilter(where, params, "v.session_id", filters.session_id);
     appendFilter(where, params, "v.class_id", filters.class_id);
-    appendFilter(where, params, "v.section_id", filters.section_id);
-    appendFilter(where, params, "v.medium", filters.medium);
+    if (hasValue(filters.section_id)) {
+      where.push("(v.section_id = ? OR v.section_id IS NULL)");
+      params.push(filters.section_id);
+    }
+    if (hasValue(filters.medium)) {
+      where.push("(v.medium = ? OR v.medium IS NULL)");
+      params.push(filters.medium);
+    }
     appendFilter(where, params, "v.stream_id", filters.stream_id);
     if (hasValue(filters.class_scope)) {
       where.push("COALESCE(c.class_scope, 'school') = ?");
@@ -269,8 +310,8 @@ export function listClassRoutineBoardRows(filters = {}) {
           FROM class_routine_versions other
           WHERE other.session_id = v.session_id
             AND other.class_id = v.class_id
-            AND other.section_id = v.section_id
-            AND other.medium = v.medium
+            AND COALESCE(other.section_id, 0) = COALESCE(v.section_id, 0)
+            AND COALESCE(other.medium, '') = COALESCE(v.medium, '')
             AND other.stream_id_dedupe = v.stream_id_dedupe
             AND other.status IN ('draft', 'published')
             AND (
@@ -332,6 +373,7 @@ export function listClassRoutineBoardRows(filters = {}) {
         sub.name AS subject_name,
         e.activity_id,
         act.name AS activity_name,
+        ${hasApplicability ? "e.applies_medium" : "NULL"} AS applies_medium,
         e.title AS entry_title,
         e.room,
         e.notes,
@@ -340,10 +382,12 @@ export function listClassRoutineBoardRows(filters = {}) {
         MAX(COALESCE(ts_exact.default_entry_type, ts_day.default_entry_type, ts_all.default_entry_type)) AS slot_default_entry_type,
         GROUP_CONCAT(t.id ORDER BY et.teacher_role, t.name SEPARATOR ',') AS teacher_ids,
         GROUP_CONCAT(t.name ORDER BY et.teacher_role, t.name SEPARATOR ', ') AS teacher_names
+        ${hasApplicability ? ", GROUP_CONCAT(DISTINCT es.section_id ORDER BY sec_app.name SEPARATOR ',') AS applies_section_ids" : ", NULL AS applies_section_ids"}
+        ${hasApplicability ? ", GROUP_CONCAT(DISTINCT sec_app.name ORDER BY sec_app.name SEPARATOR ', ') AS applies_section_names" : ", NULL AS applies_section_names"}
       FROM class_routine_versions v
       JOIN academic_sessions ses ON ses.id = v.session_id
       JOIN classes c ON c.id = v.class_id
-      JOIN sections sec ON sec.id = v.section_id
+      LEFT JOIN sections sec ON sec.id = v.section_id
       LEFT JOIN streams st ON st.id = v.stream_id
       JOIN class_routine_entries e ON e.routine_version_id = v.id
       LEFT JOIN subjects sub ON sub.id = e.subject_id
@@ -362,6 +406,7 @@ export function listClassRoutineBoardRows(filters = {}) {
        AND ts_all.weekday IS NULL
       LEFT JOIN class_routine_entry_teachers et ON et.routine_entry_id = e.id
       LEFT JOIN teachers t ON t.id = et.teacher_id
+      ${hasApplicability ? "LEFT JOIN class_routine_entry_sections es ON es.routine_entry_id = e.id LEFT JOIN sections sec_app ON sec_app.id = es.section_id" : ""}
       ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
       GROUP BY e.id
       ORDER BY
@@ -393,7 +438,7 @@ export function getClassRoutineVersionById(id) {
       FROM class_routine_versions v
       JOIN academic_sessions ses ON ses.id = v.session_id
       JOIN classes c ON c.id = v.class_id
-      JOIN sections sec ON sec.id = v.section_id
+      LEFT JOIN sections sec ON sec.id = v.section_id
       LEFT JOIN streams st ON st.id = v.stream_id
       WHERE v.id = ?
       LIMIT 1
@@ -416,8 +461,8 @@ export async function getCanonicalClassRoutineForScope(scope) {
       FROM class_routine_versions
       WHERE session_id = ?
         AND class_id = ?
-        AND section_id = ?
-        AND medium = ?
+        AND COALESCE(section_id, 0) = COALESCE(?, 0)
+        AND COALESCE(medium, '') = COALESCE(?, '')
         AND stream_id_dedupe = ${STREAM_DEDUPE_SQL}
         AND status IN ('published', 'draft')
       ORDER BY
@@ -433,16 +478,20 @@ export async function getCanonicalClassRoutineForScope(scope) {
 }
 
 export async function getClassRoutineEntries(versionId) {
+  const hasApplicability = await hasClassRoutineApplicabilitySchema();
   const rows = await query(
     `
       SELECT
         e.*,
+        ${hasApplicability ? "e.applies_medium" : "NULL"} AS applies_medium,
         sub.name AS subject_name,
         act.name AS activity_name,
         MAX(COALESCE(ts_exact.label, ts_day.label, ts_all.label)) AS slot_label,
         MAX(COALESCE(ts_exact.default_entry_type, ts_day.default_entry_type, ts_all.default_entry_type)) AS slot_default_entry_type,
         GROUP_CONCAT(t.id ORDER BY et.teacher_role, t.name SEPARATOR ',') AS teacher_ids,
         GROUP_CONCAT(t.name ORDER BY et.teacher_role, t.name SEPARATOR ', ') AS teacher_names
+        ${hasApplicability ? ", GROUP_CONCAT(DISTINCT es.section_id ORDER BY sec_app.name SEPARATOR ',') AS applies_section_ids" : ", NULL AS applies_section_ids"}
+        ${hasApplicability ? ", GROUP_CONCAT(DISTINCT sec_app.name ORDER BY sec_app.name SEPARATOR ', ') AS applies_section_names" : ", NULL AS applies_section_names"}
       FROM class_routine_entries e
       JOIN class_routine_versions v ON v.id = e.routine_version_id
       LEFT JOIN subjects sub ON sub.id = e.subject_id
@@ -461,6 +510,7 @@ export async function getClassRoutineEntries(versionId) {
        AND ts_all.weekday IS NULL
       LEFT JOIN class_routine_entry_teachers et ON et.routine_entry_id = e.id
       LEFT JOIN teachers t ON t.id = et.teacher_id
+      ${hasApplicability ? "LEFT JOIN class_routine_entry_sections es ON es.routine_entry_id = e.id LEFT JOIN sections sec_app ON sec_app.id = es.section_id" : ""}
       WHERE e.routine_version_id = ?
       GROUP BY e.id
       ORDER BY e.weekday, e.sort_order, e.period_number, e.start_time
@@ -474,6 +524,10 @@ export async function getClassRoutineEntries(versionId) {
       ? String(row.teacher_ids).split(",").map((id) => Number(id)).filter(Boolean)
       : [],
     teacher_names: row.teacher_names || "",
+    applies_section_ids: row.applies_section_ids
+      ? String(row.applies_section_ids).split(",").map((id) => Number(id)).filter(Boolean)
+      : [],
+    applies_section_names: row.applies_section_names || "",
   }));
 }
 
@@ -564,8 +618,8 @@ async function nextClassRoutineVersionNumber(conn, data) {
       FROM class_routine_versions
       WHERE session_id = ?
         AND class_id = ?
-        AND section_id = ?
-        AND medium = ?
+        AND COALESCE(section_id, 0) = COALESCE(?, 0)
+        AND COALESCE(medium, '') = COALESCE(?, '')
         AND stream_id_dedupe = ${STREAM_DEDUPE_SQL}
     `,
     [data.session_id, data.class_id, data.section_id, data.medium, data.stream_id]
@@ -581,12 +635,13 @@ async function replaceClassRoutineEntries(conn, versionId, entries = []) {
 }
 
 async function insertClassRoutineEntry(conn, versionId, entry) {
+  const hasApplicability = await hasClassRoutineApplicabilitySchema();
   const [result] = await conn.execute(
     `
       INSERT INTO class_routine_entries
       (routine_version_id, time_slot_id, weekday, period_number, start_time, end_time,
-       entry_type, subject_id, activity_id, title, room, notes, sort_order)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       entry_type, subject_id, activity_id, title, room, notes, sort_order${hasApplicability ? ", applies_medium" : ""})
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?${hasApplicability ? ", ?" : ""})
     `,
     [
       versionId,
@@ -602,8 +657,21 @@ async function insertClassRoutineEntry(conn, versionId, entry) {
       entry.room,
       entry.notes,
       entry.sort_order,
+      ...(hasApplicability ? [entry.applies_medium || null] : []),
     ]
   );
+  if (hasApplicability) {
+    for (const sectionId of entry.section_ids || []) {
+      await conn.execute(
+        `
+          INSERT IGNORE INTO class_routine_entry_sections
+          (routine_entry_id, section_id)
+          VALUES (?, ?)
+        `,
+        [result.insertId, sectionId]
+      );
+    }
+  }
   for (const teacher of entry.teachers || []) {
     await conn.execute(
       `
@@ -682,8 +750,8 @@ export async function publishClassRoutineVersion(id, userId) {
         WHERE id <> ?
           AND session_id = ?
           AND class_id = ?
-          AND section_id = ?
-          AND medium = ?
+          AND COALESCE(section_id, 0) = COALESCE(?, 0)
+          AND COALESCE(medium, '') = COALESCE(?, '')
           AND stream_id_dedupe = COALESCE(?, 0)
           AND status = 'published'
       `,
@@ -741,8 +809,8 @@ export function findClassRoutineTeacherConflicts(versionId) {
        AND cv.id <> nv.id
        AND NOT (
          cv.class_id = nv.class_id
-         AND cv.section_id = nv.section_id
-         AND cv.medium = nv.medium
+         AND COALESCE(cv.section_id, 0) = COALESCE(nv.section_id, 0)
+         AND COALESCE(cv.medium, '') = COALESCE(nv.medium, '')
          AND cv.stream_id_dedupe = nv.stream_id_dedupe
        )
       JOIN class_routine_entries ce
@@ -755,7 +823,7 @@ export function findClassRoutineTeacherConflicts(versionId) {
        AND ct.teacher_id = nt.teacher_id
       JOIN teachers t ON t.id = nt.teacher_id
       JOIN classes cc ON cc.id = cv.class_id
-      JOIN sections cs ON cs.id = cv.section_id
+      LEFT JOIN sections cs ON cs.id = cv.section_id
       JOIN class_routine_versions v ON v.id = cv.id
       WHERE nv.id = ?
       ORDER BY ne.weekday, ne.start_time, t.name
@@ -782,7 +850,7 @@ export function findInvalidClassRoutineTeacherAssignments(versionId) {
         ON ta.teacher_id = et.teacher_id
        AND ta.session_id = v.session_id
        AND ta.class_id = v.class_id
-       AND ta.section_id = v.section_id
+       AND (v.section_id IS NULL OR ta.section_id = v.section_id)
        AND ta.subject_id = e.subject_id
       WHERE v.id = ?
         AND e.entry_type = 'subject'
@@ -799,15 +867,33 @@ export function getPublishedClassRoutineForScope(filters) {
       FROM class_routine_versions
       WHERE session_id = ?
         AND class_id = ?
-        AND section_id = ?
-        AND medium = ?
+        AND (section_id = ? OR section_id IS NULL)
+        AND (medium = ? OR medium IS NULL)
         AND stream_id_dedupe = COALESCE(?, 0)
         AND status = 'published'
-      ORDER BY published_at DESC, id DESC
+      ORDER BY
+        CASE WHEN section_id = ? THEN 0 ELSE 1 END,
+        CASE WHEN medium = ? THEN 0 ELSE 1 END,
+        published_at DESC,
+        id DESC
       LIMIT 1
     `,
-    [filters.session_id, filters.class_id, filters.section_id, filters.medium, filters.stream_id]
+    [filters.session_id, filters.class_id, filters.section_id, filters.medium, filters.stream_id, filters.section_id, filters.medium]
   ).then((rows) => rows[0] || null);
+}
+
+export async function getRegisteredSubjectIdsForStudent(studentId) {
+  const rows = await query(
+    `
+      SELECT DISTINCT so.subject_id
+      FROM student_subject_registrations ssr
+      JOIN subject_offerings so ON so.id = ssr.subject_offering_id
+      WHERE ssr.student_id = ?
+        AND ssr.status IN ('selected', 'approved', 'active')
+    `,
+    [studentId]
+  ).catch(() => []);
+  return rows.map((row) => Number(row.subject_id)).filter(Boolean);
 }
 
 export function getEffectiveSubstitutions(filters = {}) {
