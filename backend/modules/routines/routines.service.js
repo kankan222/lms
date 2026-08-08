@@ -23,7 +23,7 @@ const SUBSTITUTION_TYPES = new Set([
   "free_period",
   "room_change",
 ]);
-const ROUTINE_BOARD_STATUSES = new Set(["published", "draft", "archived", "all"]);
+const ROUTINE_BOARD_STATUSES = new Set(["current", "published", "draft", "archived", "all"]);
 const WEEKDAY_LABELS = {
   1: "Monday",
   2: "Tuesday",
@@ -528,9 +528,9 @@ export function listClassRoutines(filters) {
 }
 
 function normalizeBoardStatus(value) {
-  const status = optionalString(value) || "published";
+  const status = optionalString(value) || "current";
   if (!ROUTINE_BOARD_STATUSES.has(status)) {
-    throw new AppError("Invalid status. Allowed: published, draft, archived, all", 400);
+    throw new AppError("Invalid status. Allowed: current, published, draft, archived, all", 400);
   }
   return status;
 }

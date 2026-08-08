@@ -230,7 +230,36 @@ export function listClassRoutineBoardRows(filters = {}) {
       where.push("COALESCE(c.class_scope, 'school') = ?");
       params.push(filters.class_scope);
     }
-    if (hasValue(filters.status) && filters.status !== "all") {
+    if (filters.status === "current") {
+      where.push("v.status IN ('draft', 'published')");
+      where.push(`
+        NOT EXISTS (
+          SELECT 1
+          FROM class_routine_versions other
+          WHERE other.session_id = v.session_id
+            AND other.class_id = v.class_id
+            AND other.section_id = v.section_id
+            AND other.medium = v.medium
+            AND other.stream_id_dedupe = v.stream_id_dedupe
+            AND other.status IN ('draft', 'published')
+            AND (
+              CASE other.status WHEN 'draft' THEN 1 WHEN 'published' THEN 2 ELSE 3 END
+                < CASE v.status WHEN 'draft' THEN 1 WHEN 'published' THEN 2 ELSE 3 END
+              OR (
+                CASE other.status WHEN 'draft' THEN 1 WHEN 'published' THEN 2 ELSE 3 END
+                  = CASE v.status WHEN 'draft' THEN 1 WHEN 'published' THEN 2 ELSE 3 END
+                AND COALESCE(other.updated_at, other.created_at, '1000-01-01') > COALESCE(v.updated_at, v.created_at, '1000-01-01')
+              )
+              OR (
+                CASE other.status WHEN 'draft' THEN 1 WHEN 'published' THEN 2 ELSE 3 END
+                  = CASE v.status WHEN 'draft' THEN 1 WHEN 'published' THEN 2 ELSE 3 END
+                AND COALESCE(other.updated_at, other.created_at, '1000-01-01') = COALESCE(v.updated_at, v.created_at, '1000-01-01')
+                AND other.id > v.id
+              )
+            )
+        )
+      `);
+    } else if (hasValue(filters.status) && filters.status !== "all") {
       where.push("v.status = ?");
       params.push(filters.status);
     }

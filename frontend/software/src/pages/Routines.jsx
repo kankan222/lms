@@ -835,15 +835,11 @@ export default function Routines() {
     setSubstitutions(unwrap(substitutionRes));
   }
 
-  async function loadClassRoutineBoardData(nextFilters = filters, weekday = selectedClassDay, routineId = selectedClassRoutineId) {
+  async function loadClassRoutineBoardData(nextFilters = filters, weekday = selectedClassDay) {
     const cleanFilters = Object.fromEntries(
       Object.entries(nextFilters).filter(([, value]) => value !== "")
     );
-    const response = await getClassRoutineBoard({
-      ...cleanFilters,
-      weekday,
-      ...(routineId ? { routine_version_id: routineId } : {}),
-    });
+    const response = await getClassRoutineBoard({ ...cleanFilters, weekday });
     setClassRoutineBoard(response.data || null);
   }
 
@@ -890,7 +886,7 @@ export default function Routines() {
     let active = true;
     const timeoutId = window.setTimeout(() => {
       if (!active) return;
-      loadClassRoutineBoardData(filters, selectedClassDay, selectedClassRoutineId)
+      loadClassRoutineBoardData(filters, selectedClassDay)
         .catch((err) => {
           if (active) showError(err.message || "Failed to load day routine view");
         });
@@ -900,7 +896,7 @@ export default function Routines() {
       window.clearTimeout(timeoutId);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeTab, classViewMode, selectedClassDay, filters, selectedClassRoutineId]);
+  }, [activeTab, classViewMode, selectedClassDay, filters]);
 
   useEffect(() => {
     if (!selectedExamRoutineId) return;
@@ -1326,7 +1322,7 @@ export default function Routines() {
       showNotice("Routine slot updated.");
       await loadRoutineData();
       if (classViewMode === "day") {
-        await loadClassRoutineBoardData(filters, selectedClassDay, response.data?.id || selectedClassRoutineId);
+        await loadClassRoutineBoardData(filters, selectedClassDay);
       }
     } catch (err) {
       showError(err.message || "Failed to update routine slot");
