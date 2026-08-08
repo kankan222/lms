@@ -18,6 +18,9 @@ Update this file after every meaningful implementation change.
   board choose one draft-first/published fallback routine per class scope, so it
   still displays all classes for the selected day while showing in-progress
   edits instead of stale published values.
+- Made class routine draft creation idempotent per class/section/medium/stream
+  scope, so editing a published routine or pressing create-draft again reuses
+  the existing draft instead of creating extra routine versions.
 - Added routine-only custom class routine slots so admins can place timetable
   labels such as English Dictation without creating formal marks subjects:
   custom slots require a title, may optionally select any teacher, skip

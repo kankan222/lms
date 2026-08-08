@@ -364,6 +364,26 @@ export async function getClassRoutineWithEntries(id) {
   return { ...version, entries };
 }
 
+export async function getLatestClassRoutineDraftForScope(scope) {
+  const rows = await query(
+    `
+      SELECT id
+      FROM class_routine_versions
+      WHERE session_id = ?
+        AND class_id = ?
+        AND section_id = ?
+        AND medium = ?
+        AND stream_id_dedupe = ${STREAM_DEDUPE_SQL}
+        AND status = 'draft'
+      ORDER BY updated_at DESC, id DESC
+      LIMIT 1
+    `,
+    [scope.session_id, scope.class_id, scope.section_id, scope.medium, scope.stream_id]
+  );
+  const draft = rows[0] || null;
+  return draft ? getClassRoutineWithEntries(draft.id) : null;
+}
+
 export async function getClassRoutineEntries(versionId) {
   const rows = await query(
     `
@@ -568,6 +588,9 @@ export async function upsertClassRoutineDraftSlot(id, entries, userId) {
 export async function createDraftFromClassRoutine(sourceId, userId) {
   const source = await getClassRoutineWithEntries(sourceId);
   if (!source) return null;
+  if (source.status === "draft") return source;
+  const existingDraft = await getLatestClassRoutineDraftForScope(source);
+  if (existingDraft) return existingDraft;
   const entries = source.entries.map((entry) => ({
     ...entry,
     teachers: entry.teacher_ids.map((teacherId, index) => ({
