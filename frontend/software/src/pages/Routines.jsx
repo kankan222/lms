@@ -42,7 +42,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { getClassStructure, getSessions, getStreams } from "../api/academic.api";
 import { getClassSubjects, getSubjectOfferings, getSubjects } from "../api/subjects.api";
 import { getAssignedTeachers, getTeachers } from "../api/teachers.api";
-import { getExams } from "../api/exam.api";
+import { getExamById, getExams } from "../api/exam.api";
 import { getActivities } from "../api/marksheet.api";
 import { useAuth } from "../hooks/useAuth";
 import {
@@ -122,6 +122,7 @@ const emptyExamEntry = {
   end_time: "10:00",
   entry_type: "subject",
   subject_id: "",
+  exam_subject_id: "",
   invigilator_id: "",
   title: "",
   room: "",
@@ -612,6 +613,7 @@ export default function Routines() {
   const [teachers, setTeachers] = useState([]);
   const [activities, setActivities] = useState([]);
   const [exams, setExams] = useState([]);
+  const [examSubjectOptions, setExamSubjectOptions] = useState([]);
   const [templates, setTemplates] = useState([]);
   const [classRoutines, setClassRoutines] = useState([]);
   const [classRoutineBoard, setClassRoutineBoard] = useState(null);
@@ -985,6 +987,94 @@ export default function Routines() {
   }, [examOpen, examForm.class_scope]);
 
   useEffect(() => {
+    if (!examOpen || !examForm.exam_id || !examForm.class_id) {
+      const timeoutId = window.setTimeout(() => setExamSubjectOptions([]), 0);
+      return () => window.clearTimeout(timeoutId);
+    }
+
+    let active = true;
+    const timeoutId = window.setTimeout(() => {
+      if (!active) return;
+      const offeringParams = {
+        class_id: examForm.class_id,
+        section_id: examForm.section_id,
+        medium: examForm.medium,
+        stream_id: examForm.stream_id,
+      };
+      Promise.all([
+        getExamById(examForm.exam_id),
+        getSubjectOfferings(offeringParams),
+      ])
+        .then(async ([examResponse, offeringResponse]) => {
+          const examSubjects = unwrap({ data: examResponse.data?.subjects || [] });
+          let offerings = unwrap(offeringResponse);
+          if (!offerings.length) {
+            offerings = unwrap(await getClassSubjects(examForm.class_id)).map((subject) => ({
+              subject_id: subject.id,
+              subject_name: subject.name,
+              subject_code: subject.code,
+              subject_group: subject.subject_group,
+            }));
+          }
+          const offeringIds = new Set(offerings.map((offering) => String(offering.id)).filter(Boolean));
+          const offeringSubjectIds = new Set(offerings.map((offering) => String(offering.subject_id)).filter(Boolean));
+          const rawOptions = examSubjects.length
+            ? examSubjects.filter((subject) => {
+                const offeringId = subject.subject_offering_id;
+                if (offeringId) return offeringIds.has(String(offeringId)) || offeringSubjectIds.has(String(subject.subject_id));
+                return offeringSubjectIds.has(String(subject.subject_id));
+              })
+            : offerings.map((offering) => ({
+                subject_id: offering.subject_id,
+                subject_name: offering.subject_name,
+                subject_code: offering.subject_code,
+                subject_group: offering.subject_group,
+              }));
+          const options = Array.from(
+            new Map(rawOptions
+              .filter((subject) => subject.subject_id && subject.subject_name)
+              .map((subject) => [String(subject.subject_id), {
+                id: subject.subject_id,
+                exam_subject_id: subject.exam_subject_id || subject.id || null,
+                subject_offering_id: subject.subject_offering_id || null,
+                name: subject.subject_name,
+                code: subject.subject_code,
+                subject_group: subject.subject_group,
+              }]))
+              .values()
+          ).sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")));
+          if (!active) return;
+          setExamSubjectOptions(options);
+          setExamForm((current) => {
+            let changed = false;
+            const entries = (current.entries || []).map((entry) => {
+              if (!entry.subject_id) return entry;
+              const option = options.find((subject) => String(subject.id) === String(entry.subject_id));
+              if (option) {
+                if (String(entry.exam_subject_id || "") === String(option.exam_subject_id || "")) return entry;
+                changed = true;
+                return { ...entry, exam_subject_id: option.exam_subject_id ? String(option.exam_subject_id) : "" };
+              }
+              changed = true;
+              return { ...entry, subject_id: "", exam_subject_id: "" };
+            });
+            return changed ? { ...current, entries } : current;
+          });
+        })
+        .catch((err) => {
+          if (active) {
+            setExamSubjectOptions([]);
+            showError(err.message || "Failed to load exam subjects for class");
+          }
+        });
+    }, 0);
+    return () => {
+      active = false;
+      window.clearTimeout(timeoutId);
+    };
+  }, [examOpen, examForm.exam_id, examForm.class_id, examForm.section_id, examForm.medium, examForm.stream_id]);
+
+  useEffect(() => {
     if (!selectedClassRoutine?.time_slot_template_id) {
       const timeoutId = window.setTimeout(() => setSelectedTemplateSlots([]), 0);
       return () => window.clearTimeout(timeoutId);
@@ -1184,6 +1274,7 @@ export default function Routines() {
             end_time: timeInputValue(entry.end_time, "10:00"),
             entry_type: entry.entry_type || "subject",
             subject_id: entry.subject_id ? String(entry.subject_id) : "",
+            exam_subject_id: entry.exam_subject_id ? String(entry.exam_subject_id) : "",
             invigilator_id: entry.invigilator_ids?.[0] ? String(entry.invigilator_ids[0]) : "",
             title: entry.title || "",
             room: entry.room || "",
@@ -1433,6 +1524,9 @@ export default function Routines() {
         const section = (selectedExamClass?.sections || []).find((item) => String(item.id) === String(value));
         next.medium = section?.medium || "";
       }
+      if (["class_scope", "exam_id", "class_id", "section_id", "stream_id"].includes(key)) {
+        next.entries = (next.entries || []).map((entry) => ({ ...entry, subject_id: "", exam_subject_id: "" }));
+      }
       return next;
     });
   }
@@ -1532,6 +1626,7 @@ export default function Routines() {
         medium: examForm.medium,
         stream_id: toNumberOrNull(examForm.stream_id),
         subject_id: toNumberOrNull(entry.subject_id),
+        exam_subject_id: toNumberOrNull(entry.exam_subject_id),
         invigilators: entry.invigilator_id
           ? [{ teacher_id: Number(entry.invigilator_id), invigilation_role: "invigilator" }]
           : [],
@@ -2301,9 +2396,32 @@ export default function Routines() {
                           <Field label="Start"><Input type="time" value={entry.start_time} onChange={(event) => updateExamEntry(index, "start_time", event.target.value)} /></Field>
                           <Field label="End"><Input type="time" value={entry.end_time} onChange={(event) => updateExamEntry(index, "end_time", event.target.value)} /></Field>
                           <Field label="Subject">
-                            <select className={selectClassName} value={entry.subject_id} onChange={(event) => updateExamEntry(index, "subject_id", event.target.value)}>
-                              <option value="">None</option>
-                              {subjects.map((subject) => <option key={subject.id} value={subject.id}>{subject.name}</option>)}
+                            <select
+                              className={selectClassName}
+                              value={entry.subject_id}
+                              onChange={(event) => {
+                                const option = examSubjectOptions.find((subject) => String(subject.id) === String(event.target.value));
+                                setExamForm((current) => ({
+                                  ...current,
+                                  entries: current.entries.map((row, rowIndex) =>
+                                    rowIndex === index
+                                      ? {
+                                          ...row,
+                                          subject_id: event.target.value,
+                                          exam_subject_id: option?.exam_subject_id ? String(option.exam_subject_id) : "",
+                                        }
+                                      : row
+                                  ),
+                                }));
+                              }}
+                              disabled={!examForm.exam_id || !examForm.class_id}
+                            >
+                              <option value="">{examForm.exam_id && examForm.class_id ? "None" : "Select exam and class"}</option>
+                              {examSubjectOptions.map((subject) => (
+                                <option key={`${subject.id}-${subject.exam_subject_id || "subject"}`} value={subject.id}>
+                                  {subject.name}
+                                </option>
+                              ))}
                             </select>
                           </Field>
                           <Field label="Invigilator">

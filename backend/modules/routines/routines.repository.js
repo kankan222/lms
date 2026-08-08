@@ -993,6 +993,28 @@ export function getExamById(examId) {
   return query("SELECT id, name, session_id FROM exams WHERE id = ? LIMIT 1", [examId]).then((rows) => rows[0] || null);
 }
 
+export function getExamRoutineSubjectEligibility(examId, scope) {
+  return query(
+    `
+      SELECT
+        es.id AS exam_subject_id,
+        es.subject_id,
+        es.subject_offering_id,
+        so.id AS offered_subject_offering_id,
+        so.subject_id AS offered_subject_id
+      FROM exam_subjects es
+      LEFT JOIN subject_offerings so
+        ON so.is_active = TRUE
+       AND so.subject_id = es.subject_id
+       AND so.class_id = ?
+       AND (so.section_id IS NULL OR so.section_id = ?)
+       AND (so.stream_id IS NULL OR so.stream_id = ?)
+      WHERE es.exam_id = ?
+    `,
+    [scope.class_id, scope.section_id, scope.stream_id, examId]
+  );
+}
+
 export async function getRoutineImportLookups() {
   const [sessions, classes, sections, streams, subjects, teachers, exams, activities] = await Promise.all([
     query("SELECT id, name FROM academic_sessions"),

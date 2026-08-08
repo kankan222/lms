@@ -34,6 +34,9 @@ Update this file after every meaningful implementation change.
   -> Class -> Section creation flow in the software Exam Routine dialog.
 - Scoped the Exam Routine dialog's exam selector so it requests exams from the
   server by selected class scope and hides exams that do not match that scope.
+- Scoped Exam Routine subject choices to the selected exam and selected
+  class/section/stream offerings, with backend validation rejecting subjects
+  outside the exam or class scope.
 - Added routine-only custom class routine slots so admins can place timetable
   labels such as English Dictation without creating formal marks subjects:
   custom slots require a title, may optionally select any teacher, skip

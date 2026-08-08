@@ -982,6 +982,36 @@ function applyExamRoutineScopeToEntries(entries, scope) {
   }));
 }
 
+async function ensureExamRoutineSubjectsAllowed(examId, scope, entries) {
+  const subjectEntries = entries.filter((entry) => entry.entry_type === "subject");
+  if (!subjectEntries.length) return;
+  const eligibility = await repo.getExamRoutineSubjectEligibility(examId, scope);
+  const examSubjectsBySubject = new Map();
+  const examSubjectsById = new Map();
+  const offeredSubjectIds = new Set();
+  eligibility.forEach((row) => {
+    if (row.subject_id) examSubjectsBySubject.set(String(row.subject_id), row);
+    if (row.exam_subject_id) examSubjectsById.set(String(row.exam_subject_id), row);
+    if (row.offered_subject_id) offeredSubjectIds.add(String(row.offered_subject_id));
+  });
+  for (const entry of subjectEntries) {
+    const subjectKey = String(entry.subject_id || "");
+    const examSubjectKey = String(entry.exam_subject_id || "");
+    if (!examSubjectsBySubject.has(subjectKey)) {
+      throw new AppError("Selected subject is not configured for this exam", 400);
+    }
+    if (entry.exam_subject_id) {
+      const examSubject = examSubjectsById.get(examSubjectKey);
+      if (!examSubject || String(examSubject.subject_id) !== subjectKey) {
+        throw new AppError("Selected exam subject does not match the selected subject", 400);
+      }
+    }
+    if (offeredSubjectIds.size && !offeredSubjectIds.has(subjectKey)) {
+      throw new AppError("Selected subject is not offered for this class or section", 400);
+    }
+  }
+}
+
 export function listExamRoutines(filters) {
   return repo.listExamRoutineVersions(filters);
 }
@@ -996,7 +1026,9 @@ export async function createExamRoutine(body, userId) {
   const exam = await repo.getExamById(intValue(body.exam_id, "exam_id"));
   if (!exam) throw new AppError("Exam not found", 404);
   const payload = normalizeExamRoutinePayload(body, exam, userId);
-  return repo.createExamRoutineVersion(payload, normalizeExamRoutineEntries(applyExamRoutineScopeToEntries(body.entries, payload)));
+  const entries = normalizeExamRoutineEntries(applyExamRoutineScopeToEntries(body.entries, payload));
+  await ensureExamRoutineSubjectsAllowed(exam.id, payload, entries);
+  return repo.createExamRoutineVersion(payload, entries);
 }
 
 export async function importExamRoutine(file, body = {}, userId) {
@@ -1104,10 +1136,16 @@ export async function updateExamRoutine(id, body, userId) {
     exam,
     userId
   );
+  const entries = Array.isArray(body.entries)
+    ? normalizeExamRoutineEntries(applyExamRoutineScopeToEntries(body.entries, payload))
+    : undefined;
+  if (entries) {
+    await ensureExamRoutineSubjectsAllowed(exam.id, payload, entries);
+  }
   const result = await repo.updateExamRoutineDraft(
     current.id,
     payload,
-    Array.isArray(body.entries) ? normalizeExamRoutineEntries(applyExamRoutineScopeToEntries(body.entries, payload)) : undefined
+    entries
   );
   if (!result) throw new AppError("Only draft exam routines can be updated", 400);
   return result;
