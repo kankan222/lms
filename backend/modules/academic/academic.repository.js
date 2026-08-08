@@ -136,6 +136,7 @@ export async function getClasses(filters = {}) {
   SELECT
   c.id,
   c.name,
+  c.display_order,
   c.scope_id,
   COALESCE(sc.code, c.class_scope, 'school') AS class_scope,
   sc.name AS scope_name,
@@ -149,8 +150,8 @@ LEFT JOIN sections sec ON sec.class_id = c.id
 LEFT JOIN class_subjects cs ON cs.class_id = c.id
 LEFT JOIN subjects sub ON sub.id = cs.subject_id
 WHERE c.is_active = TRUE
-GROUP BY c.id, c.name, c.scope_id, COALESCE(sc.code, c.class_scope, 'school'), sc.name, c.medium
-ORDER BY c.id
+GROUP BY c.id, c.name, c.display_order, c.scope_id, COALESCE(sc.code, c.class_scope, 'school'), sc.name, c.medium
+ORDER BY COALESCE(c.display_order, c.id), c.id
 ${hasPagination ? `LIMIT ${limit} OFFSET ${offset}` : ""}
   `);
 
@@ -182,6 +183,7 @@ export async function getClassStructure() {
     SELECT
       c.id AS class_id,
       c.name AS class_name,
+      c.display_order AS class_display_order,
       c.scope_id AS scope_id,
       COALESCE(sc.code, c.class_scope, 'school') AS class_scope,
       sc.name AS scope_name,
@@ -197,7 +199,7 @@ export async function getClassStructure() {
     LEFT JOIN class_subjects cs ON cs.class_id = c.id
     LEFT JOIN subjects sub ON sub.id = cs.subject_id
     WHERE c.is_active = TRUE
-    ORDER BY c.id
+    ORDER BY COALESCE(c.display_order, c.id), c.id
   `);
 }
 export async function listScopes() {
@@ -235,7 +237,7 @@ export async function getScopeById(id) {
   return rows[0] || null;
 }
 
-export async function createClass(name, scope, sections = [], mediums = []) {
+export async function createClass(name, scope, sections = [], mediums = [], displayOrder = null) {
   const conn = await pool.getConnection();
 
   try {
@@ -250,8 +252,8 @@ export async function createClass(name, scope, sections = [], mediums = []) {
     const mediumValue = [...new Set([...sectionMediums, ...explicitMediums])].join(",");
 
     const [result] = await conn.query(
-      `INSERT INTO classes (name, class_scope, scope_id, medium, is_active) VALUES (?, ?, ?, ?, TRUE)`,
-      [name, scope.code, scope.id, mediumValue]
+      `INSERT INTO classes (name, display_order, class_scope, scope_id, medium, is_active) VALUES (?, ?, ?, ?, ?, TRUE)`,
+      [name, displayOrder, scope.code, scope.id, mediumValue]
     );
 
     const classId = result.insertId;
@@ -274,7 +276,7 @@ export async function createClass(name, scope, sections = [], mediums = []) {
     conn.release();
   }
 }
-export async function updateClass(id, name, scope, sections = [], mediums = []) {
+export async function updateClass(id, name, scope, sections = [], mediums = [], displayOrder = null) {
   const conn = await pool.getConnection();
 
   try {
@@ -289,8 +291,8 @@ export async function updateClass(id, name, scope, sections = [], mediums = []) 
     const mediumValue = [...new Set([...sectionMediums, ...explicitMediums])].join(",");
 
     await conn.query(
-      `UPDATE classes SET name=?, class_scope=?, scope_id=?, medium=? WHERE id=?`,
-      [name, scope.code, scope.id, mediumValue, id]
+      `UPDATE classes SET name=?, display_order=?, class_scope=?, scope_id=?, medium=? WHERE id=?`,
+      [name, displayOrder, scope.code, scope.id, mediumValue, id]
     );
 
     const [existingSections] = await conn.query(

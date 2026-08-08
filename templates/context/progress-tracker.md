@@ -19,6 +19,21 @@ Update this file after every meaningful implementation change.
   custom slots require a title, may optionally select any teacher, skip
   subject-assignment validation, and still participate in teacher conflict
   checks when a teacher is selected.
+- Removed the overview metric card section from the software Announcements page
+  so the management filters, creation action, and tabs start directly below
+  page notices.
+- Aligned the software Announcements page with internal UI standards by moving
+  page actions into `TopBar`, putting filters in a compact popover, switching
+  tabs to the line variant, tightening dialog scroll/footer treatment, and
+  using neutral dark-mode-safe row surfaces.
+- Updated software Announcements feedback alerts so draft saves, scheduled
+  saves, draft-version creation, publish, template import, SMS dispatch, and
+  failures show specific titles and messages instead of the old generic
+  Updated/Action failed text.
+- Added durable class display ordering with a migration-backed
+  `classes.display_order`, Roman numeral backfill defaults, Classes create/edit
+  controls for the order value, academic API exposure, and Routine day-board
+  sorting by display order instead of alphabetical class name.
 - Documented the planned Routine and Announcements modules in requirements,
   project overview, and architecture context: class/exam routine versioning,
   breaks, substitutions, teacher conflict rules, role-specific views, DLT-based

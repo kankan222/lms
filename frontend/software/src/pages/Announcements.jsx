@@ -1,6 +1,5 @@
-import { createElement, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  BellRing,
   CalendarDays,
   ChevronLeft,
   ChevronRight,
@@ -9,6 +8,7 @@ import {
   Plus,
   RefreshCcw,
   Send,
+  SlidersHorizontal,
   Smartphone,
   Upload,
 } from "lucide-react";
@@ -27,6 +27,14 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Popover,
+  PopoverContent,
+  PopoverDescription,
+  PopoverHeader,
+  PopoverTitle,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { getClassStructure, getSessions } from "../api/academic.api";
@@ -254,9 +262,14 @@ function Field({ label, children }) {
 
 function ToggleField({ label, checked, onChange }) {
   return (
-    <label className="flex min-h-10 items-center gap-2 rounded-md border border-border px-3 text-sm">
-      <input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} />
-      <span>{label}</span>
+    <label className="flex min-h-10 items-center gap-2 rounded-md border border-border bg-background px-3 text-sm dark:bg-input/30">
+      <input
+        type="checkbox"
+        className="size-4 rounded border-border accent-stone-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 dark:accent-stone-300 dark:focus-visible:ring-offset-background"
+        checked={checked}
+        onChange={(event) => onChange(event.target.checked)}
+      />
+      <span className="text-foreground">{label}</span>
     </label>
   );
 }
@@ -270,22 +283,6 @@ function FormSection({ title, description, children }) {
       </div>
       <div className="grid gap-3 p-4">{children}</div>
     </div>
-  );
-}
-
-function MetricCard({ icon, label, value }) {
-  return (
-    <Card className="rounded-lg">
-      <CardHeader className="flex flex-row items-center justify-between gap-3 space-y-0">
-        <div>
-          <CardDescription>{label}</CardDescription>
-          <CardTitle className="text-3xl">{value}</CardTitle>
-        </div>
-        <div className="rounded-md border border-border bg-muted/30 p-2">
-          {createElement(icon, { className: "size-5 text-muted-foreground" })}
-        </div>
-      </CardHeader>
-    </Card>
   );
 }
 
@@ -372,7 +369,8 @@ export default function Announcements() {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
-  const [notice, setNotice] = useState("");
+  const [errorTitle, setErrorTitle] = useState("Action failed");
+  const [notice, setNotice] = useState(null);
   const [announcementOpen, setAnnouncementOpen] = useState(false);
   const [templateOpen, setTemplateOpen] = useState(false);
   const [categoryOpen, setCategoryOpen] = useState(false);
@@ -388,6 +386,11 @@ export default function Announcements() {
   const [templateForm, setTemplateForm] = useState(emptyTemplateForm);
   const [categoryForm, setCategoryForm] = useState({ name: "", slug: "", description: "" });
 
+  const activeFilterCount = useMemo(
+    () => Object.values(filters).filter(Boolean).length,
+    [filters]
+  );
+
   const selectedClass = useMemo(
     () => classes.find((item) => String(item.id) === String(announcementForm.class_id)),
     [announcementForm.class_id, classes]
@@ -396,12 +399,6 @@ export default function Announcements() {
     () => new Set(categories.filter((item) => ["holiday", "festival", "vacation"].includes(item.slug)).map((item) => Number(item.id))),
     [categories]
   );
-  const stats = useMemo(() => {
-    const drafts = announcements.filter((item) => item.status === "draft" || item.status === "scheduled").length;
-    const published = announcements.filter((item) => ["published", "sent"].includes(item.status)).length;
-    const offline = announcements.filter((item) => ["offline_sms", "both"].includes(item.delivery_mode)).length;
-    return { drafts, published, offline };
-  }, [announcements]);
   const calendarDays = useMemo(() => buildCalendarDays(holidayMonth), [holidayMonth]);
   const monthHolidays = useMemo(
     () => holidays.filter((item) => holidayOverlapsMonth(item, holidayMonth)),
@@ -466,32 +463,67 @@ export default function Announcements() {
     void Promise.resolve().then(loadAnnouncements);
   }, [loadAnnouncements]);
 
+  function clearFeedback() {
+    setError("");
+    setErrorTitle("Action failed");
+    setNotice(null);
+  }
+
+  function showSuccess(title, message) {
+    setError("");
+    setErrorTitle("Action failed");
+    setNotice({ title, message, variant: "success" });
+  }
+
+  function showInfo(title, message) {
+    setError("");
+    setErrorTitle("Action failed");
+    setNotice({ title, message, variant: "default" });
+  }
+
+  function showError(title, message) {
+    setNotice(null);
+    setErrorTitle(title || "Action failed");
+    setError(message || "Something went wrong.");
+  }
+
   async function refreshAll() {
     await loadInitial();
-    setNotice("Announcements refreshed.");
+    showInfo("Announcements Refreshed", "The announcement lists, SMS jobs, templates, and holidays were reloaded.");
   }
 
   async function saveAnnouncement() {
     setSaving(true);
-    setError("");
+    clearFeedback();
     try {
       const payload = buildAnnouncementPayload(announcementForm);
       if (editingAnnouncement) {
         const response = await updateAnnouncement(editingAnnouncement.id, payload);
         await loadInitial();
-        setNotice(["published", "sent"].includes(editingAnnouncement.status)
-          ? `Draft version #${response.data?.version_number || ""} created.`
-          : "Announcement updated.");
+        if (["published", "sent"].includes(editingAnnouncement.status)) {
+          showSuccess(
+            "Draft Version Created",
+            `Draft version #${response.data?.version_number || ""} was created from the published announcement.`
+          );
+        } else if (payload.status === "scheduled") {
+          showSuccess("Announcement Scheduled", "The announcement was saved and will publish at the selected time.");
+        } else {
+          showSuccess("Draft Updated", "The announcement draft was updated.");
+        }
       } else {
         const response = await createAnnouncement(payload);
         setAnnouncements((prev) => [response.data, ...prev]);
-        setNotice("Announcement saved as draft.");
+        if (payload.status === "scheduled") {
+          showSuccess("Announcement Scheduled", "The announcement was saved and will publish at the selected time.");
+        } else {
+          showSuccess("Draft Saved", "The announcement was saved as a draft.");
+        }
       }
       setAnnouncementOpen(false);
       setAnnouncementForm(emptyAnnouncementForm);
       setEditingAnnouncement(null);
     } catch (err) {
-      setError(err?.message || "Could not save announcement.");
+      showError("Save Failed", err?.message || "Could not save announcement.");
     } finally {
       setSaving(false);
     }
@@ -499,7 +531,7 @@ export default function Announcements() {
 
   async function openAnnouncementEditor(item) {
     setSaving(true);
-    setError("");
+    clearFeedback();
     try {
       const response = await getAnnouncement(item.id);
       const detail = response.data || item;
@@ -507,7 +539,7 @@ export default function Announcements() {
       setAnnouncementForm(announcementToForm(detail));
       setAnnouncementOpen(true);
     } catch (err) {
-      setError(err?.message || "Could not load announcement.");
+      showError("Load Failed", err?.message || "Could not load announcement.");
     } finally {
       setSaving(false);
     }
@@ -515,13 +547,20 @@ export default function Announcements() {
 
   async function handlePublish(item) {
     setSaving(true);
-    setError("");
+    clearFeedback();
     try {
-      await publishAnnouncement(item.id);
+      const response = await publishAnnouncement(item.id);
       await loadInitial();
-      setNotice("Announcement published.");
+      const smsJob = response.data?.sms_job;
+      const hasOnline = ["online", "both"].includes(item.delivery_mode);
+      const deliveryText = smsJob
+        ? ` SMS job #${smsJob.id} was ${smsJob.status === "scheduled" ? "scheduled" : "queued"} for ${smsJob.total_recipients || 0} recipient${Number(smsJob.total_recipients || 0) === 1 ? "" : "s"}.`
+        : hasOnline
+          ? " Online notifications were processed for the selected target."
+          : "";
+      showSuccess("Announcement Published", `${item.title || "Announcement"} is now published.${deliveryText}`);
     } catch (err) {
-      setError(err?.message || "Could not publish announcement.");
+      showError("Publish Failed", err?.message || "Could not publish announcement.");
     } finally {
       setSaving(false);
     }
@@ -529,7 +568,7 @@ export default function Announcements() {
 
   async function saveTemplate() {
     setSaving(true);
-    setError("");
+    clearFeedback();
     try {
       const payload = {
         ...templateForm,
@@ -537,11 +576,11 @@ export default function Announcements() {
       };
       const response = await createAnnouncementSmsTemplate(payload);
       setTemplates((prev) => [response.data, ...prev]);
-      setNotice("DLT template saved.");
+      showSuccess("DLT Template Saved", "The SMS template is available for offline announcements.");
       setTemplateOpen(false);
       setTemplateForm(emptyTemplateForm);
     } catch (err) {
-      setError(err?.message || "Could not save DLT template.");
+      showError("Template Save Failed", err?.message || "Could not save DLT template.");
     } finally {
       setSaving(false);
     }
@@ -549,25 +588,29 @@ export default function Announcements() {
 
   async function importTemplates() {
     if (!importFile) {
-      setError("Choose an XLSX or CSV file first.");
+      showError("Import Failed", "Choose an XLSX or CSV file first.");
       return;
     }
     setSaving(true);
-    setError("");
+    clearFeedback();
     try {
       const response = await importAnnouncementSmsTemplates(importFile);
       const result = response.data || {};
       const templateRes = await getAnnouncementSmsTemplates();
       setTemplates(unwrap(templateRes));
-      setNotice(`Imported ${result.imported_count || 0} template${Number(result.imported_count || 0) === 1 ? "" : "s"}.`);
       if (result.failed_count) {
-        setError(`${result.failed_count} row${Number(result.failed_count) === 1 ? "" : "s"} failed during import.`);
+        showError(
+          "Import Partially Completed",
+          `Imported ${result.imported_count || 0} template${Number(result.imported_count || 0) === 1 ? "" : "s"}; ${result.failed_count} row${Number(result.failed_count) === 1 ? "" : "s"} failed.`
+        );
+      } else {
+        showSuccess("DLT Templates Imported", `Imported ${result.imported_count || 0} template${Number(result.imported_count || 0) === 1 ? "" : "s"}.`);
       }
       setImportFile(null);
       setImportOpen(false);
       setActiveTab("templates");
     } catch (err) {
-      setError(err?.message || "Could not import DLT templates.");
+      showError("Import Failed", err?.message || "Could not import DLT templates.");
     } finally {
       setSaving(false);
     }
@@ -575,18 +618,22 @@ export default function Announcements() {
 
   async function dispatchDueSms() {
     setSaving(true);
-    setError("");
+    clearFeedback();
     try {
       const response = await dispatchAnnouncementSmsJobs();
       const result = response.data || {};
       const jobsRes = await getAnnouncementSmsJobs();
       setSmsJobs(unwrap(jobsRes));
-      setNotice(`Dispatched ${result.attempted || 0} recipient${Number(result.attempted || 0) === 1 ? "" : "s"}.`);
       if (result.failed) {
-        setError(`${result.failed} SMS recipient${Number(result.failed) === 1 ? "" : "s"} failed during dispatch.`);
+        showError(
+          "SMS Dispatch Partially Completed",
+          `Dispatched ${result.sent || 0} recipient${Number(result.sent || 0) === 1 ? "" : "s"}; ${result.failed} failed.`
+        );
+      } else {
+        showSuccess("SMS Dispatch Completed", `Dispatched ${result.attempted || 0} recipient${Number(result.attempted || 0) === 1 ? "" : "s"}.`);
       }
     } catch (err) {
-      setError(err?.message || "Could not dispatch SMS jobs.");
+      showError("SMS Dispatch Failed", err?.message || "Could not dispatch SMS jobs.");
     } finally {
       setSaving(false);
     }
@@ -594,18 +641,22 @@ export default function Announcements() {
 
   async function dispatchSingleSmsJob(job) {
     setSaving(true);
-    setError("");
+    clearFeedback();
     try {
       const response = await dispatchAnnouncementSmsJob(job.id);
       const result = response.data || {};
       const jobsRes = await getAnnouncementSmsJobs();
       setSmsJobs(unwrap(jobsRes));
-      setNotice(`Job #${job.id} dispatched ${result.attempted || 0} recipient${Number(result.attempted || 0) === 1 ? "" : "s"}.`);
       if (result.failed) {
-        setError(`${result.failed} SMS recipient${Number(result.failed) === 1 ? "" : "s"} failed for job #${job.id}.`);
+        showError(
+          "SMS Job Partially Completed",
+          `Job #${job.id} sent ${result.sent || 0} recipient${Number(result.sent || 0) === 1 ? "" : "s"}; ${result.failed} failed.`
+        );
+      } else {
+        showSuccess("SMS Job Dispatched", `Job #${job.id} dispatched ${result.attempted || 0} recipient${Number(result.attempted || 0) === 1 ? "" : "s"}.`);
       }
     } catch (err) {
-      setError(err?.message || "Could not dispatch SMS job.");
+      showError("SMS Job Failed", err?.message || "Could not dispatch SMS job.");
     } finally {
       setSaving(false);
     }
@@ -613,18 +664,22 @@ export default function Announcements() {
 
   async function refreshSmsJobStatus(job) {
     setSaving(true);
-    setError("");
+    clearFeedback();
     try {
       const response = await refreshAnnouncementSmsJobStatus(job.id);
       const result = response.data || {};
       const jobsRes = await getAnnouncementSmsJobs();
       setSmsJobs(unwrap(jobsRes));
-      setNotice(`Job #${job.id} checked ${result.checked || 0} recipient${Number(result.checked || 0) === 1 ? "" : "s"}.`);
       if (result.failed) {
-        setError(`${result.failed} SMS status check${Number(result.failed) === 1 ? "" : "s"} failed for job #${job.id}.`);
+        showError(
+          "Status Refresh Partially Completed",
+          `Job #${job.id} checked ${result.checked || 0} recipient${Number(result.checked || 0) === 1 ? "" : "s"}; ${result.failed} status check${Number(result.failed) === 1 ? "" : "s"} failed.`
+        );
+      } else {
+        showSuccess("SMS Status Refreshed", `Job #${job.id} checked ${result.checked || 0} recipient${Number(result.checked || 0) === 1 ? "" : "s"}.`);
       }
     } catch (err) {
-      setError(err?.message || "Could not refresh SMS delivery status.");
+      showError("Status Refresh Failed", err?.message || "Could not refresh SMS delivery status.");
     } finally {
       setSaving(false);
     }
@@ -632,15 +687,15 @@ export default function Announcements() {
 
   async function saveCategory() {
     setSaving(true);
-    setError("");
+    clearFeedback();
     try {
       const response = await createAnnouncementCategory(categoryForm);
       setCategories((prev) => [response.data, ...prev]);
-      setNotice("Category saved.");
+      showSuccess("Category Saved", "The category is available for new announcements.");
       setCategoryOpen(false);
       setCategoryForm({ name: "", slug: "", description: "" });
     } catch (err) {
-      setError(err?.message || "Could not save category.");
+      showError("Category Save Failed", err?.message || "Could not save category.");
     } finally {
       setSaving(false);
     }
@@ -657,54 +712,60 @@ export default function Announcements() {
 
   return (
     <div className="space-y-4">
-      <TopBar title="Announcements" subTitle="Draft, publish, and track online announcements, DLT SMS queues, and holidays" />
-
-      {error ? (
-        <Alert variant="destructive">
-          <AlertTitle>Action failed</AlertTitle>
-          <AlertDescription>{error}</AlertDescription>
-        </Alert>
-      ) : null}
-      {notice ? (
-        <Alert>
-          <AlertTitle>Updated</AlertTitle>
-          <AlertDescription>{notice}</AlertDescription>
-        </Alert>
-      ) : null}
-
-      <section className="grid gap-4 md:grid-cols-4">
-        <MetricCard icon={Megaphone} label="Total Announcements" value={announcements.length} />
-        <MetricCard icon={BellRing} label="Draft / Scheduled" value={stats.drafts} />
-        <MetricCard icon={Send} label="Published" value={stats.published} />
-        <MetricCard icon={Smartphone} label="Offline SMS" value={stats.offline} />
-      </section>
-
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-wrap gap-2">
-          <select className={selectClassName} value={filters.status} onChange={(event) => setFilters((prev) => ({ ...prev, status: event.target.value }))}>
-            <option value="">All statuses</option>
-            <option value="draft">Draft</option>
-            <option value="scheduled">Scheduled</option>
-            <option value="published">Published</option>
-            <option value="sent">Sent</option>
-            <option value="cancelled">Cancelled</option>
-          </select>
-          <select className={selectClassName} value={filters.delivery_mode} onChange={(event) => setFilters((prev) => ({ ...prev, delivery_mode: event.target.value }))}>
-            <option value="">All delivery modes</option>
-            <option value="online">Online</option>
-            <option value="offline_sms">Offline SMS</option>
-            <option value="both">Online + SMS</option>
-          </select>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <Button variant="outline" onClick={refreshAll} disabled={loading}>
-            <RefreshCcw className="mr-2 size-4" /> Refresh
-          </Button>
+      <TopBar
+        title="Announcements"
+        subTitle="Draft, publish, and track online announcements, DLT SMS queues, and holidays"
+        action={
+          <div className="flex flex-wrap items-center justify-end gap-1">
+            <Button variant="outline" className="gap-1" onClick={refreshAll} disabled={loading}>
+              <RefreshCcw className="size-4" />
+              Refresh
+            </Button>
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button variant="outline" className="gap-1">
+                  <SlidersHorizontal className="size-4" />
+                  Filters
+                  {activeFilterCount ? <Badge variant="secondary" className="ml-1 px-1.5">{activeFilterCount}</Badge> : null}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent align="end" className="w-[min(92vw,360px)] space-y-4">
+                <PopoverHeader>
+                  <PopoverTitle>Announcement Filters</PopoverTitle>
+                  <PopoverDescription>Filter by publication status and delivery mode.</PopoverDescription>
+                </PopoverHeader>
+                <div className="grid gap-3">
+                  <Field label="Status">
+                    <select className={selectClassName} value={filters.status} onChange={(event) => setFilters((prev) => ({ ...prev, status: event.target.value }))}>
+                      <option value="">All statuses</option>
+                      <option value="draft">Draft</option>
+                      <option value="scheduled">Scheduled</option>
+                      <option value="published">Published</option>
+                      <option value="sent">Sent</option>
+                      <option value="cancelled">Cancelled</option>
+                    </select>
+                  </Field>
+                  <Field label="Delivery">
+                    <select className={selectClassName} value={filters.delivery_mode} onChange={(event) => setFilters((prev) => ({ ...prev, delivery_mode: event.target.value }))}>
+                      <option value="">All delivery modes</option>
+                      <option value="online">Online</option>
+                      <option value="offline_sms">Offline SMS</option>
+                      <option value="both">Online + SMS</option>
+                    </select>
+                  </Field>
+                </div>
+                <div className="flex justify-end border-t border-border pt-3">
+                  <Button type="button" variant="outline" size="sm" onClick={() => setFilters({ status: "", delivery_mode: "" })}>
+                    Clear filters
+                  </Button>
+                </div>
+              </PopoverContent>
+            </Popover>
           <Dialog open={categoryOpen} onOpenChange={setCategoryOpen}>
             <DialogTrigger asChild>
-              <Button variant="outline"><Plus className="mr-2 size-4" /> Category</Button>
+              <Button variant="outline" className="gap-1"><Plus className="size-4" /> Category</Button>
             </DialogTrigger>
-            <DialogContent>
+            <DialogContent className="max-h-[85vh] overflow-y-auto">
               <DialogHeader>
                 <DialogTitle>New Category</DialogTitle>
                 <DialogDescription>Use categories to drive holiday and announcement behavior.</DialogDescription>
@@ -724,9 +785,9 @@ export default function Announcements() {
           </Dialog>
           <Dialog open={templateOpen} onOpenChange={setTemplateOpen}>
             <DialogTrigger asChild>
-              <Button variant="outline"><Smartphone className="mr-2 size-4" /> DLT Template</Button>
+              <Button variant="outline" className="gap-1"><Smartphone className="size-4" /> DLT Template</Button>
             </DialogTrigger>
-            <DialogContent className="max-w-3xl">
+            <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-3xl">
               <DialogHeader>
                 <DialogTitle>New DLT SMS Template</DialogTitle>
                 <DialogDescription>Registered templates are used when offline announcements are published.</DialogDescription>
@@ -763,9 +824,9 @@ export default function Announcements() {
           </Dialog>
           <Dialog open={importOpen} onOpenChange={setImportOpen}>
             <DialogTrigger asChild>
-              <Button variant="outline"><Smartphone className="mr-2 size-4" /> Import DLT Sheet</Button>
+              <Button variant="outline" className="gap-1"><Upload className="size-4" /> Import DLT Sheet</Button>
             </DialogTrigger>
-            <DialogContent>
+            <DialogContent className="max-h-[85vh] overflow-y-auto">
               <DialogHeader>
                 <DialogTitle>Import DLT Templates</DialogTitle>
                 <DialogDescription>
@@ -797,14 +858,14 @@ export default function Announcements() {
             }}
           >
             <DialogTrigger asChild>
-              <Button onClick={() => {
+              <Button className="gap-1" onClick={() => {
                 setEditingAnnouncement(null);
                 setAnnouncementForm(emptyAnnouncementForm);
               }}>
-                <Plus className="mr-2 size-4" /> Announcement
+                <Plus className="size-4" /> Announcement
               </Button>
             </DialogTrigger>
-            <DialogContent className="max-w-5xl">
+            <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-5xl">
               <DialogHeader>
                 <DialogTitle>{editingAnnouncement ? "Edit Announcement" : "New Announcement"}</DialogTitle>
                 <DialogDescription>
@@ -813,7 +874,7 @@ export default function Announcements() {
                     : "Save as draft or scheduled. Offline SMS is queued only when published."}
                 </DialogDescription>
               </DialogHeader>
-              <div className="grid max-h-[76vh] gap-4 overflow-y-auto pr-2 xl:grid-cols-[minmax(0,1.3fr)_360px]">
+              <div className="grid gap-4 xl:grid-cols-[minmax(0,1.3fr)_360px]">
                 <div className="space-y-3">
                   <FormSection title="Details" description="Content and category for the announcement feed.">
                     <Field label="Title"><Input value={announcementForm.title} onChange={(event) => updateAnnouncementField("title", event.target.value)} /></Field>
@@ -929,7 +990,7 @@ export default function Announcements() {
                       <AlertDescription>Publishing this category will create calendar holiday records for the selected target.</AlertDescription>
                     </Alert>
                   ) : null}
-                  <div className="flex justify-end gap-2 rounded-lg border border-border bg-card p-3">
+                  <div className="flex justify-end gap-2 border-t border-border pt-3">
                     <Button variant="outline" onClick={() => setAnnouncementOpen(false)}>Cancel</Button>
                     <Button onClick={saveAnnouncement} disabled={saving}>
                       {editingAnnouncement ? "Save Changes" : "Save Announcement"}
@@ -939,11 +1000,25 @@ export default function Announcements() {
               </div>
             </DialogContent>
           </Dialog>
-        </div>
-      </div>
+          </div>
+        }
+      />
 
-      <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList>
+      {error ? (
+        <Alert variant="destructive">
+          <AlertTitle>{errorTitle}</AlertTitle>
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      ) : null}
+      {notice ? (
+        <Alert variant={notice.variant}>
+          <AlertTitle>{notice.title}</AlertTitle>
+          <AlertDescription>{notice.message}</AlertDescription>
+        </Alert>
+      ) : null}
+
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="min-w-0">
+        <TabsList variant="line" className="w-full justify-start overflow-x-auto">
           <TabsTrigger value="announcements"><Megaphone className="mr-2 size-4" /> Announcements</TabsTrigger>
           <TabsTrigger value="templates"><Smartphone className="mr-2 size-4" /> DLT Templates</TabsTrigger>
           <TabsTrigger value="sms"><Send className="mr-2 size-4" /> SMS Jobs</TabsTrigger>
@@ -963,7 +1038,7 @@ export default function Announcements() {
                 <EmptyState title="No announcements" description="Create a draft announcement to begin." />
               ) : (
                 announcements.map((item) => (
-                  <div key={item.id} className="rounded-lg border border-border bg-card p-4">
+                  <div key={item.id} className="rounded-md border border-border bg-background p-4 dark:bg-input/20">
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div className="min-w-0">
                         <div className="flex flex-wrap items-center gap-2">
@@ -1019,7 +1094,7 @@ export default function Announcements() {
                 <EmptyState title="No templates" description="Add the templates from your DLT portal export." />
               ) : (
                 templates.map((item) => (
-                  <div key={item.id} className="rounded-lg border border-border bg-card p-4">
+                  <div key={item.id} className="rounded-md border border-border bg-background p-4 dark:bg-input/20">
                     <div className="flex items-start justify-between gap-2">
                       <p className="font-semibold">{item.template_name}</p>
                       <StatusBadge status={item.status} />
@@ -1052,7 +1127,7 @@ export default function Announcements() {
                 <EmptyState title="No SMS jobs" description="Publish an offline or online + SMS announcement to create a job." />
               ) : (
                 smsJobs.map((job) => (
-                  <div key={job.id} className="grid gap-2 rounded-lg border border-border bg-card p-4 md:grid-cols-[1fr_auto]">
+                  <div key={job.id} className="grid gap-2 rounded-md border border-border bg-background p-4 dark:bg-input/20 md:grid-cols-[1fr_auto]">
                     <div>
                       <div className="flex items-center gap-2">
                         <p className="font-semibold">Job #{job.id}</p>
@@ -1135,7 +1210,7 @@ export default function Announcements() {
                     </div>
                   </div>
 
-                  <div className="rounded-lg border border-border bg-card p-3">
+                  <div className="rounded-md border border-border bg-background p-3 dark:bg-input/20">
                     <div className="grid grid-cols-7 border-b border-border pb-2 text-center text-xs font-semibold text-muted-foreground">
                       {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => <div key={day}>{day}</div>)}
                     </div>
@@ -1164,7 +1239,7 @@ export default function Announcements() {
                             </div>
                             <div className="mt-2 space-y-1">
                               {dayHolidays.slice(0, 2).map((item) => (
-                                <div key={`${item.id}-${toIsoDay(day)}`} className="truncate rounded-sm border border-emerald-200 bg-background px-1.5 py-1 text-[11px] font-medium text-foreground dark:border-emerald-500/30">
+                                <div key={`${item.id}-${toIsoDay(day)}`} className="truncate rounded-sm border border-emerald-200 bg-background px-1.5 py-1 text-[11px] font-medium text-foreground dark:border-emerald-500/30 dark:bg-input/30">
                                   {item.title}
                                 </div>
                               ))}

@@ -244,6 +244,7 @@ export function listClassRoutineBoardRows(filters = {}) {
         ses.name AS session_name,
         v.class_id,
         c.name AS class_name,
+        c.display_order AS class_display_order,
         COALESCE(c.class_scope, 'school') AS class_scope,
         v.section_id,
         sec.name AS section_name,
@@ -288,6 +289,8 @@ export function listClassRoutineBoardRows(filters = {}) {
       ORDER BY
         COALESCE(c.class_scope, 'school') ASC,
         e.weekday ASC,
+        COALESCE(c.display_order, c.id) ASC,
+        c.id ASC,
         c.name ASC,
         sec.name ASC,
         v.medium ASC,
@@ -893,7 +896,7 @@ export function getExamById(examId) {
 export async function getRoutineImportLookups() {
   const [sessions, classes, sections, streams, subjects, teachers, exams, activities] = await Promise.all([
     query("SELECT id, name FROM academic_sessions"),
-    query("SELECT id, name, class_scope FROM classes"),
+    query("SELECT id, name, class_scope, display_order FROM classes ORDER BY COALESCE(display_order, id), id"),
     query("SELECT id, class_id, name, medium FROM sections"),
     query("SELECT id, name FROM streams"),
     query("SELECT id, name, code FROM subjects"),

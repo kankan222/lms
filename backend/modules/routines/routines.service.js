@@ -585,6 +585,7 @@ function mapRoutineBoardCard(row) {
     session_name: row.session_name,
     class_id: Number(row.class_id),
     class_name: row.class_name,
+    class_display_order: row.class_display_order ?? null,
     class_scope: row.class_scope || "school",
     class_scope_label: classScopeLabel(row.class_scope || "school"),
     section_id: Number(row.section_id),

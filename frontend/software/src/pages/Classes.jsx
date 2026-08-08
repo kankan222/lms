@@ -38,6 +38,7 @@ const Classes = () => {
   const [createOpen, setCreateOpen] = useState(false);
   const [newClass, setNewClass] = useState({
     name: "",
+    display_order: "",
     class_scope: "school",
     sections: [{ name: "", medium: "" }],
   });
@@ -71,6 +72,7 @@ const Classes = () => {
       const sections = normalizeSections(c.section_details || c.sections);
       return {
         ...c,
+        display_order: c.display_order ?? "",
         class_scope: c.class_scope || "school",
         sections,
         subjects: String(c.subjects || "")
@@ -119,6 +121,11 @@ const Classes = () => {
       setCreateError("Class scope is required.");
       return;
     }
+    const displayOrder = String(newClass.display_order ?? "").trim();
+    if (displayOrder && (!Number.isInteger(Number(displayOrder)) || Number(displayOrder) < 0)) {
+      setCreateError("Display order must be a whole number.");
+      return;
+    }
     if (cleanSections.some((s) => !s.medium)) {
       setCreateError("Each section must have a medium.");
       return;
@@ -127,6 +134,7 @@ const Classes = () => {
     try {
       await createClass({
         name: cleanName,
+        display_order: displayOrder ? Number(displayOrder) : null,
         class_scope: newClass.class_scope,
         sections: cleanSections,
       });
@@ -140,6 +148,7 @@ const Classes = () => {
 
     setNewClass({
       name: "",
+      display_order: "",
       class_scope: "school",
       sections: [{ name: "", medium: "" }],
     });
@@ -167,6 +176,11 @@ const Classes = () => {
       setEditError("Class scope is required.");
       return;
     }
+    const displayOrder = String(editingClass?.display_order ?? "").trim();
+    if (displayOrder && (!Number.isInteger(Number(displayOrder)) || Number(displayOrder) < 0)) {
+      setEditError("Display order must be a whole number.");
+      return;
+    }
     if (cleanSections.some((s) => !s.medium)) {
       setEditError("Each section must have a medium.");
       return;
@@ -175,6 +189,7 @@ const Classes = () => {
     try {
       await updateClass(editingClass.id, {
         name: cleanName,
+        display_order: displayOrder ? Number(displayOrder) : null,
         class_scope: editingClass.class_scope,
         sections: cleanSections,
       });
@@ -248,6 +263,19 @@ const Classes = () => {
                       setNewClass({
                         ...newClass,
                         name: e.target.value,
+                      })
+                    }
+                  />
+                </div>
+                <div className="grid mb-4 gap-2">
+                  <Label>Display Order</Label>
+                  <Input
+                    inputMode="numeric"
+                    value={newClass.display_order}
+                    onChange={(e) =>
+                      setNewClass({
+                        ...newClass,
+                        display_order: e.target.value.replace(/\D/g, ""),
                       })
                     }
                   />
@@ -341,6 +369,10 @@ const Classes = () => {
                 <span className="font-medium">Scope: </span>
                 {data.class_scope === "hs" ? "Higher Secondary" : "School"}
               </p>
+              <p className="text-sm">
+                <span className="font-medium">Order: </span>
+                {data.display_order ?? "-"}
+              </p>
               <div className="text-sm flex-1">
                 <p className="font-medium">Sections:</p>
                 {data.sections.length ? (
@@ -406,6 +438,20 @@ const Classes = () => {
                   setEditingClass({
                     ...editingClass,
                     name: e.target.value,
+                  })
+                }
+              />
+            </div>
+
+            <div className="grid gap-2">
+              <Label>Display Order</Label>
+              <Input
+                inputMode="numeric"
+                value={editingClass?.display_order ?? ""}
+                onChange={(e) =>
+                  setEditingClass({
+                    ...editingClass,
+                    display_order: e.target.value.replace(/\D/g, ""),
                   })
                 }
               />

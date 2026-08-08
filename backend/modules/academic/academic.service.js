@@ -190,6 +190,7 @@ export async function getClassStructure() {
       const mediums = normalizeMediums(r.class_medium);
       map[r.class_id] = {
         id: r.class_id,
+        display_order: r.class_display_order ?? null,
         scope_id: r.scope_id || null,
         name: r.class_name,
         class_scope: r.class_scope || "school",
@@ -251,6 +252,12 @@ export async function getClassStructure() {
 }
 export async function createClass(data) {
   if (!data.name) throw new Error("Class name required");
+  const displayOrder = data.display_order === "" || data.display_order === undefined || data.display_order === null
+    ? null
+    : Number(data.display_order);
+  if (displayOrder !== null && (!Number.isInteger(displayOrder) || displayOrder < 0)) {
+    throw new Error("Display order must be a whole number");
+  }
   const legacyMediums = normalizeMediums(data.mediums ?? data.medium);
   const sections = normalizeSections(data.sections || [], legacyMediums);
   if (sections.some((s) => !s.medium)) {
@@ -260,13 +267,20 @@ export async function createClass(data) {
     throw new Error("Invalid section medium. Allowed values: English, Assamese");
   }
   const scope = await resolveClassScope(data.class_scope, data.scope_id);
-  return repo.createClass(data.name, scope, sections, legacyMediums);
+  return repo.createClass(data.name, scope, sections, legacyMediums, displayOrder);
 }
 export async function updateClass(id, data) {
 
   if (!data.name)
     throw new Error("Class name required");
 
+  const displayOrder = data.display_order === "" || data.display_order === undefined || data.display_order === null
+    ? null
+    : Number(data.display_order);
+  if (displayOrder !== null && (!Number.isInteger(displayOrder) || displayOrder < 0)) {
+    throw new Error("Display order must be a whole number");
+  }
+
   const legacyMediums = normalizeMediums(data.mediums ?? data.medium);
   const sections = normalizeSections(data.sections || [], legacyMediums);
   if (sections.some((s) => !s.medium)) {
@@ -277,7 +291,7 @@ export async function updateClass(id, data) {
   }
 
   const scope = await resolveClassScope(data.class_scope, data.scope_id);
-  return repo.updateClass(id, data.name, scope, sections, legacyMediums);
+  return repo.updateClass(id, data.name, scope, sections, legacyMediums, displayOrder);
 }
 
 export async function deleteClass(id) {
