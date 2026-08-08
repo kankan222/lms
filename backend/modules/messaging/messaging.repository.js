@@ -1,6 +1,7 @@
 import { execute, query } from "../../core/db/query.js";
 
 let teacherClassScopeColumnPromise;
+let teacherStaffTypeColumnPromise;
 let staffUserIdColumnPromise;
 let classClassScopeColumnPromise;
 let studentRollNumberColumnPromise;
@@ -21,6 +22,23 @@ function hasTeacherClassScopeColumn() {
   }
 
   return teacherClassScopeColumnPromise;
+}
+
+function hasTeacherStaffTypeColumn() {
+  if (!teacherStaffTypeColumnPromise) {
+    teacherStaffTypeColumnPromise = query(
+      `
+        SELECT 1
+        FROM information_schema.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = 'teachers'
+          AND COLUMN_NAME = 'staff_type'
+        LIMIT 1
+      `
+    ).then((rows) => rows.length > 0);
+  }
+
+  return teacherStaffTypeColumnPromise;
 }
 
 function hasClassClassScopeColumn() {
@@ -229,6 +247,15 @@ export async function updateConversationLastMessage(conversationId) {
      SET last_message_at = NOW()
      WHERE id=?`,
     [conversationId]
+  );
+}
+
+export async function updateConversationName(conversationId, name) {
+  await execute(
+    `UPDATE conversations
+     SET name = ?
+     WHERE id = ?`,
+    [name, conversationId]
   );
 }
 
@@ -491,7 +518,10 @@ export async function getParentTargets() {
 }
 
 export async function getTeacherTargets() {
-  const hasClassScope = await hasTeacherClassScopeColumn();
+  const [hasClassScope, hasStaffType] = await Promise.all([
+    hasTeacherClassScopeColumn(),
+    hasTeacherStaffTypeColumn(),
+  ]);
 
   return query(
     `SELECT
@@ -501,6 +531,7 @@ export async function getTeacherTargets() {
       t.email,
       t.user_id,
       ${hasClassScope ? "t.class_scope" : "'school'"} AS class_scope,
+      ${hasStaffType ? "t.staff_type" : "'teaching'"} AS staff_type,
       CASE
         WHEN ${hasClassScope ? "t.class_scope" : "'school'"} = 'hs' THEN 'college'
         ELSE 'school'
@@ -630,31 +661,33 @@ export async function getAllParentRecipientUsers(parentType) {
   );
 }
 
-export async function getAllTeacherRecipientUsers(teacherType) {
-  const hasClassScope = await hasTeacherClassScopeColumn();
+export async function getAllTeacherRecipientUsers(filters = {}) {
+  const legacyTeacherType = typeof filters === "string" ? filters : filters.teacher_type;
+  const teacherScope = filters.teacher_scope || legacyTeacherType || "all";
+  const staffType = filters.staff_type || "all";
+  const [hasClassScope, hasStaffType] = await Promise.all([
+    hasTeacherClassScopeColumn(),
+    hasTeacherStaffTypeColumn(),
+  ]);
+  const where = ["user_id IS NOT NULL"];
+  const params = [];
 
-  if (hasClassScope && teacherType === "college") {
-    return query(
-      `SELECT DISTINCT user_id
-       FROM teachers
-       WHERE user_id IS NOT NULL
-         AND class_scope = 'hs'`
-    );
+  if (hasClassScope && teacherScope === "college") {
+    where.push("class_scope = 'hs'");
+  } else if (hasClassScope && teacherScope === "school") {
+    where.push("class_scope = 'school'");
   }
 
-  if (hasClassScope && teacherType === "school") {
-    return query(
-      `SELECT DISTINCT user_id
-       FROM teachers
-       WHERE user_id IS NOT NULL
-         AND class_scope = 'school'`
-    );
+  if (hasStaffType && ["teaching", "non_teaching"].includes(staffType)) {
+    where.push("staff_type = ?");
+    params.push(staffType);
   }
 
   return query(
     `SELECT DISTINCT user_id
      FROM teachers
-     WHERE user_id IS NOT NULL`
+     WHERE ${where.join(" AND ")}`,
+    params
   );
 }
 
@@ -701,12 +734,16 @@ export async function getAllSectionRecipientUsers() {
 }
 
 export async function getTeacherByUserId(userId) {
-  const hasClassScope = await hasTeacherClassScopeColumn();
+  const [hasClassScope, hasStaffType] = await Promise.all([
+    hasTeacherClassScopeColumn(),
+    hasTeacherStaffTypeColumn(),
+  ]);
   const rows = await query(
     `SELECT
       id,
       user_id,
-      ${hasClassScope ? "class_scope" : "'school'"} AS class_scope
+      ${hasClassScope ? "class_scope" : "'school'"} AS class_scope,
+      ${hasStaffType ? "staff_type" : "'teaching'"} AS staff_type
      FROM teachers
      WHERE user_id = ?
      LIMIT 1`,
@@ -715,13 +752,20 @@ export async function getTeacherByUserId(userId) {
   return rows[0] || null;
 }
 
-export async function getTeacherVisibleConversationIds({ teacherId, classScope = "school" }) {
+export async function getTeacherVisibleConversationIds({ teacherId, classScope = "school", staffType = "teaching" }) {
   const broadcastNames = ["All Teachers"];
+  const staffTypeLabel = staffType === "non_teaching" ? "Non Teaching Staff" : "Teaching Staff";
   if (classScope === "hs") {
     broadcastNames.push("All College Teachers");
+    broadcastNames.push("All College Staff");
+    broadcastNames.push(`All College ${staffTypeLabel}`);
   } else {
     broadcastNames.push("All School Teachers");
+    broadcastNames.push("All School Staff");
+    broadcastNames.push(`All School ${staffTypeLabel}`);
   }
+  broadcastNames.push("All Staff");
+  broadcastNames.push(`All ${staffTypeLabel}`);
 
   const placeholders = broadcastNames.map(() => "?").join(", ");
   const rows = await query(

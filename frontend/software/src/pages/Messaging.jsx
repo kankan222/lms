@@ -55,8 +55,24 @@ function targetTypeLabel(value) {
   if (value === "all_classes") return "All Classes";
   if (value === "all_sections") return "All Sections";
   if (value === "all_parents") return "All Parents";
-  if (value === "all_teachers") return "All Teachers";
+  if (value === "all_teachers") return "All Staff";
   return value || "-";
+}
+
+function normalizeTeacherScope(value) {
+  if (value === "college" || value === "hs") return "college";
+  if (value === "school") return "school";
+  return "all";
+}
+
+function normalizeStaffType(value) {
+  return value === "non_teaching" ? "non_teaching" : value === "teaching" ? "teaching" : "all";
+}
+
+function formatTeacherAudienceName(scope, staffType) {
+  const scopeLabel = scope === "college" ? "College" : scope === "school" ? "School" : "";
+  const staffLabel = staffType === "non_teaching" ? "Non Teaching Staff" : staffType === "teaching" ? "Teaching Staff" : "Staff";
+  return ["All", scopeLabel, staffLabel].filter(Boolean).join(" ");
 }
 
 export default function Messaging() {
@@ -76,24 +92,27 @@ export default function Messaging() {
   });
   const [openCompose, setOpenCompose] = useState(false);
   const [compose, setCompose] = useState({
-    target_type: "direct",
+    target_type: "parent",
     recipient_user_id: "",
     class_id: "",
     section_id: "",
-    teacher_type: "all",
-    message: ""
+    teacher_scope: "all",
+    staff_type: "all",
+    name: ""
   });
+  const [composeStep, setComposeStep] = useState("audience");
   const [recipientFilters, setRecipientFilters] = useState({
     search: "",
     role: "all",
     class_id: "",
     section_id: "",
     medium: "",
-    teacher_type: "all"
+    teacher_scope: "all",
+    staff_type: "all"
   });
   const [composeError, setComposeError] = useState("");
-  const [composeFiles, setComposeFiles] = useState([]);
-  const [composeFileCategory, setComposeFileCategory] = useState(null);
+  const [pendingConversationTarget, setPendingConversationTarget] = useState(null);
+  const [pendingConversationLabel, setPendingConversationLabel] = useState("Conversation");
   const [typingUser, setTypingUser] = useState(null);
   const [moderationOpen, setModerationOpen] = useState(false);
   const [moderationReports, setModerationReports] = useState([]);
@@ -110,11 +129,36 @@ export default function Messaging() {
       { key: "all_classes", label: "All Classes" },
       { key: "all_sections", label: "All Sections" },
       { key: "all_parents", label: "All Parents" },
-      { key: "all_teachers", label: "All Teachers" }
+      { key: "all_teachers", label: "All Staff" }
     ];
   }, [targets.broadcast_targets]);
 
-  const activeChat = conversations.find((c) => Number(c.id) === Number(activeChatId));
+  const targetTypeOptions = useMemo(
+    () => [
+      { label: "Parent of one student", value: "parent", description: "Search by student, parent, class, or section" },
+      { label: "One teacher", value: "teacher", description: "Search by teacher name or type" },
+      { label: "One class, one section", value: "section", description: "Parents in one selected section" },
+      { label: "Whole class, all sections", value: "class", description: "Parents across the selected class" },
+      ...broadcastTargetOptions.map((item) => ({
+        label: item.label,
+        value: item.key,
+        description: "Group or broadcast conversation",
+      })),
+    ],
+    [broadcastTargetOptions]
+  );
+
+  const activeChat = conversations.find((c) => Number(c.id) === Number(activeChatId)) || (
+    pendingConversationTarget
+      ? {
+          id: null,
+          name: pendingConversationLabel,
+          type: pendingConversationTarget.target_type === "parent" || pendingConversationTarget.target_type === "teacher"
+            ? "direct"
+            : pendingConversationTarget.target_type,
+        }
+      : null
+  );
 
   const currentUser = useMemo(() => {
     try {
@@ -152,7 +196,8 @@ export default function Messaging() {
       section_name: t.section_name || "",
       medium: t.medium || t.class_medium || "",
       class_scope: t.class_scope || "",
-      teacher_type: t.type || "school"
+      teacher_scope: normalizeTeacherScope(t.type || t.class_scope),
+      staff_type: normalizeStaffType(t.staff_type || "teaching")
     }));
 
     return [...parents, ...teachers].filter((r) => r.user_id);
@@ -179,7 +224,8 @@ export default function Messaging() {
           sectionNames: new Set(),
           mediums: new Set(),
           classScopes: new Set(),
-          teacherTypes: new Set()
+          teacherScopes: new Set(),
+          staffTypes: new Set()
         });
       }
 
@@ -191,7 +237,8 @@ export default function Messaging() {
       if (row.section_name) item.sectionNames.add(row.section_name);
       if (row.medium) item.mediums.add(row.medium);
       if (row.class_scope) item.classScopes.add(row.class_scope);
-      if (row.teacher_type) item.teacherTypes.add(row.teacher_type);
+      if (row.teacher_scope) item.teacherScopes.add(row.teacher_scope);
+      if (row.staff_type) item.staffTypes.add(row.staff_type);
     }
 
     const targetRole =
@@ -213,7 +260,8 @@ export default function Messaging() {
         sectionNames: Array.from(u.sectionNames),
         mediums: Array.from(u.mediums),
         classScopes: Array.from(u.classScopes),
-        teacherTypes: Array.from(u.teacherTypes)
+        teacherScopes: Array.from(u.teacherScopes),
+        staffTypes: Array.from(u.staffTypes)
       }))
       .filter((u) => {
         if (targetRole !== "all" && !u.roles.includes(targetRole)) return false;
@@ -221,9 +269,16 @@ export default function Messaging() {
         if (recipientFilters.section_id && !u.sectionIds.includes(recipientFilters.section_id)) return false;
         if (recipientFilters.medium && !u.mediums.includes(recipientFilters.medium)) return false;
         if (
-          recipientFilters.teacher_type !== "all" &&
+          recipientFilters.teacher_scope !== "all" &&
           u.roles.includes("teacher") &&
-          !u.teacherTypes.includes(recipientFilters.teacher_type)
+          !u.teacherScopes.includes(recipientFilters.teacher_scope)
+        ) {
+          return false;
+        }
+        if (
+          recipientFilters.staff_type !== "all" &&
+          u.roles.includes("teacher") &&
+          !u.staffTypes.includes(recipientFilters.staff_type)
         ) {
           return false;
         }
@@ -238,7 +293,8 @@ export default function Messaging() {
           u.sectionNames.join(" "),
           u.mediums.join(" "),
           u.classScopes.join(" "),
-          u.teacherTypes.join(" ")
+          u.teacherScopes.join(" "),
+          u.staffTypes.join(" ")
         ]
           .join(" ")
           .toLowerCase();
@@ -253,6 +309,80 @@ export default function Messaging() {
       ) || null,
     [recipientOptions, compose.recipient_user_id]
   );
+
+  const selectedClass = useMemo(
+    () => targets.classes.find((item) => String(item.id) === String(compose.class_id)) || null,
+    [targets.classes, compose.class_id]
+  );
+
+  const selectedSection = useMemo(
+    () => targets.sections.find((item) => String(item.id) === String(compose.section_id)) || null,
+    [targets.sections, compose.section_id]
+  );
+
+  const defaultConversationName = useMemo(() => {
+    if (compose.target_type === "class") return selectedClass ? `Class ${selectedClass.name}` : "";
+    if (compose.target_type === "section") return selectedSection ? `Section ${selectedSection.class_name || ""} ${selectedSection.name}`.trim() : "";
+    if (compose.target_type === "broadcast") return "All Users";
+    if (compose.target_type === "all_classes") return "All Classes";
+    if (compose.target_type === "all_sections") return "All Sections";
+    if (compose.target_type === "all_parents") return "All Parents";
+    if (compose.target_type === "all_teachers") {
+      return formatTeacherAudienceName(compose.teacher_scope, compose.staff_type);
+    }
+    return "";
+  }, [compose.target_type, compose.teacher_scope, compose.staff_type, selectedClass, selectedSection]);
+
+  const effectiveConversationName = compose.name?.trim() || defaultConversationName;
+
+  const targetRecipientCount = useMemo(() => {
+    if (isRecipientTarget) return selectedRecipient ? 1 : 0;
+    if (compose.target_type === "class" && compose.class_id) {
+      return new Set(
+        targets.parents
+          .filter((item) => String(item.class_id) === String(compose.class_id))
+          .map((item) => item.user_id)
+          .filter(Boolean)
+      ).size;
+    }
+    if (compose.target_type === "section" && compose.section_id) {
+      return new Set(
+        targets.parents
+          .filter((item) => String(item.section_id) === String(compose.section_id))
+          .map((item) => item.user_id)
+          .filter(Boolean)
+      ).size;
+    }
+    if (compose.target_type === "all_teachers") {
+      return new Set(
+        targets.teachers
+          .filter((item) => {
+            const teacherScope = normalizeTeacherScope(item.type || item.class_scope);
+            const staffType = normalizeStaffType(item.staff_type || "teaching");
+            return (
+              (compose.teacher_scope === "all" || teacherScope === compose.teacher_scope) &&
+              (compose.staff_type === "all" || staffType === compose.staff_type)
+            );
+          })
+          .map((item) => item.user_id)
+          .filter(Boolean)
+      ).size;
+    }
+    if (compose.target_type === "broadcast") {
+      return new Set([...targets.parents, ...targets.teachers].map((item) => item.user_id).filter(Boolean)).size;
+    }
+    if (compose.target_type === "all_parents" || compose.target_type === "all_classes" || compose.target_type === "all_sections") {
+      return new Set(targets.parents.map((item) => item.user_id).filter(Boolean)).size;
+    }
+    return 0;
+  }, [compose, isRecipientTarget, selectedRecipient, targets.parents, targets.teachers]);
+
+  const canOpenComposeTarget = useMemo(() => {
+    if (isRecipientTarget) return Boolean(compose.recipient_user_id);
+    if (compose.target_type === "class") return Boolean(compose.class_id);
+    if (compose.target_type === "section") return Boolean(compose.section_id);
+    return Boolean(effectiveConversationName);
+  }, [compose, effectiveConversationName, isRecipientTarget]);
 
   const sectionsBySelectedClass = useMemo(() => {
     if (!compose.class_id) return [];
@@ -352,21 +482,27 @@ export default function Messaging() {
 
   async function handleSendMessage(payload) {
     if (!canSendMessages) return;
-    if (!activeChatId) return;
+    if (!activeChatId && !pendingConversationTarget) return;
     let attachmentIds = [];
     if (payload.files?.length) {
       const uploaded = await uploadMessageAttachments(payload.files, payload.category);
       attachmentIds = (uploaded?.data || []).map((item) => item.id);
     }
 
-    await sendMessage({
-      conversation_id: activeChatId,
+    const response = await sendMessage({
+      ...(activeChatId ? { conversation_id: activeChatId } : pendingConversationTarget),
       message: payload.message,
       attachment_ids: attachmentIds,
       reply_to_message_id: payload.reply_to_message_id || undefined,
     });
 
-    await fetchMessages(activeChatId);
+    const conversationId = activeChatId || response?.conversation_id;
+    if (conversationId) {
+      setPendingConversationTarget(null);
+      setPendingConversationLabel("Conversation");
+      setActiveChatId(conversationId);
+      await fetchMessages(conversationId);
+    }
     await fetchConversations();
   }
 
@@ -499,95 +635,15 @@ export default function Messaging() {
     await fetchMessages(activeChatId);
   }
 
-  async function handleComposeSend(e) {
-    e.preventDefault();
-    setComposeError("");
-    if (!compose.message.trim() && !composeFiles.length) {
-      setComposeError("Message or attachment is required.");
-      return;
-    }
-
-    const payload = {
-      target_type: compose.target_type,
-      message: compose.message.trim()
-    };
-
-    if (isRecipientTarget) {
-      if (!compose.recipient_user_id) {
-        setComposeError("Recipient is required.");
-        return;
-      }
-      payload.recipient_user_id = Number(compose.recipient_user_id);
-    }
-
-    if (compose.target_type === "class") {
-      if (!compose.class_id) {
-        setComposeError("Class is required.");
-        return;
-      }
-      payload.class_id = Number(compose.class_id);
-      payload.name = `Class ${targets.classes.find((c) => String(c.id) === String(compose.class_id))?.name || compose.class_id}`;
-    }
-
-    if (compose.target_type === "section") {
-      if (!compose.section_id) {
-        setComposeError("Section is required.");
-        return;
-      }
-      payload.section_id = Number(compose.section_id);
-      const section = targets.sections.find((s) => String(s.id) === String(compose.section_id));
-      payload.name = `Section ${section?.class_name || ""} ${section?.name || compose.section_id}`.trim();
-    }
-
-    if (compose.target_type === "broadcast") {
-      payload.name = "All Users";
-    }
-
-    if (compose.target_type === "all_classes") {
-      payload.name = "All Classes";
-    }
-
-    if (compose.target_type === "all_sections") {
-      payload.name = "All Sections";
-    }
-
-    if (compose.target_type === "all_parents") {
-      payload.name = "All Parents";
-    }
-
-    if (compose.target_type === "all_teachers") {
-      payload.teacher_type = compose.teacher_type;
-      payload.name =
-        compose.teacher_type === "college"
-          ? "All College Teachers"
-          : compose.teacher_type === "school"
-            ? "All School Teachers"
-            : "All Teachers";
-    }
-
-    let res;
-    try {
-      if (composeFiles.length) {
-        const uploaded = await uploadMessageAttachments(
-          composeFiles,
-          composeFileCategory
-        );
-        payload.attachment_ids = (uploaded?.data || []).map((item) => item.id);
-      }
-      res = await sendMessage(payload);
-    } catch (err) {
-      setComposeError(err?.message || "Failed to send message.");
-      return;
-    }
-    const conversationId = res?.conversation_id;
-
+  function resetComposeState() {
     setCompose({
-      target_type: "direct",
+      target_type: "parent",
       recipient_user_id: "",
       class_id: "",
       section_id: "",
-      teacher_type: "all",
-      message: ""
+      teacher_scope: "all",
+      staff_type: "all",
+      name: ""
     });
     setRecipientFilters({
       search: "",
@@ -595,17 +651,146 @@ export default function Messaging() {
       class_id: "",
       section_id: "",
       medium: "",
-      teacher_type: "all"
+      teacher_scope: "all",
+      staff_type: "all"
     });
-    setOpenCompose(false);
-    setComposeFiles([]);
-    setComposeFileCategory(null);
+    setComposeStep("audience");
+    setComposeError("");
+  }
 
-    await fetchConversations();
-    if (conversationId) {
-      setActiveChatId(conversationId);
-      await fetchMessages(conversationId);
+  function selectComposeAudience(targetType) {
+    setCompose({
+      target_type: targetType,
+      recipient_user_id: "",
+      class_id: "",
+      section_id: "",
+      teacher_scope: "all",
+      staff_type: "all",
+      name: ""
+    });
+    setRecipientFilters({
+      search: "",
+      role: "all",
+      class_id: "",
+      section_id: "",
+      medium: "",
+      teacher_scope: "all",
+      staff_type: "all"
+    });
+    setComposeError("");
+    setComposeStep("target");
+  }
+
+  function buildConversationTargetPayload() {
+    const payload = {
+      target_type: compose.target_type
+    };
+    let label = "Conversation";
+
+    if (isRecipientTarget) {
+      if (!compose.recipient_user_id) {
+        setComposeError("Recipient is required.");
+        return null;
+      }
+      payload.recipient_user_id = Number(compose.recipient_user_id);
+      label = selectedRecipient?.name || `User #${compose.recipient_user_id}`;
     }
+
+    if (compose.target_type === "class") {
+      if (!compose.class_id) {
+        setComposeError("Class is required.");
+        return null;
+      }
+      payload.class_id = Number(compose.class_id);
+      payload.name = effectiveConversationName;
+      label = effectiveConversationName;
+    }
+
+    if (compose.target_type === "section") {
+      if (!compose.section_id) {
+        setComposeError("Section is required.");
+        return null;
+      }
+      payload.section_id = Number(compose.section_id);
+      payload.name = effectiveConversationName;
+      label = effectiveConversationName;
+    }
+
+    if (compose.target_type === "broadcast") {
+      payload.name = effectiveConversationName || "All Users";
+      label = payload.name;
+    }
+
+    if (compose.target_type === "all_classes") {
+      payload.name = effectiveConversationName || "All Classes";
+      label = payload.name;
+    }
+
+    if (compose.target_type === "all_sections") {
+      payload.name = effectiveConversationName || "All Sections";
+      label = payload.name;
+    }
+
+    if (compose.target_type === "all_parents") {
+      payload.name = effectiveConversationName || "All Parents";
+      label = payload.name;
+    }
+
+    if (compose.target_type === "all_teachers") {
+      payload.teacher_scope = compose.teacher_scope;
+      payload.staff_type = compose.staff_type;
+      payload.name = effectiveConversationName || formatTeacherAudienceName(compose.teacher_scope, compose.staff_type);
+      label = payload.name;
+    }
+
+    return { payload, label };
+  }
+
+  function findConversationForTarget(payload, rows = conversations) {
+    if (!payload?.target_type) return null;
+    if (["direct", "parent", "teacher"].includes(payload.target_type)) {
+      return rows.find(
+        (row) => row.type === "direct" && Number(row.other_user_id || 0) === Number(payload.recipient_user_id || 0)
+      ) || null;
+    }
+    if (payload.target_type === "class") {
+      return rows.find(
+        (row) => row.type === "class" && Number(row.class_id || 0) === Number(payload.class_id || 0)
+      ) || null;
+    }
+    if (payload.target_type === "section") {
+      return rows.find(
+        (row) => row.type === "section" && Number(row.section_id || 0) === Number(payload.section_id || 0)
+      ) || null;
+    }
+    const targetName = String(payload.name || "").trim().toLowerCase();
+    return rows.find(
+      (row) => row.type === "broadcast" && String(row.name || "").trim().toLowerCase() === targetName
+    ) || null;
+  }
+
+  async function handleOpenComposeTarget() {
+    setComposeError("");
+    const prepared = buildConversationTargetPayload();
+    if (!prepared) return;
+    const { payload, label } = prepared;
+    const existing = findConversationForTarget(payload);
+
+    resetComposeState();
+    setOpenCompose(false);
+    setPendingConversationLabel(label);
+    setMessages([]);
+
+    if (existing?.id) {
+      setPendingConversationTarget(null);
+      setPendingConversationLabel("Conversation");
+      setActiveChatId(existing.id);
+      await fetchMessages(existing.id);
+      return;
+    }
+
+    setActiveChatId(null);
+    setPendingConversationTarget(payload);
   }
 
   useEffect(() => {
@@ -661,481 +846,272 @@ export default function Messaging() {
         subTitle="One-to-one and group messaging"
         action={isSuperAdmin ? (
           <div className="flex gap-2">
-          <Dialog open={openCompose} onOpenChange={setOpenCompose}>
+          <Dialog
+            open={openCompose}
+            onOpenChange={(open) => {
+              setOpenCompose(open);
+              if (!open) resetComposeState();
+            }}
+          >
             <DialogTrigger asChild>
               <Button>New Message</Button>
             </DialogTrigger>
-            <DialogContent className="max-h-[88vh] overflow-hidden p-0 sm:max-w-4xl">
+            <DialogContent className="max-h-[88vh] overflow-hidden p-0 sm:max-w-3xl">
               <DialogHeader className="border-b bg-card px-6 py-5">
-                <DialogTitle>Compose Message</DialogTitle>
+                <DialogTitle>New Conversation</DialogTitle>
                 <DialogDescription>
-                  Choose the audience, confirm the recipient, and send a clear message.
+                  Step {composeStep === "audience" ? "1" : "2"} of 2
                 </DialogDescription>
               </DialogHeader>
-
-              <form onSubmit={handleComposeSend} className="flex max-h-[calc(88vh-88px)] flex-col">
-                <div className="flex-1 space-y-5 overflow-y-auto px-6 py-5">
-                <div className="space-y-3 rounded-xl border bg-card p-4">
-                  <div className="space-y-1">
-                    <p className="text-sm font-semibold">Audience</p>
-                    <p className="text-sm text-muted-foreground">
-                      Select where this message should go before writing it.
-                    </p>
-                  </div>
-                <div className="grid gap-2">
-                  <Label>Target Type *</Label>
-                  <select
-                    className={FIELD_CLASSNAME}
-                    value={compose.target_type}
-                    onChange={(e) =>
-                      {
-                        setCompose((prev) => ({
-                          ...prev,
-                          target_type: e.target.value,
-                          recipient_user_id: "",
-                          class_id: "",
-                          section_id: "",
-                          teacher_type: "all"
-                        }));
-                        setComposeError("");
-                      }
-                    }
-                  >
-                    <option value="direct">One-to-One</option>
-                    <option value="parent">One Parent</option>
-                    <option value="teacher">One Teacher</option>
-                    <option value="class">To Class</option>
-                    <option value="section">To Section</option>
-                    {broadcastTargetOptions.map((item) => (
-                      <option key={item.key} value={item.key}>
-                        {item.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  <span className="inline-flex rounded-full bg-primary/10 px-3 py-1 text-xs font-medium text-primary">
-                    {targetTypeLabel(compose.target_type)}
-                  </span>
-                  {compose.target_type === "all_teachers" ? (
-                    <span className="inline-flex rounded-full bg-muted px-3 py-1 text-xs font-medium text-muted-foreground">
-                      {compose.teacher_type === "college"
-                        ? "College teachers"
-                        : compose.teacher_type === "school"
-                          ? "School teachers"
-                          : "All teacher types"}
-                    </span>
-                  ) : null}
-                </div>
-                </div>
-
-                {isRecipientTarget && (
-                  <div className="space-y-4 rounded-xl border bg-card p-4">
-                    <div className="space-y-1">
-                      <p className="text-sm font-semibold">Recipient</p>
-                      <p className="text-sm text-muted-foreground">
-                        Filter the list and select one person.
-                      </p>
-                    </div>
-
-                    <div className="grid gap-2">
-                    <Label>Find Recipient</Label>
-
-                    <Input
-                      placeholder="Search by name, phone, email, class or section"
-                      value={recipientFilters.search}
-                      onChange={(e) =>
-                        setRecipientFilters((prev) => ({ ...prev, search: e.target.value }))
-                      }
-                    />
-                    </div>
-
-                    <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
-                      {compose.target_type === "direct" && (
+              {composeStep === "audience" ? (
+                <ScrollArea className="max-h-[calc(88vh-96px)]">
+                  <div className="space-y-5 px-6 py-5">
+                    {[
+                      { title: "One Person", values: ["parent", "teacher"] },
+                      { title: "Class Or Section", values: ["section", "class", "all_classes"] },
+                      { title: "Whole Group", values: ["all_parents", "all_teachers", "broadcast", "all_sections"] },
+                    ].map((group) => (
+                      <section key={group.title} className="space-y-2">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{group.title}</p>
                         <div className="grid gap-2">
-                          <Label>User Type</Label>
+                          {group.values.map((value) => {
+                            const option = targetTypeOptions.find((item) => item.value === value);
+                            if (!option) return null;
+                            return (
+                              <button
+                                key={value}
+                                type="button"
+                                className="flex items-center justify-between rounded-xl border bg-card px-4 py-3 text-left transition hover:bg-muted/50"
+                                onClick={() => selectComposeAudience(value)}
+                              >
+                                <span>
+                                  <span className="block text-sm font-semibold text-foreground">{option.label}</span>
+                                  <span className="mt-1 block text-xs text-muted-foreground">{option.description}</span>
+                                </span>
+                                <span className="text-lg text-muted-foreground">&gt;</span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </section>
+                    ))}
+                  </div>
+                </ScrollArea>
+              ) : (
+                <div className="flex h-[calc(88vh-96px)] min-h-0 flex-col">
+                  <ScrollArea className="min-h-0 flex-1">
+                    <div className="space-y-4 px-6 py-5">
+                      <div className="rounded-xl border border-primary/20 bg-primary/5 px-4 py-3">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-primary">Sending To</p>
+                        <p className="mt-1 font-semibold text-foreground">{targetTypeLabel(compose.target_type)}</p>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          {targetRecipientCount ? `${targetRecipientCount} recipient${targetRecipientCount === 1 ? "" : "s"}` : "Select target details"}
+                        </p>
+                      </div>
+
+                      {isRecipientTarget ? (
+                        <div className="space-y-4">
+                          <Input
+                            placeholder="Search by name, phone, email, class or section"
+                            value={recipientFilters.search}
+                            onChange={(event) => setRecipientFilters((prev) => ({ ...prev, search: event.target.value }))}
+                          />
+                          <div className="grid gap-3 md:grid-cols-3">
+                            <div className="grid gap-2">
+                              <Label>Class</Label>
+                              <select
+                                className={FIELD_CLASSNAME}
+                                value={recipientFilters.class_id}
+                                onChange={(event) => setRecipientFilters((prev) => ({ ...prev, class_id: event.target.value, section_id: "" }))}
+                              >
+                                <option value="">All Classes</option>
+                                {targets.classes.map((item) => (
+                                  <option key={item.id} value={item.id}>{item.name}</option>
+                                ))}
+                              </select>
+                            </div>
+                            <div className="grid gap-2">
+                              <Label>Section</Label>
+                              <select
+                                className={FIELD_CLASSNAME}
+                                value={recipientFilters.section_id}
+                                onChange={(event) => setRecipientFilters((prev) => ({ ...prev, section_id: event.target.value }))}
+                              >
+                                <option value="">All Sections</option>
+                                {sectionsByFilterClass.map((item) => (
+                                  <option key={item.id} value={item.id}>{item.class_name} - {item.name}</option>
+                                ))}
+                              </select>
+                            </div>
+                            <div className="grid gap-2">
+                              <Label>Medium</Label>
+                              <select
+                                className={FIELD_CLASSNAME}
+                                value={recipientFilters.medium}
+                                onChange={(event) => setRecipientFilters((prev) => ({ ...prev, medium: event.target.value }))}
+                              >
+                                <option value="">All Media</option>
+                                {availableMedia.map((medium) => (
+                                  <option key={medium} value={medium}>{medium}</option>
+                                ))}
+                              </select>
+                            </div>
+                          </div>
+                          {compose.target_type === "teacher" ? (
+                            <div className="grid gap-3 md:grid-cols-2">
+                              <div className="grid gap-2">
+                                <Label>Scope</Label>
+                                <select
+                                  className={FIELD_CLASSNAME}
+                                  value={recipientFilters.teacher_scope}
+                                  onChange={(event) => setRecipientFilters((prev) => ({ ...prev, teacher_scope: event.target.value }))}
+                                >
+                                  <option value="all">All Scopes</option>
+                                  <option value="school">School</option>
+                                  <option value="college">College</option>
+                                </select>
+                              </div>
+                              <div className="grid gap-2">
+                                <Label>Staff Type</Label>
+                                <select
+                                  className={FIELD_CLASSNAME}
+                                  value={recipientFilters.staff_type}
+                                  onChange={(event) => setRecipientFilters((prev) => ({ ...prev, staff_type: event.target.value }))}
+                                >
+                                  <option value="all">All Staff Types</option>
+                                  <option value="teaching">Teaching</option>
+                                  <option value="non_teaching">Non Teaching</option>
+                                </select>
+                              </div>
+                            </div>
+                          ) : null}
+                          <div className="space-y-2">
+                            {recipientOptions.length ? recipientOptions.map((item) => {
+                              const selected = String(compose.recipient_user_id) === String(item.user_id);
+                              return (
+                                <button
+                                  key={item.user_id}
+                                  type="button"
+                                  className={`w-full rounded-xl border px-4 py-3 text-left transition ${selected ? "border-primary bg-primary/5" : "bg-card hover:bg-muted/50"}`}
+                                  onClick={() => {
+                                    setCompose((prev) => ({ ...prev, recipient_user_id: String(item.user_id) }));
+                                    setComposeError("");
+                                  }}
+                                >
+                                  <span className="block font-semibold text-foreground">{item.name}</span>
+                                  <span className="mt-1 block text-xs text-muted-foreground">
+                                    {item.roles.map((role) => role[0].toUpperCase() + role.slice(1)).join(", ")}
+                                    {item.mobile ? ` | ${item.mobile}` : ""}
+                                    {item.email ? ` | ${item.email}` : ""}
+                                  </span>
+                                </button>
+                              );
+                            }) : (
+                              <p className="rounded-xl border border-dashed px-4 py-3 text-sm text-muted-foreground">No matching recipients found.</p>
+                            )}
+                          </div>
+                        </div>
+                      ) : compose.target_type === "class" ? (
+                        <div className="grid gap-3">
+                          <Label>Class</Label>
                           <select
                             className={FIELD_CLASSNAME}
-                            value={recipientFilters.role}
-                            onChange={(e) =>
-                              setRecipientFilters((prev) => ({
-                                ...prev,
-                                role: e.target.value
-                              }))
-                            }
+                            value={compose.class_id}
+                            onChange={(event) => setCompose((prev) => ({ ...prev, class_id: event.target.value, name: "" }))}
                           >
-                            <option value="all">All User Types</option>
-                            <option value="parent">Parents</option>
-                            <option value="teacher">Teachers</option>
+                            <option value="">Select Class</option>
+                            {targets.classes.map((item) => (
+                              <option key={item.id} value={item.id}>{item.name}{item.medium ? ` (${item.medium})` : ""}</option>
+                            ))}
                           </select>
                         </div>
-                      )}
-
-                      <div className="grid gap-2">
-                        <Label>Class</Label>
-                        <select
-                          className={FIELD_CLASSNAME}
-                          value={recipientFilters.class_id}
-                          onChange={(e) =>
-                            setRecipientFilters((prev) => ({
-                              ...prev,
-                              class_id: e.target.value,
-                              section_id: ""
-                            }))
-                          }
-                        >
-                          <option value="">All Classes</option>
-                          {targets.classes.map((c) => (
-                            <option key={c.id} value={c.id}>
-                              {c.name}
-                              {c.medium ? ` (${c.medium})` : ""}
-                              {c.class_scope ? ` - ${c.class_scope === "hs" ? "Higher Secondary" : "School"}` : ""}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-
-                      <div className="grid gap-2">
-                        <Label>Section</Label>
-                        <select
-                          className={FIELD_CLASSNAME}
-                          value={recipientFilters.section_id}
-                          onChange={(e) =>
-                            setRecipientFilters((prev) => ({
-                              ...prev,
-                              section_id: e.target.value
-                            }))
-                          }
-                        >
-                          <option value="">All Sections</option>
-                          {sectionsByFilterClass.map((s) => (
-                            <option key={s.id} value={s.id}>
-                              {s.class_name} - {s.name}{s.medium ? ` (${s.medium})` : ""}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-
-                      <div className="grid gap-2">
-                        <Label>Medium</Label>
-                        <select
-                          className={FIELD_CLASSNAME}
-                          value={recipientFilters.medium}
-                          onChange={(e) =>
-                            setRecipientFilters((prev) => ({
-                              ...prev,
-                              medium: e.target.value
-                            }))
-                          }
-                        >
-                          <option value="">All Media</option>
-                          {availableMedia.map((medium) => (
-                            <option key={medium} value={medium}>
-                              {medium}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                    </div>
-
-                    {(compose.target_type === "teacher" ||
-                      (compose.target_type === "direct" &&
-                        (recipientFilters.role === "teacher" || recipientFilters.role === "all"))) && (
-                      <div className="grid gap-2 md:max-w-xs">
-                        <Label>Teacher Type</Label>
-                        <select
-                          className={FIELD_CLASSNAME}
-                          value={recipientFilters.teacher_type}
-                          onChange={(e) =>
-                            setRecipientFilters((prev) => ({
-                              ...prev,
-                              teacher_type: e.target.value
-                            }))
-                          }
-                        >
-                          <option value="all">All Teacher Types</option>
-                          <option value="school">School</option>
-                          <option value="college">College</option>
-                        </select>
-                      </div>
-                    )}
-
-                    {selectedRecipient ? (
-                      <div className="rounded-xl border border-primary/30 bg-primary/5 p-3">
-                        <p className="text-xs font-medium uppercase tracking-wide text-primary">
-                          Selected Recipient
-                        </p>
-                        <p className="mt-1 font-medium">{selectedRecipient.name}</p>
-                        <p className="text-sm text-muted-foreground">
-                          {selectedRecipient.roles
-                            .map((role) => role[0].toUpperCase() + role.slice(1))
-                            .join(", ")}
-                          {selectedRecipient.mobile ? ` | ${selectedRecipient.mobile}` : ""}
-                          {selectedRecipient.email ? ` | ${selectedRecipient.email}` : ""}
-                        </p>
-                      </div>
-                    ) : null}
-
-                    <div className="overflow-hidden rounded-xl border">
-                      <div className="flex items-center justify-between border-b bg-muted/40 px-4 py-3">
-                        <div>
-                          <p className="text-sm font-medium">Matching Recipients</p>
-                          <p className="text-xs text-muted-foreground">
-                            {recipientOptions.length} result{recipientOptions.length === 1 ? "" : "s"}
-                          </p>
-                        </div>
-                      </div>
-                    <ScrollArea className="h-64 w-full">
-                      <div className="space-y-2 p-3">
-                        {recipientOptions.length === 0 && (
-                          <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
-                            No users found for current filters.
-                          </p>
-                        )}
-
-                        {recipientOptions.map((u) => {
-                          const isSelected = String(compose.recipient_user_id) === String(u.user_id);
-                          return (
-                            <button
-                              key={u.user_id}
-                              type="button"
-                              onClick={() =>
-                                {
-                                  setCompose((prev) => ({
-                                    ...prev,
-                                    recipient_user_id: String(u.user_id)
-                                  }));
-                                  setComposeError("");
-                                }
-                              }
-                              className={`w-full rounded-xl border px-4 py-3 text-left transition ${
-                                isSelected
-                                  ? "border-primary bg-primary/5 shadow-sm"
-                                  : "bg-background hover:bg-muted/60"
-                              }`}
+                      ) : compose.target_type === "section" ? (
+                        <div className="grid gap-3 md:grid-cols-2">
+                          <div className="grid gap-2">
+                            <Label>Class</Label>
+                            <select
+                              className={FIELD_CLASSNAME}
+                              value={compose.class_id}
+                              onChange={(event) => setCompose((prev) => ({ ...prev, class_id: event.target.value, section_id: "", name: "" }))}
                             >
-                              <div className="flex items-start justify-between gap-3">
-                                <div className="min-w-0">
-                                  <p className="truncate font-medium">{u.name}</p>
-                                  <p className="mt-1 text-xs text-muted-foreground">
-                                    {u.roles.map((r) => r[0].toUpperCase() + r.slice(1)).join(", ")}
-                                  </p>
-                                </div>
-                                {isSelected ? (
-                                  <span className="rounded-full bg-primary px-2.5 py-1 text-[11px] font-medium text-primary-foreground">
-                                    Selected
-                                  </span>
-                                ) : null}
-                              </div>
-                              <div className="mt-2 text-xs text-muted-foreground">
-                                {u.mobile ? u.mobile : "No phone"}
-                                {u.email ? ` | ${u.email}` : ""}
-                              </div>
-                              <div className="mt-1 text-xs text-muted-foreground">
-                                {u.classNames.length ? `Class: ${u.classNames.join(", ")}` : "No class mapping"}
-                                {u.sectionNames.length ? ` | Section: ${u.sectionNames.join(", ")}` : ""}
-                                {u.mediums.length ? ` | Medium: ${u.mediums.join(", ")}` : ""}
-                                {u.teacherTypes.length ? ` | Type: ${u.teacherTypes.join(", ")}` : ""}
-                              </div>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </ScrollArea>
-                    </div>
-                  </div>
-                )}
+                              <option value="">Select Class</option>
+                              {targets.classes.map((item) => (
+                                <option key={item.id} value={item.id}>{item.name}{item.medium ? ` (${item.medium})` : ""}</option>
+                              ))}
+                            </select>
+                          </div>
+                          <div className="grid gap-2">
+                            <Label>Section</Label>
+                            <select
+                              className={FIELD_CLASSNAME}
+                              value={compose.section_id}
+                              onChange={(event) => setCompose((prev) => ({ ...prev, section_id: event.target.value, name: "" }))}
+                            >
+                              <option value="">Select Section</option>
+                              {sectionsBySelectedClass.map((item) => (
+                                <option key={item.id} value={item.id}>{item.class_name} - {item.name}{item.medium ? ` (${item.medium})` : ""}</option>
+                              ))}
+                            </select>
+                          </div>
+                        </div>
+                      ) : compose.target_type === "all_teachers" ? (
+                        <div className="grid gap-3 md:grid-cols-2">
+                          <div className="grid gap-2">
+                            <Label>Scope</Label>
+                            <select
+                              className={FIELD_CLASSNAME}
+                              value={compose.teacher_scope}
+                              onChange={(event) => setCompose((prev) => ({ ...prev, teacher_scope: event.target.value, name: "" }))}
+                            >
+                              <option value="all">All Scopes</option>
+                              <option value="school">School</option>
+                              <option value="college">College</option>
+                            </select>
+                          </div>
+                          <div className="grid gap-2">
+                            <Label>Staff Type</Label>
+                            <select
+                              className={FIELD_CLASSNAME}
+                              value={compose.staff_type}
+                              onChange={(event) => setCompose((prev) => ({ ...prev, staff_type: event.target.value, name: "" }))}
+                            >
+                              <option value="all">All Staff Types</option>
+                              <option value="teaching">Teaching</option>
+                              <option value="non_teaching">Non Teaching</option>
+                            </select>
+                          </div>
+                        </div>
+                      ) : null}
 
-                {compose.target_type === "class" && (
-                  <div className="space-y-3 rounded-xl border bg-card p-4">
-                    <div className="space-y-1">
-                      <p className="text-sm font-semibold">Class Selection</p>
-                      <p className="text-sm text-muted-foreground">
-                        Send one message to everyone in a class.
-                      </p>
-                    </div>
-                    <div className="grid gap-2">
-                      <Label>Class</Label>
-                      <select
-                        className={FIELD_CLASSNAME}
-                        value={compose.class_id}
-                        onChange={(e) =>
-                          setCompose((prev) => ({ ...prev, class_id: e.target.value }))
-                        }
-                      >
-                        <option value="">Select Class</option>
-                        {targets.classes.map((c) => (
-                          <option key={c.id} value={c.id}>
-                            {c.name}
-                            {c.medium ? ` (${c.medium})` : ""}
-                            {c.class_scope ? ` - ${c.class_scope === "hs" ? "Higher Secondary" : "School"}` : ""}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-                )}
+                      {!isRecipientTarget ? (
+                        <div className="grid gap-2">
+                          <Label>Conversation Name</Label>
+                          <Input
+                            value={compose.name}
+                            onChange={(event) => setCompose((prev) => ({ ...prev, name: event.target.value }))}
+                            placeholder={defaultConversationName || "Name this conversation"}
+                          />
+                          <p className="text-xs text-muted-foreground">Will appear as: {effectiveConversationName || "-"}</p>
+                        </div>
+                      ) : null}
 
-                {compose.target_type === "section" && (
-                  <div className="space-y-3 rounded-xl border bg-card p-4">
-                    <div className="space-y-1">
-                      <p className="text-sm font-semibold">Section Selection</p>
-                      <p className="text-sm text-muted-foreground">
-                        Pick a class first, then choose the section.
-                      </p>
+                      {composeError ? (
+                        <div className="rounded-lg border border-red-200/70 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-500/40 dark:bg-red-500/10 dark:text-red-200">
+                          {composeError}
+                        </div>
+                      ) : null}
                     </div>
-                    <div className="grid gap-3 md:grid-cols-2">
-                    <div className="grid gap-2">
-                      <Label>Class</Label>
-                      <select
-                        className={FIELD_CLASSNAME}
-                        value={compose.class_id}
-                        onChange={(e) =>
-                          setCompose((prev) => ({
-                            ...prev,
-                            class_id: e.target.value,
-                            section_id: ""
-                          }))
-                        }
-                      >
-                        <option value="">Select Class</option>
-                        {targets.classes.map((c) => (
-                          <option key={c.id} value={c.id}>
-                            {c.name}
-                            {c.medium ? ` (${c.medium})` : ""}
-                            {c.class_scope ? ` - ${c.class_scope === "hs" ? "Higher Secondary" : "School"}` : ""}
-                          </option>
-                          ))}
-                      </select>
-                    </div>
-
-                    <div className="grid gap-2">
-                      <Label>Section</Label>
-                      <select
-                        className={FIELD_CLASSNAME}
-                        value={compose.section_id}
-                        onChange={(e) =>
-                          setCompose((prev) => ({ ...prev, section_id: e.target.value }))
-                        }
-                      >
-                        <option value="">Select Section</option>
-                        {sectionsBySelectedClass.map((s) => (
-                          <option key={s.id} value={s.id}>
-                            {s.class_name} - {s.name}{s.medium ? ` (${s.medium})` : ""}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    </div>
-                  </div>
-                )}
-
-                {compose.target_type === "all_teachers" && (
-                  <div className="space-y-3 rounded-xl border bg-card p-4">
-                    <div className="space-y-1">
-                      <p className="text-sm font-semibold">Teacher Audience</p>
-                      <p className="text-sm text-muted-foreground">
-                        Limit the broadcast to school or college teachers when needed.
-                      </p>
-                    </div>
-                    <div className="grid gap-2 md:max-w-xs">
-                      <Label>Teacher Type</Label>
-                      <select
-                        className={FIELD_CLASSNAME}
-                        value={compose.teacher_type}
-                        onChange={(e) =>
-                          setCompose((prev) => ({
-                            ...prev,
-                            teacher_type: e.target.value
-                          }))
-                        }
-                      >
-                        <option value="all">All Teachers</option>
-                        <option value="school">School Teachers</option>
-                        <option value="college">College Teachers</option>
-                      </select>
-                    </div>
-                  </div>
-                )}
-
-                <div className="space-y-3 rounded-xl border bg-card p-4">
-                  <div className="space-y-1">
-                    <p className="text-sm font-semibold">Message</p>
-                    <p className="text-sm text-muted-foreground">
-                      Keep it short and action-oriented so the recipient knows what to do next.
-                    </p>
-                  </div>
-                  <div className="grid gap-2">
-                    <Label>Message or caption</Label>
-                    <textarea
-                      className="min-h-36 w-full rounded-xl border border-border bg-background px-3 py-3 text-sm text-foreground shadow-xs outline-hidden transition focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/40"
-                      value={compose.message}
-                      onChange={(e) =>
-                        setCompose((prev) => ({ ...prev, message: e.target.value }))
-                      }
-                      placeholder="Write your message here..."
-                    />
-                  </div>
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <label className="grid cursor-pointer gap-2 rounded-lg border border-dashed p-3 text-sm">
-                      <span className="font-medium">Add photos</span>
-                      <span className="text-xs text-muted-foreground">Up to 5 image files, 10 MB each</span>
-                      <input
-                        type="file"
-                        multiple
-                        accept=".jpg,.jpeg,.png,.webp,.gif,.heic,.heif,.bmp,.tif,.tiff,image/*"
-                        onChange={(event) => {
-                          setComposeFiles(Array.from(event.target.files || []).slice(0, 5));
-                          setComposeFileCategory("image");
-                        }}
-                      />
-                    </label>
-                    <label className="grid cursor-pointer gap-2 rounded-lg border border-dashed p-3 text-sm">
-                      <span className="font-medium">Add documents</span>
-                      <span className="text-xs text-muted-foreground">Up to 5 PDF, DOCX, XLSX, CSV, or TXT files</span>
-                      <input
-                        type="file"
-                        multiple
-                        accept=".pdf,.docx,.xlsx,.csv,.txt"
-                        onChange={(event) => {
-                          setComposeFiles(Array.from(event.target.files || []).slice(0, 5));
-                          setComposeFileCategory("document");
-                        }}
-                      />
-                    </label>
-                  </div>
-                  {composeFiles.length ? (
-                    <p className="text-xs text-muted-foreground">
-                      Selected: {composeFiles.map((file) => file.name).join(", ")}
-                    </p>
-                  ) : null}
-                </div>
-                {composeError && (
-                  <div className="rounded-lg border border-red-200/70 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-500/40 dark:bg-red-500/10 dark:text-red-200">
-                    {composeError}
-                  </div>
-                )}
-                </div>
-                <div className="border-t bg-card px-6 py-4">
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                    <p className="text-sm text-muted-foreground">
-                      {isRecipientTarget
-                        ? selectedRecipient
-                          ? `Ready to send to ${selectedRecipient.name}.`
-                          : "Select one recipient before sending."
-                        : "Review the target and send when ready."}
-                    </p>
-                    <div className="flex gap-2 sm:justify-end">
-                      <Button type="button" variant="outline" onClick={() => setOpenCompose(false)}>
-                        Cancel
-                      </Button>
-                      <Button type="submit">
-                        Send Message
-                      </Button>
-                    </div>
+                  </ScrollArea>
+                  <div className="flex items-center justify-between gap-3 border-t bg-card px-6 py-4">
+                    <Button type="button" variant="outline" onClick={() => setComposeStep("audience")}>
+                      Change Audience
+                    </Button>
+                    <Button type="button" onClick={handleOpenComposeTarget} disabled={!canOpenComposeTarget}>
+                      Open Chat
+                    </Button>
                   </div>
                 </div>
-              </form>
+              )}
             </DialogContent>
           </Dialog>
           <Dialog
@@ -1250,7 +1226,11 @@ export default function Messaging() {
         <ChatList
           conversations={conversations}
           activeChatId={activeChatId}
-          onSelect={setActiveChatId}
+          onSelect={(conversationId) => {
+            setPendingConversationTarget(null);
+            setPendingConversationLabel("Conversation");
+            setActiveChatId(conversationId);
+          }}
           onNewChat={isSuperAdmin ? () => setOpenCompose(true) : null}
           onDeleteChat={handleDeleteConversation}
         />

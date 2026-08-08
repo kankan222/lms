@@ -100,6 +100,11 @@ router.delete(
   requirePermission("messages.view"),
   controller.deleteConversation
 );
+router.patch(
+  "/conversations/:conversationId",
+  requirePermission("messages.send"),
+  controller.updateConversation
+);
 router.post(
   "/conversations/:conversationId/typing",
   requirePermission("messages.send"),

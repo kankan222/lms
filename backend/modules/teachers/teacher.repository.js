@@ -1,6 +1,7 @@
 import { query } from "../../core/db/query.js";
 
 let teacherClassScopeColumnPromise;
+let teacherStaffTypeColumnPromise;
 
 function hasTeacherClassScopeColumn() {
   if (!teacherClassScopeColumnPromise) {
@@ -19,41 +20,52 @@ function hasTeacherClassScopeColumn() {
   return teacherClassScopeColumnPromise;
 }
 
+function hasTeacherStaffTypeColumn() {
+  if (!teacherStaffTypeColumnPromise) {
+    teacherStaffTypeColumnPromise = query(
+      `
+        SELECT 1
+        FROM information_schema.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = 'teachers'
+          AND COLUMN_NAME = 'staff_type'
+        LIMIT 1
+      `
+    ).then((rows) => rows.length > 0);
+  }
+
+  return teacherStaffTypeColumnPromise;
+}
+
 /* ------------------ CREATE ------------------ */
 
 export async function createTeacher(data, conn) {
   const hasClassScope = await hasTeacherClassScopeColumn();
-
-  if (hasClassScope) {
-    const [result] = await conn.execute(`
-      INSERT INTO teachers
-      (user_id, employee_id, name, phone, email, class_scope, photo_url)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-    `, [
-      data.user_id ,
-      data.employee_id || null,
-      data.name || null,
-      data.phone || null,
-      data.email || null,
-      data.class_scope || "school",
-      data.photo_url || null
-    ]);
-
-    return result.insertId;
-  }
-
-  const [result] = await conn.execute(`
-    INSERT INTO teachers
-    (user_id, employee_id, name, phone, email, photo_url)
-    VALUES (?, ?, ?, ?, ?, ?)
-  `, [
-    data.user_id ,
+  const hasStaffType = await hasTeacherStaffTypeColumn();
+  const columns = ["user_id", "employee_id", "name", "phone", "email"];
+  const values = [
+    data.user_id,
     data.employee_id || null,
     data.name || null,
     data.phone || null,
     data.email || null,
-    data.photo_url || null
-  ]);
+  ];
+
+  if (hasClassScope) {
+    columns.push("class_scope");
+    values.push(data.class_scope || "school");
+  }
+
+  if (hasStaffType) {
+    columns.push("staff_type");
+    values.push(data.staff_type || "teaching");
+  }
+
+  const [result] = await conn.execute(`
+    INSERT INTO teachers
+    (${columns.concat("photo_url").join(", ")})
+    VALUES (${columns.concat("photo_url").map(() => "?").join(", ")})
+  `, [...values, data.photo_url || null]);
 
   return result.insertId;
 }
@@ -62,12 +74,22 @@ export async function createTeacher(data, conn) {
 
 export async function getTeachers(filters = {}) {
   const hasClassScope = await hasTeacherClassScopeColumn();
+  const hasStaffType = await hasTeacherStaffTypeColumn();
   const rawPage = Number(filters.page);
   const rawLimit = Number(filters.limit);
   const hasPagination = Number.isFinite(rawPage) || Number.isFinite(rawLimit);
   const page = Math.max(1, Number.isFinite(rawPage) ? Math.trunc(rawPage) : 1);
   const limit = Math.min(100, Math.max(1, Number.isFinite(rawLimit) ? Math.trunc(rawLimit) : 25));
   const offset = (page - 1) * limit;
+  const where = [];
+  const params = [];
+
+  if (hasStaffType && filters.staff_type) {
+    where.push("t.staff_type = ?");
+    params.push(filters.staff_type);
+  }
+
+  const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
   const selectSql = `
     SELECT
       t.id,
@@ -77,8 +99,10 @@ export async function getTeachers(filters = {}) {
       t.phone,
       t.email,
       ${hasClassScope ? "t.class_scope" : "'school' AS class_scope"},
+      ${hasStaffType ? "t.staff_type" : "'teaching' AS staff_type"},
       t.photo_url
-    FROM teachers t`;
+    FROM teachers t
+    ${whereSql}`;
 
   const rows = await query(
     hasPagination
@@ -86,14 +110,15 @@ export async function getTeachers(filters = {}) {
          ORDER BY t.id DESC
          LIMIT ${offset}, ${limit}`
       : `${selectSql}
-         ORDER BY t.id DESC`
+         ORDER BY t.id DESC`,
+    params
   );
 
   if (!hasPagination) {
     return rows;
   }
 
-  const countRows = await query(`SELECT COUNT(*) AS total FROM teachers`);
+  const countRows = await query(`SELECT COUNT(*) AS total FROM teachers t ${whereSql}`, params);
   const total = Number(countRows?.[0]?.total || 0);
 
   return {
@@ -109,6 +134,7 @@ export async function getTeachers(filters = {}) {
 
 export async function getTeacherById(id) {
   const hasClassScope = await hasTeacherClassScopeColumn();
+  const hasStaffType = await hasTeacherStaffTypeColumn();
 
   return query(`
     SELECT
@@ -119,6 +145,7 @@ export async function getTeacherById(id) {
       phone,
       email,
       ${hasClassScope ? "class_scope" : "'school' AS class_scope"},
+      ${hasStaffType ? "staff_type" : "'teaching' AS staff_type"},
       photo_url
     FROM teachers
     WHERE id = ?
@@ -127,6 +154,7 @@ export async function getTeacherById(id) {
 
 export async function getTeacherByUserId(userId) {
   const hasClassScope = await hasTeacherClassScopeColumn();
+  const hasStaffType = await hasTeacherStaffTypeColumn();
 
   return query(`
     SELECT
@@ -137,6 +165,7 @@ export async function getTeacherByUserId(userId) {
       phone,
       email,
       ${hasClassScope ? "class_scope" : "'school' AS class_scope"},
+      ${hasStaffType ? "staff_type" : "'teaching' AS staff_type"},
       photo_url
     FROM teachers
     WHERE user_id = ?
@@ -149,53 +178,40 @@ export async function getTeacherByUserId(userId) {
 /* ------------------ UPDATE ------------------ */
 
 export function updateTeacher(id, data) {
-  return hasTeacherClassScopeColumn().then((hasClassScope) => {
+  return Promise.all([hasTeacherClassScopeColumn(), hasTeacherStaffTypeColumn()]).then(([hasClassScope, hasStaffType]) => {
     const employeeId = data.employee_id ?? null;
     const name = data.name ?? null;
     const phone = data.phone ?? null;
     const email = data.email ?? null;
     const classScope = data.class_scope ?? null;
+    const staffType = data.staff_type ?? null;
     const photoUrl = data.photo_url ?? null;
+    const assignments = [
+      "employee_id = ?",
+      "name = ?",
+      "phone = ?",
+      "email = ?",
+    ];
+    const params = [employeeId, name, phone, email];
 
     if (hasClassScope) {
-      return query(`
-        UPDATE teachers
-        SET
-          employee_id = ?,
-          name = ?,
-          phone = ?,
-          email = ?,
-          class_scope = COALESCE(?, class_scope),
-          photo_url = ?
-        WHERE id = ?
-      `, [
-        employeeId,
-        name,
-        phone,
-        email,
-        classScope,
-        photoUrl,
-        id
-      ]);
+      assignments.push("class_scope = COALESCE(?, class_scope)");
+      params.push(classScope);
     }
+
+    if (hasStaffType) {
+      assignments.push("staff_type = COALESCE(?, staff_type)");
+      params.push(staffType);
+    }
+
+    assignments.push("photo_url = ?");
+    params.push(photoUrl, id);
 
     return query(`
       UPDATE teachers
-      SET
-        employee_id = ?,
-        name = ?,
-        phone = ?,
-        email = ?,
-        photo_url = ?
+      SET ${assignments.join(",\n          ")}
       WHERE id = ?
-    `, [
-      employeeId,
-      name,
-      phone,
-      email,
-      photoUrl,
-      id
-    ]);
+    `, params);
   });
 }
 

@@ -145,6 +145,33 @@ function formatAssignmentLabel(assignment) {
   return `${assignment.class} - ${formatSectionLabel(assignment.section, assignment.section_medium)} - ${assignment.subject}`;
 }
 
+function resolveStaffType(value) {
+  const raw = String(value || "").trim().toLowerCase().replace(/[\s-]+/g, "_");
+  return raw === "non_teaching" || raw === "nonteacher" || raw === "non_teacher" ? "non_teaching" : "teaching";
+}
+
+function formatStaffTypeLabel(value) {
+  return resolveStaffType(value) === "non_teaching" ? "Non-Teaching Staff" : "Teaching Staff";
+}
+
+function resolveScopeBadgeCode(value) {
+  const raw = String(value || "").trim().toLowerCase();
+  if (raw === "hs" || raw.includes("higher secondary")) return "hs";
+  return "school";
+}
+
+function staffTypeBadgeClass(value) {
+  return resolveStaffType(value) === "non_teaching"
+    ? "border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-500/30 dark:bg-sky-500/15 dark:text-sky-200"
+    : "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/15 dark:text-emerald-200";
+}
+
+function scopeBadgeClass(value) {
+  return resolveScopeBadgeCode(value) === "hs"
+    ? "border-purple-200 bg-purple-50 text-purple-700 dark:border-purple-500/30 dark:bg-purple-500/15 dark:text-purple-200"
+    : "border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-500/30 dark:bg-blue-500/15 dark:text-blue-200";
+}
+
 export default function TeacherDetails() {
   const { id } = useParams();
   const { can } = usePermissions();
@@ -511,6 +538,7 @@ export default function TeacherDetails() {
   const currentEnd = Math.min(currentPage * rowsPerPage, attendance.length);
 
   if (!teacher) return <div>Loading...</div>;
+  const isTeachingStaff = resolveStaffType(teacher.staff_type) === "teaching";
 
   return (
     <>
@@ -532,7 +560,7 @@ export default function TeacherDetails() {
         </div>
       </div>
 
-      <TopBar title="Teacher Information" />
+      <TopBar title="Staff Information" />
       <div className="w-full bg-card rounded-xl border shadow-sm p-6 flex gap-6 items-start">
         {/* Avatar */}
         <div className="w-24 h-24 rounded-lg overflow-hidden bg-pink-200 shrink-0">
@@ -567,12 +595,17 @@ export default function TeacherDetails() {
                 <span className="flex items-center gap-1">
                   <Mail size={16} /> {teacher.email}
                 </span>
-                <span className="flex items-center gap-1">
-                  Scope: {resolveScopeCode(teacher.class_scope) === "hs" ? "Higher Secondary" : "School"}
-                </span>
+                <Badge variant="outline" className={scopeBadgeClass(teacher.class_scope)}>
+                  {resolveScopeCode(teacher.class_scope) === "hs" ? "Higher Secondary" : "School"}
+                </Badge>
+                <Badge variant="outline" className={staffTypeBadgeClass(teacher.staff_type)}>
+                  {formatStaffTypeLabel(teacher.staff_type)}
+                </Badge>
               </div>
               <div className="mt-4 space-y-3">
-                <div className="flex items-start gap-2">
+                {isTeachingStaff ? (
+                <>
+                  <div className="flex items-start gap-2">
                   <LayoutList size={16} className="mt-0.5 text-muted-foreground" />
                   <div className="space-y-2">
                     <p className="text-sm font-medium text-foreground">Assigned Classes & Sections</p>
@@ -634,12 +667,19 @@ export default function TeacherDetails() {
                     </div>
                   </div>
                 ) : null}
+                </>
+                ) : (
+                  <div className="rounded-lg border border-border bg-muted/20 px-3 py-2 text-sm text-muted-foreground">
+                    Non-teaching staff are included in attendance, but cannot be assigned class subjects.
+                  </div>
+                )}
               </div>
             </div>
 
             {/* Actions */}
             {canManageTeachers ? (
             <div className="flex gap-2">
+              {isTeachingStaff ? (
               <Dialog
                 open={assignDialogOpen}
                 onOpenChange={(open) => {
@@ -794,6 +834,7 @@ export default function TeacherDetails() {
                   </Button>
                 </DialogContent>
               </Dialog>
+              ) : null}
 
               <Dialog
                 open={passwordDialogOpen}

@@ -17,7 +17,7 @@ import {
   View,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { useNavigation } from "@react-navigation/native";
+import { useIsFocused, useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import * as DocumentPicker from "expo-document-picker";
 import * as ImagePicker from "expo-image-picker";
@@ -87,7 +87,8 @@ type Compose = {
   recipient_user_id: string;
   class_id: string;
   section_id: string;
-  teacher_type: "all" | "school" | "college";
+  teacher_scope: "all" | "school" | "college";
+  staff_type: "all" | "teaching" | "non_teaching";
   name: string;
 };
 type ConversationTargetPayload = Omit<Parameters<typeof sendMessage>[0], "message">;
@@ -98,7 +99,8 @@ const EMPTY_COMPOSE: Compose = {
   recipient_user_id: "",
   class_id: "",
   section_id: "",
-  teacher_type: "all",
+  teacher_scope: "all",
+  staff_type: "all",
   name: "",
 };
 const CONVERSATIONS_PAGE_SIZE = 30;
@@ -195,6 +197,24 @@ function audienceIcon(value: Compose["target_type"]): keyof typeof Ionicons.glyp
   if (value === "all_teachers") return "briefcase-outline";
   if (value === "broadcast" || value === "all_classes" || value === "all_sections") return "megaphone-outline";
   return "chatbubble-ellipses-outline";
+}
+
+function normalizeTeacherScope(value?: string | null) {
+  if (value === "college" || value === "hs") return "college";
+  if (value === "school") return "school";
+  return "all";
+}
+
+function normalizeStaffType(value?: string | null) {
+  if (value === "non_teaching") return "non_teaching";
+  if (value === "teaching") return "teaching";
+  return "all";
+}
+
+function formatTeacherAudienceName(scope: Compose["teacher_scope"], staffType: Compose["staff_type"]) {
+  const scopeLabel = scope === "college" ? "College" : scope === "school" ? "School" : "";
+  const staffLabel = staffType === "non_teaching" ? "Non Teaching Staff" : staffType === "teaching" ? "Teaching Staff" : "Staff";
+  return ["All", scopeLabel, staffLabel].filter(Boolean).join(" ");
 }
 
 function Avatar({
@@ -383,6 +403,7 @@ export default function MessagingTab({
   isVisible = true,
 }: Props) {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+  const isFocused = useIsFocused();
   const { theme, isDark } = useAppTheme();
   styles = useMemo(() => createStyles(theme), [theme]);
   const insets = useSafeAreaInsets();
@@ -416,7 +437,8 @@ export default function MessagingTab({
   const [composeRoleFilter, setComposeRoleFilter] = useState("all");
   const [composeClassFilter, setComposeClassFilter] = useState("");
   const [composeSectionFilter, setComposeSectionFilter] = useState("");
-  const [composeTeacherTypeFilter, setComposeTeacherTypeFilter] = useState<"all" | "school" | "college">("all");
+  const [composeTeacherScopeFilter, setComposeTeacherScopeFilter] = useState<"all" | "school" | "college">("all");
+  const [composeStaffTypeFilter, setComposeStaffTypeFilter] = useState<"all" | "teaching" | "non_teaching">("all");
   const [showAllRecipients, setShowAllRecipients] = useState(false);
   const [composeOpen, setComposeOpen] = useState(false);
   const [composeStep, setComposeStep] = useState<"audience" | "target">("audience");
@@ -459,7 +481,8 @@ export default function MessagingTab({
         sectionNames: Set<string>;
         phones: Set<string>;
         emails: Set<string>;
-        teacherTypes: Set<string>;
+        teacherScopes: Set<string>;
+        staffTypes: Set<string>;
         studentNames: Set<string>;
       }
     >();
@@ -477,7 +500,8 @@ export default function MessagingTab({
         sectionNames: new Set<string>(),
         phones: new Set<string>(),
         emails: new Set<string>(),
-        teacherTypes: new Set<string>(),
+        teacherScopes: new Set<string>(),
+        staffTypes: new Set<string>(),
         studentNames: new Set<string>(),
       };
       existing.roleSet.add("parent");
@@ -508,7 +532,8 @@ export default function MessagingTab({
         sectionNames: new Set<string>(),
         phones: new Set<string>(),
         emails: new Set<string>(),
-        teacherTypes: new Set<string>(),
+        teacherScopes: new Set<string>(),
+        staffTypes: new Set<string>(),
         studentNames: new Set<string>(),
       };
       existing.roleSet.add("teacher");
@@ -518,7 +543,10 @@ export default function MessagingTab({
       if (item.section_name) existing.sectionNames.add(String(item.section_name));
       if (item.phone) existing.phones.add(String(item.phone));
       if (item.email) existing.emails.add(String(item.email));
-      if (item.type) existing.teacherTypes.add(String(item.type));
+      const teacherScope = normalizeTeacherScope(item.type || item.class_scope);
+      const staffType = normalizeStaffType(item.staff_type || "teaching");
+      if (teacherScope !== "all") existing.teacherScopes.add(teacherScope);
+      if (staffType !== "all") existing.staffTypes.add(staffType);
       grouped.set(userId, existing);
     }
 
@@ -537,7 +565,8 @@ export default function MessagingTab({
         sectionNames: Array.from(item.sectionNames),
         phones: Array.from(item.phones),
         emails: Array.from(item.emails),
-        teacherTypes: Array.from(item.teacherTypes),
+        teacherScopes: Array.from(item.teacherScopes),
+        staffTypes: Array.from(item.staffTypes),
         studentNames: Array.from(item.studentNames),
       }))
       .filter((item) => {
@@ -545,9 +574,16 @@ export default function MessagingTab({
         if (composeClassFilter && !item.classIds.includes(composeClassFilter)) return false;
         if (composeSectionFilter && !item.sectionIds.includes(composeSectionFilter)) return false;
         if (
-          composeTeacherTypeFilter !== "all" &&
+          composeTeacherScopeFilter !== "all" &&
           item.roles.includes("teacher") &&
-          !item.teacherTypes.includes(composeTeacherTypeFilter)
+          !item.teacherScopes.includes(composeTeacherScopeFilter)
+        ) {
+          return false;
+        }
+        if (
+          composeStaffTypeFilter !== "all" &&
+          item.roles.includes("teacher") &&
+          !item.staffTypes.includes(composeStaffTypeFilter)
         ) {
           return false;
         }
@@ -559,7 +595,8 @@ export default function MessagingTab({
           item.sectionNames.join(" "),
           item.phones.join(" "),
           item.emails.join(" "),
-          item.teacherTypes.join(" "),
+          item.teacherScopes.join(" "),
+          item.staffTypes.join(" "),
           item.studentNames.join(" "),
         ]
           .join(" ")
@@ -567,7 +604,7 @@ export default function MessagingTab({
           .includes(query);
       })
       .sort((a, b) => a.name.localeCompare(b.name));
-  }, [targets, compose.target_type, composeRoleFilter, composeSearch, composeClassFilter, composeSectionFilter, composeTeacherTypeFilter]);
+  }, [targets, compose.target_type, composeRoleFilter, composeSearch, composeClassFilter, composeSectionFilter, composeTeacherScopeFilter, composeStaffTypeFilter]);
   const selectedRecipient = useMemo(
     () => recipientOptions.find((item) => String(item.user_id) === compose.recipient_user_id) ?? null,
     [recipientOptions, compose.recipient_user_id],
@@ -644,14 +681,10 @@ export default function MessagingTab({
     if (compose.target_type === "all_sections") return "All Sections";
     if (compose.target_type === "all_parents") return "All Parents";
     if (compose.target_type === "all_teachers") {
-      return compose.teacher_type === "college"
-        ? "All College Teachers"
-        : compose.teacher_type === "school"
-          ? "All School Teachers"
-          : "All Teachers";
+      return formatTeacherAudienceName(compose.teacher_scope, compose.staff_type);
     }
     return "";
-  }, [compose.target_type, compose.teacher_type, selectedClass, selectedSection]);
+  }, [compose.target_type, compose.teacher_scope, compose.staff_type, selectedClass, selectedSection]);
   const effectiveConversationName = compose.name.trim() || defaultConversationName;
   const targetRecipientCount = useMemo(() => {
     if (["direct", "parent", "teacher"].includes(compose.target_type)) return selectedRecipient ? 1 : 0;
@@ -665,13 +698,17 @@ export default function MessagingTab({
       return new Set(targets.parents.map((item) => item.user_id).filter(Boolean)).size;
     }
     if (compose.target_type === "all_teachers") {
-      return new Set(targets.teachers.filter((item) => compose.teacher_type === "all" || item.type === compose.teacher_type).map((item) => item.user_id).filter(Boolean)).size;
+      return new Set(targets.teachers.filter((item) => {
+        const teacherScope = normalizeTeacherScope(item.type || item.class_scope);
+        const staffType = normalizeStaffType(item.staff_type || "teaching");
+        return (compose.teacher_scope === "all" || teacherScope === compose.teacher_scope) && (compose.staff_type === "all" || staffType === compose.staff_type);
+      }).map((item) => item.user_id).filter(Boolean)).size;
     }
     if (compose.target_type === "broadcast") {
       return new Set([...targets.parents.map((item) => item.user_id), ...targets.teachers.map((item) => item.user_id)].filter(Boolean)).size;
     }
     return 0;
-  }, [compose.target_type, compose.class_id, compose.section_id, compose.teacher_type, selectedRecipient, targets.parents, targets.teachers]);
+  }, [compose.target_type, compose.class_id, compose.section_id, compose.teacher_scope, compose.staff_type, selectedRecipient, targets.parents, targets.teachers]);
   const canContinueCompose = useMemo(() => {
     if (["direct", "parent", "teacher"].includes(compose.target_type)) return Boolean(compose.recipient_user_id);
     if (compose.target_type === "class") return Boolean(compose.class_id);
@@ -712,6 +749,11 @@ export default function MessagingTab({
   useEffect(() => {
     void loadBootstrap();
   }, []);
+
+  useEffect(() => {
+    if (!isVisible || !isFocused) return;
+    void loadConversations(true);
+  }, [isFocused, isVisible]);
 
   useEffect(() => {
     if (!notice) return undefined;
@@ -841,7 +883,7 @@ export default function MessagingTab({
 
   useEffect(() => {
     setShowAllRecipients(false);
-  }, [compose.target_type, composeSearch, composeRoleFilter, composeClassFilter, composeSectionFilter, composeTeacherTypeFilter]);
+  }, [compose.target_type, composeSearch, composeRoleFilter, composeClassFilter, composeSectionFilter, composeTeacherScopeFilter, composeStaffTypeFilter]);
 
   async function loadBootstrap() {
     await Promise.all([
@@ -1026,7 +1068,8 @@ export default function MessagingTab({
     setComposeRoleFilter("all");
     setComposeClassFilter("");
     setComposeSectionFilter("");
-    setComposeTeacherTypeFilter("all");
+    setComposeTeacherScopeFilter("all");
+    setComposeStaffTypeFilter("all");
     setShowAllRecipients(false);
   }
 
@@ -1099,12 +1142,9 @@ export default function MessagingTab({
       label = payload.name;
     }
     if (compose.target_type === "all_teachers") {
-      payload.teacher_type = compose.teacher_type;
-      payload.name = compose.name.trim() || (compose.teacher_type === "college"
-          ? "All College Teachers"
-          : compose.teacher_type === "school"
-            ? "All School Teachers"
-            : "All Teachers");
+      payload.teacher_scope = compose.teacher_scope;
+      payload.staff_type = compose.staff_type;
+      payload.name = compose.name.trim() || formatTeacherAudienceName(compose.teacher_scope, compose.staff_type);
       label = payload.name;
     }
 
@@ -1519,14 +1559,16 @@ export default function MessagingTab({
       recipient_user_id: "",
       class_id: "",
       section_id: "",
-      teacher_type: "all",
+      teacher_scope: "all",
+      staff_type: "all",
       name: "",
     }));
     setComposeSearch("");
     setComposeRoleFilter("all");
     setComposeClassFilter("");
     setComposeSectionFilter("");
-    setComposeTeacherTypeFilter("all");
+    setComposeTeacherScopeFilter("all");
+    setComposeStaffTypeFilter("all");
     setShowAllRecipients(false);
     setComposeStep("target");
   }
@@ -1598,16 +1640,28 @@ export default function MessagingTab({
           <SelectField label="Class" value={composeClassFilter} options={classOptions} onChange={(value) => { setComposeClassFilter(value); setComposeSectionFilter(""); }} allowClear clearLabel="All Classes" />
           <SelectField label="Section" value={composeSectionFilter} options={filteredSectionOptions} onChange={setComposeSectionFilter} allowClear clearLabel="All Sections" />
           {(compose.target_type === "teacher" || (compose.target_type === "direct" && composeRoleFilter !== "parent")) ? (
-            <SelectField
-              label="Teacher Type"
-              value={composeTeacherTypeFilter}
-              options={[
-                { label: "All Teacher Types", value: "all" },
-                { label: "School", value: "school" },
-                { label: "College", value: "college" },
-              ]}
-              onChange={(value) => setComposeTeacherTypeFilter(value as "all" | "school" | "college")}
-            />
+            <>
+              <SelectField
+                label="Scope"
+                value={composeTeacherScopeFilter}
+                options={[
+                  { label: "All Scopes", value: "all" },
+                  { label: "School", value: "school" },
+                  { label: "College", value: "college" },
+                ]}
+                onChange={(value) => setComposeTeacherScopeFilter(value as "all" | "school" | "college")}
+              />
+              <SelectField
+                label="Staff Type"
+                value={composeStaffTypeFilter}
+                options={[
+                  { label: "All Staff Types", value: "all" },
+                  { label: "Teaching", value: "teaching" },
+                  { label: "Non Teaching", value: "non_teaching" },
+                ]}
+                onChange={(value) => setComposeStaffTypeFilter(value as "all" | "teaching" | "non_teaching")}
+              />
+            </>
           ) : null}
 
           {selectedRecipient ? (
@@ -1682,16 +1736,28 @@ export default function MessagingTab({
     return (
       <View style={styles.composeSection}>
         {compose.target_type === "all_teachers" ? (
-          <SelectField
-            label="Teacher Type"
-            value={compose.teacher_type}
-            options={[
-              { label: "All Teachers", value: "all" },
-              { label: "School Teachers", value: "school" },
-              { label: "College Teachers", value: "college" },
-            ]}
-            onChange={(value) => setCompose((prev) => ({ ...prev, teacher_type: value as Compose["teacher_type"], name: "" }))}
-          />
+          <>
+            <SelectField
+              label="Scope"
+              value={compose.teacher_scope}
+              options={[
+                { label: "All Scopes", value: "all" },
+                { label: "School", value: "school" },
+                { label: "College", value: "college" },
+              ]}
+              onChange={(value) => setCompose((prev) => ({ ...prev, teacher_scope: value as Compose["teacher_scope"], name: "" }))}
+            />
+            <SelectField
+              label="Staff Type"
+              value={compose.staff_type}
+              options={[
+                { label: "All Staff Types", value: "all" },
+                { label: "Teaching", value: "teaching" },
+                { label: "Non Teaching", value: "non_teaching" },
+              ]}
+              onChange={(value) => setCompose((prev) => ({ ...prev, staff_type: value as Compose["staff_type"], name: "" }))}
+            />
+          </>
         ) : null}
         {renderGroupNameInput()}
       </View>
@@ -1993,23 +2059,36 @@ export default function MessagingTab({
                 <Pressable style={[styles.iconBtn, { backgroundColor: theme.cardMuted, borderColor: theme.border }]} onPress={closeChatView}>
                   <Ionicons name="arrow-back-outline" size={20} color={theme.icon} />
                 </Pressable>
-                <Avatar
-                  label={activeConversation?.name || pendingConversationLabel || activeConversation?.type}
-                  online={activeConversation?.online}
-                  imageUrl={activeConversation?.other_user_image_url}
-                />
-                <View style={styles.chatHeaderCopy}>
-                  <Text style={[styles.chatTitle, { color: theme.text }]} numberOfLines={1}>
-                    {activeConversation?.name || pendingConversationLabel || "Chat"}
-                  </Text>
-                  <Text style={[styles.chatMeta, { color: theme.subText }]} numberOfLines={1}>
-                    {typingUserIds.length
-                      ? "Typing..."
-                      : activeConversation
-                        ? presenceText(activeConversation)
-                    : "New conversation"}
-                  </Text>
-                </View>
+                <Pressable
+                  style={styles.chatHeaderIdentity}
+                  disabled={!activeConversation || activeConversation.type === "direct"}
+                  onPress={() => {
+                    if (!activeConversation || activeConversation.type === "direct") return;
+                    navigation.navigate("MessagingConversationDetails", {
+                      conversationId: Number(activeConversation.id),
+                      name: activeConversation.name || "Conversation",
+                      type: activeConversation.type,
+                    });
+                  }}
+                >
+                  <Avatar
+                    label={activeConversation?.name || pendingConversationLabel || activeConversation?.type}
+                    online={activeConversation?.online}
+                    imageUrl={activeConversation?.other_user_image_url}
+                  />
+                  <View style={styles.chatHeaderCopy}>
+                    <Text style={[styles.chatTitle, { color: theme.text }]} numberOfLines={1}>
+                      {activeConversation?.name || pendingConversationLabel || "Chat"}
+                    </Text>
+                    <Text style={[styles.chatMeta, { color: theme.subText }]} numberOfLines={1}>
+                      {typingUserIds.length
+                        ? "Typing..."
+                        : activeConversation
+                          ? presenceText(activeConversation)
+                      : "New conversation"}
+                    </Text>
+                  </View>
+                </Pressable>
                 {activeConversation ? (
                   <Pressable
                     style={[styles.iconBtn, { backgroundColor: theme.cardMuted, borderColor: theme.border }]}
@@ -2371,6 +2450,7 @@ return StyleSheet.create({
   presenceOffline: { backgroundColor: "#ef4444" },
   chatHeader: { flexDirection: "row", alignItems: "center", gap: 10, borderBottomWidth: 1, paddingHorizontal: 14, paddingVertical: 10 },
   iconBtn: { width: 36, height: 36, borderRadius: 12, borderWidth: 1, alignItems: "center", justifyContent: "center" },
+  chatHeaderIdentity: { flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center", gap: 10 },
   chatHeaderCopy: { flex: 1, gap: 2 },
   chatTitle: { fontSize: 15, fontWeight: "800" },
   chatMeta: { fontSize: 12 },

@@ -11,6 +11,24 @@ import AppError from "../../core/errors/AppError.js";
 
 const MESSAGE_CHANGE_WINDOW_MS = 60 * 60 * 1000;
 
+function normalizeTeacherScope(value) {
+  if (value === "college" || value === "hs") return "college";
+  if (value === "school") return "school";
+  return "all";
+}
+
+function normalizeStaffType(value) {
+  return value === "non_teaching" ? "non_teaching" : value === "teaching" ? "teaching" : "all";
+}
+
+function teacherBroadcastName({ teacher_scope, teacher_type, staff_type } = {}) {
+  const scope = normalizeTeacherScope(teacher_scope || teacher_type);
+  const type = normalizeStaffType(staff_type);
+  const scopeLabel = scope === "college" ? "College" : scope === "school" ? "School" : "";
+  const typeLabel = type === "non_teaching" ? "Non Teaching Staff" : type === "teaching" ? "Teaching Staff" : "Staff";
+  return ["All", scopeLabel, typeLabel].filter(Boolean).join(" ");
+}
+
 function normalizeActor(actor) {
   if (typeof actor === "number") {
     return { userId: actor, roles: [], permissions: [] };
@@ -62,6 +80,7 @@ export async function getScopedVisibleConversationIdSet(actorInput) {
       const teacherIds = await repo.getTeacherVisibleConversationIds({
         teacherId: teacher.id,
         classScope: teacher.class_scope || "school",
+        staffType: teacher.staff_type || "teaching",
       });
       for (const id of teacherIds) ids.add(Number(id));
     }
@@ -148,7 +167,8 @@ async function syncTeacherMemberships(userId) {
 
   const conversationIds = await repo.getTeacherVisibleConversationIds({
     teacherId: teacher.id,
-    classScope: teacher.class_scope || "school"
+    classScope: teacher.class_scope || "school",
+    staffType: teacher.staff_type || "teaching"
   });
 
   for (const conversationId of conversationIds) {
@@ -272,15 +292,13 @@ export async function sendMessage(data, actorInput, options = {}) {
     } else if (targetType === "all_teachers") {
       conversationId = await getOrCreateBroadcastConversation(
         senderUserId,
-        data.name ||
-          (data.teacher_type === "college"
-            ? "All College Teachers"
-            : data.teacher_type === "school"
-              ? "All School Teachers"
-              : "All Teachers")
+        data.name || teacherBroadcastName(data)
       );
 
-      const recipients = await repo.getAllTeacherRecipientUsers(data.teacher_type);
+      const recipients = await repo.getAllTeacherRecipientUsers({
+        teacher_scope: normalizeTeacherScope(data.teacher_scope || data.teacher_type),
+        staff_type: normalizeStaffType(data.staff_type),
+      });
       await repo.addConversationMembers(conversationId, uniqueUserIds(recipients));
     } else {
       throw new AppError("Unsupported target_type", 400);
@@ -547,6 +565,38 @@ export async function deleteConversationForMe(conversationId, actorInput) {
   return { deleted: true, mode: "self" };
 }
 
+export async function updateConversation(conversationId, body, actorInput) {
+  const actor = normalizeActor(actorInput);
+  assertCanSendMessages(actor);
+  await assertCanViewConversation(actor, conversationId);
+
+  const conversation = await repo.getConversationById(conversationId);
+  if (!conversation?.id) {
+    throw new AppError("Conversation not found", 404);
+  }
+  if (conversation.type === "direct") {
+    throw new AppError("Direct conversation names cannot be edited", 400);
+  }
+
+  const name = String(body?.name || "").trim();
+  if (!name) {
+    throw new AppError("Conversation name is required", 400);
+  }
+  if (name.length > 120) {
+    throw new AppError("Conversation name must be 120 characters or less", 400);
+  }
+
+  await repo.updateConversationName(conversationId, name);
+  await repo.createMessagingAudit({
+    actorUserId: actor.userId,
+    action: "conversation.updated",
+    conversationId,
+    metadata: { name },
+  });
+
+  return { ...conversation, name };
+}
+
 export async function unreadCounts(actorInput) {
   const actor = normalizeActor(actorInput);
   const rows = await repo.getUnreadCounts(actor.userId);
@@ -578,7 +628,7 @@ export async function getTargets(actorInput) {
       { key: "all_classes", label: "All Classes" },
       { key: "all_sections", label: "All Sections" },
       { key: "all_parents", label: "All Parents" },
-      { key: "all_teachers", label: "All Teachers" }
+      { key: "all_teachers", label: "All Staff" }
     ]
   };
 }

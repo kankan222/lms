@@ -627,6 +627,7 @@ CREATE TABLE `teachers` (
   `id` bigint NOT NULL AUTO_INCREMENT,
   `employee_id` varchar(50) DEFAULT NULL,
   `name` varchar(150) DEFAULT NULL,
+  `staff_type` enum('teaching','non_teaching') NOT NULL DEFAULT 'teaching',
   `phone` varchar(20) DEFAULT NULL,
   `email` varchar(120) DEFAULT NULL,
   `photo_url` text,

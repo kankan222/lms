@@ -107,6 +107,7 @@ export type TeacherTarget = {
   class_medium?: string | null;
   class_scope?: string | null;
   type?: "school" | "college";
+  staff_type?: "teaching" | "non_teaching" | string | null;
 };
 
 export type ClassTarget = {
@@ -160,6 +161,8 @@ export type SendMessagePayload = {
   class_id?: number;
   section_id?: number;
   teacher_type?: "all" | "school" | "college";
+  teacher_scope?: "all" | "school" | "college";
+  staff_type?: "all" | "teaching" | "non_teaching";
   parent_type?: "all" | "school" | "college";
   name?: string;
   message?: string;
@@ -253,6 +256,11 @@ export async function deleteMessage(messageId: number, mode: "self" | "everyone"
 
 export async function deleteConversation(conversationId: number) {
   await api.delete(`/messages/conversations/${conversationId}`);
+}
+
+export async function updateConversation(conversationId: number, payload: { name: string }) {
+  const response = await api.patch<ApiEnvelope<ConversationItem>>(`/messages/conversations/${conversationId}`, payload);
+  return response.data.data;
 }
 
 export async function reportMessage(messageId: number, reason: string, details = "") {

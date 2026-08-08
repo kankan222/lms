@@ -60,6 +60,15 @@ export async function deleteConversation(req, res, next) {
   }
 }
 
+export async function updateConversation(req, res, next) {
+  try {
+    const data = await service.updateConversation(Number(req.params.conversationId), req.body, req.user);
+    res.json({ success: true, data });
+  } catch (err) {
+    next(err);
+  }
+}
+
 export async function unreadMessages(req, res, next) {
   try {
     const data = await service.unreadCounts(req.user);

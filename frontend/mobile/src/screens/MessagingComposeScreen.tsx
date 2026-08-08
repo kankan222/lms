@@ -24,7 +24,8 @@ type Compose = {
   recipient_user_id: string;
   class_id: string;
   section_id: string;
-  teacher_type: "all" | "school" | "college";
+  teacher_scope: "all" | "school" | "college";
+  staff_type: "all" | "teaching" | "non_teaching";
   parent_type: "all" | "school" | "college";
   name: string;
 };
@@ -36,7 +37,8 @@ type RecipientOption = {
   phones: string[];
   classNames: string[];
   sectionNames: string[];
-  teacherTypes: string[];
+  teacherScopes: string[];
+  staffTypes: string[];
   studentNames: string[];
 };
 
@@ -46,7 +48,8 @@ const EMPTY_COMPOSE: Compose = {
   recipient_user_id: "",
   class_id: "",
   section_id: "",
-  teacher_type: "all",
+  teacher_scope: "all",
+  staff_type: "all",
   parent_type: "all",
   name: "",
 };
@@ -67,6 +70,24 @@ function audienceIcon(value: TargetType): keyof typeof Ionicons.glyphMap {
   return "chatbubble-ellipses-outline";
 }
 
+function normalizeTeacherScope(value?: string | null) {
+  if (value === "college" || value === "hs") return "college";
+  if (value === "school") return "school";
+  return "all";
+}
+
+function normalizeStaffType(value?: string | null) {
+  if (value === "non_teaching") return "non_teaching";
+  if (value === "teaching") return "teaching";
+  return "all";
+}
+
+function formatTeacherAudienceName(scope: Compose["teacher_scope"], staffType: Compose["staff_type"]) {
+  const scopeLabel = scope === "college" ? "College" : scope === "school" ? "School" : "";
+  const staffLabel = staffType === "non_teaching" ? "Non Teaching Staff" : staffType === "teaching" ? "Teaching Staff" : "Staff";
+  return ["All", scopeLabel, staffLabel].filter(Boolean).join(" ");
+}
+
 export default function MessagingComposeScreen({ navigation }: Props) {
   const { theme, isDark } = useAppTheme();
   const insets = useSafeAreaInsets();
@@ -80,7 +101,8 @@ export default function MessagingComposeScreen({ navigation }: Props) {
   const [roleFilter, setRoleFilter] = useState("all");
   const [classFilter, setClassFilter] = useState("");
   const [sectionFilter, setSectionFilter] = useState("");
-  const [teacherTypeFilter, setTeacherTypeFilter] = useState<"all" | "school" | "college">("all");
+  const [teacherScopeFilter, setTeacherScopeFilter] = useState<"all" | "school" | "college">("all");
+  const [staffTypeFilter, setStaffTypeFilter] = useState<"all" | "teaching" | "non_teaching">("all");
 
   useEffect(() => {
     let mounted = true;
@@ -150,7 +172,8 @@ export default function MessagingComposeScreen({ navigation }: Props) {
         phones: [],
         classNames: [],
         sectionNames: [],
-        teacherTypes: [],
+        teacherScopes: [],
+        staffTypes: [],
         studentNames: [],
       };
       if (!existing.roles.includes("parent")) existing.roles.push("parent");
@@ -174,14 +197,18 @@ export default function MessagingComposeScreen({ navigation }: Props) {
         phones: [],
         classNames: [],
         sectionNames: [],
-        teacherTypes: [],
+        teacherScopes: [],
+        staffTypes: [],
         studentNames: [],
       };
       if (!existing.roles.includes("teacher")) existing.roles.push("teacher");
       if (item.phone && !existing.phones.includes(String(item.phone))) existing.phones.push(String(item.phone));
       if (item.class_name && !existing.classNames.includes(String(item.class_name))) existing.classNames.push(String(item.class_name));
       if (item.section_name && !existing.sectionNames.includes(String(item.section_name))) existing.sectionNames.push(String(item.section_name));
-      if (item.type && !existing.teacherTypes.includes(String(item.type))) existing.teacherTypes.push(String(item.type));
+      const teacherScope = normalizeTeacherScope(item.type || item.class_scope);
+      const staffType = normalizeStaffType(item.staff_type || "teaching");
+      if (teacherScope !== "all" && !existing.teacherScopes.includes(teacherScope)) existing.teacherScopes.push(teacherScope);
+      if (staffType !== "all" && !existing.staffTypes.includes(staffType)) existing.staffTypes.push(staffType);
       grouped.set(userId, existing);
     }
 
@@ -192,15 +219,16 @@ export default function MessagingComposeScreen({ navigation }: Props) {
         if (role !== "all" && !item.roles.includes(role)) return false;
         if (classFilter && !item.classNames.length) return false;
         if (sectionFilter && !item.sectionNames.length) return false;
-        if (role !== "parent" && teacherTypeFilter !== "all" && item.roles.includes("teacher") && !item.teacherTypes.includes(teacherTypeFilter)) return false;
+        if (role !== "parent" && teacherScopeFilter !== "all" && item.roles.includes("teacher") && !item.teacherScopes.includes(teacherScopeFilter)) return false;
+        if (role !== "parent" && staffTypeFilter !== "all" && item.roles.includes("teacher") && !item.staffTypes.includes(staffTypeFilter)) return false;
         if (!query) return true;
-        return [item.name, item.phones.join(" "), item.classNames.join(" "), item.sectionNames.join(" "), item.teacherTypes.join(" "), item.studentNames.join(" ")]
+        return [item.name, item.phones.join(" "), item.classNames.join(" "), item.sectionNames.join(" "), item.teacherScopes.join(" "), item.staffTypes.join(" "), item.studentNames.join(" ")]
           .join(" ")
           .toLowerCase()
           .includes(query);
       })
       .sort((a, b) => a.name.localeCompare(b.name));
-  }, [targets, compose.target_type, search, roleFilter, classFilter, sectionFilter, teacherTypeFilter]);
+  }, [targets, compose.target_type, search, roleFilter, classFilter, sectionFilter, teacherScopeFilter, staffTypeFilter]);
   const selectedRecipient = recipientOptions.find((item) => String(item.user_id) === compose.recipient_user_id) || null;
   const selectedClass = targets.classes.find((item) => String(item.id) === compose.class_id) || null;
   const selectedSection = targets.sections.find((item) => String(item.id) === compose.section_id) || null;
@@ -214,10 +242,10 @@ export default function MessagingComposeScreen({ navigation }: Props) {
       return compose.parent_type === "college" ? "All College Parents" : compose.parent_type === "school" ? "All School Parents" : "All Parents";
     }
     if (compose.target_type === "all_teachers") {
-      return compose.teacher_type === "college" ? "All College Teachers" : compose.teacher_type === "school" ? "All School Teachers" : "All Teachers";
+      return formatTeacherAudienceName(compose.teacher_scope, compose.staff_type);
     }
     return "";
-  }, [compose.target_type, compose.parent_type, compose.teacher_type, selectedClass, selectedSection]);
+  }, [compose.target_type, compose.parent_type, compose.teacher_scope, compose.staff_type, selectedClass, selectedSection]);
   const effectiveConversationName = compose.name.trim() || defaultConversationName;
   const recipientCount = useMemo(() => {
     if (["parent", "teacher", "direct"].includes(compose.target_type)) return selectedRecipient ? 1 : 0;
@@ -228,7 +256,11 @@ export default function MessagingComposeScreen({ navigation }: Props) {
       return new Set(targets.parents.filter((item) => String(item.section_id) === compose.section_id).map((item) => item.user_id).filter(Boolean)).size;
     }
     if (compose.target_type === "all_teachers") {
-      return new Set(targets.teachers.filter((item) => compose.teacher_type === "all" || item.type === compose.teacher_type).map((item) => item.user_id).filter(Boolean)).size;
+      return new Set(targets.teachers.filter((item) => {
+        const teacherScope = normalizeTeacherScope(item.type || item.class_scope);
+        const staffType = normalizeStaffType(item.staff_type || "teaching");
+        return (compose.teacher_scope === "all" || teacherScope === compose.teacher_scope) && (compose.staff_type === "all" || staffType === compose.staff_type);
+      }).map((item) => item.user_id).filter(Boolean)).size;
     }
     if (compose.target_type === "all_parents") {
       return new Set(targets.parents.filter((item) => compose.parent_type === "all" || item.class_scope === (compose.parent_type === "college" ? "hs" : "school")).map((item) => item.user_id).filter(Boolean)).size;
@@ -251,7 +283,8 @@ export default function MessagingComposeScreen({ navigation }: Props) {
     setRoleFilter("all");
     setClassFilter("");
     setSectionFilter("");
-    setTeacherTypeFilter("all");
+    setTeacherScopeFilter("all");
+    setStaffTypeFilter("all");
     setStep("target");
   }
 
@@ -275,7 +308,10 @@ export default function MessagingComposeScreen({ navigation }: Props) {
       label = effectiveConversationName;
     } else {
       if (compose.target_type === "all_parents") payload.parent_type = compose.parent_type;
-      if (compose.target_type === "all_teachers") payload.teacher_type = compose.teacher_type;
+      if (compose.target_type === "all_teachers") {
+        payload.teacher_scope = compose.teacher_scope;
+        payload.staff_type = compose.staff_type;
+      }
       payload.name = effectiveConversationName;
       label = effectiveConversationName;
     }
@@ -377,7 +413,10 @@ export default function MessagingComposeScreen({ navigation }: Props) {
                   <SelectField label="Class" value={classFilter} options={classOptions} onChange={(value) => { setClassFilter(value); setSectionFilter(""); }} allowClear clearLabel="All Classes" />
                   <SelectField label="Section" value={sectionFilter} options={filteredSectionOptions} onChange={setSectionFilter} allowClear clearLabel="All Sections" />
                   {(compose.target_type === "teacher" || (compose.target_type === "direct" && roleFilter !== "parent")) ? (
-                    <SelectField label="Teacher Type" value={teacherTypeFilter} options={[{ label: "All Teacher Types", value: "all" }, { label: "School", value: "school" }, { label: "College", value: "college" }]} onChange={(value) => setTeacherTypeFilter(value as "all" | "school" | "college")} />
+                    <>
+                      <SelectField label="Scope" value={teacherScopeFilter} options={[{ label: "All Scopes", value: "all" }, { label: "School", value: "school" }, { label: "College", value: "college" }]} onChange={(value) => setTeacherScopeFilter(value as "all" | "school" | "college")} />
+                      <SelectField label="Staff Type" value={staffTypeFilter} options={[{ label: "All Staff Types", value: "all" }, { label: "Teaching", value: "teaching" }, { label: "Non Teaching", value: "non_teaching" }]} onChange={(value) => setStaffTypeFilter(value as "all" | "teaching" | "non_teaching")} />
+                    </>
                   ) : null}
                   {recipientOptions.slice(0, 120).map((item) => {
                     const active = compose.recipient_user_id === String(item.user_id);
@@ -410,7 +449,10 @@ export default function MessagingComposeScreen({ navigation }: Props) {
                     <SelectField label="Parent Type" value={compose.parent_type} options={[{ label: "All Parents", value: "all" }, { label: "School Parents", value: "school" }, { label: "College Parents", value: "college" }]} onChange={(value) => setCompose((prev) => ({ ...prev, parent_type: value as Compose["parent_type"], name: "" }))} />
                   ) : null}
                   {compose.target_type === "all_teachers" ? (
-                    <SelectField label="Teacher Type" value={compose.teacher_type} options={[{ label: "All Teachers", value: "all" }, { label: "School Teachers", value: "school" }, { label: "College Teachers", value: "college" }]} onChange={(value) => setCompose((prev) => ({ ...prev, teacher_type: value as Compose["teacher_type"], name: "" }))} />
+                    <>
+                      <SelectField label="Scope" value={compose.teacher_scope} options={[{ label: "All Scopes", value: "all" }, { label: "School", value: "school" }, { label: "College", value: "college" }]} onChange={(value) => setCompose((prev) => ({ ...prev, teacher_scope: value as Compose["teacher_scope"], name: "" }))} />
+                      <SelectField label="Staff Type" value={compose.staff_type} options={[{ label: "All Staff Types", value: "all" }, { label: "Teaching", value: "teaching" }, { label: "Non Teaching", value: "non_teaching" }]} onChange={(value) => setCompose((prev) => ({ ...prev, staff_type: value as Compose["staff_type"], name: "" }))} />
+                    </>
                   ) : null}
                   {renderGroupNameInput()}
                 </View>

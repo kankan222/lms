@@ -44,8 +44,8 @@ async function fetchAuthorizedBlob(path, fallbackMessage = "Failed to download f
 
 /* ---------- TEACHERS ---------- */
 
-export function getTeachers() {
-  return apiRequest("/teachers");
+export function getTeachers(params = {}) {
+  return apiRequest(`/teachers${buildQuery(params)}`);
 }
 
 export function getAssignedTeachers(params = {}) {

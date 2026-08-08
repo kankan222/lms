@@ -4,6 +4,7 @@ import AppShellScreen from "../screens/AppShellScreen";
 import MoreScreen from "../screens/MoreScreen";
 import TeacherDetailsScreen from "../screens/TeacherDetailsScreen";
 import MessagingComposeScreen, { type MessagingComposeResult } from "../screens/MessagingComposeScreen";
+import MessagingConversationDetailsScreen from "../screens/MessagingConversationDetailsScreen";
 import MessagingPhotoPreviewScreen from "../screens/MessagingPhotoPreviewScreen";
 import NotificationsScreen from "../screens/NotificationsScreen";
 import { useAuthStore } from "../store/authStore";
@@ -14,6 +15,7 @@ export type RootStackParamList = {
   More: undefined;
   TeacherDetails: { teacherId: number; teacherName?: string };
   MessagingCompose: undefined;
+  MessagingConversationDetails: { conversationId: number; name: string; type: "class" | "section" | "broadcast" };
   MessagingPhotoPreview: { uri: string; title?: string };
   Notifications: undefined;
 };
@@ -31,6 +33,7 @@ export default function AppNavigator() {
           <Stack.Screen name="More" component={MoreScreen} />
           <Stack.Screen name="TeacherDetails" component={TeacherDetailsScreen} />
           <Stack.Screen name="MessagingCompose" component={MessagingComposeScreen} />
+          <Stack.Screen name="MessagingConversationDetails" component={MessagingConversationDetailsScreen} />
           <Stack.Screen name="MessagingPhotoPreview" component={MessagingPhotoPreviewScreen} />
           <Stack.Screen name="Notifications" component={NotificationsScreen} />
         </>

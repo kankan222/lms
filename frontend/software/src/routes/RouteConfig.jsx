@@ -122,7 +122,7 @@ export const appRoutes = [
       hideForRoles: ["teacher"],
     },
     {
-      title: "Teachers",
+      title: "Staff",
       icon: BriefcaseBusiness,
       path: "/teachers",
       element: <Teachers />,
@@ -391,16 +391,15 @@ export const navSections = [
     title: "Staff",
     items: [
       navEntry("/teachers", {
-        title: "Teacher",
+        title: "Staff",
         icon: BriefcaseBusiness,
       }),
       navEntry("/attendance", {
-        title: "Teacher Attendance",
+        title: "Staff Attendance",
         icon: UserRoundCog,
         permission: "teacher.view",
         to: "/attendance?tab=teacher-logs",
       }),
-      navEntry("/staff"),
     ],
   },
   {

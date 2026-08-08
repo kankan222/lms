@@ -6,11 +6,29 @@ import { query } from "../../core/db/query.js";
 import bcrypt from "bcrypt";
 
 const ALLOWED_CLASS_SCOPES = new Set(["school", "hs"]);
+const ALLOWED_STAFF_TYPES = new Set(["teaching", "non_teaching"]);
 
 function normalizeClassScope(value) {
   const raw = String(value || "school").trim().toLowerCase();
   if (!ALLOWED_CLASS_SCOPES.has(raw)) {
     throw new AppError("Invalid class_scope. Allowed: school, hs", 400);
+  }
+  return raw;
+}
+
+function normalizeStaffType(value) {
+  const raw = String(value || "teaching").trim().toLowerCase();
+  if (!ALLOWED_STAFF_TYPES.has(raw)) {
+    throw new AppError("Invalid staff_type. Allowed: teaching, non_teaching", 400);
+  }
+  return raw;
+}
+
+function normalizeStaffTypeFilter(value) {
+  const raw = String(value || "").trim().toLowerCase();
+  if (!raw || raw === "all") return "";
+  if (!ALLOWED_STAFF_TYPES.has(raw)) {
+    throw new AppError("Invalid staff_type filter. Allowed: teaching, non_teaching", 400);
   }
   return raw;
 }
@@ -144,6 +162,7 @@ export async function createTeacher(data) {
     if (!phone && !email) throw new AppError("Email or phone required", 400);
     if (!password) throw new AppError("Password required", 400);
     const classScope = normalizeClassScope(data.class_scope);
+    const staffType = normalizeStaffType(data.staff_type);
     await conn.beginTransaction();
 
     const passwordHash = await bcrypt.hash(password, 10);
@@ -164,6 +183,7 @@ export async function createTeacher(data) {
       phone,
       email,
       class_scope: classScope,
+      staff_type: staffType,
       user_id: userId
     }, conn);
 
@@ -202,15 +222,18 @@ export async function getTeachersForActor({
   actorPermissions = [],
   page,
   limit,
+  staffType,
 }) {
   const paging = {};
   if (page !== undefined) paging.page = page;
   if (limit !== undefined) paging.limit = limit;
+  const normalizedStaffType = normalizeStaffTypeFilter(staffType);
+  if (normalizedStaffType) paging.staff_type = normalizedStaffType;
   const hasPaging = Object.prototype.hasOwnProperty.call(paging, "page")
     || Object.prototype.hasOwnProperty.call(paging, "limit");
 
   if (canManageTeachers(actorPermissions)) {
-    return repo.getTeachers(hasPaging ? paging : undefined);
+    return repo.getTeachers(hasPaging || normalizedStaffType ? paging : undefined);
   }
 
   const teacher = await resolveActorTeacher(actorUserId);
@@ -266,12 +289,17 @@ export async function updateTeacher(id, data) {
     data.class_scope === undefined
       ? undefined
       : normalizeClassScope(data.class_scope);
+  const staffType =
+    data.staff_type === undefined
+      ? undefined
+      : normalizeStaffType(data.staff_type);
 
   const affected =
     await repo.updateTeacher(id, {
       ...data,
       photo_url: data.photo_url === undefined ? existing.photo_url ?? null : data.photo_url,
       class_scope: classScope,
+      staff_type: staffType,
     });
 
   if (!affected)
@@ -320,6 +348,7 @@ export async function bulkCreateTeachers(rows = []) {
         phone: row?.phone,
         email: row?.email,
         class_scope: row?.class_scope,
+        staff_type: row?.staff_type,
         password: row?.password,
         photo_url: row?.photo_url || null,
       });
@@ -598,6 +627,9 @@ export async function logTeacherAttendance(data) {
 
     if (!teacher)
       throw new AppError("Teacher not found", 404);
+    if (teacher.staff_type === "non_teaching") {
+      throw new AppError("Non-teaching staff cannot be assigned to class subjects", 400);
+    }
 
     await repo.logTeacherAttendance({
       teacherId,

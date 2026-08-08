@@ -14,6 +14,18 @@ Update this file after every meaningful implementation change.
 
 ## Completed
 
+- Added staff typing to the teacher-backed staff records used for attendance:
+  `teachers.staff_type` now supports teaching and non-teaching staff, existing
+  rows default to teaching, staff type is available in teacher APIs, create/edit
+  forms, list filters, CSV templates/imports, and non-teaching staff are blocked
+  from class-subject assignment while remaining available for attendance.
+- Refined the Staff UI by rendering staff type and class scope as badges in
+  the list/detail views and removing the separate website staff page entry from
+  the software sidebar.
+- Reworked the software Messaging new-message dialog to match the mobile
+  flow: admins now choose an audience first, select the target details on the
+  second screen, and open the chat directly; the regular chat composer creates
+  the conversation on the first sent message when no existing thread exists.
 - Removed visible Exam Routine versioning from the software UI and PDF output:
   exam routine editing now opens the selected routine directly, selectors no
   longer append version numbers, and user-facing labels no longer call exam
@@ -1050,3 +1062,11 @@ Update this file after every meaningful implementation change.
 - Corrected the mobile Profile overview hierarchy by removing the Overview
   eyebrow, reducing the My Profile label, and making the account name the
   primary text without touching other profile sections.
+- Fixed the software Messaging new-message target screen so its selector content
+  scrolls inside the dialog while the action footer remains visible.
+- Updated Messaging staff targeting to use scope plus staff type: all-staff
+  broadcasts now support school/college and teaching/non-teaching filters, and
+  one-staff selection can be narrowed by the same dimensions.
+- Added a mobile Messaging conversation details screen opened from a group chat
+  header, allowing saved class/section/broadcast conversation names to be
+  edited after the chat has started.

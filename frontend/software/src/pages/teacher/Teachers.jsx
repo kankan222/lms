@@ -19,6 +19,7 @@ import {
 import { getScopes } from "../../api/academic.api";
 
 import { Button } from "../../components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -50,10 +51,39 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
+function staffTypeBadgeClass(value) {
+  return resolveStaffType(value) === "non_teaching"
+    ? "border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-500/30 dark:bg-sky-500/15 dark:text-sky-200"
+    : "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/15 dark:text-emerald-200";
+}
+
+function scopeBadgeClass(value) {
+  return resolveScopeCode(value) === "hs"
+    ? "border-purple-200 bg-purple-50 text-purple-700 dark:border-purple-500/30 dark:bg-purple-500/15 dark:text-purple-200"
+    : "border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-500/30 dark:bg-blue-500/15 dark:text-blue-200";
+}
+
 const columns = [
   { header: "Employee ID", accessor: "employee_id" },
   { header: "Name", accessor: "name" },
-  { header: "Scope", accessor: "scope" },
+  {
+    header: "Staff Type",
+    accessor: "staff_type_label",
+    cell: (row) => (
+      <Badge variant="outline" className={staffTypeBadgeClass(row.staff_type)}>
+        {formatStaffTypeLabel(row.staff_type)}
+      </Badge>
+    ),
+  },
+  {
+    header: "Scope",
+    accessor: "scope",
+    cell: (row) => (
+      <Badge variant="outline" className={scopeBadgeClass(row.class_scope)}>
+        {formatScopeLabel(row.class_scope)}
+      </Badge>
+    ),
+  },
   { header: "Phone", accessor: "phone" },
   { header: "Email", accessor: "email" },
 ];
@@ -62,6 +92,11 @@ const TABLE_ROWS_PER_PAGE_OPTIONS = [10, 20, 50, 100];
 const DEFAULT_SCOPE_OPTIONS = [
   { code: "school", name: "School" },
   { code: "hs", name: "Higher Secondary" },
+];
+
+const STAFF_TYPE_OPTIONS = [
+  { value: "teaching", label: "Teaching Staff" },
+  { value: "non_teaching", label: "Non-Teaching Staff" },
 ];
 
 function normalizeMachineUserId(value) {
@@ -89,6 +124,15 @@ function formatScopeLabel(scopeCode) {
   return resolveScopeCode(scopeCode) === "hs" ? "Higher Secondary" : "School";
 }
 
+function resolveStaffType(value) {
+  const raw = String(value || "").trim().toLowerCase().replace(/[\s-]+/g, "_");
+  return raw === "non_teaching" || raw === "nonteacher" || raw === "non_teacher" ? "non_teaching" : "teaching";
+}
+
+function formatStaffTypeLabel(value) {
+  return resolveStaffType(value) === "non_teaching" ? "Non-Teaching Staff" : "Teaching Staff";
+}
+
 const Teachers = () => {
   const { can } = usePermissions();
   const canManageTeachers = can("teacher.update");
@@ -105,6 +149,7 @@ const Teachers = () => {
   const [attendanceDevices, setAttendanceDevices] = useState([]);
   const [scopeOptions, setScopeOptions] = useState(DEFAULT_SCOPE_OPTIONS);
   const [scopeFilter, setScopeFilter] = useState("all");
+  const [staffTypeFilter, setStaffTypeFilter] = useState("all");
   const [bulkOpen, setBulkOpen] = useState(false);
   const [bulkFile, setBulkFile] = useState(null);
   const [bulkMessage, setBulkMessage] = useState("");
@@ -114,6 +159,7 @@ const Teachers = () => {
   const [newTeacher, setNewTeacher] = useState({
     employee_id: "",
     name: "",
+    staff_type: "teaching",
     class_scope: "school",
     phone: "",
     email: "",
@@ -125,10 +171,12 @@ const Teachers = () => {
 
   const navigate = useNavigate();
   const allowedScopeCodes = scopeOptions.map((item) => item.code);
-  const filteredTeachers = teachers.filter((row) =>
-    scopeFilter === "all" ? true : resolveScopeCode(row.class_scope, row.scope_name) === scopeFilter,
-  );
-  const activeFilterCount = scopeFilter === "all" ? 0 : 1;
+  const filteredTeachers = teachers.filter((row) => {
+    if (scopeFilter !== "all" && resolveScopeCode(row.class_scope, row.scope_name) !== scopeFilter) return false;
+    if (staffTypeFilter !== "all" && resolveStaffType(row.staff_type) !== staffTypeFilter) return false;
+    return true;
+  });
+  const activeFilterCount = (scopeFilter === "all" ? 0 : 1) + (staffTypeFilter === "all" ? 0 : 1);
 
   function handleRowClick(row) {
     navigate(`/teachers/${row.id}`);
@@ -144,6 +192,8 @@ const Teachers = () => {
       rows.map((row) => ({
         ...row,
         class_scope: resolveScopeCode(row.class_scope, row.scope_name || row.scope),
+        staff_type: resolveStaffType(row.staff_type),
+        staff_type_label: formatStaffTypeLabel(row.staff_type),
         scope: formatScopeLabel(resolveScopeCode(row.class_scope, row.scope_name || row.scope)),
       })),
     );
@@ -226,6 +276,9 @@ const Teachers = () => {
     if (!allowedScopeCodes.includes(String(data.class_scope || "").trim().toLowerCase())) {
       errors.class_scope = "Class scope required";
     }
+    if (!STAFF_TYPE_OPTIONS.some((option) => option.value === resolveStaffType(data.staff_type))) {
+      errors.staff_type = "Staff type required";
+    }
 
     if (!data.password || data.password.length < 6) {
       errors.password = "Password must be at least 6 characters";
@@ -282,6 +335,7 @@ const Teachers = () => {
     const headers = [
       "employee_id",
       "name",
+      "staff_type",
       "phone",
       "email",
       "class_scope",
@@ -291,6 +345,7 @@ const Teachers = () => {
     const schoolSample = [
       "EMP-101",
       "Riya Das",
+      "teaching",
       "9876543210",
       "riya@example.com",
       "school",
@@ -300,6 +355,7 @@ const Teachers = () => {
     const hsSample = [
       "EMP-102",
       "Suman Roy",
+      "non_teaching",
       "9876543211",
       "suman@example.com",
       "hs",
@@ -363,6 +419,7 @@ const Teachers = () => {
     const outputHeaders = [
       "employee_id",
       "name",
+      "staff_type",
       "phone",
       "email",
       "class_scope",
@@ -384,6 +441,7 @@ const Teachers = () => {
       return {
         employee_id: getCell(values, "employee_id", "employee id", "employeeid", "teacher_id"),
         name: getCell(values, "name"),
+        staff_type: resolveStaffType(getCell(values, "staff_type", "staff type", "type", "category")),
         phone: getCell(values, "phone", "mobile", "mobile_no", "contact"),
         email: getCell(values, "email", "mail"),
         class_scope: scopeCode,
@@ -411,6 +469,7 @@ const Teachers = () => {
     const formData = new FormData();
     formData.append("employee_id", newTeacher.employee_id.trim());
     formData.append("name", newTeacher.name);
+    formData.append("staff_type", resolveStaffType(newTeacher.staff_type));
     formData.append("phone", newTeacher.phone.trim());
     formData.append("email", newTeacher.email.trim());
     formData.append("class_scope", resolveScopeCode(newTeacher.class_scope));
@@ -469,8 +528,8 @@ const Teachers = () => {
       } catch (err) {
         await loadTeachers();
         showNotice(
-          "Teacher Created, Mapping Failed",
-          err?.message || "Teacher was created, but device mapping failed. Fix in Attendance > Device Mapping tab.",
+          "Staff Created, Mapping Failed",
+          err?.message || "Staff record was created, but device mapping failed. Fix in Attendance > Device Mapping tab.",
           "error"
         );
         return;
@@ -481,6 +540,7 @@ const Teachers = () => {
     setNewTeacher({
       employee_id: "",
       name: "",
+      staff_type: "teaching",
       class_scope: "school",
       phone: "",
       email: "",
@@ -492,7 +552,7 @@ const Teachers = () => {
     setShowPassword(false);
 
     setCreateOpen(false);
-    showNotice("Teacher Created", "Teacher record created successfully.");
+    showNotice("Staff Created", "Staff record created successfully.");
   }
 
   async function handleBulkUpload() {
@@ -530,7 +590,7 @@ const Teachers = () => {
         setBulkMessage(`Uploaded ${createdCount}/${totalRows}. ${failedCount} row(s) failed.`);
         showNotice(
           "Bulk Upload Partial",
-          `${createdCount} teacher(s) uploaded, ${failedCount} failed. See row errors in the dialog.`,
+          `${createdCount} staff record(s) uploaded, ${failedCount} failed. See row errors in the dialog.`,
           "error",
         );
         await loadTeachers();
@@ -539,7 +599,7 @@ const Teachers = () => {
 
       setBulkMessage("Bulk upload completed successfully.");
       setBulkOpen(false);
-      showNotice("Bulk Upload Complete", "Teachers uploaded successfully.");
+      showNotice("Bulk Upload Complete", "Staff records uploaded successfully.");
       await loadTeachers();
     } catch (err) {
       setBulkMessage(err?.message || "Bulk upload failed.");
@@ -561,6 +621,9 @@ const Teachers = () => {
     if (email && !/^\S+@\S+\.\S+$/.test(email)) next.email = "Invalid email";
     if (!allowedScopeCodes.includes(String(data.class_scope || "").trim().toLowerCase())) {
       next.class_scope = "Class scope required";
+    }
+    if (!STAFF_TYPE_OPTIONS.some((option) => option.value === resolveStaffType(data.staff_type))) {
+      next.staff_type = "Staff type required";
     }
     const deviceId = String(data.device_id || "").trim();
     const deviceUserId = normalizeMachineUserId(data.device_user_id);
@@ -613,6 +676,7 @@ const Teachers = () => {
       const formData = new FormData();
       formData.append("employee_id", String(editingTeacher.employee_id || "").trim());
       formData.append("name", String(editingTeacher.name || "").trim());
+      formData.append("staff_type", resolveStaffType(editingTeacher.staff_type));
       formData.append("phone", String(editingTeacher.phone || "").trim());
       formData.append("email", String(editingTeacher.email || "").trim());
       formData.append("class_scope", resolveScopeCode(editingTeacher.class_scope));
@@ -641,7 +705,7 @@ const Teachers = () => {
 
    await loadTeachers();
     setEditingTeacher(null);
-    showNotice("Teacher Updated", "Teacher record updated successfully.");
+    showNotice("Staff Updated", "Staff record updated successfully.");
   }
 
   async function handleDelete() {
@@ -650,7 +714,7 @@ const Teachers = () => {
       await deleteTeacher(deletingTeacher.id);
       setTeachers((prev) => prev.filter((t) => t.id !== deletingTeacher.id));
       setDeletingTeacher(null);
-      showNotice("Teacher Deleted", "Teacher record deleted successfully.");
+      showNotice("Staff Deleted", "Staff record deleted successfully.");
     } catch (err) {
       showNotice("Delete Failed", err?.message || "Failed to delete teacher.", "error");
     }
@@ -660,6 +724,7 @@ const Teachers = () => {
     const nextTeacher = {
       ...row,
       class_scope: resolveScopeCode(row.class_scope, row.scope_name || row.scope),
+      staff_type: resolveStaffType(row.staff_type),
       device_id: "",
       device_user_id: "",
       photo: null,
@@ -705,8 +770,8 @@ const Teachers = () => {
       </div>
 
       <TopBar
-        title={canManageTeachers ? "Teachers" : "My Profile"}
-        subTitle={canManageTeachers ? "Manage all teachers" : "View your teacher profile"}
+        title={canManageTeachers ? "Staff" : "My Profile"}
+        subTitle={canManageTeachers ? "Manage teaching and non-teaching staff" : "View your staff profile"}
         action={canManageTeachers ? (
           <div className="flex gap-2">
             <Popover>
@@ -717,11 +782,27 @@ const Teachers = () => {
               </PopoverTrigger>
               <PopoverContent align="end" className="w-80 space-y-4">
                 <PopoverHeader>
-                  <PopoverTitle>Filter Teachers</PopoverTitle>
+                  <PopoverTitle>Filter Staff</PopoverTitle>
                   <PopoverDescription>
-                    Narrow the teachers list by scope.
+                    Narrow the teachers list by scope and staff type.
                   </PopoverDescription>
                 </PopoverHeader>
+                <div className="grid gap-1.5">
+                  <Label htmlFor="teachers-staff-type-filter">Staff Type</Label>
+                  <select
+                    id="teachers-staff-type-filter"
+                    className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+                    value={staffTypeFilter}
+                    onChange={(e) => setStaffTypeFilter(e.target.value)}
+                  >
+                    <option value="all">All</option>
+                    {STAFF_TYPE_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
                 <div className="grid gap-1.5">
                   <Label htmlFor="teachers-scope-filter">Scope</Label>
                   <select
@@ -741,8 +822,11 @@ const Teachers = () => {
                 <div className="flex justify-end">
                   <Button
                     variant="ghost"
-                    onClick={() => setScopeFilter("all")}
-                    disabled={scopeFilter === "all"}
+                    onClick={() => {
+                      setScopeFilter("all");
+                      setStaffTypeFilter("all");
+                    }}
+                    disabled={scopeFilter === "all" && staffTypeFilter === "all"}
                   >
                     Reset Filters
                   </Button>
@@ -768,7 +852,7 @@ const Teachers = () => {
               </DialogTrigger>
               <DialogContent>
                 <DialogHeader>
-                  <DialogTitle>Bulk Upload Teachers</DialogTitle>
+                  <DialogTitle>Bulk Upload Staff</DialogTitle>
                 </DialogHeader>
                 <div className="space-y-3">
                   <Input
@@ -781,7 +865,7 @@ const Teachers = () => {
                     }}
                   />
                   <p className="text-xs text-muted-foreground">
-                    Use `class_scope` as `school` or `hs`. Provide phone or email and password for every row.
+                    Use `staff_type` as `teaching` or `non_teaching`, and `class_scope` as `school` or `hs`. Provide phone or email and password for every row.
                   </p>
                   {bulkMessage && (
                     <p
@@ -811,13 +895,13 @@ const Teachers = () => {
             </Dialog>
             <Dialog open={createOpen} onOpenChange={setCreateOpen}>
               <DialogTrigger asChild>
-                <Button>Add Teacher</Button>
+                <Button>Add Staff</Button>
               </DialogTrigger>
 
               <DialogContent className="max-h-[85vh] overflow-y-auto">
                 <form onSubmit={handleCreate} className="px-1">
                   <DialogHeader>
-                    <DialogTitle className="mb-5 text-center">Add Teacher</DialogTitle>
+                    <DialogTitle className="mb-5 text-center">Add Staff</DialogTitle>
                   </DialogHeader>
 
                   <div className="grid gap-3 py-4">
@@ -843,6 +927,26 @@ const Teachers = () => {
                     />
                     {errors.name && (
                       <p className="text-red-500 text-xs">{errors.name}</p>
+                    )}
+                    <Label>Staff Type *</Label>
+                    <select
+                      className="border rounded p-2 bg-background"
+                      value={newTeacher.staff_type}
+                      onChange={(e) =>
+                        setNewTeacher((prev) => ({
+                          ...prev,
+                          staff_type: e.target.value,
+                        }))
+                      }
+                    >
+                      {STAFF_TYPE_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                    {errors.staff_type && (
+                      <p className="text-red-500 text-xs">{errors.staff_type}</p>
                     )}
                     <Label>Phone</Label>
                     <Input
@@ -1004,6 +1108,7 @@ const Teachers = () => {
                 <h2 className="text-xl font-semibold text-foreground">{teachers[0].name}</h2>
                 <div className="grid gap-1 text-sm text-muted-foreground">
                   <p>Employee ID: {teachers[0].employee_id || "-"}</p>
+                  <p>Staff Type: {formatStaffTypeLabel(teachers[0].staff_type)}</p>
                   <p>Phone: {teachers[0].phone || "-"}</p>
                   <p>Email: {teachers[0].email || "-"}</p>
                   <p>Scope: {formatScopeLabel(teachers[0].class_scope)}</p>
@@ -1014,7 +1119,7 @@ const Teachers = () => {
               </div>
             </div>
           ) : (
-            <p className="text-sm text-muted-foreground">Teacher profile not found.</p>
+            <p className="text-sm text-muted-foreground">Staff profile not found.</p>
           )}
         </div>
       )}
@@ -1023,7 +1128,7 @@ const Teachers = () => {
         <DialogContent className="max-h-[85vh] overflow-y-auto">
           <form onSubmit={handleUpdate}>
             <DialogHeader>
-              <DialogTitle>Edit Teacher</DialogTitle>
+            <DialogTitle>Edit Staff</DialogTitle>
             </DialogHeader>
 
             <div className="grid gap-3 py-4">
@@ -1048,6 +1153,24 @@ const Teachers = () => {
                   }))
                 }
               />
+
+              <Label>Staff Type *</Label>
+              <select
+                className="border rounded p-2 bg-background"
+                value={editingTeacher?.staff_type || "teaching"}
+                onChange={(e) =>
+                  setEditingTeacher((prev) => ({
+                    ...prev,
+                    staff_type: e.target.value,
+                  }))
+                }
+              >
+                {STAFF_TYPE_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
 
               <Label>Phone</Label>
               <Input
@@ -1172,10 +1295,10 @@ const Teachers = () => {
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete teacher?</AlertDialogTitle>
+          <AlertDialogTitle>Delete staff record?</AlertDialogTitle>
             <AlertDialogDescription>
               {deletingTeacher
-                ? `This will remove ${deletingTeacher.name} from the teachers list.`
+                ? `This will remove ${deletingTeacher.name} from the staff list.`
                 : "This action cannot be undone."}
             </AlertDialogDescription>
           </AlertDialogHeader>

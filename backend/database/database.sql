@@ -223,6 +223,7 @@ CREATE TABLE teachers (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
     employee_id VARCHAR(50) UNIQUE,
     name VARCHAR(150),
+    staff_type ENUM('teaching','non_teaching') NOT NULL DEFAULT 'teaching',
     phone VARCHAR(20),
     email VARCHAR(120),`r`n    class_scope ENUM('school','hs') NOT NULL DEFAULT 'school',
     photo_url TEXT,

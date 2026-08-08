@@ -25,6 +25,9 @@ function mapCsvHeader(header) {
   if (normalized === "classscope" || normalized === "scope" || normalized === "class") {
     return "class_scope";
   }
+  if (normalized === "stafftype" || normalized === "type" || normalized === "staff_category") {
+    return "staff_type";
+  }
   if (normalized === "employeeid" || normalized === "teacher_id") {
     return "employee_id";
   }
@@ -56,6 +59,13 @@ function normalizeClassScopeValue(value) {
   return "school";
 }
 
+function normalizeStaffTypeValue(value) {
+  const raw = String(value || "").trim().toLowerCase().replace(/[\s-]+/g, "_");
+  if (!raw) return "teaching";
+  if (raw === "non_teaching" || raw === "nonteacher" || raw === "non_teacher" || raw === "staff") return "non_teaching";
+  return "teaching";
+}
+
 /* ------------------ TEACHERS ------------------ */
 
 export async function createTeacher(req, res, next) {
@@ -67,6 +77,7 @@ export async function createTeacher(req, res, next) {
       phone: req.body.phone,
       email: req.body.email,
       class_scope: req.body.class_scope,
+      staff_type: req.body.staff_type,
       password: req.body.password,
       photo_url,
     };
@@ -85,6 +96,7 @@ export async function getTeachers(req, res, next) {
       actorPermissions: req.user?.permissions || [],
       page: req.query.page,
       limit: req.query.limit,
+      staffType: req.query.staff_type || req.query.staffType,
     });
 
     if (teachers && typeof teachers === "object" && Array.isArray(teachers.data)) {
@@ -125,6 +137,7 @@ export async function bulkUploadTeachers(req, res, next) {
       phone: row.phone,
       email: row.email,
       class_scope: normalizeClassScopeValue(row.class_scope),
+      staff_type: normalizeStaffTypeValue(row.staff_type),
       password: row.password,
       photo_url: row.photo_url || null,
       _meta: {
@@ -164,6 +177,7 @@ export async function updateTeacher(req, res, next) {
       phone: req.body.phone,
       email: req.body.email,
       class_scope: req.body.class_scope,
+      staff_type: req.body.staff_type,
       photo_url,
     });
     res.json({ success: true });
