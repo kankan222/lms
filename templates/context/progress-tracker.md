@@ -1075,3 +1075,15 @@ Update this file after every meaningful implementation change.
   the generic publish failure text.
 - Refined class routine conflict details to show readable weekday labels and
   both the selected period/time and the conflicting period/time.
+- Reworded class routine teacher conflict errors into a readable multi-line
+  scheduling-conflict format with AM/PM slot times.
+- Reordered the mobile dashboard-style bottom navigation to Dashboard,
+  Messaging, Routine, Announcements, and More.
+- Fixed the mobile bottom navigation layout so five items fit evenly and the
+  More icon remains visible.
+- Wired the mobile Routine tab to the published class-routine board endpoint so
+  admin/staff routine viewers see the software-published week/day routines, and
+  aligned mobile weekday handling with the backend's full Monday-Sunday range.
+- Added bulk-day editing to the software class routine slot dialog: users can
+  select multiple days for one period, add multiple subject rows once, and save
+  the same slot entries across all selected days.

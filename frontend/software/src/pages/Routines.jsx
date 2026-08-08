@@ -703,6 +703,7 @@ export default function Routines() {
     activity_id: "",
     custom_title: "",
     custom_teacher_id: "",
+    weekdays: [],
     subjectRows: [{ key: "subject-1", subject_id: "", teacher_id: "" }],
   });
 
@@ -1413,6 +1414,7 @@ export default function Routines() {
       activity_id: primaryEntry?.activity_id ? String(primaryEntry.activity_id) : "",
       custom_title: entryType === "custom" ? primaryEntry?.title || "" : "",
       custom_teacher_id: entryType === "custom" && primaryEntry?.teacher_ids?.[0] ? String(primaryEntry.teacher_ids[0]) : "",
+      weekdays: [String(context.day.value)],
       subjectRows: subjectEntries.length
         ? subjectEntries.map((entry, index) => ({
             key: `subject-${entry.id || entry.entry_id || index}`,
@@ -1422,6 +1424,21 @@ export default function Routines() {
         : [emptySubjectSlotRow(1)],
     });
     setSlotEditorOpen(true);
+  }
+
+  function toggleSlotWeekday(value) {
+    const weekday = String(value);
+    setSlotForm((current) => {
+      const currentDays = (current.weekdays || []).map(String);
+      const exists = currentDays.includes(weekday);
+      const nextDays = exists
+        ? currentDays.filter((day) => day !== weekday)
+        : [...currentDays, weekday];
+      return {
+        ...current,
+        weekdays: nextDays.length ? nextDays.sort((a, b) => Number(a) - Number(b)) : [weekday],
+      };
+    });
   }
 
   function updateSlotSubjectRow(key, updates) {
@@ -1463,19 +1480,26 @@ export default function Routines() {
     }
 
     const { day, period, slot, entry, entries: existingEntries = [] } = slotContext;
+    const selectedWeekdays = [...new Set((slotForm.weekdays || [day.value]).map((value) => String(value)).filter(Boolean))];
+    if (!selectedWeekdays.length) {
+      showError("Select at least one day for this slot.");
+      return;
+    }
     const primaryEntry = entry || existingEntries[0] || null;
     const fallbackTime = fallbackSlotTime(period);
-    const baseSlotPayload = {
+    const buildBaseSlotPayload = (weekday) => ({
       time_slot_id: slot?.id || primaryEntry?.time_slot_id || null,
-      weekday: String(day.value),
+      weekday: String(weekday),
       period_number: Number(period),
       start_time: timeInputValue(primaryEntry?.start_time || slot?.start_time, fallbackTime.start_time),
       end_time: timeInputValue(primaryEntry?.end_time || slot?.end_time, fallbackTime.end_time),
       room: primaryEntry?.room || "",
       notes: primaryEntry?.notes || "",
-    };
-    const slotPayloadEntries = slotForm.entry_type === "subject"
-      ? subjectRows.map((row, index) => ({
+    });
+    const buildSlotPayloadEntries = (weekday) => {
+      const baseSlotPayload = buildBaseSlotPayload(weekday);
+      return slotForm.entry_type === "subject"
+        ? subjectRows.map((row, index) => ({
           ...baseSlotPayload,
           entry_type: "subject",
           subject_id: Number(row.subject_id),
@@ -1484,7 +1508,7 @@ export default function Routines() {
           sort_order: Number(period) * 100 + index,
           teachers: [{ teacher_id: Number(row.teacher_id), teacher_role: "primary" }],
         }))
-      : [{
+        : [{
           ...baseSlotPayload,
           entry_type: slotForm.entry_type,
           subject_id: null,
@@ -1499,17 +1523,21 @@ export default function Routines() {
             ? [{ teacher_id: Number(slotForm.custom_teacher_id), teacher_role: "primary" }]
             : [],
         }];
-    const slotPayload = {
-      entries: slotPayloadEntries,
+    };
+    const buildSlotPayload = (weekday) => {
+      return { entries: buildSlotPayloadEntries(weekday) };
     };
 
     try {
       const targetRoutineId = slotContext?.routine?.id || slotContext?.routine?.routine_version_id || selectedClassRoutine.id;
-      const response = await updateClassRoutineSlot(targetRoutineId, slotPayload);
-      setSelectedClassRoutine(response.data || null);
-      if (response.data?.id) setSelectedClassRoutineId(String(response.data.id));
+      let latestResponse = null;
+      for (const weekday of selectedWeekdays) {
+        latestResponse = await updateClassRoutineSlot(targetRoutineId, buildSlotPayload(weekday));
+      }
+      setSelectedClassRoutine(latestResponse?.data || null);
+      if (latestResponse?.data?.id) setSelectedClassRoutineId(String(latestResponse.data.id));
       setSlotEditorOpen(false);
-      showNotice("Routine slot updated.");
+      showNotice(selectedWeekdays.length > 1 ? `Routine slot updated for ${selectedWeekdays.length} days.` : "Routine slot updated.");
       await loadRoutineData();
       if (classViewMode === "day") {
         await loadClassRoutineBoardData(filters, selectedClassDay);
@@ -2188,6 +2216,30 @@ export default function Routines() {
                         </DialogDescription>
                       </DialogHeader>
                       <form className="space-y-4" onSubmit={handleSaveSlot}>
+                        <Field label="Apply To Days">
+                          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                            {weekdayColumns.map((day) => {
+                              const selected = (slotForm.weekdays || []).map(String).includes(String(day.value));
+                              return (
+                                <button
+                                  key={day.value}
+                                  type="button"
+                                  className={`rounded-md border px-3 py-2 text-sm font-medium transition ${
+                                    selected
+                                      ? "border-primary bg-primary text-primary-foreground"
+                                      : "border-border bg-background text-foreground hover:bg-muted"
+                                  }`}
+                                  onClick={() => toggleSlotWeekday(day.value)}
+                                >
+                                  {day.label}
+                                </button>
+                              );
+                            })}
+                          </div>
+                          <p className="mt-2 text-xs text-muted-foreground">
+                            Save the same period and subject rows across the selected days.
+                          </p>
+                        </Field>
                         <Field label="Type">
                           <select
                             className={selectClassName}

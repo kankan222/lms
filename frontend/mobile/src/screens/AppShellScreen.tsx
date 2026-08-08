@@ -193,9 +193,9 @@ function buildPrimaryTabs(roles: string[], permissions: string[]): NavTab[] {
   if (isSuperAdmin) {
     return [
       { key: "dashboard", label: "Dashboard", icon: "grid-outline" },
-      { key: "routine", label: "Routine", icon: "time-outline" },
-      { key: "announcements", label: "Announcements", icon: "megaphone-outline" },
       { key: "messaging", label: "Messaging", icon: "chatbubble-ellipses-outline" },
+      { key: "routine", label: "Routines", icon: "time-outline" },
+      { key: "announcements", label: "Announcements", icon: "megaphone-outline" },
       { key: "more", label: "More", icon: "apps-outline" },
     ];
   }
@@ -204,7 +204,7 @@ function buildPrimaryTabs(roles: string[], permissions: string[]): NavTab[] {
     return [
       { key: "attendance", label: "Student Att.", icon: "calendar-outline" },
       { key: "teacherAttendance", label: "Teacher Att.", icon: "finger-print-outline" },
-      { key: "routine", label: "Routine", icon: "time-outline" },
+      { key: "routine", label: "Routines", icon: "time-outline" },
       { key: "announcements", label: "Announcements", icon: "megaphone-outline" },
       { key: "reports", label: "Marksheet", icon: "bar-chart-outline" },
       { key: "more", label: "More", icon: "apps-outline" },
@@ -245,9 +245,9 @@ function buildPrimaryTabs(roles: string[], permissions: string[]): NavTab[] {
   if (permissions.includes("dashboard.view")) {
     return [
       { key: "dashboard", label: "Dashboard", icon: "grid-outline" },
+      { key: "messaging", label: "Messaging", icon: "chatbubble-ellipses-outline" },
       { key: "routine", label: "Routine", icon: "time-outline" },
       { key: "announcements", label: "Announcements", icon: "megaphone-outline" },
-      { key: "messaging", label: "Messaging", icon: "chatbubble-ellipses-outline" },
       { key: "more", label: "More", icon: "apps-outline" },
     ];
   }
@@ -850,7 +850,8 @@ const styles = StyleSheet.create({
     justifyContent: "space-around",
   },
   floatingNavItem: {
-    width: "25%",
+    flex: 1,
+    minWidth: 0,
     alignItems: "center",
     justifyContent: "center",
     gap: 0,

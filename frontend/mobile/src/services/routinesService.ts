@@ -11,23 +11,67 @@ export type RoutineEntryType = "class" | "break" | "activity" | "free";
 export type RoutineEntry = {
   entry_id?: number;
   id?: number;
+  routine_version_id?: number;
   weekday?: number | string | null;
+  weekday_label?: string | null;
   period_number?: number | string | null;
   start_time?: string | null;
   end_time?: string | null;
   entry_type?: RoutineEntryType | string | null;
   session_id?: number | string | null;
+  session_name?: string | null;
   title?: string | null;
   subject_name?: string | null;
+  activity_name?: string | null;
   teacher_name?: string | null;
   teacher_names?: string | null;
   room?: string | null;
+  notes?: string | null;
+  slot_label?: string | null;
   class_name?: string | null;
   section_name?: string | null;
   medium?: string | null;
   stream_name?: string | null;
+  class_scope?: string | null;
+  class_scope_label?: string | null;
   is_substitution?: boolean | number;
   substitution_title?: string | null;
+};
+
+export type ClassRoutineBoardRoutine = {
+  routine_version_id: number;
+  session_id: number;
+  session_name?: string | null;
+  class_id: number;
+  class_name: string;
+  class_scope?: string | null;
+  class_scope_label?: string | null;
+  section_id: number;
+  section_name: string;
+  medium?: string | null;
+  stream_id?: number | null;
+  stream_name?: string | null;
+  title?: string | null;
+  status?: string | null;
+  published_at?: string | null;
+  entries: RoutineEntry[];
+};
+
+export type ClassRoutineBoardDay = {
+  weekday: number;
+  label: string;
+  routines: ClassRoutineBoardRoutine[];
+};
+
+export type ClassRoutineBoardScope = {
+  class_scope: string;
+  scope_label: string;
+  weekdays: ClassRoutineBoardDay[];
+};
+
+export type ClassRoutineBoardResponse = {
+  weekdays: Array<{ weekday: number; label: string }>;
+  scopes: ClassRoutineBoardScope[];
 };
 
 export type ExamRoutineEntry = {
@@ -88,6 +132,11 @@ export async function getMyTeacherRoutine(params: TeacherRoutineParams = {}) {
 export async function getStudentRoutine(studentId: number | string, params: { date?: string } = {}) {
   const response = await api.get<ApiEnvelope<StudentRoutineResponse>>(`/routines/students/${studentId}`, { params });
   return response.data.data ?? { routine: [], substitutions: [], date: params.date };
+}
+
+export async function getClassRoutineBoard(params: { status?: string; weekday?: number | string; session_id?: number | string } = {}) {
+  const response = await api.get<ApiEnvelope<ClassRoutineBoardResponse>>("/routines/class-routines/board", { params });
+  return response.data.data ?? { weekdays: [], scopes: [] };
 }
 
 export async function getExamRoutines(params: { status?: string; session_id?: number | string; exam_id?: number | string } = {}) {

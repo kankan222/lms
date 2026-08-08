@@ -898,15 +898,29 @@ function summarizeClassRoutineTeacherConflicts(conflicts = []) {
       const teacher = item.teacher_name || `Teacher #${item.teacher_id}`;
       const day = WEEKDAY_LABELS[Number(item.weekday)] || `Day ${item.weekday || ""}`.trim() || "selected day";
       const period = item.period_number ? `Period ${item.period_number}` : "selected period";
-      const time = [item.start_time, item.end_time].filter(Boolean).join("-");
-      const conflictingPeriod = item.conflicting_period_number ? `Period ${item.conflicting_period_number}` : "another period";
-      const conflictingTime = [item.conflicting_start_time, item.conflicting_end_time].filter(Boolean).join("-");
+      const time = formatRoutineTimeRange(item.start_time, item.end_time);
       const scope = [item.conflicting_class_name, item.conflicting_section_name].filter(Boolean).join(" ");
-      const currentSlot = [day, period, time ? `(${time})` : ""].filter(Boolean).join(" ");
-      const conflictingSlot = [conflictingPeriod, conflictingTime ? `(${conflictingTime})` : ""].filter(Boolean).join(" ");
-      return `${teacher} is assigned in ${currentSlot}, but is already assigned to ${scope || "another class"} in ${conflictingSlot}`;
+      const slot = [day, period, time].filter(Boolean).join("  ");
+      return `${teacher} has a scheduling conflict\n${slot}\nAlready teaching ${scope || "another class"} at this time.`;
     })
-    .join("; ");
+    .join("\n\n");
+}
+
+function formatRoutineTimeRange(startTime, endTime) {
+  const start = formatRoutineClock(startTime);
+  const end = formatRoutineClock(endTime);
+  return [start, end].filter(Boolean).join(" - ");
+}
+
+function formatRoutineClock(value) {
+  const raw = String(value || "").trim();
+  const match = raw.match(/^(\d{1,2}):(\d{2})/);
+  if (!match) return raw;
+  const hour24 = Number(match[1]);
+  const minute = match[2];
+  const suffix = hour24 >= 12 ? "PM" : "AM";
+  const hour12 = hour24 % 12 || 12;
+  return `${hour12}:${minute} ${suffix}`;
 }
 
 export async function deleteClassRoutineDraft(id) {

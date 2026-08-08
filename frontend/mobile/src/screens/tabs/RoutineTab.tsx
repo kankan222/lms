@@ -11,6 +11,7 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import { getStudents, type Student } from "../../services/studentsService";
 import {
+  getClassRoutineBoard,
   getExamRoutineById,
   getExamRoutines,
   getMyTeacherRoutine,
@@ -31,6 +32,7 @@ const DAYS: DayItem[] = [
   { key: 4, short: "Thu", label: "Thursday" },
   { key: 5, short: "Fri", label: "Friday" },
   { key: 6, short: "Sat", label: "Saturday" },
+  { key: 7, short: "Sun", label: "Sunday" },
 ];
 
 function todayDate() {
@@ -60,7 +62,7 @@ function formatTime(value?: string | null) {
 
 function entryTitle(entry: RoutineEntry) {
   if (entry.is_substitution && entry.substitution_title) return entry.substitution_title;
-  return entry.subject_name || entry.title || (entry.entry_type === "break" ? "Break" : "Free Period");
+  return entry.subject_name || entry.activity_name || entry.title || entry.slot_label || (entry.entry_type === "break" ? "Break" : "Free Period");
 }
 
 function entryTeachers(entry: RoutineEntry) {
@@ -69,7 +71,7 @@ function entryTeachers(entry: RoutineEntry) {
 
 function getEntryWeekday(entry: RoutineEntry) {
   const value = Number(entry.weekday);
-  return Number.isFinite(value) && value >= 1 && value <= 6 ? value : 1;
+  return Number.isFinite(value) && value >= 1 && value <= 7 ? value : 1;
 }
 
 function sortRoutine(a: RoutineEntry, b: RoutineEntry) {
@@ -79,7 +81,7 @@ function sortRoutine(a: RoutineEntry, b: RoutineEntry) {
 }
 
 function scopeText(entry?: RoutineEntry | null) {
-  const parts = [entry?.class_name, entry?.section_name, entry?.medium, entry?.stream_name]
+  const parts = [entry?.class_scope_label, entry?.class_name, entry?.section_name, entry?.medium, entry?.stream_name]
     .map((value) => String(value || "").trim())
     .filter(Boolean);
   return parts.length ? parts.join(" / ") : "Published routine";
@@ -112,6 +114,7 @@ export default function RoutineTab() {
   const isParent = roles.includes("parent");
   const isTeacher = roles.includes("teacher");
   const isAdmin = roles.includes("super_admin") || permissions.includes("routines.manage");
+  const canViewRoutines = roles.includes("super_admin") || permissions.includes("routines.view") || permissions.includes("routines.manage");
   const [mode, setMode] = useState<RoutineMode>(isTeacher ? "teacher" : "week");
   const [selectedDay, setSelectedDay] = useState(todayWeekday());
   const [selectedStudentId, setSelectedStudentId] = useState<number | null>(null);
@@ -135,6 +138,37 @@ export default function RoutineTab() {
   const visibleExamEntries = useMemo(() => [...examEntries].sort(sortExamEntries), [examEntries]);
   const firstEntry = sortedEntries[0] ?? null;
   const hasRoutineAccess = isParent || isTeacher || isAdmin;
+  const modeOptions = useMemo(
+    () => [
+      ["week", "Week View"],
+      ["day", "Day View"],
+      ...(isTeacher ? [["teacher", "Teacher View"]] : []),
+      ["exam", "Exam Routine"],
+    ] as Array<[RoutineMode, string]>,
+    [isTeacher],
+  );
+
+  const loadClassRoutineBoardEntries = useCallback(async () => {
+    const board = await getClassRoutineBoard({ status: "published" });
+    return board.scopes.flatMap((scope) =>
+      scope.weekdays.flatMap((day) =>
+        day.routines.flatMap((routine) =>
+          (routine.entries || []).map((entry) => ({
+            ...entry,
+            routine_version_id: routine.routine_version_id,
+            session_id: routine.session_id,
+            session_name: routine.session_name,
+            class_name: routine.class_name,
+            section_name: routine.section_name,
+            medium: routine.medium,
+            stream_name: routine.stream_name,
+            class_scope: routine.class_scope || scope.class_scope,
+            class_scope_label: routine.class_scope_label || scope.scope_label,
+          })),
+        ),
+      ),
+    );
+  }, []);
 
   const loadExamRoutineEntries = useCallback(async (student?: Student | null) => {
     try {
@@ -203,8 +237,11 @@ export default function RoutineTab() {
         return;
       }
 
-      await loadExamRoutineEntries(null);
-      setEntries([]);
+      const [boardEntries] = await Promise.all([
+        canViewRoutines ? loadClassRoutineBoardEntries() : Promise.resolve([]),
+        loadExamRoutineEntries(null),
+      ]);
+      setEntries(boardEntries);
     } catch {
       setEntries([]);
       setError("Could not load routine right now.");
@@ -212,7 +249,7 @@ export default function RoutineTab() {
       if (loadMode === "refresh") setRefreshing(false);
       else setLoading(false);
     }
-  }, [isParent, isTeacher, loadExamRoutineEntries, selectedStudentId]);
+  }, [canViewRoutines, isParent, isTeacher, loadClassRoutineBoardEntries, loadExamRoutineEntries, selectedStudentId]);
 
   useEffect(() => {
     void loadRoutine();
@@ -247,13 +284,13 @@ export default function RoutineTab() {
 
   function renderEntry(entry: RoutineEntry, index: number) {
     const isBreak = String(entry.entry_type || "").toLowerCase() === "break";
-    const isFree = String(entry.entry_type || "").toLowerCase() === "free";
+    const isFree = ["free", "custom"].includes(String(entry.entry_type || "").toLowerCase());
     const muted = isBreak || isFree;
     const teacherText = entryTeachers(entry);
     const day = DAYS.find((item) => item.key === getEntryWeekday(entry));
 
     return (
-      <View key={`${entry.entry_id || entry.id || index}-${getEntryWeekday(entry)}`} style={styles.timelineRow}>
+      <View key={`${entry.routine_version_id || "routine"}-${entry.entry_id || entry.id || index}-${getEntryWeekday(entry)}`} style={styles.timelineRow}>
         <View style={styles.timeRail}>
           <View style={[
             styles.periodBadge,
@@ -417,18 +454,13 @@ export default function RoutineTab() {
       ) : null}
 
       <View style={styles.metricGrid}>
-        {renderMetric("Session", mode === "exam" ? visibleExamEntries[0]?.session_name || "Active" : firstEntry?.session_id ? String(firstEntry.session_id) : selectedStudent?.session_name || "Active", "calendar-clear-outline")}
+        {renderMetric("Session", mode === "exam" ? visibleExamEntries[0]?.session_name || "Active" : firstEntry?.session_name || (firstEntry?.session_id ? String(firstEntry.session_id) : selectedStudent?.session_name || "Active"), "calendar-clear-outline")}
         {renderMetric("Scope", mode === "exam" ? isParent ? classLabel(selectedStudent) : examScopeText(visibleExamEntries[0]) : isParent ? classLabel(selectedStudent) : scopeText(firstEntry), "school-outline")}
-        {renderMetric("Version", mode === "exam" ? `${visibleExamEntries.length} papers` : firstEntry ? "Published" : "No routine", "checkmark-done-outline")}
+        {renderMetric("Status", mode === "exam" ? `${visibleExamEntries.length} papers` : firstEntry ? "Published" : "No routine", "checkmark-done-outline")}
       </View>
 
       <View style={[styles.segmented, { backgroundColor: theme.card, borderColor: theme.border }]}>
-        {[
-          ["week", "Week View"],
-          ["day", "Day View"],
-          ["teacher", "Teacher View"],
-          ["exam", "Exam Routine"],
-        ].map(([key, label]) => {
+        {modeOptions.map(([key, label]) => {
           const selected = mode === key;
           return (
             <Pressable
@@ -475,7 +507,7 @@ export default function RoutineTab() {
         <View style={styles.stateBlock}>
           <ActivityIndicator size="large" color={theme.primary} />
         </View>
-      ) : !hasRoutineAccess ? (
+      ) : !hasRoutineAccess && !canViewRoutines ? (
         <View style={[styles.emptyCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
           <Ionicons name="lock-closed-outline" size={24} color={theme.subText} />
           <Text style={[styles.emptyTitle, { color: theme.text }]}>Routine access unavailable</Text>
