@@ -217,6 +217,15 @@ export async function getAssignments(req, res, next) {
   }
 }
 
+export async function getAssignedTeachers(req, res, next) {
+  try {
+    const data = await service.getAssignedTeachers(req.query);
+    res.json({ success: true, data });
+  } catch (err) {
+    next(err);
+  }
+}
+
 /* ------------------ ATTENDANCE DEVICES ------------------ */
 
 export async function createAttendanceDevice(req, res, next) {

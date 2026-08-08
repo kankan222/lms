@@ -14,7 +14,8 @@
     "sync:agent:mssql": "node scripts/run-mssql-attendance-sync-agent.js",
     "start:server": "node server.js",
     "start": "node server.js",
-    "seed:admin": "node database/seeds/admin.seeds.js"
+    "seed:admin": "node database/seeds/admin.seeds.js",
+    "import:root-routines": "node scripts/import-root-routine-workbooks.js"
   },
   "keywords": [],
   "author": "",

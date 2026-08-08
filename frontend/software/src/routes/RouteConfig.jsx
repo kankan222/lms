@@ -21,6 +21,8 @@ import {
   Trophy,
   SlidersHorizontal,
   Bus,
+  CalendarClock,
+  Megaphone,
 } from "lucide-react";
 import { lazy } from "react";
 
@@ -51,6 +53,8 @@ const WebsiteModule = lazy(() => import("../pages/WebsiteModule"));
 const StaffPage = lazy(() => import("../pages/Staff"));
 const StudentDetails = lazy(() => import("../pages/modules/StudentDetails"));
 const NotificationsPage = lazy(() => import("../pages/Notifications"));
+const Routines = lazy(() => import("../pages/Routines"));
+const Announcements = lazy(() => import("../pages/Announcements"));
 
 export function isRouteAllowedForUser(route, user) {
   const roles = Array.isArray(user?.roles) ? user.roles : [];
@@ -180,6 +184,22 @@ export const appRoutes = [
     //   icon: MessageCircleMore,
     //   element: "/whatsapp",
     // },
+    {
+      title: "Routine",
+      icon: CalendarClock,
+      path: "/routines",
+      element: <Routines />,
+      protected: true,
+      permission: "routines.view",
+    },
+    {
+      title: "Announcements",
+      icon: Megaphone,
+      path: "/announcements",
+      element: <Announcements />,
+      protected: true,
+      permission: "announcements.view",
+    },
     {
       title: "Messaging",
       icon: Mail,
@@ -402,8 +422,21 @@ export const navSections = [
     ],
   },
   {
+    title: "Routine",
+    items: [
+      navEntry("/routines", {
+        title: "Class & Exam Routine",
+        icon: CalendarClock,
+      }),
+    ],
+  },
+  {
     title: "Utilities",
     items: [
+      navEntry("/announcements", {
+        title: "Announcements",
+        icon: Megaphone,
+      }),
       navEntry("/messaging", {
         title: "Chat",
         icon: Mail,

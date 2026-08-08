@@ -40,6 +40,12 @@ router.get(
   controller.getAssignments
 );
 
+router.get(
+  "/assigned",
+  requirePermission("teacher.view"),
+  controller.getAssignedTeachers
+);
+
 router.delete(
   "/assignments/:assignmentId",
   requirePermission("teacher.assign"),

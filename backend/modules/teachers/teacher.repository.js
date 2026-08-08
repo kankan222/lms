@@ -362,6 +362,42 @@ export function getTeacherAssignments(teacherId) {
   `, [teacherId]);
 }
 
+export function getAssignedTeachers(filters = {}) {
+  const where = ["ta.class_id = ?"];
+  const params = [filters.class_id];
+
+  if (filters.section_id) {
+    where.push("ta.section_id = ?");
+    params.push(filters.section_id);
+  }
+
+  if (filters.session_id) {
+    where.push("ta.session_id = ?");
+    params.push(filters.session_id);
+  }
+
+  if (filters.subject_id) {
+    where.push("ta.subject_id = ?");
+    params.push(filters.subject_id);
+  }
+
+  return query(
+    `
+      SELECT DISTINCT
+        t.id,
+        t.name,
+        t.employee_id,
+        t.email,
+        t.phone
+      FROM teacher_class_assignments ta
+      JOIN teachers t ON t.id = ta.teacher_id
+      WHERE ${where.join(" AND ")}
+      ORDER BY t.name
+    `,
+    params
+  );
+}
+
 /* ------------------ ATTENDANCE DEVICES ------------------ */
 export function createAttendanceDevice(data){
 

@@ -81,12 +81,18 @@ function isMissingNotificationDevicesTable(err) {
   );
 }
 
-export async function dispatchNotificationUpdate(userIds = [], payload = {}) {
+export async function dispatchNotificationUpdate(userIds = [], payload = {}, options = {}) {
   const normalizedUserIds = normalizeUserIds(userIds);
-  if (!normalizedUserIds.length) return;
+  if (!normalizedUserIds.length) return { realtime: 0, push: null };
   const normalizedPayload = normalizeNotificationPayload(payload);
 
-  publishNotificationEvent(normalizedUserIds, buildRealtimePayload(normalizedPayload));
+  if (options.sendRealtime !== false) {
+    publishNotificationEvent(normalizedUserIds, buildRealtimePayload(normalizedPayload));
+  }
+
+  if (options.sendPush === false) {
+    return { realtime: options.sendRealtime === false ? 0 : normalizedUserIds.length, push: null };
+  }
 
   const conn = await pool.getConnection();
   try {
@@ -98,11 +104,12 @@ export async function dispatchNotificationUpdate(userIds = [], payload = {}) {
         console.warn(
           "notification_devices table is missing; skipping push notification dispatch."
         );
-        return;
+        return { realtime: options.sendRealtime === false ? 0 : normalizedUserIds.length, push: null };
       }
       throw err;
     }
-    await sendPushNotifications(devices, normalizedPayload);
+    const push = await sendPushNotifications(devices, normalizedPayload);
+    return { realtime: options.sendRealtime === false ? 0 : normalizedUserIds.length, push };
   } finally {
     conn.release();
   }
@@ -136,8 +143,10 @@ export async function notify(data){
     }
 
     await conn.commit();
-    await dispatchNotificationUpdate(targetUserIds, payload);
-    return { notification_ids: notificationIds };
+    const dispatch = await dispatchNotificationUpdate(targetUserIds, payload, {
+      sendPush: data.sendPush !== false && data.send_push !== false,
+    });
+    return { notification_ids: notificationIds, dispatch };
 
   }catch(err){
     await conn.rollback();

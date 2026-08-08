@@ -4,6 +4,23 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/* static fonts */
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("/fonts/Inter/web/InterVariable.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Inter";
+  font-style: italic;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("/fonts/Inter/web/InterVariable-Italic.woff2") format("woff2");
+}
+
 @theme inline {
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
@@ -119,6 +136,11 @@
     @apply border-border outline-ring/50;
   }
   body {
+    font-family: "Inter", sans-serif;
+    font-synthesis: none;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
     @apply bg-background text-foreground;
   }
 }
@@ -150,7 +172,7 @@
   --color-punch-800: #9c1e18;
   --color-punch-900: #811f1b;
   --color-punch-950: #460c09;
-  --font-lato: "Lato", sans-serif;
+  --font-lato: "Inter", sans-serif;
   --font-inter: "Inter", sans-serif;
   --color-punch-50-1: hsla(5, 86%, 97%, 0.5);
   --color-punch-100: hsl(2, 100%, 94%);

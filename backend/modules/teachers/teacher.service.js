@@ -58,6 +58,21 @@ function normalizeTeacherIdFilter(value) {
   return parsed;
 }
 
+function normalizePositiveInteger(value, fieldName) {
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    throw new AppError(`${fieldName} must be a positive integer`, 400);
+  }
+  return parsed;
+}
+
+function normalizeOptionalPositiveInteger(value, fieldName) {
+  if (value === undefined || value === null || value === "") {
+    return null;
+  }
+  return normalizePositiveInteger(value, fieldName);
+}
+
 function normalizeDateInput(value, fieldName) {
   const raw = String(value || "").trim();
   if (!raw) return "";
@@ -428,6 +443,20 @@ export async function getTeacherAssignmentsForActor({ teacherId, actorUserId, ac
   }
 
   return repo.getTeacherAssignments(teacher.id);
+}
+
+export async function getAssignedTeachers(filters) {
+  const classId = normalizePositiveInteger(filters.class_id ?? filters.classId, "class_id");
+  const sectionId = normalizeOptionalPositiveInteger(filters.section_id ?? filters.sectionId, "section_id");
+  const sessionId = normalizeOptionalPositiveInteger(filters.session_id ?? filters.sessionId, "session_id");
+  const subjectId = normalizeOptionalPositiveInteger(filters.subject_id ?? filters.subjectId, "subject_id");
+
+  return repo.getAssignedTeachers({
+    class_id: classId,
+    section_id: sectionId,
+    session_id: sessionId,
+    subject_id: subjectId,
+  });
 }
 
 /* ------------------ ATTENDANCE DEVICES ------------------ */

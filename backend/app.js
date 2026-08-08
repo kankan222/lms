@@ -51,6 +51,9 @@ import messagingMediaPublicRoutes from "./modules/messaging/messaging.media.publ
 
 import notificationRoutes from "./modules/notifications/notification.routes.js"
 import appUpdateRoutes from "./modules/appUpdates/appUpdate.routes.js"
+import routineRoutes from "./modules/routines/routines.routes.js"
+import announcementRoutes from "./modules/announcements/announcements.routes.js"
+import announcementPublicRoutes from "./modules/announcements/announcements.public.routes.js"
 
 import dashboardRoutes from "./modules/dashboard/dashboard.routes.js"
 
@@ -66,6 +69,7 @@ app.use("/api/v1/public/contact", contactPublicRoutes);
 app.use("/sync", teacherAttendanceSyncRoutes);
 app.use("/api/v1/sync", teacherAttendanceSyncRoutes);
 app.use("/api/v1/message-media", messagingMediaPublicRoutes);
+app.use("/api/v1/public/announcements", announcementPublicRoutes);
 
 
 app.use(authenticate);
@@ -94,6 +98,8 @@ app.use("/api/v1/website", staffWebsiteRoutes)
 
 app.use("/api/v1/notifications", notificationRoutes)
 app.use("/api/v1/app-updates", appUpdateRoutes)
+app.use("/api/v1/routines", routineRoutes)
+app.use("/api/v1/announcements", announcementRoutes)
 
 
 app.use(errorHandler)

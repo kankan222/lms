@@ -5,9 +5,9 @@
 Full-Stack LMS is a school and college management system
 for administrators, staff, teachers, parents, accounts users,
 and public website visitors. It centralizes student records,
-academic setup, attendance, exams, marks, fees, messaging,
-notifications, public staff content, and mobile access around
-one Express/MySQL backend.
+academic setup, attendance, class and exam routines, exams,
+marks, fees, announcements, messaging, notifications, public
+staff content, and mobile access around one Express/MySQL backend.
 
 ## Goals
 
@@ -31,7 +31,7 @@ one Express/MySQL backend.
    allowed by the user's role and permissions.
 4. The user performs module work such as managing students,
    taking attendance, entering marks, recording payments, or
-   sending messages.
+   publishing routines, announcements, or sending messages.
 5. Backend route guards enforce permissions, controllers parse
    request input, services apply business rules, and repositories
    persist changes in MySQL.
@@ -50,6 +50,13 @@ one Express/MySQL backend.
   streams.
 - Subject creation and class/teacher subject assignments.
 - Student, parent, teacher, and staff record management.
+- Class routines with draft/published versions, reusable time
+  slots, break/activity/free/custom entries, teacher assignment
+  validation, archived published versions, PDFs, and role-specific
+  teacher/parent/student views.
+- Routine substitutions for date-specific or date-range temporary
+  changes such as extra classes, cancelled periods, teacher
+  substitutions, subject changes, and room changes.
 
 ### Attendance and Reporting
 
@@ -58,6 +65,10 @@ one Express/MySQL backend.
 - Teacher attendance device mapping and cross-system attendance
   sync agents.
 - Exams, marks entry, approval, student reports, and report PDFs.
+- Exam routines managed from the Routine module, linked to existing
+  exams while supporting configured exam subjects, practical/custom
+  entries, optional invigilators, optional rooms, publish actions,
+  student detail visibility, and school notice-style PDFs.
 
 ### Finance
 
@@ -68,6 +79,12 @@ one Express/MySQL backend.
 
 ### Communication
 
+- Announcements as a separate one-way broadcast module from
+  Messaging, with online, offline SMS, and combined delivery modes.
+- Announcement categories, scheduling, attachments, public visibility,
+  configurable DLT SMS templates, Fast2SMS delivery, SMS retries and
+  delivery status, holiday/vacation calendar records, and optional
+  notifications/push on publish.
 - Internal messaging with conversations, targets, read state,
   presence updates, and SSE.
 - Messaging supports text, photos, documents, and recorded voice

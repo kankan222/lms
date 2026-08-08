@@ -15,6 +15,7 @@
 | Mobile state | Zustand, SecureStore, Axios | Auth persistence and API access |
 | Realtime | Server-Sent Events | Messaging, typing, presence, delivery, and notifications updates |
 | Message media | Private S3-compatible storage | Production photos, documents, thumbnails, and voice notes |
+| SMS | Fast2SMS with DLT templates | OTP and offline announcement delivery |
 | Jobs and agents | `node-cron`, Node scripts | Fee reminders, iclock pulls, attendance sync |
 
 ## System Boundaries
@@ -48,8 +49,10 @@
   offerings, student subject registrations, students, parents,
   teachers, attendance, exams, marks, approvals, fees, payments,
   optional transportation routes/pickup points, student-specific transport
-  assignments, transport dues/payments/receipts, messages, notifications, staff
-  records, contact submissions, and sync events.
+  assignments, transport dues/payments/receipts, class routines, exam routines,
+  routine substitutions, announcements, DLT SMS templates, holiday calendar
+  records, messages, notifications, staff records, contact submissions, and
+  sync events.
 - **Local file storage**: uploaded student, teacher, and staff media
   served by Express through `/uploads`; messaging media may use the
   local storage driver in development.
@@ -61,6 +64,9 @@
   `backend/.env.messaging.example`. The implementation is compatible
   with AWS S3, Cloudflare R2, DigitalOcean Spaces, Backblaze B2, and
   MinIO-style endpoints.
+- Announcement, holiday, routine import, and Fast2SMS worker settings
+  are documented in `backend/docs/announcements-routines-ops.md`; safe
+  environment placeholders live in `backend/.env.announcements.example`.
 - **Notification delivery**: MySQL stores the in-app notification feed.
   SSE publishes optional realtime updates to connected software clients.
   Push delivery is best-effort and must be gated by
@@ -155,6 +161,86 @@
 15. Push-device registration and push dispatch require
     `notifications.push.receive`. Notification inbox access requires
     `notifications.view`.
+16. Announcements are one-way broadcast records and must remain separate from
+    conversation-based Messaging.
+17. Offline announcement SMS may be sent only after announcement publish and
+    must use a registered DLT template.
+18. Published routine edits must create a new draft version; old published
+    routine versions must remain archived.
+19. Routine and announcement management is limited to admin and super admin
+    permissions, while teachers and parents receive scoped read access.
+
+## Routine Model
+
+- Class routines are scoped by academic session, class, section, medium, and
+  stream where applicable.
+- Class routine versions use draft and published states. Editing a published
+  routine creates a new draft version instead of mutating the live version.
+- Publishing a new routine archives the previous published version for that
+  scope.
+- Period timing may come from reusable school-wide, higher-secondary-wide, or
+  class/section-specific time-slot templates. Break periods should be modeled
+  in reusable templates where possible while still allowing per-class
+  overrides.
+- Routine entries support subject, break, activity, assembly, games, library,
+  remedial, free, and custom entry types.
+- Subject entries require subject and teacher assignment. Teacher assignment
+  validation should use existing academic assignment data where applicable.
+- Teacher time conflicts must be blocked at publish time for routines and
+  substitutions. Multiple teachers may be assigned to one period when needed.
+- Rooms are optional.
+- Parent/student routine views expose only subject and time. Teacher views
+  include assigned class/section, subject, room, and substitution duties.
+- Published class and exam routines must support PDF output.
+- Excel import is a later workflow. Imports should create draft routines only
+  and expose unresolved class, section, subject, teacher, and conflict mappings
+  before save.
+
+## Routine Substitution Model
+
+- Routine substitutions are admin/super-admin managed temporary changes over
+  the published base routine.
+- Substitutions support single dates and date ranges.
+- Substitutions have draft and published states; published substitutions apply
+  immediately to effective routine reads.
+- Supported substitution types include teacher substitution, subject change,
+  extra class, cancelled period, free period, and room change.
+- Cancelled periods and extra classes are visible to parents/students.
+- Substitutions may notify affected teachers, parents, and students.
+- Substitution history is retained after the affected date passes.
+- Attendance records do not drive routine substitution generation.
+
+## Announcement Model
+
+- Announcements are one-way broadcast records separate from Messaging.
+- Announcement categories are configurable and should support general,
+  holiday, festival, exam, exam reschedule, vacation, urgent, and future
+  school-defined categories.
+- Announcements support online, offline SMS, and both delivery modes.
+- Announcements support draft, scheduled, published, sent, failed, cancelled,
+  and expired lifecycle states as needed.
+- Online announcements may target software, mobile, and optionally public
+  website visibility. They support attachments and automatic expiry.
+- Online announcement publish should create in-app notifications and push
+  notifications when permitted. Urgent announcements should trigger push where
+  push permission exists.
+- Read tracking is not required.
+- Published announcements may be edited, but content that has already been sent
+  by SMS must be locked.
+- Offline SMS announcements use Fast2SMS with registered DLT templates. Both
+  `{#var#}` and `{#alp#}` placeholder styles must be supported.
+- Offline SMS may be sent only after publish and may be scheduled.
+- SMS preview and placeholder-count validation are required before publish/send.
+- Failed SMS sends are retryable. Delivery status should be pulled from
+  Fast2SMS when available.
+- Targeting supports roles, academic scopes, and individual users. Parent SMS
+  resolves to all linked active parent/guardian phone numbers and deduplicates
+  duplicate numbers.
+- Inactive users, inactive students, and parents of inactive students are
+  excluded from announcement targets.
+- Holiday and vacation announcements create display-only calendar records.
+  Holiday records do not block attendance entry and can also be created
+  manually outside the announcement flow.
 
 ## Messaging Model
 

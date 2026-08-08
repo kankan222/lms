@@ -48,6 +48,10 @@ export function getTeachers() {
   return apiRequest("/teachers");
 }
 
+export function getAssignedTeachers(params = {}) {
+  return apiRequest(`/teachers/assigned${buildQuery(params)}`);
+}
+
 export function getTeacher(id) {
   return apiRequest(`/teachers/${id}`);
 }

@@ -14,6 +14,28 @@ Update this file after every meaningful implementation change.
 
 ## Completed
 
+- Documented the planned Routine and Announcements modules in requirements,
+  project overview, and architecture context: class/exam routine versioning,
+  breaks, substitutions, teacher conflict rules, role-specific views, DLT-based
+  offline SMS announcements, holiday calendar records, and mobile/software
+  navigation expectations.
+- Added initial database migrations for Routine and Announcements schemas:
+  time-slot templates, class routine versions/entries/teachers, exam routine
+  versions/entries/invigilators, routine substitutions, announcement
+  categories, DLT SMS templates, announcement targets/attachments, SMS jobs and
+  recipients, holiday calendar records, and role permission seeds.
+- Added the initial backend Routine module with protected routes, controllers,
+  services, repositories, and PDF generation for time-slot templates, class
+  routine draft/publish/version reads, exam routines linked to existing exams,
+  substitutions, effective class routine reads, student-scoped routine reads,
+  and teacher own-routine reads.
+- Added the initial internal software Routine page and API wrapper, with a new
+  Routine sidebar section, tabs for Class Routine, Exam Routine, Substitutions,
+  and Time Slots, plus draft creation, publish actions, substitution cancel,
+  filtering, and routine PDF downloads wired to the backend.
+- Applied the Routine schema migration locally and adjusted the
+  `class_routine_versions.stream_id` foreign key to avoid MySQL rejecting
+  `ON DELETE SET NULL` on a column used by the generated stream dedupe column.
 - Clarified the software Reports Published tab by moving the marksheet
   publication panel above the approved-student grid filters and labeling
   subject/student filters as view-only helpers, so publishing no longer appears

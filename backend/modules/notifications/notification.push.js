@@ -14,7 +14,15 @@ function isExpoPushToken(value) {
 
 export async function sendPushNotifications(devices = [], payload = {}) {
   const enabled = String(process.env.EXPO_PUSH_ENABLED || "").toLowerCase() === "true";
-  if (!enabled || !devices.length) return;
+  if (!enabled || !devices.length) {
+    return {
+      enabled,
+      devices: devices.length,
+      messages: 0,
+      sent: 0,
+      failed: 0,
+    };
+  }
 
   const messages = devices
     .filter((device) => isExpoPushToken(device.push_token))
@@ -33,7 +41,15 @@ export async function sendPushNotifications(devices = [], payload = {}) {
       },
     }));
 
-  if (!messages.length) return;
+  if (!messages.length) {
+    return {
+      enabled,
+      devices: devices.length,
+      messages: 0,
+      sent: 0,
+      failed: 0,
+    };
+  }
 
   const headers = {
     "Content-Type": "application/json",
@@ -43,15 +59,31 @@ export async function sendPushNotifications(devices = [], payload = {}) {
     headers.Authorization = `Bearer ${process.env.EXPO_PUSH_ACCESS_TOKEN}`;
   }
 
+  let sent = 0;
+  let failed = 0;
   for (const group of chunk(messages, 100)) {
     try {
-      await fetch(EXPO_PUSH_URL, {
+      const response = await fetch(EXPO_PUSH_URL, {
         method: "POST",
         headers,
         body: JSON.stringify(group),
       });
+      if (response.ok) {
+        sent += group.length;
+      } else {
+        failed += group.length;
+      }
     } catch {
       // Push delivery is best-effort. The in-app feed remains the source of truth.
+      failed += group.length;
     }
   }
+
+  return {
+    enabled,
+    devices: devices.length,
+    messages: messages.length,
+    sent,
+    failed,
+  };
 }

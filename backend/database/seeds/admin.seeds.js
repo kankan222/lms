@@ -57,6 +57,16 @@ const PERMISSIONS = [
   "marks.approve",
   "messages.view",
   "messages.send",
+  "routines.view",
+  "routines.manage",
+  "routines.publish",
+  "routine_substitutions.manage",
+  "exam_routines.manage",
+  "announcements.view",
+  "announcements.manage",
+  "announcements.publish",
+  "announcements.sms.send",
+  "announcement_templates.manage",
   "notifications.view",
   "notifications.push.receive",
   "notifications.manage",
@@ -66,11 +76,11 @@ const PERMISSIONS = [
 const ROLE_PERMISSION_MAP = {
   super_admin: PERMISSIONS,
   admin: PERMISSIONS.filter((permission) => permission !== "dashboard.view"),
-  teacher: ["marks.enter", "marks.view", "teacher.view", "attendance.take", "student_attendance.take", "student_attendance.view", "subjects.view", "exams.view", "messages.view", "notifications.view", "notifications.push.receive"],
-  student: ["notifications.view", "notifications.push.receive"],
-  parent: ["student.view", "student_attendance.view", "fee.view", "marks.view", "messages.view", "notifications.view", "notifications.push.receive"],
-  accounts: ["payment.view", "payment.create", "payment.update", "payment.delete", "messages.view", "messages.send", "notifications.view", "notifications.push.receive"],
-  staff: ["staff.view", "exams.create", "exams.view", "exams.update", "exams.delete", "marks.view", "marks.approve", "student_attendance.view", "student_attendance.review", "student_attendance.notify", "messages.view", "messages.send", "notifications.view", "notifications.push.receive"],
+  teacher: ["marks.enter", "marks.view", "teacher.view", "attendance.take", "student_attendance.take", "student_attendance.view", "subjects.view", "exams.view", "routines.view", "announcements.view", "messages.view", "notifications.view", "notifications.push.receive"],
+  student: ["routines.view", "announcements.view", "notifications.view", "notifications.push.receive"],
+  parent: ["student.view", "student_attendance.view", "fee.view", "marks.view", "routines.view", "announcements.view", "messages.view", "notifications.view", "notifications.push.receive"],
+  accounts: ["payment.view", "payment.create", "payment.update", "payment.delete", "routines.view", "announcements.view", "messages.view", "messages.send", "notifications.view", "notifications.push.receive"],
+  staff: ["staff.view", "exams.create", "exams.view", "exams.update", "exams.delete", "marks.view", "marks.approve", "student_attendance.view", "student_attendance.review", "student_attendance.notify", "routines.view", "announcements.view", "messages.view", "messages.send", "notifications.view", "notifications.push.receive"],
 };
 
 const USERS = [

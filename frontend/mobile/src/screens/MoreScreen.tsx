@@ -20,6 +20,8 @@ type ModuleKey =
   | "fees"
   | "payments"
   | "transportationFee"
+  | "routine"
+  | "announcements"
   | "messaging"
   | "exams"
   | "reports"
@@ -51,6 +53,8 @@ const MODULES: Record<ModuleKey, ModuleItem> = {
   fees: { key: "fees", label: "Fee Setup", icon: "wallet-outline", description: "Fee structure", tone: "orange" },
   payments: { key: "payments", label: "Payment", icon: "card-outline", description: "Fee collections", tone: "orange" },
   transportationFee: { key: "transportationFee", label: "Transportation Fee", icon: "bus-outline", description: "Transport dues", tone: "orange" },
+  routine: { key: "routine", label: "Routine", icon: "time-outline", description: "Class and exam schedule", tone: "blue" },
+  announcements: { key: "announcements", label: "Announcements", icon: "megaphone-outline", description: "Notices and holidays", tone: "coral" },
   messaging: { key: "messaging", label: "Chat", icon: "chatbubble-ellipses-outline", description: "Messages", tone: "blue" },
   exams: { key: "exams", label: "Exam Setup", icon: "document-text-outline", description: "Configure exams", tone: "coral" },
   reports: { key: "reports", label: "Marksheet", icon: "bar-chart-outline", description: "Result reports", tone: "blue" },
@@ -60,11 +64,11 @@ const MODULES: Record<ModuleKey, ModuleItem> = {
 
 const SECTION_DEFINITIONS: Array<{ title: string; description: string; icon: keyof typeof Ionicons.glyphMap; tone: ModuleItem["tone"]; keys: ModuleKey[] }> = [
   { title: "Dashboard", description: "School summary and activity", icon: "grid-outline", tone: "blue", keys: ["dashboard"] },
-  { title: "Academics", description: "Classes, subjects, exams and activities", icon: "book-outline", tone: "blue", keys: ["classes", "subjects", "activities", "exams"] },
+  { title: "Academics", description: "Classes, subjects, exams and activities", icon: "book-outline", tone: "blue", keys: ["classes", "subjects", "activities", "routine", "exams"] },
   { title: "Students", description: "Student lifecycle and attendance", icon: "people-outline", tone: "green", keys: ["students", "attendance"] },
   { title: "Fees", description: "Fees, payments and transport dues", icon: "wallet-outline", tone: "orange", keys: ["fees", "payments", "transportationFee"] },
   { title: "Staff", description: "Teaching and non-teaching staff", icon: "person-outline", tone: "violet", keys: ["teachers", "teacherAttendance"] },
-  { title: "Utilities", description: "Messages, alerts and account tools", icon: "apps-outline", tone: "coral", keys: ["messaging", "notifications", "users"] },
+  { title: "Utilities", description: "Messages, alerts and account tools", icon: "apps-outline", tone: "coral", keys: ["announcements", "messaging", "notifications", "users"] },
   { title: "Reports", description: "Marksheets and result reports", icon: "bar-chart-outline", tone: "blue", keys: ["reports"] },
 ];
 
@@ -121,6 +125,10 @@ function canViewModule(moduleKey: ModuleKey, roles: string[], permissions: strin
     case "transportationFee":
       if (isParent || isTeacher) return false;
       return hasAny(permissions, ["fee.view", "fee.create", "payment.view", "payment.create"]);
+    case "routine":
+      return isParent || isTeacher || hasRole(roles, "super_admin") || hasAny(permissions, ["routines.view", "routines.manage"]);
+    case "announcements":
+      return isParent || isTeacher || hasRole(roles, "super_admin") || hasAny(permissions, ["announcements.view", "announcements.manage"]);
     case "messaging":
       return hasAny(permissions, ["messages.view", "messages.send"]);
     case "exams":

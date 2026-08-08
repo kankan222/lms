@@ -31,6 +31,8 @@ import FeesTab from "./tabs/FeesTab";
 import PaymentsTab from "./tabs/PaymentsTab";
 import TransportationFeeTab from "./tabs/TransportationFeeTab";
 import ExamsTab from "./tabs/ExamsTab";
+import RoutineTab from "./tabs/RoutineTab";
+import AnnouncementsTab from "./tabs/AnnouncementsTab";
 import MessagingTab from "./tabs/MessagingTab";
 import ProfileTab from "./tabs/ProfileTab";
 import ReportsTab from "./tabs/ReportsTab";
@@ -52,6 +54,8 @@ type TabKey =
   | "fees"
   | "payments"
   | "transportationFee"
+  | "routine"
+  | "announcements"
   | "messaging"
   | "exams"
   | "reports"
@@ -75,6 +79,8 @@ const TABS: TabItem[] = [
   { key: "fees", label: "Fees", icon: "wallet-outline" },
   { key: "payments", label: "Payments", icon: "card-outline" },
   { key: "transportationFee", label: "Transportation Fee", icon: "bus-outline" },
+  { key: "routine", label: "Routine", icon: "time-outline" },
+  { key: "announcements", label: "Announcements", icon: "megaphone-outline" },
   { key: "messaging", label: "Messaging", icon: "chatbubble-ellipses-outline" },
   { key: "exams", label: "Exams", icon: "document-text-outline" },
   { key: "reports", label: "Marksheet", icon: "bar-chart-outline" },
@@ -100,6 +106,8 @@ const MemoFeesTab = memo(FeesTab);
 const MemoPaymentsTab = memo(PaymentsTab);
 const MemoTransportationFeeTab = memo(TransportationFeeTab);
 const MemoExamsTab = memo(ExamsTab);
+const MemoRoutineTab = memo(RoutineTab);
+const MemoAnnouncementsTab = memo(AnnouncementsTab);
 const MemoReportsTab = memo(ReportsTab);
 const MemoProfileTab = memo(ProfileTab);
 
@@ -156,6 +164,10 @@ function canViewTab(tabKey: TabKey, roles: string[], permissions: string[]) {
     case "transportationFee":
       if (isParent || isTeacher) return false;
       return hasAny(permissions, ["fee.view", "fee.create", "payment.view", "payment.create"]);
+    case "routine":
+      return isParent || isTeacher || isSuperAdmin || hasAny(permissions, ["routines.view", "routines.manage"]);
+    case "announcements":
+      return isParent || isTeacher || isSuperAdmin || hasAny(permissions, ["announcements.view", "announcements.manage"]);
     case "messaging":
       return hasAny(permissions, ["messages.view", "messages.send"]);
     case "exams":
@@ -181,8 +193,9 @@ function buildPrimaryTabs(roles: string[], permissions: string[]): NavTab[] {
   if (isSuperAdmin) {
     return [
       { key: "dashboard", label: "Dashboard", icon: "grid-outline" },
+      { key: "routine", label: "Routine", icon: "time-outline" },
+      { key: "announcements", label: "Announcements", icon: "megaphone-outline" },
       { key: "messaging", label: "Messaging", icon: "chatbubble-ellipses-outline" },
-      { key: "users", label: "Profile", icon: "person-circle-outline" },
       { key: "more", label: "More", icon: "apps-outline" },
     ];
   }
@@ -191,6 +204,8 @@ function buildPrimaryTabs(roles: string[], permissions: string[]): NavTab[] {
     return [
       { key: "attendance", label: "Student Att.", icon: "calendar-outline" },
       { key: "teacherAttendance", label: "Teacher Att.", icon: "finger-print-outline" },
+      { key: "routine", label: "Routine", icon: "time-outline" },
+      { key: "announcements", label: "Announcements", icon: "megaphone-outline" },
       { key: "reports", label: "Marksheet", icon: "bar-chart-outline" },
       { key: "more", label: "More", icon: "apps-outline" },
     ];
@@ -199,8 +214,9 @@ function buildPrimaryTabs(roles: string[], permissions: string[]): NavTab[] {
   if (isParent) {
     return [
       { key: "students", label: "Students", icon: "people-outline" },
+      { key: "routine", label: "Routine", icon: "time-outline" },
+      { key: "announcements", label: "Announcements", icon: "megaphone-outline" },
       { key: "messaging", label: "Messaging", icon: "chatbubble-ellipses-outline" },
-      { key: "users", label: "Profile", icon: "person-circle-outline" },
       { key: "more", label: "More", icon: "apps-outline" },
     ];
   }
@@ -208,8 +224,9 @@ function buildPrimaryTabs(roles: string[], permissions: string[]): NavTab[] {
   if (isStaff) {
     return [
       { key: "messaging", label: "Messaging", icon: "chatbubble-ellipses-outline" },
+      { key: "routine", label: "Routine", icon: "time-outline" },
+      { key: "announcements", label: "Announcements", icon: "megaphone-outline" },
       { key: "reports", label: "Marksheet", icon: "bar-chart-outline" },
-      { key: "users", label: "Profile", icon: "person-circle-outline" },
       { key: "more", label: "More", icon: "apps-outline" },
     ];
   }
@@ -218,8 +235,9 @@ function buildPrimaryTabs(roles: string[], permissions: string[]): NavTab[] {
     return [
       { key: "payments", label: "Payments", icon: "card-outline" },
       { key: "transportationFee", label: "Transport", icon: "bus-outline" },
+      { key: "routine", label: "Routine", icon: "time-outline" },
+      { key: "announcements", label: "Announcements", icon: "megaphone-outline" },
       { key: "messaging", label: "Messaging", icon: "chatbubble-ellipses-outline" },
-      { key: "users", label: "Profile", icon: "person-circle-outline" },
       { key: "more", label: "More", icon: "apps-outline" },
     ];
   }
@@ -227,14 +245,17 @@ function buildPrimaryTabs(roles: string[], permissions: string[]): NavTab[] {
   if (permissions.includes("dashboard.view")) {
     return [
       { key: "dashboard", label: "Dashboard", icon: "grid-outline" },
+      { key: "routine", label: "Routine", icon: "time-outline" },
+      { key: "announcements", label: "Announcements", icon: "megaphone-outline" },
       { key: "messaging", label: "Messaging", icon: "chatbubble-ellipses-outline" },
-      { key: "users", label: "Profile", icon: "person-circle-outline" },
       { key: "more", label: "More", icon: "apps-outline" },
     ];
   }
 
   return [
     { key: "users", label: "Profile", icon: "person-circle-outline" },
+    { key: "routine", label: "Routine", icon: "time-outline" },
+    { key: "announcements", label: "Announcements", icon: "megaphone-outline" },
     { key: "messaging", label: "Messaging", icon: "chatbubble-ellipses-outline" },
     { key: "reports", label: "Marksheet", icon: "bar-chart-outline" },
     { key: "more", label: "More", icon: "apps-outline" },
@@ -243,18 +264,18 @@ function buildPrimaryTabs(roles: string[], permissions: string[]): NavTab[] {
 
 function resolveDefaultTab(roles: string[], permissions: string[], visibleTabs: TabKey[]) {
   const preferredOrder = hasRole(roles, "super_admin")
-    ? (["dashboard", "messaging", "students", "reports", "users"] as TabKey[])
+    ? (["dashboard", "routine", "announcements", "messaging", "students", "reports", "users"] as TabKey[])
     : hasRole(roles, "teacher")
-      ? (["attendance", "teacherAttendance", "reports", "messaging", "teachers", "students", "users"] as TabKey[])
+      ? (["routine", "announcements", "attendance", "teacherAttendance", "reports", "messaging", "teachers", "students", "users"] as TabKey[])
       : hasRole(roles, "parent")
-        ? (["students", "messaging", "users"] as TabKey[])
+        ? (["students", "routine", "announcements", "messaging", "users"] as TabKey[])
         : hasRole(roles, "staff")
-          ? (["reports", "messaging", "attendance", "users"] as TabKey[])
+          ? (["routine", "announcements", "reports", "messaging", "attendance", "users"] as TabKey[])
           : hasRole(roles, "accounts")
-            ? (["payments", "transportationFee", "messaging", "fees", "users"] as TabKey[])
+            ? (["payments", "transportationFee", "routine", "announcements", "messaging", "fees", "users"] as TabKey[])
           : permissions.includes("dashboard.view")
-            ? (["dashboard", "reports", "students", "messaging", "users"] as TabKey[])
-            : (["users", "reports", "messaging"] as TabKey[]);
+            ? (["dashboard", "routine", "announcements", "reports", "students", "messaging", "users"] as TabKey[])
+            : (["routine", "announcements", "users", "reports", "messaging"] as TabKey[]);
 
   return preferredOrder.find((tab) => visibleTabs.includes(tab)) ?? visibleTabs[0] ?? "users";
 }
@@ -525,6 +546,10 @@ export default function AppShellScreen({ navigation, route }: Props) {
         return <MemoPaymentsTab />;
       case "transportationFee":
         return <MemoTransportationFeeTab />;
+      case "routine":
+        return <MemoRoutineTab />;
+      case "announcements":
+        return <MemoAnnouncementsTab />;
       case "messaging":
         return (
           <MessagingTab

@@ -43,6 +43,16 @@ INSERT IGNORE INTO permissions(name) VALUES
 ('marks.approve'),
 ('messages.view'),
 ('messages.send'),
+('routines.view'),
+('routines.manage'),
+('routines.publish'),
+('routine_substitutions.manage'),
+('exam_routines.manage'),
+('announcements.view'),
+('announcements.manage'),
+('announcements.publish'),
+('announcements.sms.send'),
+('announcement_templates.manage'),
 ('notifications.view');
 
 -- 2) Grant all permissions to super_admin role

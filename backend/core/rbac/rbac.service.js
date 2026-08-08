@@ -9,6 +9,8 @@ const rolePermissionFallbacks = {
     "marks.enter",
     "marks.view",
     "messages.view",
+    "routines.view",
+    "announcements.view",
     "subjects.view",
     "teacher.view",
   ],
