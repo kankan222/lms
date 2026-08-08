@@ -95,6 +95,27 @@ const weekdays = [
 
 const weekdayColumns = weekdays.slice(0, 6);
 
+function normalizeClassScopeValue(value) {
+  const scope = String(value || "").trim().toLowerCase();
+  if (scope === "higher_secondary" || scope === "higher-secondary") return "hs";
+  if (scope === "hs" || scope === "school") return scope;
+  return "";
+}
+
+function getExamClassScopes(exam) {
+  const scopes = String(exam?.class_scope || "")
+    .split(",")
+    .map(normalizeClassScopeValue)
+    .filter(Boolean);
+  return scopes.length ? [...new Set(scopes)] : ["school"];
+}
+
+function examMatchesClassScope(exam, classScope) {
+  const scope = normalizeClassScopeValue(classScope);
+  if (!scope) return true;
+  return getExamClassScopes(exam).includes(scope);
+}
+
 const emptyExamEntry = {
   exam_date: "",
   start_time: "08:00",
@@ -692,6 +713,11 @@ export default function Routines() {
     [classes, examForm.class_scope]
   );
 
+  const scopedExams = useMemo(
+    () => exams.filter((exam) => examMatchesClassScope(exam, examForm.class_scope)),
+    [exams, examForm.class_scope]
+  );
+
   const filterClass = useMemo(
     () => classes.find((item) => String(item.id) === String(filters.class_id)),
     [classes, filters.class_id]
@@ -794,7 +820,7 @@ export default function Routines() {
       getSubjects(),
       getTeachers(),
       getActivities(),
-      getExams(),
+      getExams({ class_scope: "school" }),
     ]);
     const nextSessions = unwrap(sessionRes);
     setSessions(nextSessions);
@@ -809,6 +835,13 @@ export default function Routines() {
     setTeachers(unwrap(teacherRes));
     setActivities(unwrap(activityRes));
     setExams(unwrap(examRes));
+  }
+
+  async function loadExamsForScope(classScope = examForm.class_scope) {
+    const response = await getExams({ class_scope: classScope || "school" });
+    const nextExams = unwrap(response);
+    setExams(nextExams);
+    return nextExams;
   }
 
   async function loadRoutineData(nextFilters = filters) {
@@ -923,6 +956,33 @@ export default function Routines() {
       active = false;
     };
   }, [examRoutines, selectedExamRoutineId]);
+
+  useEffect(() => {
+    if (!examOpen) return undefined;
+    let active = true;
+    const timeoutId = window.setTimeout(() => {
+      if (!active) return;
+      loadExamsForScope(examForm.class_scope)
+        .then((nextExams) => {
+          if (!active) return;
+          setExamForm((current) => {
+            if (!current.exam_id) return current;
+            const selectedExam = nextExams.find((exam) => String(exam.id) === String(current.exam_id));
+            return selectedExam && examMatchesClassScope(selectedExam, current.class_scope)
+              ? current
+              : { ...current, exam_id: "" };
+          });
+        })
+        .catch((err) => {
+          if (active) showError(err.message || "Failed to load exams for scope");
+        });
+    }, 0);
+    return () => {
+      active = false;
+      window.clearTimeout(timeoutId);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [examOpen, examForm.class_scope]);
 
   useEffect(() => {
     if (!selectedClassRoutine?.time_slot_template_id) {
@@ -1358,6 +1418,7 @@ export default function Routines() {
     setExamForm((current) => {
       const next = { ...current, [key]: value };
       if (key === "class_scope") {
+        next.exam_id = "";
         next.class_id = "";
         next.section_id = "";
         next.medium = "";
@@ -2205,7 +2266,7 @@ export default function Routines() {
                       <Field label="Exam">
                         <select required className={selectClassName} value={examForm.exam_id} onChange={(event) => updateExamForm("exam_id", event.target.value)}>
                           <option value="">Select exam</option>
-                          {exams.map((exam) => <option key={exam.id} value={exam.id}>{exam.name}</option>)}
+                          {scopedExams.map((exam) => <option key={exam.id} value={exam.id}>{exam.name}</option>)}
                         </select>
                       </Field>
                       <Field label="Class">

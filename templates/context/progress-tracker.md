@@ -32,6 +32,8 @@ Update this file after every meaningful implementation change.
   `exam_routine_versions` scope/class/section/medium/stream, backend
   create/update/import handling, scoped publish archiving, and a Scope -> Exam
   -> Class -> Section creation flow in the software Exam Routine dialog.
+- Scoped the Exam Routine dialog's exam selector so it requests exams from the
+  server by selected class scope and hides exams that do not match that scope.
 - Added routine-only custom class routine slots so admins can place timetable
   labels such as English Dictation without creating formal marks subjects:
   custom slots require a title, may optionally select any teacher, skip
