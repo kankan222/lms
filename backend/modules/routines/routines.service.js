@@ -880,7 +880,8 @@ export async function publishClassRoutine(id, userId) {
   }
   const conflicts = await repo.findClassRoutineTeacherConflicts(targetRoutineId);
   if (conflicts.length) {
-    throw new AppError("Teacher time conflict found. Resolve conflicts before publishing.", 400);
+    const details = summarizeClassRoutineTeacherConflicts(conflicts);
+    throw new AppError(`Teacher time conflict found${details ? `: ${details}` : ""}. Resolve conflicts before publishing.`, 400);
   }
   const result = await repo.publishClassRoutineVersion(targetRoutineId, userId);
   if (!result) throw new AppError("Class routine not found", 404);
@@ -888,6 +889,19 @@ export async function publishClassRoutine(id, userId) {
     await repo.deleteClassRoutineDraft(routineId);
   }
   return result;
+}
+
+function summarizeClassRoutineTeacherConflicts(conflicts = []) {
+  return conflicts
+    .slice(0, 3)
+    .map((item) => {
+      const teacher = item.teacher_name || `Teacher #${item.teacher_id}`;
+      const day = item.weekday || "selected day";
+      const time = [item.start_time, item.end_time].filter(Boolean).join("-");
+      const scope = [item.conflicting_class_name, item.conflicting_section_name].filter(Boolean).join(" ");
+      return [teacher, day, time, scope ? `already assigned to ${scope}` : ""].filter(Boolean).join(" ");
+    })
+    .join("; ");
 }
 
 export async function deleteClassRoutineDraft(id) {

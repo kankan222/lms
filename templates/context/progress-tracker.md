@@ -1070,3 +1070,6 @@ Update this file after every meaningful implementation change.
 - Added a mobile Messaging conversation details screen opened from a group chat
   header, allowing saved class/section/broadcast conversation names to be
   edited after the chat has started.
+- Improved class routine publish conflict errors so teacher time conflicts now
+  include the teacher, day/time, and conflicting class/section instead of only
+  the generic publish failure text.
