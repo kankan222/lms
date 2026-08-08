@@ -188,7 +188,38 @@ export function listClassRoutineVersions(filters = {}) {
   appendFilter(where, params, "v.section_id", filters.section_id);
   appendFilter(where, params, "v.medium", filters.medium);
   appendFilter(where, params, "v.stream_id", filters.stream_id);
-  appendFilter(where, params, "v.status", filters.status);
+  if (filters.status === "current") {
+    where.push("v.status IN ('draft', 'published')");
+    where.push(`
+      NOT EXISTS (
+        SELECT 1
+        FROM class_routine_versions other
+        WHERE other.session_id = v.session_id
+          AND other.class_id = v.class_id
+          AND other.section_id = v.section_id
+          AND other.medium = v.medium
+          AND other.stream_id_dedupe = v.stream_id_dedupe
+          AND other.status IN ('draft', 'published')
+          AND (
+            CASE other.status WHEN 'published' THEN 1 WHEN 'draft' THEN 2 ELSE 3 END
+              < CASE v.status WHEN 'published' THEN 1 WHEN 'draft' THEN 2 ELSE 3 END
+            OR (
+              CASE other.status WHEN 'published' THEN 1 WHEN 'draft' THEN 2 ELSE 3 END
+                = CASE v.status WHEN 'published' THEN 1 WHEN 'draft' THEN 2 ELSE 3 END
+              AND COALESCE(other.updated_at, other.created_at, '1000-01-01') > COALESCE(v.updated_at, v.created_at, '1000-01-01')
+            )
+            OR (
+              CASE other.status WHEN 'published' THEN 1 WHEN 'draft' THEN 2 ELSE 3 END
+                = CASE v.status WHEN 'published' THEN 1 WHEN 'draft' THEN 2 ELSE 3 END
+              AND COALESCE(other.updated_at, other.created_at, '1000-01-01') = COALESCE(v.updated_at, v.created_at, '1000-01-01')
+              AND other.id > v.id
+            )
+          )
+      )
+    `);
+  } else if (hasValue(filters.status) && filters.status !== "all") {
+    appendFilter(where, params, "v.status", filters.status);
+  }
 
   return query(
     `
@@ -243,86 +274,20 @@ export function listClassRoutineBoardRows(filters = {}) {
             AND other.stream_id_dedupe = v.stream_id_dedupe
             AND other.status IN ('draft', 'published')
             AND (
-              other.status = 'published'
+              CASE other.status WHEN 'published' THEN 1 WHEN 'draft' THEN 2 ELSE 3 END
+                < CASE v.status WHEN 'published' THEN 1 WHEN 'draft' THEN 2 ELSE 3 END
               OR (
-                other.status = 'draft'
-                AND (
-                  EXISTS (
-                    SELECT 1
-                    FROM class_routine_versions other_parent
-                    WHERE other_parent.id = other.parent_version_id
-                      AND other_parent.session_id = other.session_id
-                      AND other_parent.class_id = other.class_id
-                      AND other_parent.section_id = other.section_id
-                      AND other_parent.medium = other.medium
-                      AND other_parent.stream_id_dedupe = other.stream_id_dedupe
-                      AND other_parent.status = 'published'
-                  )
-                  OR (
-                    other.parent_version_id IS NULL
-                    AND NOT EXISTS (
-                      SELECT 1
-                      FROM class_routine_versions other_published
-                      WHERE other_published.session_id = other.session_id
-                        AND other_published.class_id = other.class_id
-                        AND other_published.section_id = other.section_id
-                        AND other_published.medium = other.medium
-                        AND other_published.stream_id_dedupe = other.stream_id_dedupe
-                        AND other_published.status = 'published'
-                    )
-                  )
-                )
-              )
-            )
-            AND (
-              CASE other.status WHEN 'draft' THEN 1 WHEN 'published' THEN 2 ELSE 3 END
-                < CASE v.status WHEN 'draft' THEN 1 WHEN 'published' THEN 2 ELSE 3 END
-              OR (
-                CASE other.status WHEN 'draft' THEN 1 WHEN 'published' THEN 2 ELSE 3 END
-                  = CASE v.status WHEN 'draft' THEN 1 WHEN 'published' THEN 2 ELSE 3 END
+                CASE other.status WHEN 'published' THEN 1 WHEN 'draft' THEN 2 ELSE 3 END
+                  = CASE v.status WHEN 'published' THEN 1 WHEN 'draft' THEN 2 ELSE 3 END
                 AND COALESCE(other.updated_at, other.created_at, '1000-01-01') > COALESCE(v.updated_at, v.created_at, '1000-01-01')
               )
               OR (
-                CASE other.status WHEN 'draft' THEN 1 WHEN 'published' THEN 2 ELSE 3 END
-                  = CASE v.status WHEN 'draft' THEN 1 WHEN 'published' THEN 2 ELSE 3 END
+                CASE other.status WHEN 'published' THEN 1 WHEN 'draft' THEN 2 ELSE 3 END
+                  = CASE v.status WHEN 'published' THEN 1 WHEN 'draft' THEN 2 ELSE 3 END
                 AND COALESCE(other.updated_at, other.created_at, '1000-01-01') = COALESCE(v.updated_at, v.created_at, '1000-01-01')
                 AND other.id > v.id
               )
             )
-        )
-      `);
-      where.push(`
-        (
-          v.status = 'published'
-          OR (
-            v.status = 'draft'
-            AND (
-              EXISTS (
-                SELECT 1
-                FROM class_routine_versions parent
-                WHERE parent.id = v.parent_version_id
-                  AND parent.session_id = v.session_id
-                  AND parent.class_id = v.class_id
-                  AND parent.section_id = v.section_id
-                  AND parent.medium = v.medium
-                  AND parent.stream_id_dedupe = v.stream_id_dedupe
-                  AND parent.status = 'published'
-              )
-              OR (
-                v.parent_version_id IS NULL
-                AND NOT EXISTS (
-                  SELECT 1
-                  FROM class_routine_versions published
-                  WHERE published.session_id = v.session_id
-                    AND published.class_id = v.class_id
-                    AND published.section_id = v.section_id
-                    AND published.medium = v.medium
-                    AND published.stream_id_dedupe = v.stream_id_dedupe
-                    AND published.status = 'published'
-                )
-              )
-            )
-          )
         )
       `);
     } else if (hasValue(filters.status) && filters.status !== "all") {
@@ -430,20 +395,27 @@ export async function getClassRoutineWithEntries(id) {
   return { ...version, entries };
 }
 
-export async function getLatestClassRoutineDraftForParent(parentVersionId) {
+export async function getCanonicalClassRoutineForScope(scope) {
   const rows = await query(
     `
       SELECT id
       FROM class_routine_versions
-      WHERE parent_version_id = ?
-        AND status = 'draft'
-      ORDER BY updated_at DESC, id DESC
+      WHERE session_id = ?
+        AND class_id = ?
+        AND section_id = ?
+        AND medium = ?
+        AND stream_id_dedupe = ${STREAM_DEDUPE_SQL}
+        AND status IN ('published', 'draft')
+      ORDER BY
+        CASE status WHEN 'published' THEN 1 WHEN 'draft' THEN 2 ELSE 3 END,
+        updated_at DESC,
+        id DESC
       LIMIT 1
     `,
-    [parentVersionId]
+    [scope.session_id, scope.class_id, scope.section_id, scope.medium, scope.stream_id]
   );
-  const draft = rows[0] || null;
-  return draft ? getClassRoutineWithEntries(draft.id) : null;
+  const routine = rows[0] || null;
+  return routine ? getClassRoutineWithEntries(routine.id) : null;
 }
 
 export async function getClassRoutineEntries(versionId) {
@@ -515,7 +487,15 @@ export async function createClassRoutineVersion(data, entries) {
   }
 }
 
-export async function updateClassRoutineDraft(id, data, entries) {
+export async function upsertClassRoutineForScope(data, entries) {
+  const existing = await getCanonicalClassRoutineForScope(data);
+  if (!existing) {
+    return createClassRoutineVersion(data, entries);
+  }
+  return updateClassRoutineRecord(existing.id, data, entries);
+}
+
+export async function updateClassRoutineRecord(id, data, entries) {
   const conn = await pool.getConnection();
   try {
     await conn.beginTransaction();
@@ -525,7 +505,7 @@ export async function updateClassRoutineDraft(id, data, entries) {
         SET title = ?,
             time_slot_template_id = ?,
             updated_by = ?
-        WHERE id = ? AND status = 'draft'
+        WHERE id = ?
       `,
       [data.title, data.time_slot_template_id, data.user_id, id]
     );
@@ -545,6 +525,8 @@ export async function updateClassRoutineDraft(id, data, entries) {
     conn.release();
   }
 }
+
+export const updateClassRoutineDraft = updateClassRoutineRecord;
 
 async function nextClassRoutineVersionNumber(conn, data) {
   const [rows] = await conn.execute(
@@ -613,7 +595,7 @@ export async function upsertClassRoutineDraftSlot(id, entries, userId) {
   try {
     await conn.beginTransaction();
     const [routineRows] = await conn.execute(
-      "SELECT id FROM class_routine_versions WHERE id = ? AND status = 'draft' LIMIT 1",
+      "SELECT id FROM class_routine_versions WHERE id = ? LIMIT 1",
       [id]
     );
     if (!routineRows.length) {
@@ -650,31 +632,8 @@ export async function upsertClassRoutineDraftSlot(id, entries, userId) {
 export async function createDraftFromClassRoutine(sourceId, userId) {
   const source = await getClassRoutineWithEntries(sourceId);
   if (!source) return null;
-  if (source.status === "draft") return source;
-  const existingDraft = await getLatestClassRoutineDraftForParent(source.id);
-  if (existingDraft) return existingDraft;
-  const entries = source.entries.map((entry) => ({
-    ...entry,
-    teachers: entry.teacher_ids.map((teacherId, index) => ({
-      teacher_id: teacherId,
-      teacher_role: index === 0 ? "primary" : "co_teacher",
-    })),
-  }));
-  return createClassRoutineVersion(
-    {
-      session_id: source.session_id,
-      class_id: source.class_id,
-      section_id: source.section_id,
-      medium: source.medium,
-      stream_id: source.stream_id,
-      time_slot_template_id: source.time_slot_template_id,
-      title: source.title,
-      source: "manual",
-      parent_version_id: source.id,
-      user_id: userId,
-    },
-    entries
-  );
+  await query("UPDATE class_routine_versions SET updated_by = ? WHERE id = ?", [userId, source.id]);
+  return getClassRoutineWithEntries(source.id);
 }
 
 export async function publishClassRoutineVersion(id, userId) {

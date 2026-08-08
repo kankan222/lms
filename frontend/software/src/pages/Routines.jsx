@@ -48,7 +48,6 @@ import { useAuth } from "../hooks/useAuth";
 import {
   cancelSubstitution,
   createClassRoutine,
-  createClassRoutineDraft,
   createExamRoutine,
   createExamRoutineDraft,
   createSubstitution,
@@ -69,7 +68,6 @@ import {
   publishClassRoutine,
   publishExamRoutine,
   publishSubstitution,
-  updateClassRoutine,
   updateClassRoutineSlot,
   updateExamRoutine,
   updateSubstitution,
@@ -1208,47 +1206,6 @@ export default function Routines() {
     });
   }
 
-  function serializeRoutineEntry(entry, index) {
-    return {
-      time_slot_id: toNumberOrNull(entry.time_slot_id),
-      weekday: String(entry.weekday),
-      period_number: Number(entry.period_number),
-      start_time: timeInputValue(entry.start_time, fallbackSlotTime(entry.period_number).start_time),
-      end_time: timeInputValue(entry.end_time, fallbackSlotTime(entry.period_number).end_time),
-      entry_type: entry.entry_type || "subject",
-      subject_id: toNumberOrNull(entry.subject_id),
-      activity_id: toNumberOrNull(entry.activity_id),
-      title: entry.title || "",
-      room: entry.room || "",
-      notes: entry.notes || "",
-      sort_order: Number.isFinite(Number(entry.sort_order)) ? Number(entry.sort_order) : index,
-      teachers: (entry.teachers || entry.teacher_ids || []).map((teacher) => ({
-        teacher_id: typeof teacher === "object" ? teacher.teacher_id || teacher.id : teacher,
-        teacher_role: typeof teacher === "object" ? teacher.teacher_role || "primary" : "primary",
-      })),
-    };
-  }
-
-  async function updateSlotThroughRoutineDraft(slotPayload) {
-    const slotEntries = Array.isArray(slotPayload.entries) ? slotPayload.entries : [slotPayload];
-    const firstEntry = slotEntries[0];
-    const sourceRoutine = slotContext?.routine || selectedClassRoutine;
-    const sourceRoutineId = sourceRoutine?.id || sourceRoutine?.routine_version_id;
-    const draftRoutine = sourceRoutine?.status === "draft"
-      ? (await getClassRoutine(sourceRoutineId)).data
-      : (await createClassRoutineDraft(sourceRoutineId)).data;
-    const nextEntries = (draftRoutine.entries || [])
-      .filter((item) => !(String(item.weekday) === String(firstEntry.weekday) && Number(item.period_number) === Number(firstEntry.period_number)))
-      .concat(slotEntries)
-      .sort((a, b) => Number(a.weekday) - Number(b.weekday) || Number(a.period_number) - Number(b.period_number))
-      .map(serializeRoutineEntry);
-    return updateClassRoutine(draftRoutine.id, {
-      title: draftRoutine.title,
-      time_slot_template_id: draftRoutine.time_slot_template_id,
-      entries: nextEntries,
-    });
-  }
-
   async function handleSaveSlot(event) {
     event.preventDefault();
     if (!selectedClassRoutine || !slotContext) return;
@@ -1308,14 +1265,8 @@ export default function Routines() {
     };
 
     try {
-      let response;
       const targetRoutineId = slotContext?.routine?.id || slotContext?.routine?.routine_version_id || selectedClassRoutine.id;
-      try {
-        response = await updateClassRoutineSlot(targetRoutineId, slotPayload);
-      } catch (err) {
-        if (err.status !== 404) throw err;
-        response = await updateSlotThroughRoutineDraft(slotPayload);
-      }
+      const response = await updateClassRoutineSlot(targetRoutineId, slotPayload);
       setSelectedClassRoutine(response.data || null);
       if (response.data?.id) setSelectedClassRoutineId(String(response.data.id));
       setSlotEditorOpen(false);
@@ -1703,7 +1654,8 @@ export default function Routines() {
                   </Field>
                   <Field label="Status">
                     <select className={selectClassName} value={filters.status} onChange={(event) => updateFilter("status", event.target.value)}>
-                      <option value="">All</option>
+                      <option value="">Current</option>
+                      <option value="all">All versions</option>
                       <option value="draft">Draft</option>
                       <option value="published">Published</option>
                       <option value="archived">Archived</option>

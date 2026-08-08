@@ -446,6 +446,27 @@ function normalizeClassRoutineEntries(entries = []) {
   });
 }
 
+function classRoutineEntryToPayload(entry) {
+  return {
+    time_slot_id: entry.time_slot_id,
+    weekday: entry.weekday,
+    period_number: entry.period_number,
+    start_time: entry.start_time,
+    end_time: entry.end_time,
+    entry_type: entry.entry_type,
+    subject_id: entry.subject_id,
+    activity_id: entry.activity_id,
+    title: entry.title,
+    room: entry.room,
+    notes: entry.notes,
+    sort_order: entry.sort_order,
+    teachers: (entry.teacher_ids || []).map((teacherId, index) => ({
+      teacher_id: teacherId,
+      teacher_role: index === 0 ? "primary" : "co_teacher",
+    })),
+  };
+}
+
 function normalizeClassRoutinePayload(body, userId) {
   return {
     session_id: intValue(body.session_id, "session_id"),
@@ -523,8 +544,11 @@ export async function updateTimeSlotTemplate(id, body, userId) {
   return result;
 }
 
-export function listClassRoutines(filters) {
-  return repo.listClassRoutineVersions(filters);
+export function listClassRoutines(filters = {}) {
+  return repo.listClassRoutineVersions({
+    ...filters,
+    status: normalizeBoardStatus(filters.status),
+  });
 }
 
 function normalizeBoardStatus(value) {
@@ -671,7 +695,7 @@ export async function getClassRoutine(id) {
 }
 
 export function createClassRoutine(body, userId) {
-  return repo.createClassRoutineVersion(
+  return repo.upsertClassRoutineForScope(
     normalizeClassRoutinePayload(body, userId),
     normalizeClassRoutineEntries(body.entries)
   );
@@ -777,7 +801,7 @@ export async function importClassRoutine(file, body = {}, userId) {
   const imported = [];
   for (const group of groups.values()) {
     try {
-      imported.push(await repo.createClassRoutineVersion(group.data, normalizeClassRoutineEntries(group.entries)));
+      imported.push(await repo.upsertClassRoutineForScope(group.data, normalizeClassRoutineEntries(group.entries)));
     } catch (err) {
       errors.push({ row: null, message: err.message || "Could not create class routine draft" });
     }
@@ -786,8 +810,12 @@ export async function importClassRoutine(file, body = {}, userId) {
 }
 
 export async function updateClassRoutine(id, body, userId) {
+  const routineId = intValue(id, "routine id");
+  const routine = await repo.getClassRoutineWithEntries(routineId);
+  if (!routine) throw new AppError("Class routine not found", 404);
+  const targetRoutine = await repo.getCanonicalClassRoutineForScope(routine) || routine;
   const result = await repo.updateClassRoutineDraft(
-    intValue(id, "routine id"),
+    targetRoutine.id,
     {
       title: optionalString(body.title),
       time_slot_template_id: intValue(body.time_slot_template_id, "time_slot_template_id", { required: false }),
@@ -795,7 +823,7 @@ export async function updateClassRoutine(id, body, userId) {
     },
     Array.isArray(body.entries) ? normalizeClassRoutineEntries(body.entries) : undefined
   );
-  if (!result) throw new AppError("Only draft class routines can be updated", 400);
+  if (!result) throw new AppError("Class routine could not be updated", 400);
   return result;
 }
 
@@ -812,16 +840,16 @@ export async function updateClassRoutineSlot(id, body, userId) {
   const routineId = intValue(id, "routine id");
   const routine = await repo.getClassRoutineWithEntries(routineId);
   if (!routine) throw new AppError("Class routine not found", 404);
-  const targetRoutine = routine.status === "draft"
-    ? routine
-    : await repo.createDraftFromClassRoutine(routineId, userId);
+  const targetRoutine = await repo.getCanonicalClassRoutineForScope(routine) || routine;
   const result = await repo.upsertClassRoutineDraftSlot(targetRoutine.id, entries, userId);
   if (!result) throw new AppError("Could not update class routine slot", 400);
   return result;
 }
 
 export async function createClassRoutineDraftFromPublished(id, userId) {
-  const result = await repo.createDraftFromClassRoutine(intValue(id, "routine id"), userId);
+  const routine = await repo.getClassRoutineWithEntries(intValue(id, "routine id"));
+  if (!routine) throw new AppError("Class routine not found", 404);
+  const result = await repo.getCanonicalClassRoutineForScope(routine) || await repo.createDraftFromClassRoutine(routine.id, userId);
   if (!result) throw new AppError("Class routine not found", 404);
   return result;
 }
@@ -831,16 +859,32 @@ export async function publishClassRoutine(id, userId) {
   const routine = await repo.getClassRoutineWithEntries(routineId);
   if (!routine) throw new AppError("Class routine not found", 404);
   if (!routine.entries?.length) throw new AppError("Cannot publish an empty routine", 400);
-  const invalidAssignments = await repo.findInvalidClassRoutineTeacherAssignments(routineId);
+  const canonical = await repo.getCanonicalClassRoutineForScope(routine);
+  const targetRoutine = canonical && canonical.status === "published" && canonical.id !== routine.id
+    ? await repo.updateClassRoutineDraft(
+        canonical.id,
+        {
+          title: routine.title,
+          time_slot_template_id: routine.time_slot_template_id,
+          user_id: userId,
+        },
+        normalizeClassRoutineEntries(routine.entries.map(classRoutineEntryToPayload))
+      )
+    : routine;
+  const targetRoutineId = Number(targetRoutine.id);
+  const invalidAssignments = await repo.findInvalidClassRoutineTeacherAssignments(targetRoutineId);
   if (invalidAssignments.length) {
     throw new AppError("One or more teachers are not assigned to the selected class/section/subject", 400);
   }
-  const conflicts = await repo.findClassRoutineTeacherConflicts(routineId);
+  const conflicts = await repo.findClassRoutineTeacherConflicts(targetRoutineId);
   if (conflicts.length) {
     throw new AppError("Teacher time conflict found. Resolve conflicts before publishing.", 400);
   }
-  const result = await repo.publishClassRoutineVersion(routineId, userId);
+  const result = await repo.publishClassRoutineVersion(targetRoutineId, userId);
   if (!result) throw new AppError("Class routine not found", 404);
+  if (targetRoutineId !== routineId && routine.status === "draft") {
+    await repo.deleteClassRoutineDraft(routineId);
+  }
   return result;
 }
 

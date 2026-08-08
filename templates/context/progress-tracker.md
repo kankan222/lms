@@ -21,6 +21,13 @@ Update this file after every meaningful implementation change.
 - Made class routine draft reuse parent-aware so editing a published routine
   reuses only that published version's existing draft, and adjusted the Day
   board to ignore stale unrelated drafts when choosing the current routine.
+- Removed version creation from normal class routine operations: create/import
+  now upsert the canonical class routine for the class scope, slot/full updates
+  write to that canonical row directly, draft creation is a no-op redirect, and
+  publishing a stale draft merges it back into the published routine.
+- Made the class routine list default to canonical Current routines only, with
+  an explicit All versions filter for old duplicate rows, matching the Day
+  board's published-first/draft-fallback selection.
 - Added routine-only custom class routine slots so admins can place timetable
   labels such as English Dictation without creating formal marks subjects:
   custom slots require a title, may optionally select any teacher, skip
