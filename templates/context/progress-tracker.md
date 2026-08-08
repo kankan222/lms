@@ -14,6 +14,11 @@ Update this file after every meaningful implementation change.
 
 ## Completed
 
+- Added routine-only custom class routine slots so admins can place timetable
+  labels such as English Dictation without creating formal marks subjects:
+  custom slots require a title, may optionally select any teacher, skip
+  subject-assignment validation, and still participate in teacher conflict
+  checks when a teacher is selected.
 - Documented the planned Routine and Announcements modules in requirements,
   project overview, and architecture context: class/exam routine versioning,
   breaks, substitutions, teacher conflict rules, role-specific views, DLT-based

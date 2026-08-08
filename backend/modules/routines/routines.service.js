@@ -425,6 +425,9 @@ function normalizeClassRoutineEntries(entries = []) {
     if (entryType === "subject" && !teachers.length) {
       throw new AppError("Subject routine entries require at least one teacher", 400);
     }
+    if (entryType === "custom" && !optionalString(entry.title)) {
+      throw new AppError("Custom routine entries require a title", 400);
+    }
     return {
       time_slot_id: intValue(entry.time_slot_id, "entry.time_slot_id", { required: false }),
       weekday: normalizeWeekday(entry.weekday, "entry.weekday"),

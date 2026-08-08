@@ -625,6 +625,8 @@ export default function Routines() {
   const [slotForm, setSlotForm] = useState({
     entry_type: "subject",
     activity_id: "",
+    custom_title: "",
+    custom_teacher_id: "",
     subjectRows: [{ key: "subject-1", subject_id: "", teacher_id: "" }],
   });
 
@@ -1172,6 +1174,8 @@ export default function Routines() {
     setSlotForm({
       entry_type: entryType,
       activity_id: primaryEntry?.activity_id ? String(primaryEntry.activity_id) : "",
+      custom_title: entryType === "custom" ? primaryEntry?.title || "" : "",
+      custom_teacher_id: entryType === "custom" && primaryEntry?.teacher_ids?.[0] ? String(primaryEntry.teacher_ids[0]) : "",
       subjectRows: subjectEntries.length
         ? subjectEntries.map((entry, index) => ({
             key: `subject-${entry.id || entry.entry_id || index}`,
@@ -1257,6 +1261,10 @@ export default function Routines() {
       showError("Activity is required for activity slots.");
       return;
     }
+    if (slotForm.entry_type === "custom" && !String(slotForm.custom_title || "").trim()) {
+      showError("Custom routine title is required.");
+      return;
+    }
 
     const { day, period, slot, entry, entries: existingEntries = [] } = slotContext;
     const primaryEntry = entry || existingEntries[0] || null;
@@ -1287,9 +1295,13 @@ export default function Routines() {
           activity_id: slotForm.entry_type === "activity" ? Number(slotForm.activity_id) : null,
           title: slotForm.entry_type === "activity"
             ? activities.find((activity) => String(activity.id) === String(slotForm.activity_id))?.name || displayChangeType(slotForm.entry_type)
+            : slotForm.entry_type === "custom"
+              ? String(slotForm.custom_title || "").trim()
             : slot?.label || displayChangeType(slotForm.entry_type),
           sort_order: Number.isFinite(Number(primaryEntry?.sort_order)) ? Number(primaryEntry.sort_order) : Number(period) - 1,
-          teachers: [],
+          teachers: slotForm.entry_type === "custom" && slotForm.custom_teacher_id
+            ? [{ teacher_id: Number(slotForm.custom_teacher_id), teacher_role: "primary" }]
+            : [],
         }];
     const slotPayload = {
       entries: slotPayloadEntries,
@@ -1975,9 +1987,12 @@ export default function Routines() {
                               entry_type: event.target.value,
                               subjectRows: event.target.value === "subject" ? current.subjectRows : [emptySubjectSlotRow(1)],
                               activity_id: event.target.value === "activity" ? current.activity_id : "",
+                              custom_title: event.target.value === "custom" ? current.custom_title : "",
+                              custom_teacher_id: event.target.value === "custom" ? current.custom_teacher_id : "",
                             }))}
                           >
                             <option value="subject">Subject</option>
+                            <option value="custom">Custom / Routine-only</option>
                             <option value="break">Break</option>
                             <option value="activity">Activity</option>
                             <option value="free">Free</option>
@@ -2038,6 +2053,27 @@ export default function Routines() {
                               <Plus className="mr-2 size-4" />
                               Add Subject
                             </Button>
+                          </div>
+                        ) : null}
+                        {slotForm.entry_type === "custom" ? (
+                          <div className="grid gap-3 sm:grid-cols-2">
+                            <Field label="Routine Title">
+                              <Input
+                                required
+                                value={slotForm.custom_title}
+                                onChange={(event) => setSlotForm((current) => ({ ...current, custom_title: event.target.value }))}
+                              />
+                            </Field>
+                            <Field label="Teacher">
+                              <select
+                                className={selectClassName}
+                                value={slotForm.custom_teacher_id}
+                                onChange={(event) => setSlotForm((current) => ({ ...current, custom_teacher_id: event.target.value }))}
+                              >
+                                <option value="">No teacher</option>
+                                {teachers.map((teacher) => <option key={teacher.id} value={teacher.id}>{teacher.name}</option>)}
+                              </select>
+                            </Field>
                           </div>
                         ) : null}
                         {slotForm.entry_type === "activity" ? (
