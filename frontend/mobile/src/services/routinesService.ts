@@ -37,8 +37,7 @@ export type RoutineEntry = {
   stream_name?: string | null;
   class_scope?: string | null;
   class_scope_label?: string | null;
-  is_substitution?: boolean | number;
-  substitution_title?: string | null;
+  layout_mode?: "standard" | "packed_hs" | string | null;
 };
 
 export type ClassRoutineBoardRoutine = {
@@ -49,7 +48,8 @@ export type ClassRoutineBoardRoutine = {
   class_name: string;
   class_scope?: string | null;
   class_scope_label?: string | null;
-  section_id: number;
+  layout_mode?: "standard" | "packed_hs" | string | null;
+  section_id?: number | null;
   section_name: string;
   medium?: string | null;
   stream_id?: number | null;
@@ -122,7 +122,6 @@ export type ExamRoutineDetails = ExamRoutineSummary & {
 export type StudentRoutineResponse = {
   date?: string;
   routine?: RoutineEntry[] | { entries?: RoutineEntry[] };
-  substitutions?: RoutineEntry[];
 };
 
 export type TeacherRoutineParams = {
@@ -137,7 +136,7 @@ export async function getMyTeacherRoutine(params: TeacherRoutineParams = {}) {
 
 export async function getStudentRoutine(studentId: number | string, params: { date?: string } = {}) {
   const response = await api.get<ApiEnvelope<StudentRoutineResponse>>(`/routines/students/${studentId}`, { params });
-  return response.data.data ?? { routine: [], substitutions: [], date: params.date };
+  return response.data.data ?? { routine: [], date: params.date };
 }
 
 export async function getClassRoutineBoard(params: { status?: string; weekday?: number | string; session_id?: number | string } = {}) {

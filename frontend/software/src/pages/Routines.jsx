@@ -41,18 +41,17 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { getClassStructure, getSessions, getStreams } from "../api/academic.api";
-import { getClassSubjects, getSubjectOfferings, getSubjects } from "../api/subjects.api";
+import { getClassSubjects, getSubjectOfferings } from "../api/subjects.api";
 import { getAssignedTeachers, getTeachers } from "../api/teachers.api";
 import { getExamById, getExams } from "../api/exam.api";
 import { getActivities } from "../api/marksheet.api";
 import { useAuth } from "../hooks/useAuth";
 import {
-  cancelSubstitution,
   createClassRoutine,
   createExamRoutine,
-  createSubstitution,
   createTimeSlotTemplate,
   deleteExamRoutine,
+  deleteTimeSlotTemplate,
   downloadClassRoutinePdf,
   downloadExamRoutinePdf,
   getClassRoutine,
@@ -60,17 +59,15 @@ import {
   getClassRoutines,
   getExamRoutine,
   getExamRoutines,
-  getSubstitutions,
   getTimeSlotTemplate,
   getTimeSlotTemplates,
   importClassRoutineSheet,
   importExamRoutineSheet,
   publishClassRoutine,
   publishExamRoutine,
-  publishSubstitution,
   updateClassRoutineSlot,
   updateExamRoutine,
-  updateSubstitution,
+  updateTimeSlotTemplate,
 } from "../api/routines.api";
 
 const selectClassName =
@@ -141,29 +138,16 @@ function createInitialExamForm() {
   };
 }
 
-const emptySubstitutionForm = {
-  session_id: "",
-  class_id: "",
-  section_id: "",
-  medium: "",
-  stream_id: "",
-  weekday: "",
-  period_number: "",
-  starts_on: "",
-  ends_on: "",
-  start_time: "08:00",
-  end_time: "08:40",
-  change_type: "teacher_substitution",
-  original_subject_id: "",
-  replacement_subject_id: "",
-  teacher_id: "",
-  teacher_assignment_role: "replacement",
-  title: "",
-  original_room: "",
-  replacement_room: "",
-  reason: "",
-  notes: "",
-};
+function createInitialTemplateForm() {
+  return {
+    name: "",
+    scope_level: "school",
+    slots: [
+      { weekday: "", period_number: "1", label: "Period 1", start_time: "08:00", end_time: "08:40", default_entry_type: "subject" },
+      { weekday: "", period_number: "2", label: "Break", start_time: "10:25", end_time: "10:45", default_entry_type: "break" },
+    ],
+  };
+}
 
 function unwrap(payload) {
   return payload?.data || [];
@@ -189,13 +173,6 @@ function dateInputValue(value) {
 
 function timeInputValue(value, fallback = "") {
   return value ? String(value).slice(0, 5) : fallback;
-}
-
-function displayDateTime(value) {
-  if (!value) return "Not recorded";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return String(value);
-  return date.toLocaleString();
 }
 
 function displayChangeType(value) {
@@ -663,7 +640,6 @@ export default function Routines() {
   const [sessions, setSessions] = useState([]);
   const [classes, setClasses] = useState([]);
   const [streams, setStreams] = useState([]);
-  const [subjects, setSubjects] = useState([]);
   const [teachers, setTeachers] = useState([]);
   const [activities, setActivities] = useState([]);
   const [exams, setExams] = useState([]);
@@ -672,7 +648,6 @@ export default function Routines() {
   const [classRoutines, setClassRoutines] = useState([]);
   const [classRoutineBoard, setClassRoutineBoard] = useState(null);
   const [examRoutines, setExamRoutines] = useState([]);
-  const [substitutions, setSubstitutions] = useState([]);
   const [selectedClassRoutineId, setSelectedClassRoutineId] = useState("");
   const [selectedClassRoutine, setSelectedClassRoutine] = useState(null);
   const [selectedExamRoutineId, setSelectedExamRoutineId] = useState("");
@@ -684,11 +659,10 @@ export default function Routines() {
   const [notice, setNotice] = useState(null);
 
   const [templateOpen, setTemplateOpen] = useState(false);
+  const [editingTemplateId, setEditingTemplateId] = useState(null);
   const [classOpen, setClassOpen] = useState(false);
   const [examOpen, setExamOpen] = useState(false);
   const [editingExamRoutineId, setEditingExamRoutineId] = useState(null);
-  const [substitutionOpen, setSubstitutionOpen] = useState(false);
-  const [editingSubstitutionId, setEditingSubstitutionId] = useState(null);
   const [classImportOpen, setClassImportOpen] = useState(false);
   const [examImportOpen, setExamImportOpen] = useState(false);
   const [classImportFile, setClassImportFile] = useState(null);
@@ -734,14 +708,7 @@ export default function Routines() {
 
   const slotSubjectIdsKey = useMemo(() => slotSubjectIds.join(","), [slotSubjectIds]);
 
-  const [templateForm, setTemplateForm] = useState({
-    name: "",
-    scope_level: "school",
-    slots: [
-      { weekday: "", period_number: "1", label: "Period 1", start_time: "08:00", end_time: "08:40", default_entry_type: "subject" },
-      { weekday: "", period_number: "2", label: "Break", start_time: "10:25", end_time: "10:45", default_entry_type: "break" },
-    ],
-  });
+  const [templateForm, setTemplateForm] = useState(createInitialTemplateForm);
 
   const [classForm, setClassForm] = useState({
     session_id: "",
@@ -749,12 +716,11 @@ export default function Routines() {
     section_id: "",
     medium: "",
     stream_id: "",
+    layout_mode: "standard",
     time_slot_template_id: "",
   });
 
   const [examForm, setExamForm] = useState(createInitialExamForm);
-
-  const [substitutionForm, setSubstitutionForm] = useState(emptySubstitutionForm);
 
   const selectedClass = useMemo(
     () => classes.find((item) => String(item.id) === String(classForm.class_id)),
@@ -769,6 +735,8 @@ export default function Routines() {
     () => classes.find((item) => String(item.id) === String(selectedClassRoutine?.class_id)),
     [classes, selectedClassRoutine?.class_id]
   );
+  const isPackedClassForm = selectedClass?.class_scope === "hs" && classForm.layout_mode === "packed_hs";
+  const isPackedSelectedRoutine = selectedClassRoutine?.layout_mode === "packed_hs";
 
   const examScopeClasses = useMemo(
     () => classes.filter((item) => String(item.class_scope || "school") === String(examForm.class_scope || "school")),
@@ -783,11 +751,6 @@ export default function Routines() {
   const filterClass = useMemo(
     () => classes.find((item) => String(item.id) === String(filters.class_id)),
     [classes, filters.class_id]
-  );
-
-  const substitutionClass = useMemo(
-    () => classes.find((item) => String(item.id) === String(substitutionForm.class_id)),
-    [classes, substitutionForm.class_id]
   );
 
   const selectedRoutineSummary = useMemo(() => {
@@ -906,11 +869,10 @@ export default function Routines() {
   }, [selectedExamRoutine]);
 
   async function loadReferenceData() {
-    const [sessionRes, classRes, streamRes, subjectRes, teacherRes, activityRes, examRes] = await Promise.all([
+    const [sessionRes, classRes, streamRes, teacherRes, activityRes, examRes] = await Promise.all([
       getSessions(),
       getClassStructure(),
       getStreams(),
-      getSubjects(),
       getTeachers(),
       getActivities(),
       getExams({ class_scope: "school" }),
@@ -924,7 +886,6 @@ export default function Routines() {
     });
     setClasses(unwrap(classRes));
     setStreams(unwrap(streamRes));
-    setSubjects(unwrap(subjectRes));
     setTeachers(unwrap(teacherRes));
     setActivities(unwrap(activityRes));
     setExams(unwrap(examRes));
@@ -941,11 +902,10 @@ export default function Routines() {
     const cleanFilters = Object.fromEntries(
       Object.entries(nextFilters).filter(([, value]) => value !== "")
     );
-    const [templateRes, classRes, examRoutineRes, substitutionRes] = await Promise.all([
+    const [templateRes, classRes, examRoutineRes] = await Promise.all([
       getTimeSlotTemplates(),
       getClassRoutines(cleanFilters),
       getExamRoutines(cleanFilters),
-      getSubstitutions(cleanFilters),
     ]);
     const nextClassRoutines = unwrap(classRes);
     setTemplates(unwrap(templateRes));
@@ -966,7 +926,6 @@ export default function Routines() {
       const preferred = nextExamRoutines.find((routine) => routine.status === "published") || nextExamRoutines[0];
       return preferred ? String(preferred.id) : "";
     });
-    setSubstitutions(unwrap(substitutionRes));
   }
 
   async function loadClassRoutineBoardData(nextFilters = filters, weekday = selectedClassDay) {
@@ -1394,6 +1353,11 @@ export default function Routines() {
         next.section_id = "";
         next.medium = "";
         next.stream_id = "";
+        next.layout_mode = "standard";
+      }
+      if (key === "layout_mode" && value === "packed_hs") {
+        next.section_id = "";
+        next.medium = "";
       }
       if (key === "section_id") {
         const section = (selectedClass?.sections || []).find((item) => String(item.id) === String(value));
@@ -1426,8 +1390,8 @@ export default function Routines() {
             key: `subject-${entry.id || entry.entry_id || index}`,
             subject_id: entry.subject_id ? String(entry.subject_id) : "",
             teacher_id: entry.teacher_ids?.[0] ? String(entry.teacher_ids[0]) : "",
-            applies_medium: entry.applies_medium || "",
-            section_ids: (entry.applies_section_ids || []).map((sectionId) => String(sectionId)),
+            applies_medium: isPackedSelectedRoutine ? entry.applies_medium || "" : "",
+            section_ids: isPackedSelectedRoutine ? (entry.applies_section_ids || []).map((sectionId) => String(sectionId)) : [],
           }))
         : [emptySubjectSlotRow(1)],
     });
@@ -1492,8 +1456,8 @@ export default function Routines() {
       subject_id: entry.subject_id ? Number(entry.subject_id) : null,
       activity_id: entry.activity_id ? Number(entry.activity_id) : null,
       title: entry.title || "",
-      applies_medium: entry.applies_medium || null,
-      section_ids: (entry.applies_section_ids || entry.section_ids || []).map(Number).filter(Boolean),
+      applies_medium: isPackedSelectedRoutine ? entry.applies_medium || null : null,
+      section_ids: isPackedSelectedRoutine ? (entry.applies_section_ids || entry.section_ids || []).map(Number).filter(Boolean) : [],
       room: entry.room || baseSlotPayload.room || "",
       notes: entry.notes || baseSlotPayload.notes || "",
       sort_order: Number.isFinite(Number(entry.sort_order)) ? Number(entry.sort_order) : fallbackSortOrder,
@@ -1510,8 +1474,8 @@ export default function Routines() {
       entry.subject_id || "",
       entry.activity_id || "",
       String(entry.title || "").trim().toLowerCase(),
-      entry.applies_medium || "",
-      (entry.section_ids || []).map(Number).filter(Boolean).sort((a, b) => a - b).join(","),
+      isPackedSelectedRoutine ? entry.applies_medium || "" : "",
+      isPackedSelectedRoutine ? (entry.section_ids || []).map(Number).filter(Boolean).sort((a, b) => a - b).join(",") : "",
       (entry.teachers || []).map((teacher) => Number(teacher.teacher_id)).filter(Boolean).sort((a, b) => a - b).join(","),
     ].join("|");
   }
@@ -1571,8 +1535,8 @@ export default function Routines() {
           subject_id: Number(row.subject_id),
           activity_id: null,
           title: "",
-          applies_medium: row.applies_medium || null,
-          section_ids: (row.section_ids || []).map(Number).filter(Boolean),
+          applies_medium: isPackedSelectedRoutine ? row.applies_medium || null : null,
+          section_ids: isPackedSelectedRoutine ? (row.section_ids || []).map(Number).filter(Boolean) : [],
           sort_order: Number(period) * 100 + index,
           teachers: [{ teacher_id: Number(row.teacher_id), teacher_role: "primary" }],
         }))
@@ -1591,7 +1555,7 @@ export default function Routines() {
             ? [{ teacher_id: Number(slotForm.custom_teacher_id), teacher_role: "primary" }]
             : [],
         }];
-      if (slotForm.save_mode !== "add") return newEntries;
+      if (!isPackedSelectedRoutine || slotForm.save_mode !== "add") return newEntries;
 
       const currentEntries = Array.isArray(selectedClassRoutine?.entries) ? selectedClassRoutine.entries : [];
       const existingSlotEntries = currentEntries
@@ -1623,60 +1587,6 @@ export default function Routines() {
     } catch (err) {
       showError(err.message || "Failed to update routine slot");
     }
-  }
-
-  function updateSubstitutionForm(key, value) {
-    setSubstitutionForm((current) => {
-      const next = { ...current, [key]: value };
-      if (key === "class_id") {
-        next.section_id = "";
-        next.medium = "";
-      }
-      return next;
-    });
-  }
-
-  function openNewSubstitution() {
-    setEditingSubstitutionId(null);
-    setSubstitutionForm(emptySubstitutionForm);
-    setSubstitutionOpen(true);
-  }
-
-  function openEditSubstitution(item) {
-    const teacherIds = String(item.teacher_ids || "")
-      .split(",")
-      .map((value) => value.trim())
-      .filter(Boolean);
-    const teacherRoles = String(item.teacher_roles || "")
-      .split(",")
-      .map((value) => value.trim())
-      .filter(Boolean);
-    const replacementIndex = teacherRoles.findIndex((role) => role === "replacement" || role === "additional");
-    setEditingSubstitutionId(item.id);
-    setSubstitutionForm({
-      session_id: item.session_id ? String(item.session_id) : "",
-      class_id: item.class_id ? String(item.class_id) : "",
-      section_id: item.section_id ? String(item.section_id) : "",
-      medium: item.medium || "",
-      stream_id: item.stream_id ? String(item.stream_id) : "",
-      weekday: item.weekday ? String(item.weekday) : "",
-      period_number: item.period_number ? String(item.period_number) : "",
-      starts_on: dateInputValue(item.starts_on),
-      ends_on: dateInputValue(item.ends_on),
-      start_time: timeInputValue(item.start_time, "08:00"),
-      end_time: timeInputValue(item.end_time, "08:40"),
-      change_type: item.change_type || "teacher_substitution",
-      original_subject_id: item.original_subject_id ? String(item.original_subject_id) : "",
-      replacement_subject_id: item.replacement_subject_id ? String(item.replacement_subject_id) : "",
-      teacher_id: teacherIds[replacementIndex >= 0 ? replacementIndex : 0] || "",
-      teacher_assignment_role: teacherRoles[replacementIndex >= 0 ? replacementIndex : 0] || "replacement",
-      title: item.title || "",
-      original_room: item.original_room || "",
-      replacement_room: item.replacement_room || "",
-      reason: item.reason || "",
-      notes: item.notes || "",
-    });
-    setSubstitutionOpen(true);
   }
 
   function updateExamEntry(index, key, value) {
@@ -1740,29 +1650,106 @@ export default function Routines() {
     }));
   }
 
-  async function handleCreateTemplate(event) {
+  function removeTemplateSlot(index) {
+    setTemplateForm((current) => {
+      const slots = current.slots.filter((_, slotIndex) => slotIndex !== index);
+      return {
+        ...current,
+        slots: slots.length ? slots : [{ weekday: "", period_number: "1", label: "", start_time: "08:00", end_time: "08:40", default_entry_type: "subject" }],
+      };
+    });
+  }
+
+  function resetTemplateDialog() {
+    setEditingTemplateId(null);
+    setTemplateForm(createInitialTemplateForm());
+  }
+
+  async function openEditTemplate(template) {
+    setError("");
+    try {
+      const response = await getTimeSlotTemplate(template.id);
+      const details = response.data || template;
+      setEditingTemplateId(details.id);
+      setTemplateForm({
+        name: details.name || "",
+        scope_level: details.scope_level || "school",
+        session_id: details.session_id ? String(details.session_id) : "",
+        class_id: details.class_id ? String(details.class_id) : "",
+        section_id: details.section_id ? String(details.section_id) : "",
+        medium: details.medium || "",
+        stream_id: details.stream_id ? String(details.stream_id) : "",
+        description: details.description || "",
+        is_active: Boolean(details.is_active),
+        slots: (details.slots || []).map((slot) => ({
+          weekday: slot.weekday ? String(slot.weekday) : "",
+          period_number: slot.period_number ? String(slot.period_number) : "",
+          label: slot.label || "",
+          start_time: timeInputValue(slot.start_time, "08:00"),
+          end_time: timeInputValue(slot.end_time, "08:40"),
+          default_entry_type: slot.default_entry_type || "subject",
+          sort_order: slot.sort_order,
+        })),
+      });
+      setTemplateOpen(true);
+    } catch (err) {
+      showError(err.message || "Failed to load time slot template");
+    }
+  }
+
+  async function handleSaveTemplate(event) {
     event.preventDefault();
     setError("");
     try {
-      await createTimeSlotTemplate(templateForm);
+      if (editingTemplateId) {
+        await updateTimeSlotTemplate(editingTemplateId, templateForm);
+      } else {
+        await createTimeSlotTemplate(templateForm);
+      }
       setTemplateOpen(false);
-      showNotice("Time slot template created.");
+      showNotice(editingTemplateId ? "Time slot template updated." : "Time slot template created.");
+      resetTemplateDialog();
       await loadRoutineData();
     } catch (err) {
-      showError(err.message || "Failed to create time slot template");
+      showError(err.message || "Failed to save time slot template");
+    }
+  }
+
+  async function handleDeleteTemplate(template) {
+    if (!window.confirm(`Delete time slot template "${template.name}"? This is allowed only when no class routine is using it.`)) return;
+    setError("");
+    try {
+      await deleteTimeSlotTemplate(template.id);
+      showNotice("Time slot template deleted.");
+      await loadRoutineData();
+    } catch (err) {
+      showError(err.message || "Failed to delete time slot template");
     }
   }
 
   async function handleCreateClassRoutine(event) {
     event.preventDefault();
     setError("");
+    if (!classForm.class_id) {
+      showError("Select a class first.");
+      return;
+    }
+    if (classForm.layout_mode === "packed_hs" && selectedClass?.class_scope !== "hs") {
+      showError("Packed routine mode is only available for Higher Secondary classes.");
+      return;
+    }
+    if (!isPackedClassForm && (!classForm.section_id || !classForm.medium)) {
+      showError("Select a section and medium for standard class routines.");
+      return;
+    }
     const selectedSection = (selectedClass?.sections || []).find((section) => String(section.id) === String(classForm.section_id));
-    const medium = selectedSection?.medium || classForm.medium || "";
+    const medium = isPackedClassForm ? "" : selectedSection?.medium || classForm.medium || "";
     try {
       const response = await createClassRoutine({
         ...classForm,
-        section_id: toNumberOrNull(classForm.section_id),
+        section_id: isPackedClassForm ? null : toNumberOrNull(classForm.section_id),
         medium,
+        layout_mode: isPackedClassForm ? "packed_hs" : "standard",
         stream_id: toNumberOrNull(classForm.stream_id),
         time_slot_template_id: toNumberOrNull(classForm.time_slot_template_id),
         entries: [],
@@ -1879,34 +1866,6 @@ export default function Routines() {
     }
   }
 
-  async function handleSaveSubstitution(event) {
-    event.preventDefault();
-    setError("");
-    try {
-      const payload = {
-        ...substitutionForm,
-        stream_id: toNumberOrNull(substitutionForm.stream_id),
-        original_subject_id: toNumberOrNull(substitutionForm.original_subject_id),
-        replacement_subject_id: toNumberOrNull(substitutionForm.replacement_subject_id),
-        teachers: substitutionForm.teacher_id
-          ? [{ teacher_id: Number(substitutionForm.teacher_id), assignment_role: substitutionForm.teacher_assignment_role || "replacement" }]
-          : [],
-      };
-      if (editingSubstitutionId) {
-        await updateSubstitution(editingSubstitutionId, payload);
-      } else {
-        await createSubstitution(payload);
-      }
-      setSubstitutionOpen(false);
-      setEditingSubstitutionId(null);
-      setSubstitutionForm(emptySubstitutionForm);
-      showNotice(editingSubstitutionId ? "Substitution draft updated." : "Substitution draft created.");
-      await loadRoutineData();
-    } catch (err) {
-      showError(err.message || "Failed to save substitution");
-    }
-  }
-
   async function runAction(action, successMessage) {
     setError("");
     try {
@@ -1956,15 +1915,13 @@ export default function Routines() {
       </div>
 
       <TopBar
-        title={activeTab === "class" ? "Class Routine" : activeTab === "exam" ? "Exam Routine" : activeTab === "substitutions" ? "Substitutions" : "Time Slots"}
+        title={activeTab === "class" ? "Class Routine" : activeTab === "exam" ? "Exam Routine" : "Time Slots"}
         subTitle={
           activeTab === "class"
             ? "Create and manage weekly class schedules."
             : activeTab === "exam"
               ? "Create and manage exam schedules linked to exams."
-              : activeTab === "substitutions"
-                ? "Manage temporary period switches, extra classes, and teacher substitutions."
-                : "Manage reusable period timing templates."
+              : "Manage reusable period timing templates."
         }
         action={
           <div className="flex flex-wrap items-center justify-end gap-1">
@@ -2054,12 +2011,6 @@ export default function Routines() {
                 Add Exam Routine
               </Button>
             ) : null}
-            {activeTab === "substitutions" ? (
-              <Button className="gap-1" onClick={openNewSubstitution}>
-                <Plus className="size-4" />
-                Create substitution
-              </Button>
-            ) : null}
             {activeTab === "templates" ? (
               <Button className="gap-1" onClick={() => setTemplateOpen(true)}>
                 <Plus className="size-4" />
@@ -2115,15 +2066,23 @@ export default function Routines() {
                   {classes.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
                 </select>
               </Field>
+              {selectedClass?.class_scope === "hs" ? (
+                <Field label="Routine Mode">
+                  <select className={selectClassName} value={classForm.layout_mode} onChange={(event) => updateClassForm("layout_mode", event.target.value)}>
+                    <option value="standard">Standard section routine</option>
+                    <option value="packed_hs">Packed Higher Secondary routine</option>
+                  </select>
+                </Field>
+              ) : null}
               <Field label="Section">
-                <select className={selectClassName} value={classForm.section_id} onChange={(event) => updateClassForm("section_id", event.target.value)}>
-                  <option value="">All sections</option>
+                <select required={!isPackedClassForm} disabled={isPackedClassForm} className={selectClassName} value={isPackedClassForm ? "" : classForm.section_id} onChange={(event) => updateClassForm("section_id", event.target.value)}>
+                  <option value="">{isPackedClassForm ? "All sections" : "Select section"}</option>
                   {(selectedClass?.sections || []).map((section) => <option key={`${section.id}-${section.medium}`} value={section.id}>{section.name} - {section.medium}</option>)}
                 </select>
               </Field>
               <Field label="Medium">
-                <select className={selectClassName} value={classForm.medium} onChange={(event) => updateClassForm("medium", event.target.value)}>
-                  <option value="">All mediums</option>
+                <select required={!isPackedClassForm} disabled={isPackedClassForm || Boolean(classForm.section_id)} className={selectClassName} value={isPackedClassForm ? "" : classForm.medium} onChange={(event) => updateClassForm("medium", event.target.value)}>
+                  <option value="">{isPackedClassForm ? "All mediums" : "Select medium"}</option>
                   {(selectedClass?.mediums || []).map((medium) => <option key={medium} value={medium}>{medium}</option>)}
                 </select>
               </Field>
@@ -2153,10 +2112,6 @@ export default function Routines() {
           <TabsTrigger value="exam">
             <CalendarClock className="mr-2 size-4" />
             Exam Routine
-          </TabsTrigger>
-          <TabsTrigger value="substitutions">
-            <RefreshCcw className="mr-2 size-4" />
-            Substitutions
           </TabsTrigger>
           <TabsTrigger value="templates">
             <Clock className="mr-2 size-4" />
@@ -2321,39 +2276,41 @@ export default function Routines() {
                             Save the same period and subject rows across the selected days.
                           </p>
                         </Field>
-                        <Field label="Save Mode">
-                          <div className="grid gap-2 sm:grid-cols-2">
-                            {[
-                              {
-                                value: "replace",
-                                label: "Replace slot",
-                                description: "Clear this period for selected days, then save these rows.",
-                              },
-                              {
-                                value: "add",
-                                label: "Add to slot",
-                                description: "Keep existing rows and add these subjects to selected days.",
-                              },
-                            ].map((option) => {
-                              const selected = slotForm.save_mode === option.value;
-                              return (
-                                <button
-                                  key={option.value}
-                                  type="button"
-                                  className={`rounded-md border p-3 text-left transition ${
-                                    selected
-                                      ? "border-primary bg-primary/10 text-foreground"
-                                      : "border-border bg-background text-foreground hover:bg-muted"
-                                  }`}
-                                  onClick={() => setSlotForm((current) => ({ ...current, save_mode: option.value }))}
-                                >
-                                  <span className="block text-sm font-semibold">{option.label}</span>
-                                  <span className="mt-1 block text-xs text-muted-foreground">{option.description}</span>
-                                </button>
-                              );
-                            })}
-                          </div>
-                        </Field>
+                        {isPackedSelectedRoutine ? (
+                          <Field label="Save Mode">
+                            <div className="grid gap-2 sm:grid-cols-2">
+                              {[
+                                {
+                                  value: "replace",
+                                  label: "Replace slot",
+                                  description: "Clear this period for selected days, then save these rows.",
+                                },
+                                {
+                                  value: "add",
+                                  label: "Add to slot",
+                                  description: "Keep existing rows and add these subjects to selected days.",
+                                },
+                              ].map((option) => {
+                                const selected = slotForm.save_mode === option.value;
+                                return (
+                                  <button
+                                    key={option.value}
+                                    type="button"
+                                    className={`rounded-md border p-3 text-left transition ${
+                                      selected
+                                        ? "border-primary bg-primary/10 text-foreground"
+                                        : "border-border bg-background text-foreground hover:bg-muted"
+                                    }`}
+                                    onClick={() => setSlotForm((current) => ({ ...current, save_mode: option.value }))}
+                                  >
+                                    <span className="block text-sm font-semibold">{option.label}</span>
+                                    <span className="mt-1 block text-xs text-muted-foreground">{option.description}</span>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </Field>
+                        ) : null}
                         <Field label="Type">
                           <select
                             className={selectClassName}
@@ -2390,8 +2347,15 @@ export default function Routines() {
                                       ) : null}
                                     </div>
                                     {(slotForm.subjectRows || []).length > 1 ? (
-                                      <Button type="button" variant="ghost" size="sm" onClick={() => removeSlotSubjectRow(row.key)}>
-                                        Remove
+                                      <Button
+                                        type="button"
+                                        variant="outline"
+                                        size="icon"
+                                        className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+                                        onClick={() => removeSlotSubjectRow(row.key)}
+                                        aria-label={`Delete subject ${index + 1}`}
+                                      >
+                                        <Trash2 className="size-4" />
                                       </Button>
                                     ) : null}
                                   </div>
@@ -2423,48 +2387,50 @@ export default function Routines() {
                                       </select>
                                     </Field>
                                   </div>
-                                  <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                                    <Field label="Medium Applies To">
-                                      <select
-                                        className={selectClassName}
-                                        value={row.applies_medium || ""}
-                                        onChange={(event) => updateSlotSubjectRow(row.key, { applies_medium: event.target.value, section_ids: [] })}
-                                      >
-                                        <option value="">All mediums</option>
-                                        {(selectedRoutineClass?.mediums || []).map((medium) => (
-                                          <option key={medium} value={medium}>{medium}</option>
-                                        ))}
-                                      </select>
-                                    </Field>
-                                    <Field label="Sections Applies To">
-                                      <div className="rounded-md border border-border bg-background p-2">
-                                        <div className="flex flex-wrap gap-2">
-                                          {(selectedRoutineClass?.sections || [])
-                                            .filter((section) => !row.applies_medium || section.medium === row.applies_medium)
-                                            .map((section) => {
-                                              const selected = (row.section_ids || []).map(String).includes(String(section.id));
-                                              return (
-                                                <button
-                                                  key={`${row.key}-${section.id}`}
-                                                  type="button"
-                                                  className={`rounded-md border px-2 py-1 text-xs font-medium transition ${
-                                                    selected
-                                                      ? "border-primary bg-primary text-primary-foreground"
-                                                      : "border-border bg-muted/30 text-foreground hover:bg-muted"
-                                                  }`}
-                                                  onClick={() => toggleSlotSubjectSection(row.key, section.id)}
-                                                >
-                                                  {section.name}{section.medium ? ` - ${section.medium}` : ""}
-                                                </button>
-                                              );
-                                            })}
+                                  {isPackedSelectedRoutine ? (
+                                    <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                                      <Field label="Medium Applies To">
+                                        <select
+                                          className={selectClassName}
+                                          value={row.applies_medium || ""}
+                                          onChange={(event) => updateSlotSubjectRow(row.key, { applies_medium: event.target.value, section_ids: [] })}
+                                        >
+                                          <option value="">All mediums</option>
+                                          {(selectedRoutineClass?.mediums || []).map((medium) => (
+                                            <option key={medium} value={medium}>{medium}</option>
+                                          ))}
+                                        </select>
+                                      </Field>
+                                      <Field label="Sections Applies To">
+                                        <div className="rounded-md border border-border bg-background p-2">
+                                          <div className="flex flex-wrap gap-2">
+                                            {(selectedRoutineClass?.sections || [])
+                                              .filter((section) => !row.applies_medium || section.medium === row.applies_medium)
+                                              .map((section) => {
+                                                const selected = (row.section_ids || []).map(String).includes(String(section.id));
+                                                return (
+                                                  <button
+                                                    key={`${row.key}-${section.id}`}
+                                                    type="button"
+                                                    className={`rounded-md border px-2 py-1 text-xs font-medium transition ${
+                                                      selected
+                                                        ? "border-primary bg-primary text-primary-foreground"
+                                                        : "border-border bg-muted/30 text-foreground hover:bg-muted"
+                                                    }`}
+                                                    onClick={() => toggleSlotSubjectSection(row.key, section.id)}
+                                                  >
+                                                    {section.name}{section.medium ? ` - ${section.medium}` : ""}
+                                                  </button>
+                                                );
+                                              })}
+                                          </div>
+                                          <p className="mt-2 text-xs text-muted-foreground">
+                                            No section selected means all matching sections.
+                                          </p>
                                         </div>
-                                        <p className="mt-2 text-xs text-muted-foreground">
-                                          No section selected means all matching sections.
-                                        </p>
-                                      </div>
-                                    </Field>
-                                  </div>
+                                      </Field>
+                                    </div>
+                                  ) : null}
                                 </div>
                               );
                             })}
@@ -2533,54 +2499,52 @@ export default function Routines() {
         <TabsContent value="exam" className="mt-4">
           <RoutineCard>
             <CardHeader>
-              <div className="flex min-w-0 flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                <div className="min-w-0 text-left lg:max-w-[46%]">
-                  <div className="flex items-center justify-start gap-3">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="icon"
-                      onClick={() => moveSelectedExamRoutine(-1)}
-                      disabled={examRoutineNavigationItems.length <= 1}
-                      aria-label="Previous exam routine"
-                    >
-                      <ChevronLeft className="size-4" />
-                    </Button>
-                    <div className="min-w-0 max-w-[min(72vw,560px)]">
-                      {selectedExamRoutine ? (
-                        <p className="truncate text-lg font-semibold text-foreground">
-                          {selectedExamRoutineHeader || "Exam Routine"}
-                        </p>
-                      ) : (
-                        <p className="text-lg font-semibold text-muted-foreground">No exam routine selected</p>
-                      )}
+              <div className="space-y-3">
+                <div className="flex min-w-0 flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
+                  <div className="min-w-0 text-left">
+                    <div className="flex min-w-0 items-center justify-start gap-3">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="icon"
+                        onClick={() => moveSelectedExamRoutine(-1)}
+                        disabled={examRoutineNavigationItems.length <= 1}
+                        aria-label="Previous exam routine"
+                      >
+                        <ChevronLeft className="size-4" />
+                      </Button>
+                      <div className="min-w-0">
+                        {selectedExamRoutine ? (
+                          <p className="truncate text-lg font-semibold text-foreground">
+                            {selectedExamRoutineHeader || "Exam Routine"}
+                          </p>
+                        ) : (
+                          <p className="text-lg font-semibold text-muted-foreground">No exam routine selected</p>
+                        )}
+                      </div>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="icon"
+                        onClick={() => moveSelectedExamRoutine(1)}
+                        disabled={examRoutineNavigationItems.length <= 1}
+                        aria-label="Next exam routine"
+                      >
+                        <ChevronRight className="size-4" />
+                      </Button>
                     </div>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="icon"
-                      onClick={() => moveSelectedExamRoutine(1)}
-                      disabled={examRoutineNavigationItems.length <= 1}
-                      aria-label="Next exam routine"
-                    >
-                      <ChevronRight className="size-4" />
-                    </Button>
                   </div>
-                  {selectedExamRoutine ? (
-                    <div className="mt-2 flex items-center justify-start gap-2">
-                      {selectedExamRoutine.status ? <StatusBadge status={selectedExamRoutine.status} /> : null}
-                    </div>
-                  ) : null}
-                </div>
-                <div className="flex min-w-0 flex-1 flex-col items-start gap-3 lg:items-end">
-                  <div className="flex max-w-full flex-wrap items-center justify-start gap-3 text-sm text-muted-foreground lg:justify-end">
+                  <div className="flex max-w-full flex-wrap items-center justify-start gap-3 text-sm text-muted-foreground xl:justify-end">
+                    {selectedExamRoutine?.status ? <StatusBadge status={selectedExamRoutine.status} /> : null}
                     <span className="inline-flex items-center gap-1.5"><CalendarDays className="size-4" />{selectedExamRoutineSummary.rows} rows</span>
                     <span className="inline-flex items-center gap-1.5"><BookOpen className="size-4" />{selectedExamRoutineSummary.subjects} subjects</span>
                     <span className="inline-flex items-center gap-1.5"><CheckCircle2 className="size-4" />{selectedExamRoutineSummary.invigilators} invigilators</span>
                   </div>
-                  <div className="flex w-full max-w-full flex-nowrap items-center justify-start gap-2 overflow-x-auto lg:justify-end [&>*]:h-9 [&>*]:shrink-0">
+                </div>
+                <div className="flex min-w-0 flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+                  <div className="min-w-0 flex-1">
                     <select
-                      className={`${selectClassName} h-9 !w-[min(62vw,360px)] !min-w-[240px] rounded-md px-3 py-1.5 text-sm`}
+                      className={`${selectClassName} h-9 w-full min-w-0 rounded-md px-3 py-1.5 text-sm lg:max-w-[520px]`}
                       value={selectedExamRoutineId}
                       onChange={(event) => setSelectedExamRoutineId(event.target.value)}
                     >
@@ -2593,6 +2557,8 @@ export default function Routines() {
                         </option>
                       ))}
                     </select>
+                  </div>
+                  <div className="flex min-w-0 flex-wrap items-center justify-start gap-2 lg:justify-end [&>*]:h-9">
                     {["draft", "published"].includes(selectedExamRoutine?.status) ? (
                       <>
                         <Button type="button" size="sm" variant="outline" onClick={openEditExamRoutine}>
@@ -2600,7 +2566,7 @@ export default function Routines() {
                           Edit
                         </Button>
                         <Button type="button" size="sm" variant="outline" onClick={handleDeleteExamRoutine}>
-                          <Trash2 className="mr-2 size-4" />
+                          <Trash2 className="mr-2 size-4 text-destructive" />
                           Delete
                         </Button>
                       </>
@@ -2699,8 +2665,15 @@ export default function Routines() {
                           <div className="mb-3 flex items-center justify-between gap-2">
                             <p className="text-sm font-medium text-foreground">Exam Row {index + 1}</p>
                             {examForm.entries.length > 1 ? (
-                              <Button type="button" variant="ghost" size="sm" onClick={() => removeExamEntry(index)}>
-                                Remove
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="icon"
+                                className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+                                onClick={() => removeExamEntry(index)}
+                                aria-label={`Delete exam row ${index + 1}`}
+                              >
+                                <Trash2 className="size-4" />
                               </Button>
                             ) : null}
                           </div>
@@ -2776,109 +2749,6 @@ export default function Routines() {
           </RoutineCard>
         </TabsContent>
 
-        <TabsContent value="substitutions" className="mt-4">
-          <RoutineCard>
-            <CardHeader className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-              <div>
-                <CardTitle className="text-base">Temporary Substitutions</CardTitle>
-                <CardDescription>Create date or date-range changes for absent teachers, extra classes, cancellations, and room changes.</CardDescription>
-              </div>
-              <Dialog
-                open={substitutionOpen}
-                onOpenChange={(open) => {
-                  setSubstitutionOpen(open);
-                  if (!open) {
-                    setEditingSubstitutionId(null);
-                    setSubstitutionForm(emptySubstitutionForm);
-                  }
-                }}
-              >
-                <Button onClick={openNewSubstitution}><Plus className="mr-2 size-4" />New Substitution</Button>
-                <DialogContent className="max-h-[85vh] w-[min(96vw,1200px)] max-w-none overflow-y-auto sm:max-w-[min(96vw,1200px)]">
-                  <DialogHeader>
-                    <DialogTitle>{editingSubstitutionId ? "Edit Substitution Draft" : "Create Substitution Draft"}</DialogTitle>
-                    <DialogDescription>Publishing applies this temporary change to effective routine views.</DialogDescription>
-                  </DialogHeader>
-                  <form className="space-y-4" onSubmit={handleSaveSubstitution}>
-                    <div className="grid gap-3 md:grid-cols-4">
-                      <Field label="Session"><select required className={selectClassName} value={substitutionForm.session_id} onChange={(event) => updateSubstitutionForm("session_id", event.target.value)}><option value="">Select</option>{sessions.map((session) => <option key={session.id} value={session.id}>{session.name}</option>)}</select></Field>
-                      <Field label="Class"><select required className={selectClassName} value={substitutionForm.class_id} onChange={(event) => updateSubstitutionForm("class_id", event.target.value)}><option value="">Select</option>{classes.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></Field>
-                      <Field label="Section"><select required className={selectClassName} value={substitutionForm.section_id} onChange={(event) => updateSubstitutionForm("section_id", event.target.value)}><option value="">Select</option>{(substitutionClass?.sections || []).map((section) => <option key={`${section.id}-${section.medium}`} value={section.id}>{section.name} - {section.medium}</option>)}</select></Field>
-                      <Field label="Medium"><select required className={selectClassName} value={substitutionForm.medium} onChange={(event) => updateSubstitutionForm("medium", event.target.value)}><option value="">Select</option>{(substitutionClass?.mediums || []).map((medium) => <option key={medium} value={medium}>{medium}</option>)}</select></Field>
-                      <Field label="Stream"><select className={selectClassName} value={substitutionForm.stream_id} onChange={(event) => updateSubstitutionForm("stream_id", event.target.value)}><option value="">None</option>{streams.map((stream) => <option key={stream.id} value={stream.id}>{stream.name}</option>)}</select></Field>
-                      <Field label="Day"><select className={selectClassName} value={substitutionForm.weekday} onChange={(event) => updateSubstitutionForm("weekday", event.target.value)}><option value="">Any day</option>{weekdays.map((day) => <option key={day.value} value={day.value}>{day.label}</option>)}</select></Field>
-                      <Field label="Period"><Input value={substitutionForm.period_number} onChange={(event) => updateSubstitutionForm("period_number", event.target.value)} /></Field>
-                      <Field label="Title"><Input value={substitutionForm.title} onChange={(event) => updateSubstitutionForm("title", event.target.value)} /></Field>
-                      <Field label="From"><Input required type="date" value={substitutionForm.starts_on} onChange={(event) => updateSubstitutionForm("starts_on", event.target.value)} /></Field>
-                      <Field label="To"><Input type="date" value={substitutionForm.ends_on} onChange={(event) => updateSubstitutionForm("ends_on", event.target.value)} /></Field>
-                      <Field label="Start"><Input type="time" value={substitutionForm.start_time} onChange={(event) => updateSubstitutionForm("start_time", event.target.value)} /></Field>
-                      <Field label="End"><Input type="time" value={substitutionForm.end_time} onChange={(event) => updateSubstitutionForm("end_time", event.target.value)} /></Field>
-                      <Field label="Change Type">
-                        <select className={selectClassName} value={substitutionForm.change_type} onChange={(event) => updateSubstitutionForm("change_type", event.target.value)}>
-                          <option value="teacher_substitution">Teacher substitution</option>
-                          <option value="subject_change">Subject change</option>
-                          <option value="extra_class">Extra class</option>
-                          <option value="cancelled">Cancelled</option>
-                          <option value="free_period">Free period</option>
-                          <option value="room_change">Room change</option>
-                        </select>
-                      </Field>
-                      <Field label="Original Subject"><select className={selectClassName} value={substitutionForm.original_subject_id} onChange={(event) => updateSubstitutionForm("original_subject_id", event.target.value)}><option value="">None</option>{subjects.map((subject) => <option key={subject.id} value={subject.id}>{subject.name}</option>)}</select></Field>
-                      <Field label="Replacement Subject"><select className={selectClassName} value={substitutionForm.replacement_subject_id} onChange={(event) => updateSubstitutionForm("replacement_subject_id", event.target.value)}><option value="">None</option>{subjects.map((subject) => <option key={subject.id} value={subject.id}>{subject.name}</option>)}</select></Field>
-                      <Field label="Teacher"><select className={selectClassName} value={substitutionForm.teacher_id} onChange={(event) => updateSubstitutionForm("teacher_id", event.target.value)}><option value="">None</option>{teachers.map((teacher) => <option key={teacher.id} value={teacher.id}>{teacher.name}</option>)}</select></Field>
-                      <Field label="Teacher Role">
-                        <select className={selectClassName} value={substitutionForm.teacher_assignment_role} onChange={(event) => updateSubstitutionForm("teacher_assignment_role", event.target.value)}>
-                          <option value="replacement">Replacement</option>
-                          <option value="additional">Additional</option>
-                          <option value="original">Original</option>
-                        </select>
-                      </Field>
-                      <Field label="Original Room"><Input value={substitutionForm.original_room} onChange={(event) => updateSubstitutionForm("original_room", event.target.value)} /></Field>
-                      <Field label="Replacement Room"><Input value={substitutionForm.replacement_room} onChange={(event) => updateSubstitutionForm("replacement_room", event.target.value)} /></Field>
-                    </div>
-                    <Field label="Reason"><Input value={substitutionForm.reason} onChange={(event) => updateSubstitutionForm("reason", event.target.value)} /></Field>
-                    <Field label="Notes"><Input value={substitutionForm.notes} onChange={(event) => updateSubstitutionForm("notes", event.target.value)} /></Field>
-                    <div className="flex justify-end gap-2">
-                      <Button type="button" variant="outline" onClick={() => setSubstitutionOpen(false)}>Cancel</Button>
-                      <Button type="submit">{editingSubstitutionId ? "Save Draft" : "Create Draft"}</Button>
-                    </div>
-                  </form>
-                </DialogContent>
-              </Dialog>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              {substitutions.length ? substitutions.map((item) => (
-                <div key={item.id} className="flex flex-col gap-3 rounded-md border border-border bg-background p-4 md:flex-row md:items-center md:justify-between">
-                  <div className="space-y-1">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <p className="font-semibold">{item.title || item.reason || item.change_type}</p>
-                      <StatusBadge status={item.status} />
-                      <Badge variant="outline">{displayChangeType(item.change_type)}</Badge>
-                      {item.period_number ? <Badge variant="outline">Period {item.period_number}</Badge> : null}
-                    </div>
-                    <p className="text-xs text-muted-foreground">{item.class_name} / {item.section_name} / {item.medium}{item.stream_name ? ` / ${item.stream_name}` : ""} / {dateInputValue(item.starts_on)} to {dateInputValue(item.ends_on)} / {timeInputValue(item.start_time)}-{timeInputValue(item.end_time)} / {item.teacher_names || "No teacher"}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {item.original_subject_name || "No original subject"} to {item.replacement_subject_name || "No replacement subject"}
-                      {item.replacement_room ? ` / Room ${item.replacement_room}` : ""}
-                      {item.reason ? ` / ${item.reason}` : ""}
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      Created by {item.created_by_name || "Unknown"} on {displayDateTime(item.created_at)}
-                      {item.published_at ? ` / Published by ${item.updated_by_name || "Unknown"} on ${displayDateTime(item.published_at)}` : ""}
-                      {item.cancelled_at ? ` / Cancelled by ${item.updated_by_name || "Unknown"} on ${displayDateTime(item.cancelled_at)}` : ""}
-                    </p>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    {item.status === "draft" ? <Button size="sm" variant="outline" onClick={() => openEditSubstitution(item)}><Pencil className="mr-2 size-4" />Edit</Button> : null}
-                    {item.status === "draft" ? <Button size="sm" onClick={() => runAction(() => publishSubstitution(item.id), "Substitution published.")}>Publish</Button> : null}
-                    {item.status !== "cancelled" ? <Button size="sm" variant="outline" onClick={() => runAction(() => cancelSubstitution(item.id), "Substitution cancelled.")}>Cancel</Button> : null}
-                  </div>
-                </div>
-              )) : <EmptyState title="No substitutions found" description="Create substitutions for teacher absences, extra classes, or temporary room changes." />}
-            </CardContent>
-          </RoutineCard>
-        </TabsContent>
-
         <TabsContent value="templates" className="mt-4">
           <RoutineCard>
             <CardHeader className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
@@ -2886,15 +2756,23 @@ export default function Routines() {
                 <CardTitle className="text-base">Time Slot Templates</CardTitle>
                 <CardDescription>Reusable period structures for school-wide, higher-secondary, or class-specific routines.</CardDescription>
               </div>
-              <Dialog open={templateOpen} onOpenChange={setTemplateOpen}>
-                <DialogTrigger asChild><Button><Plus className="mr-2 size-4" />New Template</Button></DialogTrigger>
+              <Dialog
+                open={templateOpen}
+                onOpenChange={(open) => {
+                  setTemplateOpen(open);
+                  if (!open) resetTemplateDialog();
+                }}
+              >
+                <DialogTrigger asChild>
+                  <Button onClick={resetTemplateDialog}><Plus className="mr-2 size-4" />New Template</Button>
+                </DialogTrigger>
                 <DialogContent className="max-h-[85vh] w-[min(96vw,1120px)] max-w-none overflow-y-auto sm:max-w-[min(96vw,1120px)]">
                   <DialogHeader>
-                    <DialogTitle>Create Time Slot Template</DialogTitle>
+                    <DialogTitle>{editingTemplateId ? "Edit Time Slot Template" : "Create Time Slot Template"}</DialogTitle>
                     <DialogDescription>Define period times and break slots. Class routines can still override entries.</DialogDescription>
                   </DialogHeader>
-                  <form className="space-y-4" onSubmit={handleCreateTemplate}>
-                    <div className="grid gap-3 md:grid-cols-2">
+                  <form className="space-y-4" onSubmit={handleSaveTemplate}>
+                    <div className="grid gap-3 md:grid-cols-3">
                       <Field label="Name"><Input required value={templateForm.name} onChange={(event) => setTemplateForm((current) => ({ ...current, name: event.target.value }))} /></Field>
                       <Field label="Scope">
                         <select className={selectClassName} value={templateForm.scope_level} onChange={(event) => setTemplateForm((current) => ({ ...current, scope_level: event.target.value }))}>
@@ -2903,23 +2781,42 @@ export default function Routines() {
                           <option value="class_section">Class/section</option>
                         </select>
                       </Field>
+                      <Field label="Status">
+                        <select className={selectClassName} value={templateForm.is_active === false ? "0" : "1"} onChange={(event) => setTemplateForm((current) => ({ ...current, is_active: event.target.value === "1" }))}>
+                          <option value="1">Active</option>
+                          <option value="0">Inactive</option>
+                        </select>
+                      </Field>
                     </div>
+                    <Field label="Description"><Input value={templateForm.description || ""} onChange={(event) => setTemplateForm((current) => ({ ...current, description: event.target.value }))} /></Field>
                     <div className="space-y-3">
                       {templateForm.slots.map((slot, index) => (
-                        <div key={index} className="grid gap-3 rounded-md border border-border bg-muted/20 p-3 md:grid-cols-2 xl:grid-cols-[0.7fr_1.4fr_0.9fr_0.9fr_1fr_1.2fr]">
-                          <Field label="Period"><Input value={slot.period_number} onChange={(event) => updateTemplateSlot(index, "period_number", event.target.value)} /></Field>
+                        <div key={index} className="grid gap-3 rounded-md border border-border bg-muted/20 p-3 md:grid-cols-2 xl:grid-cols-[0.7fr_1.4fr_0.9fr_0.9fr_1fr_1.2fr_auto]">
+                          <Field label="Period"><Input required value={slot.period_number} onChange={(event) => updateTemplateSlot(index, "period_number", event.target.value)} /></Field>
                           <Field label="Label"><Input value={slot.label} onChange={(event) => updateTemplateSlot(index, "label", event.target.value)} /></Field>
-                          <Field label="Start"><Input type="time" value={slot.start_time} onChange={(event) => updateTemplateSlot(index, "start_time", event.target.value)} /></Field>
-                          <Field label="End"><Input type="time" value={slot.end_time} onChange={(event) => updateTemplateSlot(index, "end_time", event.target.value)} /></Field>
+                          <Field label="Start"><Input required type="time" value={slot.start_time} onChange={(event) => updateTemplateSlot(index, "start_time", event.target.value)} /></Field>
+                          <Field label="End"><Input required type="time" value={slot.end_time} onChange={(event) => updateTemplateSlot(index, "end_time", event.target.value)} /></Field>
                           <Field label="Type"><select className={selectClassName} value={slot.default_entry_type} onChange={(event) => updateTemplateSlot(index, "default_entry_type", event.target.value)}><option value="subject">Subject</option><option value="break">Break</option><option value="activity">Activity</option><option value="free">Free</option></select></Field>
                           <Field label="Day"><select className={selectClassName} value={slot.weekday} onChange={(event) => updateTemplateSlot(index, "weekday", event.target.value)}><option value="">All days</option>{weekdays.map((day) => <option key={day.value} value={day.value}>{day.label}</option>)}</select></Field>
+                          <div className="flex items-end justify-end">
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="icon"
+                              className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+                              onClick={() => removeTemplateSlot(index)}
+                              aria-label={`Delete slot ${index + 1}`}
+                            >
+                              <Trash2 className="size-4" />
+                            </Button>
+                          </div>
                         </div>
                       ))}
                       <Button type="button" variant="outline" onClick={() => setTemplateForm((current) => ({ ...current, slots: [...current.slots, { weekday: "", period_number: String(current.slots.length + 1), label: "", start_time: "08:00", end_time: "08:40", default_entry_type: "subject" }] }))}>Add Slot</Button>
                     </div>
                     <div className="flex justify-end gap-2">
                       <Button type="button" variant="outline" onClick={() => setTemplateOpen(false)}>Cancel</Button>
-                      <Button type="submit">Create Template</Button>
+                      <Button type="submit">{editingTemplateId ? "Save Template" : "Create Template"}</Button>
                     </div>
                   </form>
                 </DialogContent>
@@ -2927,12 +2824,22 @@ export default function Routines() {
             </CardHeader>
             <CardContent className="space-y-3">
               {templates.length ? templates.map((template) => (
-                <div key={template.id} className="flex items-center justify-between rounded-md border border-border bg-background p-4">
+                <div key={template.id} className="flex flex-col gap-3 rounded-md border border-border bg-background p-4 md:flex-row md:items-center md:justify-between">
                   <div>
                     <p className="font-semibold">{template.name}</p>
                     <p className="text-xs text-muted-foreground">{template.scope_level} / {template.class_name || "All classes"} / {template.medium || "All mediums"}</p>
                   </div>
-                  <Badge variant="outline" className={template.is_active ? statusClass.published : statusClass.archived}>{template.is_active ? "active" : "inactive"}</Badge>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge variant="outline" className={template.is_active ? statusClass.published : statusClass.archived}>{template.is_active ? "active" : "inactive"}</Badge>
+                    <Button size="sm" variant="outline" onClick={() => openEditTemplate(template)}>
+                      <Pencil className="mr-2 size-4" />
+                      Edit
+                    </Button>
+                    <Button size="sm" variant="outline" onClick={() => handleDeleteTemplate(template)}>
+                      <Trash2 className="mr-2 size-4 text-destructive" />
+                      Delete
+                    </Button>
+                  </div>
                 </div>
               )) : <EmptyState title="No time slot templates found" description="Create reusable period timing templates before building detailed routines." />}
             </CardContent>

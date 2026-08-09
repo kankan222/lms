@@ -15,15 +15,8 @@ const ROUTINE_ENTRY_TYPES = new Set([
   "custom",
 ]);
 const EXAM_ENTRY_TYPES = new Set(["subject", "practical", "activity", "custom"]);
-const SUBSTITUTION_TYPES = new Set([
-  "teacher_substitution",
-  "subject_change",
-  "extra_class",
-  "cancelled",
-  "free_period",
-  "room_change",
-]);
 const ROUTINE_BOARD_STATUSES = new Set(["current", "published", "draft", "archived", "all"]);
+const CLASS_ROUTINE_LAYOUT_MODES = new Set(["standard", "packed_hs"]);
 const WEEKDAY_LABELS = {
   1: "Monday",
   2: "Tuesday",
@@ -65,6 +58,19 @@ function normalizeClassScope(value, { required = false } = {}) {
 
 function classScopeLabel(value) {
   return value === "hs" ? "Higher Secondary" : "School";
+}
+
+function normalizeClassRoutineLayoutMode(value) {
+  const raw = optionalString(value);
+  if (!raw) return "standard";
+  const normalized = raw.toLowerCase().replace(/[-\s]+/g, "_");
+  if (normalized === "packed" || normalized === "hs_packed") return "packed_hs";
+  if (CLASS_ROUTINE_LAYOUT_MODES.has(normalized)) return normalized;
+  throw new AppError("Invalid routine layout mode. Allowed: standard, packed_hs", 400);
+}
+
+function isPackedClassRoutine(value) {
+  return String(value?.layout_mode || "standard") === "packed_hs";
 }
 
 function requiredString(value, fieldName) {
@@ -451,6 +457,40 @@ function normalizeClassRoutineEntries(entries = []) {
   });
 }
 
+function prepareClassRoutineEntriesForLayout(entries = [], layoutMode = "standard") {
+  const packed = layoutMode === "packed_hs";
+  const seenSlots = new Set();
+  return entries.map((entry) => {
+    const slotKey = `${entry.weekday}-${entry.period_number}`;
+    if (!packed && seenSlots.has(slotKey)) {
+      throw new AppError("Standard routines allow only one entry per day and period", 400);
+    }
+    seenSlots.add(slotKey);
+    if (packed) return entry;
+    return {
+      ...entry,
+      applies_medium: null,
+      section_ids: [],
+    };
+  });
+}
+
+async function normalizeClassRoutinePayloadForCreate(body, userId) {
+  const payload = normalizeClassRoutinePayload(body, userId);
+  const classRow = await repo.getClassById(payload.class_id);
+  if (!classRow) throw new AppError("Class not found", 404);
+  payload.class_scope = classRow.class_scope || "school";
+  payload.layout_mode = normalizeClassRoutineLayoutMode(body.layout_mode);
+  if (payload.layout_mode === "packed_hs" && payload.class_scope !== "hs") {
+    throw new AppError("Packed class routine mode is only available for Higher Secondary classes", 400);
+  }
+  if (payload.layout_mode !== "packed_hs") {
+    if (!payload.section_id) throw new AppError("section_id is required for standard class routines", 400);
+    if (!payload.medium) throw new AppError("medium is required for standard class routines", 400);
+  }
+  return payload;
+}
+
 function classRoutineEntryToPayload(entry) {
   return {
     time_slot_id: entry.time_slot_id,
@@ -485,6 +525,7 @@ function normalizeClassRoutinePayload(body, userId) {
     title: optionalString(body.title),
     source: optionalString(body.source) || "manual",
     parent_version_id: intValue(body.parent_version_id, "parent_version_id", { required: false }),
+    layout_mode: normalizeClassRoutineLayoutMode(body.layout_mode),
     user_id: userId,
   };
 }
@@ -551,6 +592,18 @@ export async function updateTimeSlotTemplate(id, body, userId) {
   return result;
 }
 
+export async function deleteTimeSlotTemplate(id) {
+  const templateId = intValue(id, "template id");
+  const template = await repo.getTimeSlotTemplateById(templateId);
+  if (!template) throw new AppError("Time slot template not found", 404);
+  const usageCount = await repo.countClassRoutinesUsingTemplate(templateId);
+  if (usageCount > 0) {
+    throw new AppError(`Time slot template is used by ${usageCount} class routine${usageCount === 1 ? "" : "s"}. Remove it from those routines before deleting.`, 400);
+  }
+  await repo.deleteTimeSlotTemplate(templateId);
+  return { id: templateId, deleted: true };
+}
+
 export function listClassRoutines(filters = {}) {
   return repo.listClassRoutineVersions({
     ...filters,
@@ -586,6 +639,7 @@ function routineCardKey(row) {
 }
 
 function mapRoutineBoardEntry(row) {
+  const packed = row.layout_mode === "packed_hs";
   return {
     id: Number(row.entry_id),
     weekday: Number(row.weekday),
@@ -598,11 +652,11 @@ function mapRoutineBoardEntry(row) {
     subject_name: row.subject_name,
     activity_id: row.activity_id ? Number(row.activity_id) : null,
     activity_name: row.activity_name,
-    applies_medium: row.applies_medium,
-    applies_section_ids: row.applies_section_ids
+    applies_medium: packed ? row.applies_medium : null,
+    applies_section_ids: packed && row.applies_section_ids
       ? String(row.applies_section_ids).split(",").map((id) => Number(id)).filter(Boolean)
       : [],
-    applies_section_names: row.applies_section_names || "",
+    applies_section_names: packed ? row.applies_section_names || "" : "",
     title: row.entry_title,
     room: row.room,
     notes: row.notes,
@@ -626,7 +680,8 @@ function mapRoutineBoardCard(row) {
     class_display_order: row.class_display_order ?? null,
     class_scope: row.class_scope || "school",
     class_scope_label: classScopeLabel(row.class_scope || "school"),
-    section_id: Number(row.section_id),
+    layout_mode: row.layout_mode || "standard",
+    section_id: row.section_id ? Number(row.section_id) : null,
     section_name: row.section_name,
     medium: row.medium,
     stream_id: row.stream_id ? Number(row.stream_id) : null,
@@ -702,16 +757,35 @@ export async function getClassRoutineBoard(filters = {}) {
   };
 }
 
+function routineForResponse(routine) {
+  if (!routine || isPackedClassRoutine(routine)) return routine;
+  return {
+    ...routine,
+    layout_mode: routine.layout_mode || "standard",
+    entries: (routine.entries || []).map((entry) => ({
+      ...entry,
+      applies_medium: null,
+      applies_section_ids: [],
+      applies_section_names: "",
+    })),
+  };
+}
+
 export async function getClassRoutine(id) {
   const routine = await repo.getClassRoutineWithEntries(intValue(id, "routine id"));
   if (!routine) throw new AppError("Class routine not found", 404);
-  return routine;
+  return routineForResponse(routine);
 }
 
-export function createClassRoutine(body, userId) {
+export async function createClassRoutine(body, userId) {
+  const payload = await normalizeClassRoutinePayloadForCreate(body, userId);
+  const entries = prepareClassRoutineEntriesForLayout(
+    normalizeClassRoutineEntries(body.entries),
+    payload.layout_mode
+  );
   return repo.upsertClassRoutineForScope(
-    normalizeClassRoutinePayload(body, userId),
-    normalizeClassRoutineEntries(body.entries)
+    payload,
+    entries
   );
 }
 
@@ -772,6 +846,7 @@ export async function importClassRoutine(file, body = {}, userId) {
             title,
             source: "import",
             parent_version_id: null,
+            layout_mode: "standard",
             user_id: userId,
           },
           entries: [],
@@ -815,7 +890,10 @@ export async function importClassRoutine(file, body = {}, userId) {
   const imported = [];
   for (const group of groups.values()) {
     try {
-      imported.push(await repo.upsertClassRoutineForScope(group.data, normalizeClassRoutineEntries(group.entries)));
+      imported.push(await repo.upsertClassRoutineForScope(
+        group.data,
+        prepareClassRoutineEntriesForLayout(normalizeClassRoutineEntries(group.entries), group.data.layout_mode)
+      ));
     } catch (err) {
       errors.push({ row: null, message: err.message || "Could not create class routine draft" });
     }
@@ -828,21 +906,33 @@ export async function updateClassRoutine(id, body, userId) {
   const routine = await repo.getClassRoutineWithEntries(routineId);
   if (!routine) throw new AppError("Class routine not found", 404);
   const targetRoutine = await repo.getCanonicalClassRoutineForScope(routine) || routine;
+  const layoutMode = targetRoutine.layout_mode || "standard";
   const result = await repo.updateClassRoutineDraft(
     targetRoutine.id,
     {
       title: optionalString(body.title),
       time_slot_template_id: intValue(body.time_slot_template_id, "time_slot_template_id", { required: false }),
+      layout_mode: layoutMode,
       user_id: userId,
     },
-    Array.isArray(body.entries) ? normalizeClassRoutineEntries(body.entries) : undefined
+    Array.isArray(body.entries)
+      ? prepareClassRoutineEntriesForLayout(normalizeClassRoutineEntries(body.entries), layoutMode)
+      : undefined
   );
   if (!result) throw new AppError("Class routine could not be updated", 400);
   return result;
 }
 
 export async function updateClassRoutineSlot(id, body, userId) {
-  const entries = normalizeClassRoutineEntries(Array.isArray(body.entries) ? body.entries : [body]);
+  const routineId = intValue(id, "routine id");
+  const routine = await repo.getClassRoutineWithEntries(routineId);
+  if (!routine) throw new AppError("Class routine not found", 404);
+  const targetRoutine = await repo.getCanonicalClassRoutineForScope(routine) || routine;
+  const layoutMode = targetRoutine.layout_mode || "standard";
+  const entries = prepareClassRoutineEntriesForLayout(
+    normalizeClassRoutineEntries(Array.isArray(body.entries) ? body.entries : [body]),
+    layoutMode
+  );
   const [entry] = entries;
   if (!entry) throw new AppError("At least one routine slot entry is required", 400);
   const differentSlot = entries.some(
@@ -851,10 +941,6 @@ export async function updateClassRoutineSlot(id, body, userId) {
   if (differentSlot) {
     throw new AppError("All routine slot entries must belong to the same day and period", 400);
   }
-  const routineId = intValue(id, "routine id");
-  const routine = await repo.getClassRoutineWithEntries(routineId);
-  if (!routine) throw new AppError("Class routine not found", 404);
-  const targetRoutine = await repo.getCanonicalClassRoutineForScope(routine) || routine;
   const result = await repo.upsertClassRoutineDraftSlot(targetRoutine.id, entries, userId);
   if (!result) throw new AppError("Could not update class routine slot", 400);
   return result;
@@ -880,9 +966,13 @@ export async function publishClassRoutine(id, userId) {
         {
           title: routine.title,
           time_slot_template_id: routine.time_slot_template_id,
+          layout_mode: routine.layout_mode || "standard",
           user_id: userId,
         },
-        normalizeClassRoutineEntries(routine.entries.map(classRoutineEntryToPayload))
+        prepareClassRoutineEntriesForLayout(
+          normalizeClassRoutineEntries(routine.entries.map(classRoutineEntryToPayload)),
+          routine.layout_mode || "standard"
+        )
       )
     : routine;
   const targetRoutineId = Number(targetRoutine.id);
@@ -953,8 +1043,7 @@ export async function getEffectiveClassRoutine(filters) {
   const published = await repo.getPublishedClassRoutineForScope(scope);
   if (!published) throw new AppError("Published routine not found", 404);
   const routine = await repo.getClassRoutineWithEntries(published.id);
-  const substitutions = await repo.getEffectiveSubstitutions({ ...scope, date });
-  return { routine, substitutions, date };
+  return { routine: routineForResponse(routine), substitutions: [], date };
 }
 
 function filterRoutineEntriesForStudent(entries = [], enrollment = {}, registeredSubjectIds = []) {
@@ -981,6 +1070,9 @@ export async function getStudentRoutine(studentId, userId, query) {
     ...enrollment,
     date: query.date || new Date().toISOString().slice(0, 10),
   });
+  if (!isPackedClassRoutine(result.routine)) {
+    return result;
+  }
   const registeredSubjectIds = await repo.getRegisteredSubjectIdsForStudent(enrollment.student_id);
   return {
     ...result,
@@ -1303,94 +1395,6 @@ function examRoutineEntryToPayload(entry) {
       invigilation_role: "invigilator",
     })),
   };
-}
-
-function normalizeSubstitutionPayload(body, userId) {
-  const changeType = requiredString(body.change_type, "change_type");
-  if (!SUBSTITUTION_TYPES.has(changeType)) {
-    throw new AppError(`Invalid substitution change type: ${changeType}`, 400);
-  }
-  const startTime = normalizeTime(body.start_time, "start_time");
-  const endTime = normalizeTime(body.end_time, "end_time");
-  ensureTimeOrder(startTime, endTime);
-  const startsOn = normalizeDate(body.starts_on ?? body.date, "starts_on");
-  const endsOn = normalizeDate(body.ends_on ?? startsOn, "ends_on");
-  if (startsOn > endsOn) throw new AppError("starts_on cannot be after ends_on", 400);
-  return {
-    class_routine_entry_id: intValue(body.class_routine_entry_id, "class_routine_entry_id", { required: false }),
-    session_id: intValue(body.session_id, "session_id"),
-    class_id: intValue(body.class_id, "class_id"),
-    section_id: intValue(body.section_id, "section_id"),
-    medium: requiredString(body.medium, "medium"),
-    stream_id: intValue(body.stream_id, "stream_id", { required: false }),
-    weekday: body.weekday ? normalizeWeekday(body.weekday) : null,
-    period_number: intValue(body.period_number, "period_number", { required: false }),
-    starts_on: startsOn,
-    ends_on: endsOn,
-    start_time: startTime,
-    end_time: endTime,
-    change_type: changeType,
-    original_subject_id: intValue(body.original_subject_id, "original_subject_id", { required: false }),
-    replacement_subject_id: intValue(body.replacement_subject_id, "replacement_subject_id", { required: false }),
-    title: optionalString(body.title),
-    original_room: optionalString(body.original_room),
-    replacement_room: optionalString(body.replacement_room),
-    reason: optionalString(body.reason),
-    notes: optionalString(body.notes),
-    user_id: userId,
-  };
-}
-
-export function listSubstitutions(filters) {
-  return repo.listSubstitutions(filters);
-}
-
-export async function getSubstitution(id) {
-  const substitution = await repo.getSubstitutionWithTeachers(intValue(id, "substitution id"));
-  if (!substitution) throw new AppError("Routine substitution not found", 404);
-  return substitution;
-}
-
-export function createSubstitution(body, userId) {
-  return repo.createSubstitution(normalizeSubstitutionPayload(body, userId), normalizeTeachers(body.teachers || []));
-}
-
-export async function updateSubstitution(id, body, userId) {
-  const result = await repo.updateSubstitutionDraft(
-    intValue(id, "substitution id"),
-    normalizeSubstitutionPayload(body, userId),
-    Array.isArray(body.teachers) ? normalizeTeachers(body.teachers) : undefined
-  );
-  if (!result) throw new AppError("Only draft substitutions can be updated", 400);
-  return result;
-}
-
-export async function publishSubstitution(id, userId) {
-  const substitutionId = intValue(id, "substitution id");
-  const substitution = await repo.getSubstitutionById(substitutionId);
-  if (!substitution) throw new AppError("Routine substitution not found", 404);
-  if (substitution.status !== "draft") {
-    throw new AppError("Only draft substitutions can be published", 400);
-  }
-  const conflicts = await repo.findSubstitutionTeacherConflicts(substitutionId);
-  if (conflicts.length) {
-    const names = [...new Set(conflicts.map((item) => item.teacher_name).filter(Boolean))].slice(0, 3).join(", ");
-    throw new AppError(`Teacher time conflict found${names ? ` for ${names}` : ""}. Resolve conflicts before publishing.`, 400);
-  }
-  const substitutionConflicts = await repo.findPublishedSubstitutionTeacherConflicts(substitutionId);
-  if (substitutionConflicts.length) {
-    const names = [...new Set(substitutionConflicts.map((item) => item.teacher_name).filter(Boolean))].slice(0, 3).join(", ");
-    throw new AppError(`Teacher already has a published substitution${names ? ` for ${names}` : ""} in this time range.`, 400);
-  }
-  const result = await repo.publishSubstitution(substitutionId, userId);
-  if (!result) throw new AppError("Routine substitution not found", 404);
-  return result;
-}
-
-export async function cancelSubstitution(id, userId) {
-  const result = await repo.cancelSubstitution(intValue(id, "substitution id"), userId);
-  if (!result) throw new AppError("Routine substitution not found", 404);
-  return result;
 }
 
 export async function downloadClassRoutinePdf(id) {

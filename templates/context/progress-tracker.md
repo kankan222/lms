@@ -14,6 +14,19 @@ Update this file after every meaningful implementation change.
 
 ## Completed
 
+- Added Time Slot Template editing and guarded deletion: admins can edit
+  template metadata/slots from the Routine Time Slots tab, remove individual
+  slots, and delete only unused templates through a backend check that blocks
+  deletion while class routines still reference the template.
+- Removed Routine Substitutions from the active product scope: software no
+  longer shows the Substitutions tab or calls substitution APIs, mobile routine
+  views no longer merge/style substitution entries, backend routes/services/
+  repositories were removed, admin seeds no longer include the permission, and
+  a cleanup migration retires the substitution permission and tables.
+- Added explicit class routine layout modes so existing school and normal HS
+  routines remain `standard`, while only selected Higher Secondary packed
+  routines use `packed_hs` behavior for per-entry medium/section applicability
+  and multiple subject rows in the same slot.
 - Added staff typing to the teacher-backed staff records used for attendance:
   `teachers.staff_type` now supports teaching and non-teaching staff, existing
   rows default to teaching, staff type is available in teacher APIs, create/edit
@@ -103,22 +116,23 @@ Update this file after every meaningful implementation change.
   sorting by display order instead of alphabetical class name.
 - Documented the planned Routine and Announcements modules in requirements,
   project overview, and architecture context: class/exam routine versioning,
-  breaks, substitutions, teacher conflict rules, role-specific views, DLT-based
+  breaks, teacher conflict rules, role-specific views, DLT-based
   offline SMS announcements, holiday calendar records, and mobile/software
   navigation expectations.
 - Added initial database migrations for Routine and Announcements schemas:
   time-slot templates, class routine versions/entries/teachers, exam routine
-  versions/entries/invigilators, routine substitutions, announcement
+  versions/entries/invigilators, routine substitution tables later retired,
+  announcement
   categories, DLT SMS templates, announcement targets/attachments, SMS jobs and
   recipients, holiday calendar records, and role permission seeds.
 - Added the initial backend Routine module with protected routes, controllers,
   services, repositories, and PDF generation for time-slot templates, class
   routine draft/publish/version reads, exam routines linked to existing exams,
-  substitutions, effective class routine reads, student-scoped routine reads,
+  effective class routine reads, student-scoped routine reads,
   and teacher own-routine reads.
 - Added the initial internal software Routine page and API wrapper, with a new
-  Routine sidebar section, tabs for Class Routine, Exam Routine, Substitutions,
-  and Time Slots, plus draft creation, publish actions, substitution cancel,
+  Routine sidebar section, tabs for Class Routine, Exam Routine,
+  and Time Slots, plus draft creation, publish actions,
   filtering, and routine PDF downloads wired to the backend.
 - Applied the Routine schema migration locally and adjusted the
   `class_routine_versions.stream_id` foreign key to avoid MySQL rejecting

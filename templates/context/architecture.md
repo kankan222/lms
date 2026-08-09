@@ -50,8 +50,8 @@
   teachers, attendance, exams, marks, approvals, fees, payments,
   optional transportation routes/pickup points, student-specific transport
   assignments, transport dues/payments/receipts, class routines, exam routines,
-  routine substitutions, announcements, DLT SMS templates, holiday calendar
-  records, messages, notifications, staff records, contact submissions, and
+  announcements, DLT SMS templates, holiday calendar records,
+  messages, notifications, staff records, contact submissions, and
   sync events.
 - **Local file storage**: uploaded student, teacher, and staff media
   served by Express through `/uploads`; messaging media may use the
@@ -165,7 +165,7 @@
     conversation-based Messaging.
 17. Offline announcement SMS may be sent only after announcement publish and
     must use a registered DLT template.
-18. Exam routine and substitution publish flows must preserve draft/published
+18. Exam routine publish flows must preserve draft/published
     state history and archive the previous published record for the same scope.
     Class routine normal edits update the canonical routine for that class
     scope instead of creating duplicate draft rows.
@@ -178,6 +178,11 @@
   stream where applicable. Normal create, import, full-edit, and slot-edit
   operations upsert the canonical routine for that class scope instead of
   creating duplicate version rows.
+- Class routines have an explicit `layout_mode`. `standard` routines are the
+  default and remain section/medium-specific with one entry per day/period.
+  `packed_hs` is available only for Higher Secondary packed routines and is the
+  only mode that may use per-entry medium/section applicability or multiple
+  subject rows in one period.
 - Class routine reads default to the canonical Current row for each class
   scope, with explicit All versions access retained for old duplicate rows.
   Current selection prefers the published routine for the scope and falls back
@@ -201,30 +206,16 @@
   class scope. Section and medium are optional because exam routines are
   class-wide by default. Eligibility uses active `subject_offerings` and also
   accepts legacy `class_subjects` where older assignment data still exists.
-- Teacher time conflicts must be blocked at publish time for routines and
-  substitutions. Multiple teachers may be assigned to one period when needed.
+- Teacher time conflicts must be blocked at publish time for routines.
+  Multiple teachers may be assigned to one period when needed.
 - Rooms are optional.
 - Parent/student routine views expose only subject and time. Teacher views
-  include assigned class/section, subject, room, and substitution duties.
+  include assigned class/section, subject, and room.
 - Published class and exam routines must support PDF output.
 - Excel import is a later workflow. Class routine imports should upsert the
   canonical routine for each resolved class scope, while exam routine imports
   should create draft routines. Imports should expose unresolved class,
   section, subject, teacher, and conflict mappings before save.
-
-## Routine Substitution Model
-
-- Routine substitutions are admin/super-admin managed temporary changes over
-  the published base routine.
-- Substitutions support single dates and date ranges.
-- Substitutions have draft and published states; published substitutions apply
-  immediately to effective routine reads.
-- Supported substitution types include teacher substitution, subject change,
-  extra class, cancelled period, free period, and room change.
-- Cancelled periods and extra classes are visible to parents/students.
-- Substitutions may notify affected teachers, parents, and students.
-- Substitution history is retained after the affected date passes.
-- Attendance records do not drive routine substitution generation.
 
 ## Announcement Model
 

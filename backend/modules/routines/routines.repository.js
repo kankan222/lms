@@ -12,6 +12,10 @@ function normalizeScopeValue(value, fallback = null) {
   return hasValue(value) ? value : fallback;
 }
 
+function packedRoutineScopePredicate(column) {
+  return `(${column} = ? OR (v.layout_mode = 'packed_hs' AND ${column} IS NULL))`;
+}
+
 async function hasClassRoutineApplicabilitySchema() {
   if (!classRoutineApplicabilityPromise) {
     classRoutineApplicabilityPromise = query(
@@ -165,6 +169,21 @@ export async function updateTimeSlotTemplate(id, data, slots) {
   }
 }
 
+export function countClassRoutinesUsingTemplate(id) {
+  return query(
+    `
+      SELECT COUNT(*) AS usage_count
+      FROM class_routine_versions
+      WHERE time_slot_template_id = ?
+    `,
+    [id]
+  ).then((rows) => Number(rows[0]?.usage_count || 0));
+}
+
+export function deleteTimeSlotTemplate(id) {
+  return query("DELETE FROM routine_time_slot_templates WHERE id = ?", [id]);
+}
+
 async function replaceTimeSlots(conn, templateId, slots = []) {
   await conn.execute("DELETE FROM routine_time_slots WHERE template_id = ?", [templateId]);
   for (const slot of slots) {
@@ -204,17 +223,29 @@ export async function getTimeSlotTemplateWithSlots(id) {
   return { ...template, slots };
 }
 
+export function getClassById(id) {
+  return query(
+    `
+      SELECT id, name, COALESCE(class_scope, 'school') AS class_scope
+      FROM classes
+      WHERE id = ?
+      LIMIT 1
+    `,
+    [id]
+  ).then((rows) => rows[0] || null);
+}
+
 export function listClassRoutineVersions(filters = {}) {
   const where = [];
   const params = [];
   appendFilter(where, params, "v.session_id", filters.session_id);
   appendFilter(where, params, "v.class_id", filters.class_id);
   if (hasValue(filters.section_id)) {
-    where.push("(v.section_id = ? OR v.section_id IS NULL)");
+    where.push(packedRoutineScopePredicate("v.section_id"));
     params.push(filters.section_id);
   }
   if (hasValue(filters.medium)) {
-    where.push("(v.medium = ? OR v.medium IS NULL)");
+    where.push(packedRoutineScopePredicate("v.medium"));
     params.push(filters.medium);
   }
   appendFilter(where, params, "v.stream_id", filters.stream_id);
@@ -229,6 +260,7 @@ export function listClassRoutineVersions(filters = {}) {
           AND COALESCE(other.section_id, 0) = COALESCE(v.section_id, 0)
           AND COALESCE(other.medium, '') = COALESCE(v.medium, '')
           AND other.stream_id_dedupe = v.stream_id_dedupe
+          AND other.layout_mode = v.layout_mode
           AND other.status IN ('draft', 'published')
           AND (
             CASE other.status WHEN 'published' THEN 1 WHEN 'draft' THEN 2 ELSE 3 END
@@ -290,11 +322,11 @@ export async function listClassRoutineBoardRowsImpl(filters = {}) {
     appendFilter(where, params, "v.session_id", filters.session_id);
     appendFilter(where, params, "v.class_id", filters.class_id);
     if (hasValue(filters.section_id)) {
-      where.push("(v.section_id = ? OR v.section_id IS NULL)");
+      where.push(packedRoutineScopePredicate("v.section_id"));
       params.push(filters.section_id);
     }
     if (hasValue(filters.medium)) {
-      where.push("(v.medium = ? OR v.medium IS NULL)");
+      where.push(packedRoutineScopePredicate("v.medium"));
       params.push(filters.medium);
     }
     appendFilter(where, params, "v.stream_id", filters.stream_id);
@@ -313,6 +345,7 @@ export async function listClassRoutineBoardRowsImpl(filters = {}) {
             AND COALESCE(other.section_id, 0) = COALESCE(v.section_id, 0)
             AND COALESCE(other.medium, '') = COALESCE(v.medium, '')
             AND other.stream_id_dedupe = v.stream_id_dedupe
+            AND other.layout_mode = v.layout_mode
             AND other.status IN ('draft', 'published')
             AND (
               CASE other.status WHEN 'published' THEN 1 WHEN 'draft' THEN 2 ELSE 3 END
@@ -355,6 +388,7 @@ export async function listClassRoutineBoardRowsImpl(filters = {}) {
         sec.name AS section_name,
         v.medium,
         v.stream_id,
+        v.layout_mode,
         st.name AS stream_name,
         v.time_slot_template_id,
         v.version_number,
@@ -433,6 +467,7 @@ export function getClassRoutineVersionById(id) {
         v.*,
         ses.name AS session_name,
         c.name AS class_name,
+        COALESCE(c.class_scope, 'school') AS class_scope,
         sec.name AS section_name,
         st.name AS stream_name
       FROM class_routine_versions v
@@ -464,6 +499,7 @@ export async function getCanonicalClassRoutineForScope(scope) {
         AND COALESCE(section_id, 0) = COALESCE(?, 0)
         AND COALESCE(medium, '') = COALESCE(?, '')
         AND stream_id_dedupe = ${STREAM_DEDUPE_SQL}
+        AND layout_mode = ?
         AND status IN ('published', 'draft')
       ORDER BY
         CASE status WHEN 'published' THEN 1 WHEN 'draft' THEN 2 ELSE 3 END,
@@ -471,7 +507,7 @@ export async function getCanonicalClassRoutineForScope(scope) {
         id DESC
       LIMIT 1
     `,
-    [scope.session_id, scope.class_id, scope.section_id, scope.medium, scope.stream_id]
+    [scope.session_id, scope.class_id, scope.section_id, scope.medium, scope.stream_id, scope.layout_mode || "standard"]
   );
   const routine = rows[0] || null;
   return routine ? getClassRoutineWithEntries(routine.id) : null;
@@ -539,9 +575,9 @@ export async function createClassRoutineVersion(data, entries) {
     const [result] = await conn.execute(
       `
         INSERT INTO class_routine_versions
-        (session_id, class_id, section_id, medium, stream_id, time_slot_template_id, version_number,
+        (session_id, class_id, section_id, medium, stream_id, layout_mode, time_slot_template_id, version_number,
          status, title, source, parent_version_id, created_by, updated_by)
-        VALUES (?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?, ?, ?)
       `,
       [
         data.session_id,
@@ -549,6 +585,7 @@ export async function createClassRoutineVersion(data, entries) {
         data.section_id,
         data.medium,
         data.stream_id,
+        data.layout_mode || "standard",
         data.time_slot_template_id,
         versionNumber,
         data.title,
@@ -587,10 +624,11 @@ export async function updateClassRoutineRecord(id, data, entries) {
         UPDATE class_routine_versions
         SET title = ?,
             time_slot_template_id = ?,
+            layout_mode = COALESCE(?, layout_mode),
             updated_by = ?
         WHERE id = ?
       `,
-      [data.title, data.time_slot_template_id, data.user_id, id]
+      [data.title, data.time_slot_template_id, data.layout_mode || null, data.user_id, id]
     );
     if (!result.affectedRows) {
       await conn.rollback();
@@ -621,8 +659,9 @@ async function nextClassRoutineVersionNumber(conn, data) {
         AND COALESCE(section_id, 0) = COALESCE(?, 0)
         AND COALESCE(medium, '') = COALESCE(?, '')
         AND stream_id_dedupe = ${STREAM_DEDUPE_SQL}
+        AND layout_mode = ?
     `,
-    [data.session_id, data.class_id, data.section_id, data.medium, data.stream_id]
+    [data.session_id, data.class_id, data.section_id, data.medium, data.stream_id, data.layout_mode || "standard"]
   );
   return Number(rows[0]?.next_version || 1);
 }
@@ -753,9 +792,10 @@ export async function publishClassRoutineVersion(id, userId) {
           AND COALESCE(section_id, 0) = COALESCE(?, 0)
           AND COALESCE(medium, '') = COALESCE(?, '')
           AND stream_id_dedupe = COALESCE(?, 0)
+          AND layout_mode = ?
           AND status = 'published'
       `,
-      [userId, id, version.session_id, version.class_id, version.section_id, version.medium, version.stream_id]
+      [userId, id, version.session_id, version.class_id, version.section_id, version.medium, version.stream_id, version.layout_mode || "standard"]
     );
     await conn.execute(
       `
@@ -867,8 +907,8 @@ export function getPublishedClassRoutineForScope(filters) {
       FROM class_routine_versions
       WHERE session_id = ?
         AND class_id = ?
-        AND (section_id = ? OR section_id IS NULL)
-        AND (medium = ? OR medium IS NULL)
+        AND (section_id = ? OR (layout_mode = 'packed_hs' AND section_id IS NULL))
+        AND (medium = ? OR (layout_mode = 'packed_hs' AND medium IS NULL))
         AND stream_id_dedupe = COALESCE(?, 0)
         AND status = 'published'
       ORDER BY
@@ -894,42 +934,6 @@ export async function getRegisteredSubjectIdsForStudent(studentId) {
     [studentId]
   ).catch(() => []);
   return rows.map((row) => Number(row.subject_id)).filter(Boolean);
-}
-
-export function getEffectiveSubstitutions(filters = {}) {
-  const where = [
-    "s.status = 'published'",
-    "s.session_id = ?",
-    "s.class_id = ?",
-    "s.section_id = ?",
-    "s.medium = ?",
-    "? BETWEEN s.starts_on AND s.ends_on",
-  ];
-  const params = [filters.session_id, filters.class_id, filters.section_id, filters.medium, filters.date];
-  if (hasValue(filters.stream_id)) {
-    where.push("(s.stream_id IS NULL OR s.stream_id = ?)");
-    params.push(filters.stream_id);
-  }
-
-  return query(
-    `
-      SELECT
-        s.*,
-        os.name AS original_subject_name,
-        rs.name AS replacement_subject_name,
-        GROUP_CONCAT(CASE WHEN st.assignment_role = 'replacement' THEN t.id END ORDER BY t.name) AS replacement_teacher_ids,
-        GROUP_CONCAT(CASE WHEN st.assignment_role = 'replacement' THEN t.name END ORDER BY t.name SEPARATOR ', ') AS replacement_teacher_names
-      FROM routine_substitutions s
-      LEFT JOIN subjects os ON os.id = s.original_subject_id
-      LEFT JOIN subjects rs ON rs.id = s.replacement_subject_id
-      LEFT JOIN routine_substitution_teachers st ON st.substitution_id = s.id
-      LEFT JOIN teachers t ON t.id = st.teacher_id
-      WHERE ${where.join(" AND ")}
-      GROUP BY s.id
-      ORDER BY s.start_time, s.period_number, s.id
-    `,
-    params
-  );
 }
 
 export function getTeacherByUserId(userId) {
@@ -1458,327 +1462,3 @@ export function findInvalidExamSubjects(versionId) {
   );
 }
 
-export function listSubstitutions(filters = {}) {
-  const where = [];
-  const params = [];
-  appendFilter(where, params, "s.session_id", filters.session_id);
-  appendFilter(where, params, "s.class_id", filters.class_id);
-  appendFilter(where, params, "s.section_id", filters.section_id);
-  appendFilter(where, params, "s.status", filters.status);
-  appendFilter(where, params, "s.starts_on", filters.starts_on);
-  appendFilter(where, params, "s.ends_on", filters.ends_on);
-
-  return query(
-    `
-      SELECT
-        s.*,
-        c.name AS class_name,
-        sec.name AS section_name,
-        stn.name AS stream_name,
-        os.name AS original_subject_name,
-        rs.name AS replacement_subject_name,
-        creator.username AS created_by_name,
-        updater.username AS updated_by_name,
-        GROUP_CONCAT(t.id ORDER BY st.assignment_role, t.name SEPARATOR ',') AS teacher_ids,
-        GROUP_CONCAT(st.assignment_role ORDER BY st.assignment_role, t.name SEPARATOR ',') AS teacher_roles,
-        GROUP_CONCAT(t.name ORDER BY st.assignment_role, t.name SEPARATOR ', ') AS teacher_names
-      FROM routine_substitutions s
-      JOIN classes c ON c.id = s.class_id
-      JOIN sections sec ON sec.id = s.section_id
-      LEFT JOIN streams stn ON stn.id = s.stream_id
-      LEFT JOIN subjects os ON os.id = s.original_subject_id
-      LEFT JOIN subjects rs ON rs.id = s.replacement_subject_id
-      LEFT JOIN users creator ON creator.id = s.created_by
-      LEFT JOIN users updater ON updater.id = s.updated_by
-      LEFT JOIN routine_substitution_teachers st ON st.substitution_id = s.id
-      LEFT JOIN teachers t ON t.id = st.teacher_id
-      ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
-      GROUP BY s.id
-      ORDER BY s.starts_on DESC, s.start_time ASC, s.id DESC
-    `,
-    params
-  );
-}
-
-export function getSubstitutionById(id) {
-  return query(
-    `
-      SELECT
-        s.*,
-        c.name AS class_name,
-        sec.name AS section_name,
-        stn.name AS stream_name,
-        os.name AS original_subject_name,
-        rs.name AS replacement_subject_name,
-        creator.username AS created_by_name,
-        updater.username AS updated_by_name
-      FROM routine_substitutions s
-      JOIN classes c ON c.id = s.class_id
-      JOIN sections sec ON sec.id = s.section_id
-      LEFT JOIN streams stn ON stn.id = s.stream_id
-      LEFT JOIN subjects os ON os.id = s.original_subject_id
-      LEFT JOIN subjects rs ON rs.id = s.replacement_subject_id
-      LEFT JOIN users creator ON creator.id = s.created_by
-      LEFT JOIN users updater ON updater.id = s.updated_by
-      WHERE s.id = ?
-      LIMIT 1
-    `,
-    [id]
-  ).then((rows) => rows[0] || null);
-}
-
-export async function getSubstitutionWithTeachers(id) {
-  const substitution = await getSubstitutionById(id);
-  if (!substitution) return null;
-  const teachers = await query(
-    `
-      SELECT st.*, t.name AS teacher_name
-      FROM routine_substitution_teachers st
-      JOIN teachers t ON t.id = st.teacher_id
-      WHERE st.substitution_id = ?
-      ORDER BY st.assignment_role, t.name
-    `,
-    [id]
-  );
-  return { ...substitution, teachers };
-}
-
-export async function createSubstitution(data, teachers) {
-  const conn = await pool.getConnection();
-  try {
-    await conn.beginTransaction();
-    const [result] = await conn.execute(
-      `
-        INSERT INTO routine_substitutions
-        (class_routine_entry_id, session_id, class_id, section_id, medium, stream_id,
-         weekday, period_number, starts_on, ends_on, start_time, end_time, change_type,
-         status, original_subject_id, replacement_subject_id, title, original_room,
-         replacement_room, reason, notes, created_by, updated_by)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `,
-      [
-        data.class_routine_entry_id,
-        data.session_id,
-        data.class_id,
-        data.section_id,
-        data.medium,
-        data.stream_id,
-        data.weekday,
-        data.period_number,
-        data.starts_on,
-        data.ends_on,
-        data.start_time,
-        data.end_time,
-        data.change_type,
-        data.original_subject_id,
-        data.replacement_subject_id,
-        data.title,
-        data.original_room,
-        data.replacement_room,
-        data.reason,
-        data.notes,
-        data.user_id,
-        data.user_id,
-      ]
-    );
-    await replaceSubstitutionTeachers(conn, result.insertId, teachers);
-    await conn.commit();
-    return getSubstitutionWithTeachers(result.insertId);
-  } catch (err) {
-    await conn.rollback();
-    throw err;
-  } finally {
-    conn.release();
-  }
-}
-
-export async function updateSubstitutionDraft(id, data, teachers) {
-  const conn = await pool.getConnection();
-  try {
-    await conn.beginTransaction();
-    const [result] = await conn.execute(
-      `
-        UPDATE routine_substitutions
-        SET class_routine_entry_id = ?,
-            session_id = ?,
-            class_id = ?,
-            section_id = ?,
-            medium = ?,
-            stream_id = ?,
-            weekday = ?,
-            period_number = ?,
-            starts_on = ?,
-            ends_on = ?,
-            start_time = ?,
-            end_time = ?,
-            change_type = ?,
-            original_subject_id = ?,
-            replacement_subject_id = ?,
-            title = ?,
-            original_room = ?,
-            replacement_room = ?,
-            reason = ?,
-            notes = ?,
-            updated_by = ?
-        WHERE id = ? AND status = 'draft'
-      `,
-      [
-        data.class_routine_entry_id,
-        data.session_id,
-        data.class_id,
-        data.section_id,
-        data.medium,
-        data.stream_id,
-        data.weekday,
-        data.period_number,
-        data.starts_on,
-        data.ends_on,
-        data.start_time,
-        data.end_time,
-        data.change_type,
-        data.original_subject_id,
-        data.replacement_subject_id,
-        data.title,
-        data.original_room,
-        data.replacement_room,
-        data.reason,
-        data.notes,
-        data.user_id,
-        id,
-      ]
-    );
-    if (!result.affectedRows) {
-      await conn.rollback();
-      return null;
-    }
-    if (Array.isArray(teachers)) {
-      await replaceSubstitutionTeachers(conn, id, teachers);
-    }
-    await conn.commit();
-    return getSubstitutionWithTeachers(id);
-  } catch (err) {
-    await conn.rollback();
-    throw err;
-  } finally {
-    conn.release();
-  }
-}
-
-async function replaceSubstitutionTeachers(conn, substitutionId, teachers = []) {
-  await conn.execute("DELETE FROM routine_substitution_teachers WHERE substitution_id = ?", [substitutionId]);
-  for (const teacher of teachers) {
-    await conn.execute(
-      `
-        INSERT INTO routine_substitution_teachers
-        (substitution_id, teacher_id, assignment_role)
-        VALUES (?, ?, ?)
-      `,
-      [substitutionId, teacher.teacher_id, teacher.assignment_role || "replacement"]
-    );
-  }
-}
-
-export async function publishSubstitution(id, userId) {
-  const result = await query(
-    `
-      UPDATE routine_substitutions
-      SET status = 'published',
-          published_at = COALESCE(published_at, NOW()),
-          updated_by = ?
-      WHERE id = ? AND status = 'draft'
-    `,
-    [userId, id]
-  );
-  if (!result.affectedRows) return null;
-  return getSubstitutionWithTeachers(id);
-}
-
-export async function cancelSubstitution(id, userId) {
-  const result = await query(
-    `
-      UPDATE routine_substitutions
-      SET status = 'cancelled',
-          cancelled_at = COALESCE(cancelled_at, NOW()),
-          updated_by = ?
-      WHERE id = ?
-    `,
-    [userId, id]
-  );
-  if (!result.affectedRows) return null;
-  return getSubstitutionWithTeachers(id);
-}
-
-export function findSubstitutionTeacherConflicts(substitutionId) {
-  return query(
-    `
-      SELECT
-        st.teacher_id,
-        t.name AS teacher_name,
-        s.starts_on,
-        s.ends_on,
-        s.start_time,
-        s.end_time,
-        e.weekday,
-        v.id AS conflicting_version_id
-      FROM routine_substitutions s
-      JOIN routine_substitution_teachers st
-        ON st.substitution_id = s.id
-       AND st.assignment_role IN ('replacement','additional')
-      JOIN teachers t ON t.id = st.teacher_id
-      JOIN class_routine_versions v
-        ON v.session_id = s.session_id
-       AND v.status = 'published'
-      JOIN class_routine_entries e
-        ON e.routine_version_id = v.id
-       AND s.start_time < e.end_time
-       AND s.end_time > e.start_time
-       AND (s.weekday IS NULL OR e.weekday = s.weekday)
-       AND (s.class_routine_entry_id IS NULL OR e.id <> s.class_routine_entry_id)
-      JOIN class_routine_entry_teachers et
-        ON et.routine_entry_id = e.id
-       AND et.teacher_id = st.teacher_id
-      WHERE s.id = ?
-      ORDER BY t.name, e.weekday, e.start_time
-    `,
-    [substitutionId]
-  );
-}
-
-export function findPublishedSubstitutionTeacherConflicts(substitutionId) {
-  return query(
-    `
-      SELECT
-        st.teacher_id,
-        t.name AS teacher_name,
-        other.id AS conflicting_substitution_id,
-        other.starts_on,
-        other.ends_on,
-        other.start_time,
-        other.end_time,
-        other.change_type,
-        c.name AS class_name,
-        sec.name AS section_name
-      FROM routine_substitutions s
-      JOIN routine_substitution_teachers st
-        ON st.substitution_id = s.id
-       AND st.assignment_role IN ('replacement','additional')
-      JOIN teachers t ON t.id = st.teacher_id
-      JOIN routine_substitution_teachers other_st
-        ON other_st.teacher_id = st.teacher_id
-       AND other_st.assignment_role IN ('replacement','additional')
-      JOIN routine_substitutions other
-        ON other.id = other_st.substitution_id
-       AND other.id <> s.id
-       AND other.status = 'published'
-       AND s.start_time < other.end_time
-       AND s.end_time > other.start_time
-       AND s.starts_on <= other.ends_on
-       AND s.ends_on >= other.starts_on
-      JOIN classes c ON c.id = other.class_id
-      JOIN sections sec ON sec.id = other.section_id
-      WHERE s.id = ?
-      ORDER BY t.name, other.starts_on, other.start_time
-    `,
-    [substitutionId]
-  );
-}

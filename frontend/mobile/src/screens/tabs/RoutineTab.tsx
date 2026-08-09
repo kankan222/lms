@@ -61,7 +61,6 @@ function formatTime(value?: string | null) {
 }
 
 function entryTitle(entry: RoutineEntry) {
-  if (entry.is_substitution && entry.substitution_title) return entry.substitution_title;
   return entry.subject_name || entry.activity_name || entry.title || entry.slot_label || (entry.entry_type === "break" ? "Break" : "Free Period");
 }
 
@@ -230,7 +229,7 @@ export default function RoutineTab() {
           return;
         }
         const response = await getStudentRoutine(studentId, { date: todayDate() });
-        setEntries([...routineEntriesFromResponse(response), ...(response.substitutions || [])]);
+        setEntries(routineEntriesFromResponse(response));
         return;
       }
 
@@ -270,7 +269,7 @@ export default function RoutineTab() {
     const student = students.find((item) => Number(item.id) === Number(selectedStudentId)) ?? null;
     void getStudentRoutine(selectedStudentId, { date: todayDate() })
       .then(async (response) => {
-        setEntries([...routineEntriesFromResponse(response), ...(response.substitutions || [])]);
+        setEntries(routineEntriesFromResponse(response));
         await loadExamRoutineEntries(student);
       })
       .catch(() => setError("Could not load routine right now."));
@@ -317,7 +316,7 @@ export default function RoutineTab() {
           styles.entryCard,
           {
             backgroundColor: muted ? theme.cardMuted : theme.card,
-            borderColor: entry.is_substitution ? theme.warningBorder : theme.border,
+            borderColor: theme.border,
           },
         ]}>
           <View style={styles.rowBetween}>
@@ -330,15 +329,15 @@ export default function RoutineTab() {
             <View style={[
               styles.entryTypeBadge,
               {
-                backgroundColor: entry.is_substitution ? theme.warningSoft : theme.successSoft,
-                borderColor: entry.is_substitution ? theme.warningBorder : theme.successBorder,
+                backgroundColor: theme.successSoft,
+                borderColor: theme.successBorder,
               },
             ]}>
               <Text style={[
                 styles.entryTypeText,
-                { color: entry.is_substitution ? theme.warningText : theme.primary },
+                { color: theme.primary },
               ]}>
-                {entry.is_substitution ? "Switch" : isBreak ? "Break" : isFree ? "Free" : "Class"}
+                {isBreak ? "Break" : isFree ? "Free" : "Class"}
               </Text>
             </View>
           </View>
@@ -542,7 +541,7 @@ export default function RoutineTab() {
               ? "Mobile is ready for viewing once a routine is published."
               : mode === "exam"
                 ? "Published exam papers will appear here."
-                : "Published classes, breaks and substitutions will appear here."}
+                : "Published classes and breaks will appear here."}
           </Text>
         </View>
       )}

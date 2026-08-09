@@ -60,7 +60,6 @@ const PERMISSIONS = [
   "routines.view",
   "routines.manage",
   "routines.publish",
-  "routine_substitutions.manage",
   "exam_routines.manage",
   "announcements.view",
   "announcements.manage",

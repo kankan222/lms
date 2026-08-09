@@ -9,6 +9,7 @@ router.get("/time-slot-templates", requirePermission("routines.view"), controlle
 router.get("/time-slot-templates/:id", requirePermission("routines.view"), controller.getTimeSlotTemplate);
 router.post("/time-slot-templates", requirePermission("routines.manage"), controller.createTimeSlotTemplate);
 router.put("/time-slot-templates/:id", requirePermission("routines.manage"), controller.updateTimeSlotTemplate);
+router.delete("/time-slot-templates/:id", requirePermission("routines.manage"), controller.deleteTimeSlotTemplate);
 
 router.get("/class-routines/effective", requirePermission("routines.view"), controller.effectiveClassRoutine);
 router.get("/class-routines/board", requirePermission("routines.view"), controller.classRoutineBoard);
@@ -42,13 +43,6 @@ router.post("/exam-routines/:id/draft", requirePermission("exam_routines.manage"
 router.delete("/exam-routines/:id", requirePermission("exam_routines.manage"), controller.deleteExamRoutine);
 router.post("/exam-routines/:id/publish", requirePermission("routines.publish"), controller.publishExamRoutine);
 router.get("/exam-routines/:id/pdf", requirePermission("routines.view"), controller.examRoutinePdf);
-
-router.get("/substitutions", requirePermission("routines.view"), controller.listSubstitutions);
-router.get("/substitutions/:id", requirePermission("routines.view"), controller.getSubstitution);
-router.post("/substitutions", requirePermission("routine_substitutions.manage"), controller.createSubstitution);
-router.put("/substitutions/:id", requirePermission("routine_substitutions.manage"), controller.updateSubstitution);
-router.post("/substitutions/:id/publish", requirePermission("routine_substitutions.manage"), controller.publishSubstitution);
-router.post("/substitutions/:id/cancel", requirePermission("routine_substitutions.manage"), controller.cancelSubstitution);
 
 router.get("/teacher/me", requirePermission("routines.view"), controller.myTeacherRoutine);
 router.get("/students/:studentId", requirePermission("routines.view"), controller.studentRoutine);

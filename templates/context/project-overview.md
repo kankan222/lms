@@ -54,9 +54,6 @@ staff content, and mobile access around one Express/MySQL backend.
   reusable time slots, break/activity/free/custom entries, teacher
   assignment validation, publish state, PDFs, and role-specific
   teacher/parent/student views.
-- Routine substitutions for date-specific or date-range temporary
-  changes such as extra classes, cancelled periods, teacher
-  substitutions, subject changes, and room changes.
 
 ### Attendance and Reporting
 

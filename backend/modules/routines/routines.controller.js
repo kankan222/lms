@@ -38,6 +38,14 @@ export async function updateTimeSlotTemplate(req, res, next) {
   }
 }
 
+export async function deleteTimeSlotTemplate(req, res, next) {
+  try {
+    res.json({ success: true, data: await service.deleteTimeSlotTemplate(req.params.id) });
+  } catch (err) {
+    next(err);
+  }
+}
+
 export async function listClassRoutines(req, res, next) {
   try {
     res.json({ success: true, data: await service.listClassRoutines(req.query) });
@@ -201,54 +209,6 @@ export async function deleteExamRoutine(req, res, next) {
 export async function publishExamRoutine(req, res, next) {
   try {
     res.json({ success: true, data: await service.publishExamRoutine(req.params.id, req.user.userId) });
-  } catch (err) {
-    next(err);
-  }
-}
-
-export async function listSubstitutions(req, res, next) {
-  try {
-    res.json({ success: true, data: await service.listSubstitutions(req.query) });
-  } catch (err) {
-    next(err);
-  }
-}
-
-export async function getSubstitution(req, res, next) {
-  try {
-    res.json({ success: true, data: await service.getSubstitution(req.params.id) });
-  } catch (err) {
-    next(err);
-  }
-}
-
-export async function createSubstitution(req, res, next) {
-  try {
-    res.status(201).json({ success: true, data: await service.createSubstitution(req.body, req.user.userId) });
-  } catch (err) {
-    next(err);
-  }
-}
-
-export async function updateSubstitution(req, res, next) {
-  try {
-    res.json({ success: true, data: await service.updateSubstitution(req.params.id, req.body, req.user.userId) });
-  } catch (err) {
-    next(err);
-  }
-}
-
-export async function publishSubstitution(req, res, next) {
-  try {
-    res.json({ success: true, data: await service.publishSubstitution(req.params.id, req.user.userId) });
-  } catch (err) {
-    next(err);
-  }
-}
-
-export async function cancelSubstitution(req, res, next) {
-  try {
-    res.json({ success: true, data: await service.cancelSubstitution(req.params.id, req.user.userId) });
   } catch (err) {
     next(err);
   }

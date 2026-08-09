@@ -53,6 +53,19 @@ export function createTimeSlotTemplate(data) {
   });
 }
 
+export function updateTimeSlotTemplate(id, data) {
+  return apiRequest(`/routines/time-slot-templates/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(data),
+  });
+}
+
+export function deleteTimeSlotTemplate(id) {
+  return apiRequest(`/routines/time-slot-templates/${id}`, {
+    method: "DELETE",
+  });
+}
+
 export function getClassRoutines(params = {}) {
   return apiRequest(`/routines/class-routines${buildQuery(params)}`);
 }
@@ -183,36 +196,4 @@ export function publishExamRoutine(id) {
 
 export function downloadExamRoutinePdf(id) {
   return fetchRoutineBlob(`/routines/exam-routines/${id}/pdf`, "Failed to download exam routine PDF");
-}
-
-export function getSubstitutions(params = {}) {
-  return apiRequest(`/routines/substitutions${buildQuery(params)}`);
-}
-
-export function createSubstitution(data) {
-  return apiRequest("/routines/substitutions", {
-    method: "POST",
-    body: JSON.stringify(data),
-  });
-}
-
-export function updateSubstitution(id, data) {
-  return apiRequest(`/routines/substitutions/${id}`, {
-    method: "PUT",
-    body: JSON.stringify(data),
-  });
-}
-
-export function publishSubstitution(id) {
-  return apiRequest(`/routines/substitutions/${id}/publish`, {
-    method: "POST",
-    body: JSON.stringify({}),
-  });
-}
-
-export function cancelSubstitution(id) {
-  return apiRequest(`/routines/substitutions/${id}/cancel`, {
-    method: "POST",
-    body: JSON.stringify({}),
-  });
 }
