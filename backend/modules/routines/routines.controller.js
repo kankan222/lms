@@ -85,6 +85,14 @@ export async function createClassRoutine(req, res, next) {
   }
 }
 
+export async function duplicateClassRoutine(req, res, next) {
+  try {
+    res.status(201).json({ success: true, data: await service.duplicateClassRoutine(req.params.id, req.body, req.user.userId) });
+  } catch (err) {
+    next(err);
+  }
+}
+
 export async function importClassRoutine(req, res, next) {
   try {
     res.json({ success: true, data: await service.importClassRoutine(req.file, req.body, req.user.userId) });

@@ -22,6 +22,7 @@ router.post(
 );
 router.get("/class-routines/:id", requirePermission("routines.view"), controller.getClassRoutine);
 router.post("/class-routines", requirePermission("routines.manage"), controller.createClassRoutine);
+router.post("/class-routines/:id/duplicate", requirePermission("routines.manage"), controller.duplicateClassRoutine);
 router.put("/class-routines/:id/slot", requirePermission("routines.manage"), controller.updateClassRoutineSlot);
 router.put("/class-routines/:id", requirePermission("routines.manage"), controller.updateClassRoutine);
 router.post("/class-routines/:id/draft", requirePermission("routines.manage"), controller.draftClassRoutine);

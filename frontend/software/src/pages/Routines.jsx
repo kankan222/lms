@@ -7,6 +7,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Clock,
+  Copy,
   Pencil,
   Plus,
   RefreshCcw,
@@ -63,6 +64,7 @@ import {
   deleteClassRoutine,
   deleteExamRoutine,
   deleteTimeSlotTemplate,
+  duplicateClassRoutine,
   downloadClassRoutineXlsx,
   downloadExamRoutinePdf,
   getClassRoutine,
@@ -725,6 +727,7 @@ export default function Routines() {
   const [templateOpen, setTemplateOpen] = useState(false);
   const [editingTemplateId, setEditingTemplateId] = useState(null);
   const [classOpen, setClassOpen] = useState(false);
+  const [duplicateClassOpen, setDuplicateClassOpen] = useState(false);
   const [examOpen, setExamOpen] = useState(false);
   const [editingExamRoutineId, setEditingExamRoutineId] = useState(null);
   const [classImportOpen, setClassImportOpen] = useState(false);
@@ -784,12 +787,26 @@ export default function Routines() {
     layout_mode: "standard",
     time_slot_template_id: "",
   });
+  const [duplicateClassForm, setDuplicateClassForm] = useState({
+    session_id: "",
+    class_id: "",
+    section_id: "",
+    medium: "",
+    stream_id: "",
+    layout_mode: "standard",
+    time_slot_template_id: "",
+    title: "",
+  });
 
   const [examForm, setExamForm] = useState(createInitialExamForm);
 
   const selectedClass = useMemo(
     () => classes.find((item) => String(item.id) === String(classForm.class_id)),
     [classes, classForm.class_id]
+  );
+  const selectedDuplicateClass = useMemo(
+    () => classes.find((item) => String(item.id) === String(duplicateClassForm.class_id)),
+    [classes, duplicateClassForm.class_id]
   );
 
   const selectedExamClass = useMemo(
@@ -801,6 +818,7 @@ export default function Routines() {
     [classes, selectedClassRoutine?.class_id]
   );
   const isPackedClassForm = selectedClass?.class_scope === "hs" && classForm.layout_mode === "packed_hs";
+  const isPackedDuplicateClassForm = selectedDuplicateClass?.class_scope === "hs" && duplicateClassForm.layout_mode === "packed_hs";
   const isPackedSelectedRoutine = selectedClassRoutine?.layout_mode === "packed_hs";
 
   const examScopeClasses = useMemo(
@@ -1486,6 +1504,44 @@ export default function Routines() {
     });
   }
 
+  function updateDuplicateClassForm(key, value) {
+    setDuplicateClassForm((current) => {
+      const next = { ...current, [key]: value };
+      if (key === "class_id") {
+        const targetClass = classes.find((item) => String(item.id) === String(value));
+        next.section_id = "";
+        next.medium = "";
+        next.stream_id = "";
+        next.layout_mode = targetClass?.class_scope === "hs" ? selectedClassRoutine?.layout_mode || "standard" : "standard";
+      }
+      if (key === "layout_mode" && value === "packed_hs") {
+        next.section_id = "";
+        next.medium = "";
+      }
+      if (key === "section_id") {
+        const section = (selectedDuplicateClass?.sections || []).find((item) => String(item.id) === String(value));
+        next.medium = section?.medium || "";
+      }
+      return next;
+    });
+  }
+
+  function openDuplicateClassRoutine() {
+    if (!selectedClassRoutine) return;
+    setError("");
+    setDuplicateClassForm({
+      session_id: selectedClassRoutine.session_id ? String(selectedClassRoutine.session_id) : "",
+      class_id: selectedClassRoutine.class_id ? String(selectedClassRoutine.class_id) : "",
+      section_id: selectedClassRoutine.section_id ? String(selectedClassRoutine.section_id) : "",
+      medium: selectedClassRoutine.medium || "",
+      stream_id: selectedClassRoutine.stream_id ? String(selectedClassRoutine.stream_id) : "",
+      layout_mode: selectedClassRoutine.layout_mode || "standard",
+      time_slot_template_id: selectedClassRoutine.time_slot_template_id ? String(selectedClassRoutine.time_slot_template_id) : "",
+      title: selectedClassRoutine.title ? `${selectedClassRoutine.title} Copy` : "",
+    });
+    setDuplicateClassOpen(true);
+  }
+
   function emptyTeacherSplitRow(index = 1, teacherId = "") {
     return { key: `teacher-${Date.now()}-${index}`, teacher_id: teacherId, weekdays: [] };
   }
@@ -2046,6 +2102,51 @@ export default function Routines() {
     }
   }
 
+  async function handleDuplicateClassRoutine(event) {
+    event.preventDefault();
+    setError("");
+    if (!selectedClassRoutine?.id) {
+      showError("Select a class routine to duplicate.");
+      return;
+    }
+    if (!duplicateClassForm.class_id) {
+      showError("Select a target class first.");
+      return;
+    }
+    if (duplicateClassForm.layout_mode === "packed_hs" && selectedDuplicateClass?.class_scope !== "hs") {
+      showError("Packed routine mode is only available for Higher Secondary classes.");
+      return;
+    }
+    if (!isPackedDuplicateClassForm && (!duplicateClassForm.section_id || !duplicateClassForm.medium)) {
+      showError("Select a target section and medium for standard class routines.");
+      return;
+    }
+    const selectedSection = (selectedDuplicateClass?.sections || []).find((section) => String(section.id) === String(duplicateClassForm.section_id));
+    const medium = isPackedDuplicateClassForm ? "" : selectedSection?.medium || duplicateClassForm.medium || "";
+    try {
+      const response = await duplicateClassRoutine(selectedClassRoutine.id, {
+        ...duplicateClassForm,
+        section_id: isPackedDuplicateClassForm ? null : toNumberOrNull(duplicateClassForm.section_id),
+        medium,
+        layout_mode: isPackedDuplicateClassForm ? "packed_hs" : "standard",
+        stream_id: toNumberOrNull(duplicateClassForm.stream_id),
+        time_slot_template_id: toNumberOrNull(duplicateClassForm.time_slot_template_id),
+      });
+      setDuplicateClassOpen(false);
+      showNotice("Class routine duplicated as a draft.");
+      const nextFilters = { ...filters, status: "draft" };
+      setFilters(nextFilters);
+      await loadRoutineData(nextFilters);
+      if (response.data?.id) {
+        setSelectedClassRoutineId(String(response.data.id));
+        setSelectedClassRoutine(response.data);
+        setClassViewMode("week");
+      }
+    } catch (err) {
+      showError(err.message || "Failed to duplicate class routine");
+    }
+  }
+
   async function handleImportClassRoutine() {
     if (!classImportFile) {
       showError("Choose a class routine XLSX or CSV file first.");
@@ -2447,6 +2548,75 @@ export default function Routines() {
         </DialogContent>
       </Dialog>
 
+      <Dialog open={duplicateClassOpen} onOpenChange={setDuplicateClassOpen}>
+        <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-[720px]">
+          <DialogHeader>
+            <DialogTitle>Duplicate Class Routine</DialogTitle>
+            <DialogDescription>Copy the selected routine into a new draft for another target. Published routines are not changed.</DialogDescription>
+          </DialogHeader>
+          <form className="space-y-4" onSubmit={handleDuplicateClassRoutine}>
+            <div className="rounded-md border border-border bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
+              Source: {selectedClassRoutineHeader || "Selected class routine"}
+            </div>
+            <div className="grid gap-3 md:grid-cols-2">
+              <Field label="Session">
+                <select required className={selectClassName} value={duplicateClassForm.session_id} onChange={(event) => updateDuplicateClassForm("session_id", event.target.value)}>
+                  <option value="">Select session</option>
+                  {sessions.map((session) => <option key={session.id} value={session.id}>{session.name}</option>)}
+                </select>
+              </Field>
+              <Field label="Template">
+                <select className={selectClassName} value={duplicateClassForm.time_slot_template_id} onChange={(event) => updateDuplicateClassForm("time_slot_template_id", event.target.value)}>
+                  <option value="">No template</option>
+                  {templates.map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}
+                </select>
+              </Field>
+              <Field label="Class">
+                <select required className={selectClassName} value={duplicateClassForm.class_id} onChange={(event) => updateDuplicateClassForm("class_id", event.target.value)}>
+                  <option value="">Select class</option>
+                  {classes.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+                </select>
+              </Field>
+              {selectedDuplicateClass?.class_scope === "hs" ? (
+                <Field label="Routine Mode">
+                  <select className={selectClassName} value={duplicateClassForm.layout_mode} onChange={(event) => updateDuplicateClassForm("layout_mode", event.target.value)}>
+                    <option value="standard">Standard section routine</option>
+                    <option value="packed_hs">Packed Higher Secondary routine</option>
+                  </select>
+                </Field>
+              ) : null}
+              <Field label="Section">
+                <select required={!isPackedDuplicateClassForm} disabled={isPackedDuplicateClassForm} className={selectClassName} value={isPackedDuplicateClassForm ? "" : duplicateClassForm.section_id} onChange={(event) => updateDuplicateClassForm("section_id", event.target.value)}>
+                  <option value="">{isPackedDuplicateClassForm ? "All sections" : "Select section"}</option>
+                  {(selectedDuplicateClass?.sections || []).map((section) => <option key={`${section.id}-${section.medium}`} value={section.id}>{section.name} - {section.medium}</option>)}
+                </select>
+              </Field>
+              <Field label="Medium">
+                <select required={!isPackedDuplicateClassForm} disabled={isPackedDuplicateClassForm || Boolean(duplicateClassForm.section_id)} className={selectClassName} value={isPackedDuplicateClassForm ? "" : duplicateClassForm.medium} onChange={(event) => updateDuplicateClassForm("medium", event.target.value)}>
+                  <option value="">{isPackedDuplicateClassForm ? "All mediums" : "Select medium"}</option>
+                  {(selectedDuplicateClass?.mediums || []).map((medium) => <option key={medium} value={medium}>{medium}</option>)}
+                </select>
+              </Field>
+              {selectedDuplicateClass?.class_scope === "hs" ? (
+                <Field label="Stream">
+                  <select className={selectClassName} value={duplicateClassForm.stream_id} onChange={(event) => updateDuplicateClassForm("stream_id", event.target.value)}>
+                    <option value="">No stream</option>
+                    {streams.map((stream) => <option key={stream.id} value={stream.id}>{stream.name}</option>)}
+                  </select>
+                </Field>
+              ) : null}
+              <Field label="Draft Title">
+                <Input value={duplicateClassForm.title} onChange={(event) => updateDuplicateClassForm("title", event.target.value)} placeholder="Optional title" />
+              </Field>
+            </div>
+            <div className="flex justify-end gap-2 border-t border-border pt-4">
+              <Button type="button" variant="outline" onClick={() => setDuplicateClassOpen(false)}>Cancel</Button>
+              <Button type="submit">Create Draft Copy</Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
+
       <Tabs value={activeTab} onValueChange={setActiveTab} className="min-w-0">
         <TabsList variant="line" className="w-full justify-start overflow-x-auto">
           <TabsTrigger value="class">
@@ -2557,6 +2727,12 @@ export default function Routines() {
                       <Upload className="mr-2 size-4" />
                       Import
                     </Button>
+                    {selectedClassRoutine?.id ? (
+                      <Button size="sm" variant="outline" onClick={openDuplicateClassRoutine}>
+                        <Copy className="mr-2 size-4" />
+                        Duplicate
+                      </Button>
+                    ) : null}
                     {selectedClassRoutine?.id ? (
                       <Button size="sm" variant="outline" onClick={() => downloadFile(downloadClassRoutineXlsx, selectedClassRoutine.id, `class-routine-${selectedClassRoutine.id}.xlsx`, "Failed to download class routine Excel file")}>
                         Download Excel

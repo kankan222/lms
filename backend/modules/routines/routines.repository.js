@@ -261,6 +261,18 @@ export function getClassById(id) {
   ).then((rows) => rows[0] || null);
 }
 
+export function listSectionsForClass(classId) {
+  return query(
+    `
+      SELECT id, class_id, name, medium
+      FROM sections
+      WHERE class_id = ?
+      ORDER BY name, medium, id
+    `,
+    [classId]
+  );
+}
+
 export function listClassRoutineVersions(filters = {}) {
   const where = [];
   const params = [];
@@ -532,6 +544,27 @@ export async function getCanonicalClassRoutineForScope(scope) {
         CASE status WHEN 'published' THEN 1 WHEN 'draft' THEN 2 ELSE 3 END,
         updated_at DESC,
         id DESC
+      LIMIT 1
+    `,
+    [scope.session_id, scope.class_id, scope.section_id, scope.medium, scope.stream_id, scope.layout_mode || "standard"]
+  );
+  const routine = rows[0] || null;
+  return routine ? getClassRoutineWithEntries(routine.id) : null;
+}
+
+export async function getDraftClassRoutineForScope(scope) {
+  const rows = await query(
+    `
+      SELECT id
+      FROM class_routine_versions
+      WHERE session_id = ?
+        AND class_id = ?
+        AND COALESCE(section_id, 0) = COALESCE(?, 0)
+        AND COALESCE(medium, '') = COALESCE(?, '')
+        AND stream_id_dedupe = ${STREAM_DEDUPE_SQL}
+        AND layout_mode = ?
+        AND status = 'draft'
+      ORDER BY updated_at DESC, id DESC
       LIMIT 1
     `,
     [scope.session_id, scope.class_id, scope.section_id, scope.medium, scope.stream_id, scope.layout_mode || "standard"]

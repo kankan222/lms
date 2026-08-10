@@ -999,6 +999,87 @@ export async function createClassRoutine(body, userId) {
   );
 }
 
+function splitCsv(value) {
+  return String(value || "")
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function normalizeTextKey(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+async function remapPackedRoutineSectionIds(sourceEntries, targetClassId) {
+  const targetSections = await repo.listSectionsForClass(targetClassId);
+  return sourceEntries.map((entry) => {
+    const sectionNames = splitCsv(entry.applies_section_names);
+    if (!sectionNames.length) return entry;
+
+    const nextSectionIds = sectionNames.map((sectionName) => {
+      const normalizedName = normalizeTextKey(sectionName);
+      const normalizedMedium = normalizeTextKey(entry.applies_medium);
+      const targetSection = targetSections.find((section) =>
+        normalizeTextKey(section.name) === normalizedName &&
+        (!normalizedMedium || normalizeTextKey(section.medium) === normalizedMedium)
+      );
+      if (!targetSection) {
+        const mediumText = entry.applies_medium ? ` (${entry.applies_medium})` : "";
+        throw new AppError(`Target class does not have section ${sectionName}${mediumText}. Create matching sections before duplicating this HS routine.`, 400);
+      }
+      return targetSection.id;
+    });
+
+    return {
+      ...entry,
+      section_ids: nextSectionIds,
+    };
+  });
+}
+
+export async function duplicateClassRoutine(id, body = {}, userId) {
+  const source = await repo.getClassRoutineWithEntries(intValue(id, "routine id"));
+  if (!source) throw new AppError("Class routine not found", 404);
+
+  const payload = await normalizeClassRoutinePayloadForCreate({
+    session_id: body.session_id ?? source.session_id,
+    class_id: body.class_id ?? source.class_id,
+    section_id: body.section_id ?? source.section_id,
+    medium: body.medium ?? source.medium,
+    stream_id: body.stream_id ?? source.stream_id,
+    layout_mode: body.layout_mode ?? source.layout_mode ?? "standard",
+    time_slot_template_id: body.time_slot_template_id ?? source.time_slot_template_id,
+    title: body.title ?? source.title,
+    source: "duplicate",
+    parent_version_id: source.id,
+  }, userId);
+
+  const existingDraft = await repo.getDraftClassRoutineForScope(payload);
+  if (existingDraft) {
+    throw new AppError("A draft routine already exists for the selected target class/section. Edit that draft or delete it before duplicating.", 400);
+  }
+
+  const sourcePayloadEntries = (source.entries || []).map(classRoutineEntryToPayload);
+  const copiedEntries = payload.layout_mode === "packed_hs"
+    ? await remapPackedRoutineSectionIds(sourcePayloadEntries, payload.class_id)
+    : sourcePayloadEntries;
+
+  const entries = prepareClassRoutineEntriesForLayout(
+    normalizeClassRoutineEntries(copiedEntries),
+    payload.layout_mode
+  );
+
+  return repo.createClassRoutineVersion(
+    {
+      ...payload,
+      title: payload.title || `${source.class_name || "Class"} Routine Copy`,
+      source: "duplicate",
+      parent_version_id: source.id,
+    },
+    entries
+  );
+}
+
 function splitPeople(value) {
   return String(value || "")
     .split(/[;,|]/)

@@ -14,6 +14,11 @@ Update this file after every meaningful implementation change.
 
 ## Completed
 
+- Added class routine duplication: admins can copy a selected routine into a
+  separate draft for a target session/class/section/medium/stream without
+  modifying the published source, with backend draft-only creation, duplicate
+  draft protection, HS applicability section remapping, and a software
+  Duplicate dialog/action.
 - Reworked HS class routine Excel exports into a multi-sheet workbook: a master
   matrix with day/period/time rows and section/stream audience columns, plus
   separate filtered HS audience sheets, while leaving standard school routine

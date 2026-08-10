@@ -85,6 +85,13 @@ export function createClassRoutine(data) {
   });
 }
 
+export function duplicateClassRoutine(id, data) {
+  return apiRequest(`/routines/class-routines/${id}/duplicate`, {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
 export function updateClassRoutine(id, data) {
   return apiRequest(`/routines/class-routines/${id}`, {
     method: "PUT",
