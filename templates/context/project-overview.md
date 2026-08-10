@@ -80,7 +80,8 @@ staff content, and mobile access around one Express/MySQL backend.
 ### Communication
 
 - Announcements as a separate one-way broadcast module from
-  Messaging, with online, offline SMS, and combined delivery modes.
+  Messaging, with custom online messages, registered DLT SMS messages, and
+  Messaging-style audience targeting.
 - Announcement categories, scheduling, attachments, public visibility,
   configurable DLT SMS templates, Fast2SMS delivery, SMS retries and
   delivery status, holiday/vacation calendar records, and optional

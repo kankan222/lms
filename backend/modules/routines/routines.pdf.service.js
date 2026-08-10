@@ -60,7 +60,7 @@ function displayType(value) {
 }
 
 function entryLabel(entry) {
-  return text(entry.subject_name || entry.activity_name || entry.title || displayType(entry.entry_type));
+  return text(entry.title || entry.subject_name || entry.activity_name || displayType(entry.entry_type));
 }
 
 function periodLabel(entry) {

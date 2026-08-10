@@ -6,9 +6,11 @@ import * as repo from "./announcements.repository.js";
 const DELIVERY_MODES = new Set(["online", "offline_sms", "both"]);
 const STATUSES = new Set(["draft", "scheduled"]);
 const PRIORITIES = new Set(["normal", "urgent"]);
+const MESSAGE_TYPES = new Set(["custom", "registered_dlt"]);
 const TARGET_TYPES = new Set(["all", "role", "user", "parents", "teachers", "staff", "accounts", "class", "section", "scope"]);
 const TEMPLATE_STATUSES = new Set(["registered", "inactive", "pending", "rejected"]);
 const PLACEHOLDER_STYLES = new Set(["var", "alp", "mixed"]);
+const PLACEHOLDER_TYPES = new Set(["text", "date", "holiday", "number"]);
 const HOLIDAY_CATEGORY_SLUGS = new Set(["holiday", "festival", "vacation"]);
 const FAST2SMS_DLT_URL = "https://www.fast2sms.com/dev/bulkV2";
 
@@ -68,6 +70,80 @@ function dateTimeValue(value, field) {
   const parsed = new Date(text);
   if (Number.isNaN(parsed.getTime())) throw new AppError(`${field} must be a valid date/time`, 400);
   return text.length === 10 ? `${text} 00:00:00` : text;
+}
+
+function parseJsonValue(value, fallback = null) {
+  if (value === undefined || value === null || value === "") return fallback;
+  if (typeof value === "object") return value;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return fallback;
+  }
+}
+
+function normalizePlaceholderSchema(input = []) {
+  const rows = Array.isArray(input) ? input : parseJsonValue(input, []);
+  if (!Array.isArray(rows)) return [];
+  const seen = new Set();
+  return rows
+    .map((row, index) => {
+      const key = optionalString(row.key) || `value_${index + 1}`;
+      const normalizedKey = key
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "_")
+        .replace(/^_+|_+$/g, "") || `value_${index + 1}`;
+      const type = String(row.type || "text").trim().toLowerCase();
+      if (!PLACEHOLDER_TYPES.has(type)) {
+        throw new AppError(`Invalid placeholder type: ${type}`, 400);
+      }
+      if (seen.has(normalizedKey)) {
+        throw new AppError(`Duplicate placeholder key: ${normalizedKey}`, 400);
+      }
+      seen.add(normalizedKey);
+      return {
+        key: normalizedKey,
+        label: optionalString(row.label) || `Value ${index + 1}`,
+        type,
+        required: row.required === undefined ? true : Boolean(row.required),
+      };
+    });
+}
+
+function placeholderSchemaForTemplate(template = {}) {
+  const schema = normalizePlaceholderSchema(template.placeholder_schema_json || template.placeholder_schema || []);
+  const count = countTemplatePlaceholders(template);
+  if (schema.length) return schema;
+  return Array.from({ length: count }, (_, index) => ({
+    key: `value_${index + 1}`,
+    label: `Value ${index + 1}`,
+    type: "text",
+    required: true,
+  }));
+}
+
+function renderTemplateContent(templateContent = "", values = []) {
+  let index = 0;
+  return String(templateContent || "").replace(/\{#(?:var|alp)#\}/gi, () => String(values[index++] ?? ""));
+}
+
+function normalizeSmsVariablesForTemplate(template, input = {}) {
+  const schema = placeholderSchemaForTemplate(template);
+  const source = input && typeof input === "object" && !Array.isArray(input) ? input : {};
+  const values = [];
+  const normalized = { order: schema.map((item) => item.key) };
+  for (const item of schema) {
+    const raw = source[item.key] ?? "";
+    const value = String(raw ?? "").trim();
+    if (item.required && !value) throw new AppError(`${item.label} is required for the selected DLT template`, 400);
+    if (value && item.type === "date") normalized[item.key] = dateValue(value, item.label, true);
+    else normalized[item.key] = value;
+    values.push(normalized[item.key] || "");
+  }
+  return {
+    variables: normalized,
+    renderedBody: renderTemplateContent(template.template_content, values),
+  };
 }
 
 function isProductionEnvironment() {
@@ -139,9 +215,14 @@ function normalizeAttachments(input = []) {
   }));
 }
 
-function normalizeAnnouncementPayload(body = {}, userId) {
+async function normalizeAnnouncementPayload(body = {}, userId) {
+  const messageType = String(body.message_type || (body.sms_template_id ? "registered_dlt" : "custom")).trim();
+  if (!MESSAGE_TYPES.has(messageType)) throw new AppError(`Invalid message_type: ${messageType}`, 400);
   const deliveryMode = String(body.delivery_mode || "online").trim();
   if (!DELIVERY_MODES.has(deliveryMode)) throw new AppError(`Invalid delivery_mode: ${deliveryMode}`, 400);
+  if (messageType === "custom" && deliveryMode !== "online") {
+    throw new AppError("Custom announcements can only use online delivery. Select a registered DLT template for SMS.", 400);
+  }
   const status = String(body.status || (body.publish_at ? "scheduled" : "draft")).trim();
   if (!STATUSES.has(status)) throw new AppError("Announcement can only be saved as draft or scheduled", 400);
   const publishAt = dateTimeValue(body.publish_at, "publish_at");
@@ -153,13 +234,27 @@ function normalizeAnnouncementPayload(body = {}, userId) {
   if (eventStart && eventEnd && eventStart > eventEnd) {
     throw new AppError("event_start_date must be before event_end_date", 400);
   }
-  if (["offline_sms", "both"].includes(deliveryMode) && !intValue(body.sms_template_id, "sms_template_id")) {
+  const smsTemplateId = intValue(body.sms_template_id, "sms_template_id");
+  let smsVariables = {};
+  let normalizedBody = messageType === "registered_dlt" ? optionalString(body.body) || "" : requiredString(body.body, "body");
+  if (["offline_sms", "both"].includes(deliveryMode) && !smsTemplateId) {
     throw new AppError("sms_template_id is required for offline announcements", 400);
   }
+  if (messageType === "registered_dlt") {
+    if (!smsTemplateId) throw new AppError("sms_template_id is required for registered DLT announcements", 400);
+    const template = await repo.getSmsTemplateById(smsTemplateId);
+    if (!template) throw new AppError("SMS template not found", 404);
+    if (template.status !== "registered") throw new AppError("Only registered DLT templates can be used for announcements", 400);
+    const normalized = normalizeSmsVariablesForTemplate(template, body.sms_variables || {});
+    smsVariables = normalized.variables;
+    normalizedBody = normalized.renderedBody || normalizedBody;
+  }
+  if (!normalizedBody) throw new AppError("body is required", 400);
   return {
+    message_type: messageType,
     category_id: intValue(body.category_id, "category_id"),
     title: requiredString(body.title, "title"),
-    body: requiredString(body.body, "body"),
+    body: normalizedBody,
     delivery_mode: deliveryMode,
     status,
     priority,
@@ -173,8 +268,8 @@ function normalizeAnnouncementPayload(body = {}, userId) {
     show_on_website: boolValue(body.show_on_website, false),
     create_notification: boolValue(body.create_notification, true),
     send_push: boolValue(body.send_push, true),
-    sms_template_id: intValue(body.sms_template_id, "sms_template_id"),
-    sms_variables: body.sms_variables && typeof body.sms_variables === "object" ? body.sms_variables : {},
+    sms_template_id: smsTemplateId,
+    sms_variables: smsVariables,
     sms_send_at: dateTimeValue(body.sms_send_at, "sms_send_at"),
     user_id: userId,
   };
@@ -202,6 +297,10 @@ function normalizeSmsTemplate(body = {}, userId) {
   const templateContent = requiredString(body.template_content, "template_content");
   const placeholderMatches = templateContent.match(/\{#(?:var|alp)#\}/gi) || [];
   const explicitPlaceholderCount = String(body.placeholder_count ?? "").trim();
+  const placeholderSchema = normalizePlaceholderSchema(body.placeholder_schema || body.placeholder_schema_json || []);
+  if (placeholderSchema.length && placeholderSchema.length !== placeholderMatches.length) {
+    throw new AppError("Placeholder schema count must match the DLT template variables", 400);
+  }
   return {
     template_name: requiredString(body.template_name, "template_name"),
     dlt_template_id: requiredString(body.dlt_template_id, "dlt_template_id"),
@@ -213,6 +312,7 @@ function normalizeSmsTemplate(body = {}, userId) {
     placeholder_count: explicitPlaceholderCount !== "" && Number.isInteger(Number(explicitPlaceholderCount))
       ? Number(explicitPlaceholderCount)
       : placeholderMatches.length,
+    placeholder_schema: placeholderSchema,
     status,
     provider: optionalTemplateString(body.provider) || "fast2sms",
     creator: optionalTemplateString(body.creator),
@@ -492,7 +592,7 @@ export async function getMobileAnnouncement(id, userId) {
 }
 
 export async function createAnnouncement(body, userId) {
-  const data = normalizeAnnouncementPayload(body, userId);
+  const data = await normalizeAnnouncementPayload(body, userId);
   const targets = normalizeTargets(body.targets);
   const attachments = normalizeAttachments(body.attachments);
   return repo.createAnnouncement(data, targets, attachments);
@@ -502,7 +602,7 @@ export async function updateAnnouncement(id, body, userId) {
   const announcementId = intValue(id, "announcement id", true);
   const before = await repo.getAnnouncementById(announcementId);
   if (!before) throw new AppError("Announcement not found", 404);
-  const data = normalizeAnnouncementPayload(body, userId);
+  const data = await normalizeAnnouncementPayload(body, userId);
   const targets = normalizeTargets(body.targets);
   const attachments = normalizeAttachments(body.attachments);
   if (["published", "sent"].includes(before.status)) {

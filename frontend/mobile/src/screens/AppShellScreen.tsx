@@ -203,10 +203,9 @@ function buildPrimaryTabs(roles: string[], permissions: string[]): NavTab[] {
   if (isTeacher) {
     return [
       { key: "attendance", label: "Student Att.", icon: "calendar-outline" },
-      { key: "teacherAttendance", label: "Teacher Att.", icon: "finger-print-outline" },
+      { key: "messaging", label: "Messages", icon: "chatbubble-ellipses-outline" },
       { key: "routine", label: "Routines", icon: "time-outline" },
       { key: "announcements", label: "Announcements", icon: "megaphone-outline" },
-      { key: "reports", label: "Marksheet", icon: "bar-chart-outline" },
       { key: "more", label: "More", icon: "apps-outline" },
     ];
   }
@@ -214,9 +213,9 @@ function buildPrimaryTabs(roles: string[], permissions: string[]): NavTab[] {
   if (isParent) {
     return [
       { key: "students", label: "Students", icon: "people-outline" },
-      { key: "routine", label: "Routine", icon: "time-outline" },
-      { key: "announcements", label: "Announcements", icon: "megaphone-outline" },
       { key: "messaging", label: "Messaging", icon: "chatbubble-ellipses-outline" },
+      { key: "routine", label: "Routines", icon: "time-outline" },
+      { key: "announcements", label: "Announcements", icon: "megaphone-outline" },
       { key: "more", label: "More", icon: "apps-outline" },
     ];
   }
@@ -266,9 +265,9 @@ function resolveDefaultTab(roles: string[], permissions: string[], visibleTabs: 
   const preferredOrder = hasRole(roles, "super_admin")
     ? (["dashboard", "routine", "announcements", "messaging", "students", "reports", "users"] as TabKey[])
     : hasRole(roles, "teacher")
-      ? (["routine", "announcements", "attendance", "teacherAttendance", "reports", "messaging", "teachers", "students", "users"] as TabKey[])
+      ? (["attendance", "messaging", "routine", "announcements", "teacherAttendance", "reports", "teachers", "students", "users"] as TabKey[])
       : hasRole(roles, "parent")
-        ? (["students", "routine", "announcements", "messaging", "users"] as TabKey[])
+        ? (["students", "messaging", "routine", "announcements", "users"] as TabKey[])
         : hasRole(roles, "staff")
           ? (["routine", "announcements", "reports", "messaging", "attendance", "users"] as TabKey[])
           : hasRole(roles, "accounts")
@@ -635,13 +634,13 @@ export default function AppShellScreen({ navigation, route }: Props) {
               style={[
                 styles.iconButton,
                 {
-                  backgroundColor: isDark ? theme.card : "#ffffff",
-                  borderColor: theme.border,
+                  backgroundColor: activeTab === "users" ? theme.primary : isDark ? theme.card : "#ffffff",
+                  borderColor: activeTab === "users" ? theme.primary : theme.border,
                 },
               ]}
-              onPress={() => navigation.navigate("More")}
+              onPress={() => selectTab("users")}
             >
-              <Ionicons name="apps-outline" size={18} color={theme.icon} />
+              <Ionicons name="person-circle-outline" size={20} color={activeTab === "users" ? theme.primaryText : theme.icon} />
             </Pressable>
           </View>
         </View>
@@ -763,6 +762,8 @@ const styles = StyleSheet.create({
   headerLeft: {
     flexDirection: "row",
     alignItems: "center",
+    flex: 1,
+    minWidth: 0,
   },
   headerRight: {
     flexDirection: "row",

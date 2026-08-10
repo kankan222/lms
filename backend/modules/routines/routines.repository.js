@@ -414,8 +414,8 @@ export async function listClassRoutineBoardRowsImpl(filters = {}) {
         e.sort_order,
         MAX(COALESCE(ts_exact.label, ts_day.label, ts_all.label)) AS slot_label,
         MAX(COALESCE(ts_exact.default_entry_type, ts_day.default_entry_type, ts_all.default_entry_type)) AS slot_default_entry_type,
-        GROUP_CONCAT(t.id ORDER BY et.teacher_role, t.name SEPARATOR ',') AS teacher_ids,
-        GROUP_CONCAT(t.name ORDER BY et.teacher_role, t.name SEPARATOR ', ') AS teacher_names
+        GROUP_CONCAT(DISTINCT t.id ORDER BY t.name SEPARATOR ',') AS teacher_ids,
+        GROUP_CONCAT(DISTINCT t.name ORDER BY t.name SEPARATOR ', ') AS teacher_names
         ${hasApplicability ? ", GROUP_CONCAT(DISTINCT es.section_id ORDER BY sec_app.name SEPARATOR ',') AS applies_section_ids" : ", NULL AS applies_section_ids"}
         ${hasApplicability ? ", GROUP_CONCAT(DISTINCT sec_app.name ORDER BY sec_app.name SEPARATOR ', ') AS applies_section_names" : ", NULL AS applies_section_names"}
       FROM class_routine_versions v
@@ -524,8 +524,8 @@ export async function getClassRoutineEntries(versionId) {
         act.name AS activity_name,
         MAX(COALESCE(ts_exact.label, ts_day.label, ts_all.label)) AS slot_label,
         MAX(COALESCE(ts_exact.default_entry_type, ts_day.default_entry_type, ts_all.default_entry_type)) AS slot_default_entry_type,
-        GROUP_CONCAT(t.id ORDER BY et.teacher_role, t.name SEPARATOR ',') AS teacher_ids,
-        GROUP_CONCAT(t.name ORDER BY et.teacher_role, t.name SEPARATOR ', ') AS teacher_names
+        GROUP_CONCAT(DISTINCT t.id ORDER BY t.name SEPARATOR ',') AS teacher_ids,
+        GROUP_CONCAT(DISTINCT t.name ORDER BY t.name SEPARATOR ', ') AS teacher_names
         ${hasApplicability ? ", GROUP_CONCAT(DISTINCT es.section_id ORDER BY sec_app.name SEPARATOR ',') AS applies_section_ids" : ", NULL AS applies_section_ids"}
         ${hasApplicability ? ", GROUP_CONCAT(DISTINCT sec_app.name ORDER BY sec_app.name SEPARATOR ', ') AS applies_section_names" : ", NULL AS applies_section_names"}
       FROM class_routine_entries e
@@ -938,6 +938,30 @@ export async function getRegisteredSubjectIdsForStudent(studentId) {
 
 export function getTeacherByUserId(userId) {
   return query("SELECT id, name FROM teachers WHERE user_id = ? LIMIT 1", [userId]).then((rows) => rows[0] || null);
+}
+
+export function getTeacherRoutineAssignmentsByUserId(userId) {
+  return query(
+    `
+      SELECT DISTINCT
+        ta.teacher_id,
+        ta.session_id,
+          ta.class_id,
+          ta.section_id,
+          ta.subject_id,
+          c.class_scope,
+          c.name AS class_name,
+          sec.name AS section_name,
+          sec.medium
+      FROM teachers t
+      JOIN teacher_class_assignments ta ON ta.teacher_id = t.id
+      JOIN classes c ON c.id = ta.class_id
+      JOIN sections sec ON sec.id = ta.section_id
+      WHERE t.user_id = ?
+      ORDER BY ta.session_id DESC, c.name, sec.name
+    `,
+    [userId]
+  );
 }
 
 export function getStudentEnrollmentForUser(studentId, userId) {

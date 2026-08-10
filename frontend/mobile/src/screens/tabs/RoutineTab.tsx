@@ -14,7 +14,8 @@ import {
   getClassRoutineBoard,
   getExamRoutineById,
   getExamRoutines,
-  getMyTeacherRoutine,
+  getMyTeacherClassRoutineBoard,
+  getMyTeacherExamRoutines,
   getStudentRoutine,
   type ExamRoutineEntry,
   type RoutineEntry,
@@ -22,8 +23,10 @@ import {
 import { useAuthStore } from "../../store/authStore";
 import { useAppTheme } from "../../theme/AppThemeProvider";
 
-type RoutineMode = "week" | "day" | "teacher" | "exam";
+type RoutineMode = "day" | "exam";
 type DayItem = { key: number; short: string; label: string };
+type RoutineGroup = { key: string; title: string; subtitle: string; entries: RoutineEntry[] };
+type ExamRoutineGroup = { key: string; title: string; subtitle: string; entries: ExamRoutineEntry[] };
 
 const DAYS: DayItem[] = [
   { key: 1, short: "Mon", label: "Monday" },
@@ -61,7 +64,7 @@ function formatTime(value?: string | null) {
 }
 
 function entryTitle(entry: RoutineEntry) {
-  return entry.subject_name || entry.activity_name || entry.title || entry.slot_label || (entry.entry_type === "break" ? "Break" : "Free Period");
+  return entry.title || entry.subject_name || entry.activity_name || entry.slot_label || (entry.entry_type === "break" ? "Break" : "Free Period");
 }
 
 function entryTeachers(entry: RoutineEntry) {
@@ -84,6 +87,64 @@ function scopeText(entry?: RoutineEntry | null) {
     .map((value) => String(value || "").trim())
     .filter(Boolean);
   return parts.length ? parts.join(" / ") : "Published routine";
+}
+
+function normalizeFilterValue(value?: string | number | null) {
+  return String(value || "").trim();
+}
+
+function uniqueValues(values: Array<string | number | null | undefined>) {
+  return Array.from(new Set(values.map(normalizeFilterValue).filter(Boolean))).sort((a, b) => a.localeCompare(b));
+}
+
+function groupRoutineEntries(entries: RoutineEntry[]): RoutineGroup[] {
+  const groups = new Map<string, RoutineGroup>();
+  for (const entry of entries) {
+    const keyParts = [
+      entry.routine_version_id,
+      entry.class_scope || "",
+      entry.class_name || "",
+      entry.section_name || "",
+      entry.medium || "",
+      entry.stream_name || "",
+    ];
+    const key = keyParts.map((part) => String(part ?? "")).join("|");
+    const title = [entry.class_name, entry.section_name].map(normalizeFilterValue).filter(Boolean).join(" / ") || "Class Routine";
+    const subtitle = [entry.class_scope_label, entry.medium, entry.stream_name].map(normalizeFilterValue).filter(Boolean).join(" / ") || "Published routine";
+    if (!groups.has(key)) groups.set(key, { key, title, subtitle, entries: [] });
+    groups.get(key)?.entries.push(entry);
+  }
+  return Array.from(groups.values()).map((group) => ({
+    ...group,
+    entries: [...group.entries].sort(sortRoutine),
+  }));
+}
+
+function groupExamRoutineEntries(entries: ExamRoutineEntry[]): ExamRoutineGroup[] {
+  const groups = new Map<string, ExamRoutineGroup>();
+  for (const entry of entries) {
+    const keyParts = [
+      entry.routine_id,
+      entry.exam_name || entry.routine_title || "",
+      entry.class_scope || "",
+      entry.class_name || "",
+      entry.section_name || "",
+      entry.medium || "",
+      entry.stream_name || "",
+    ];
+    const key = keyParts.map((part) => String(part ?? "")).join("|");
+    const title = entry.exam_name || entry.routine_title || "Exam Routine";
+    const subtitle = [entry.class_scope === "hs" ? "Higher Secondary" : entry.class_scope === "school" ? "School" : "", entry.class_name, entry.section_name, entry.medium, entry.stream_name]
+      .map(normalizeFilterValue)
+      .filter(Boolean)
+      .join(" / ") || "Published exam routine";
+    if (!groups.has(key)) groups.set(key, { key, title, subtitle, entries: [] });
+    groups.get(key)?.entries.push(entry);
+  }
+  return Array.from(groups.values()).map((group) => ({
+    ...group,
+    entries: [...group.entries].sort(sortExamEntries),
+  }));
 }
 
 function classLabel(student?: Student | null) {
@@ -120,12 +181,19 @@ export default function RoutineTab() {
   const isTeacher = roles.includes("teacher");
   const isAdmin = roles.includes("super_admin") || permissions.includes("routines.manage");
   const canViewRoutines = roles.includes("super_admin") || permissions.includes("routines.view") || permissions.includes("routines.manage");
-  const [mode, setMode] = useState<RoutineMode>(isTeacher ? "teacher" : "week");
+  const [mode, setMode] = useState<RoutineMode>("day");
   const [selectedDay, setSelectedDay] = useState(todayWeekday());
   const [selectedStudentId, setSelectedStudentId] = useState<number | null>(null);
   const [students, setStudents] = useState<Student[]>([]);
   const [entries, setEntries] = useState<RoutineEntry[]>([]);
   const [examEntries, setExamEntries] = useState<ExamRoutineEntry[]>([]);
+  const [scopeFilter, setScopeFilter] = useState("all");
+  const [classFilter, setClassFilter] = useState("all");
+  const [sectionFilter, setSectionFilter] = useState("all");
+  const [mediumFilter, setMediumFilter] = useState("all");
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [selectedRoutineGroupKey, setSelectedRoutineGroupKey] = useState("");
+  const [selectedExamGroupKey, setSelectedExamGroupKey] = useState("");
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -134,27 +202,89 @@ export default function RoutineTab() {
     () => students.find((student) => Number(student.id) === Number(selectedStudentId)) ?? null,
     [selectedStudentId, students],
   );
-  const selectedDayMeta = DAYS.find((day) => day.key === selectedDay) ?? DAYS[0];
   const sortedEntries = useMemo(() => [...entries].sort(sortRoutine), [entries]);
+  const dayEntries = useMemo(
+    () => sortedEntries.filter((entry) => getEntryWeekday(entry) === selectedDay),
+    [selectedDay, sortedEntries],
+  );
+  const classSwitchingRoutineView = (isAdmin || isTeacher) && !isParent;
+  const classSwitchingClassRoutineView = classSwitchingRoutineView && mode !== "exam";
+  const classSwitchingExamRoutineView = classSwitchingRoutineView && mode === "exam";
+  const filterSourceEntries = useMemo(
+    () => mode === "exam" ? examEntries : sortedEntries,
+    [examEntries, mode, sortedEntries],
+  );
+  const scopeOptions = useMemo(() => uniqueValues(filterSourceEntries.map((entry) => entry.class_scope)), [filterSourceEntries]);
+  const classOptions = useMemo(
+    () => uniqueValues(filterSourceEntries
+      .filter((entry) => scopeFilter === "all" || normalizeFilterValue(entry.class_scope) === scopeFilter)
+      .map((entry) => entry.class_name)),
+    [filterSourceEntries, scopeFilter],
+  );
+  const sectionOptions = useMemo(
+    () => uniqueValues(filterSourceEntries
+      .filter((entry) => scopeFilter === "all" || normalizeFilterValue(entry.class_scope) === scopeFilter)
+      .filter((entry) => classFilter === "all" || normalizeFilterValue(entry.class_name) === classFilter)
+      .map((entry) => entry.section_name)),
+    [classFilter, filterSourceEntries, scopeFilter],
+  );
+  const mediumOptions = useMemo(
+    () => uniqueValues(filterSourceEntries
+      .filter((entry) => scopeFilter === "all" || normalizeFilterValue(entry.class_scope) === scopeFilter)
+      .filter((entry) => classFilter === "all" || normalizeFilterValue(entry.class_name) === classFilter)
+      .filter((entry) => sectionFilter === "all" || normalizeFilterValue(entry.section_name) === sectionFilter)
+      .map((entry) => entry.medium)),
+    [classFilter, filterSourceEntries, scopeFilter, sectionFilter],
+  );
   const visibleEntries = useMemo(() => {
-    if (mode === "week") return sortedEntries;
-    return sortedEntries.filter((entry) => getEntryWeekday(entry) === selectedDay);
-  }, [mode, selectedDay, sortedEntries]);
-  const visibleExamEntries = useMemo(() => [...examEntries].sort(sortExamEntries), [examEntries]);
+    if (!classSwitchingClassRoutineView) return dayEntries;
+    return dayEntries
+      .filter((entry) => scopeFilter === "all" || normalizeFilterValue(entry.class_scope || entry.class_scope_label) === scopeFilter)
+      .filter((entry) => classFilter === "all" || normalizeFilterValue(entry.class_name) === classFilter)
+      .filter((entry) => sectionFilter === "all" || normalizeFilterValue(entry.section_name) === sectionFilter)
+      .filter((entry) => mediumFilter === "all" || normalizeFilterValue(entry.medium) === mediumFilter);
+  }, [classFilter, classSwitchingClassRoutineView, dayEntries, mediumFilter, scopeFilter, sectionFilter]);
+  const groupedVisibleEntries = useMemo(
+    () => classSwitchingClassRoutineView ? groupRoutineEntries(visibleEntries) : [],
+    [classSwitchingClassRoutineView, visibleEntries],
+  );
+  const selectedRoutineGroup = useMemo(
+    () => groupedVisibleEntries.find((group) => group.key === selectedRoutineGroupKey) || groupedVisibleEntries[0] || null,
+    [groupedVisibleEntries, selectedRoutineGroupKey],
+  );
+  const visibleExamEntries = useMemo(() => {
+    const filtered = classSwitchingExamRoutineView
+      ? examEntries
+        .filter((entry) => scopeFilter === "all" || normalizeFilterValue(entry.class_scope) === scopeFilter)
+        .filter((entry) => classFilter === "all" || normalizeFilterValue(entry.class_name) === classFilter)
+        .filter((entry) => sectionFilter === "all" || normalizeFilterValue(entry.section_name) === sectionFilter)
+        .filter((entry) => mediumFilter === "all" || normalizeFilterValue(entry.medium) === mediumFilter)
+      : examEntries;
+    return [...filtered].sort(sortExamEntries);
+  }, [classFilter, classSwitchingExamRoutineView, examEntries, mediumFilter, scopeFilter, sectionFilter]);
+  const groupedVisibleExamEntries = useMemo(
+    () => classSwitchingExamRoutineView ? groupExamRoutineEntries(visibleExamEntries) : [],
+    [classSwitchingExamRoutineView, visibleExamEntries],
+  );
+  const selectedExamGroup = useMemo(
+    () => groupedVisibleExamEntries.find((group) => group.key === selectedExamGroupKey) || groupedVisibleExamEntries[0] || null,
+    [groupedVisibleExamEntries, selectedExamGroupKey],
+  );
+  const activeRoutineFilterCount = [scopeFilter, classFilter, sectionFilter, mediumFilter].filter((value) => value !== "all").length;
   const firstEntry = sortedEntries[0] ?? null;
   const hasRoutineAccess = isParent || isTeacher || isAdmin;
   const modeOptions = useMemo(
     () => [
-      ["week", "Week View"],
       ["day", "Day View"],
-      ...(isTeacher ? [["teacher", "Teacher View"]] : []),
       ["exam", "Exam Routine"],
     ] as Array<[RoutineMode, string]>,
-    [isTeacher],
+    [],
   );
 
   const loadClassRoutineBoardEntries = useCallback(async () => {
-    const board = await getClassRoutineBoard({ status: "published" });
+    const board = isTeacher
+      ? await getMyTeacherClassRoutineBoard({ status: "published" })
+      : await getClassRoutineBoard({ status: "published" });
     return board.scopes.flatMap((scope) =>
       scope.weekdays.flatMap((day) =>
         day.routines.flatMap((routine) =>
@@ -173,11 +303,13 @@ export default function RoutineTab() {
         ),
       ),
     );
-  }, []);
+  }, [isTeacher]);
 
   const loadExamRoutineEntries = useCallback(async (student?: Student | null) => {
     try {
-      const summaries = await getExamRoutines({ status: "published" });
+      const summaries = isTeacher
+        ? await getMyTeacherExamRoutines({ status: "published" })
+        : await getExamRoutines({ status: "published" });
       const details = await Promise.all(
         summaries.slice(0, 8).map(async (summary) => {
           try {
@@ -194,6 +326,11 @@ export default function RoutineTab() {
           routine_title: detail?.title,
           exam_name: detail?.exam_name,
           session_name: detail?.session_name,
+          class_scope: entry.class_scope || detail?.class_scope,
+          class_name: entry.class_name || detail?.class_name,
+          section_name: entry.section_name || detail?.section_name,
+          medium: entry.medium || detail?.medium,
+          stream_name: entry.stream_name || detail?.stream_name,
         })),
       );
       if (isParent && student) {
@@ -208,7 +345,7 @@ export default function RoutineTab() {
     } catch {
       setExamEntries([]);
     }
-  }, [isParent]);
+  }, [isParent, isTeacher]);
 
   const loadRoutine = useCallback(async (loadMode: "initial" | "refresh" = "initial") => {
     if (loadMode === "refresh") setRefreshing(true);
@@ -230,15 +367,6 @@ export default function RoutineTab() {
         }
         const response = await getStudentRoutine(studentId, { date: todayDate() });
         setEntries(routineEntriesFromResponse(response));
-        return;
-      }
-
-      if (isTeacher) {
-        const [response] = await Promise.all([
-          getMyTeacherRoutine({ date: todayDate() }),
-          loadExamRoutineEntries(null),
-        ]);
-        setEntries(response || []);
         return;
       }
 
@@ -275,24 +403,11 @@ export default function RoutineTab() {
       .catch(() => setError("Could not load routine right now."));
   }, [isParent, loadExamRoutineEntries, selectedStudentId, students]);
 
-  function renderMetric(label: string, value: string, icon: keyof typeof Ionicons.glyphMap) {
-    return (
-      <View style={[styles.metricCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
-        <View style={[styles.metricIcon, { backgroundColor: theme.successSoft, borderColor: theme.successBorder }]}>
-          <Ionicons name={icon} size={16} color={theme.primary} />
-        </View>
-        <Text style={[styles.metricLabel, { color: theme.subText }]} numberOfLines={1}>{label}</Text>
-        <Text style={[styles.metricValue, { color: theme.text }]} numberOfLines={1}>{value}</Text>
-      </View>
-    );
-  }
-
   function renderEntry(entry: RoutineEntry, index: number) {
     const isBreak = String(entry.entry_type || "").toLowerCase() === "break";
     const isFree = ["free", "custom"].includes(String(entry.entry_type || "").toLowerCase());
     const muted = isBreak || isFree;
     const teacherText = entryTeachers(entry);
-    const day = DAYS.find((item) => item.key === getEntryWeekday(entry));
 
     return (
       <View key={`${entry.routine_version_id || "routine"}-${entry.entry_id || entry.id || index}-${getEntryWeekday(entry)}`} style={styles.timelineRow}>
@@ -304,12 +419,10 @@ export default function RoutineTab() {
               borderColor: muted ? theme.border : theme.successBorder,
             },
           ]}>
-            <Text style={[styles.periodText, { color: muted ? theme.subText : theme.primary }]}>
+          <Text style={[styles.periodText, { color: muted ? theme.subText : theme.primary }]}>
               {entry.period_number || index + 1}
             </Text>
           </View>
-          <Text style={[styles.timeText, { color: theme.subText }]}>{formatTime(entry.start_time)}</Text>
-          <Text style={[styles.timeText, { color: theme.mutedText }]}>{formatTime(entry.end_time)}</Text>
         </View>
 
         <View style={[
@@ -319,12 +432,26 @@ export default function RoutineTab() {
             borderColor: theme.border,
           },
         ]}>
-          <View style={styles.rowBetween}>
-            <View style={styles.entryTitleWrap}>
+          <View style={styles.entryContentRow}>
+            <View style={styles.entryTextBlock}>
               <Text style={[styles.entryTitle, { color: theme.text }]} numberOfLines={1}>{entryTitle(entry)}</Text>
-              <Text style={[styles.entrySubText, { color: theme.subText }]} numberOfLines={1}>
-                {isParent ? (mode === "week" ? day?.short || "" : `Period ${entry.period_number || index + 1}`) : `${mode === "week" ? `${day?.short || ""} / ` : ""}${scopeText(entry)}`}
+              <Text style={[styles.entryTimeRange, { color: theme.subText }]} numberOfLines={1}>
+                {formatTime(entry.start_time)} - {formatTime(entry.end_time)}
               </Text>
+              <View style={styles.entryMetaRow}>
+                {teacherText ? (
+                  <View style={styles.entryMetaItem}>
+                    <Ionicons name="person-outline" size={14} color={theme.subText} />
+                    <Text style={[styles.entryMetaText, { color: theme.subText }]} numberOfLines={1}>{teacherText}</Text>
+                  </View>
+                ) : null}
+                {!isParent && entry.room ? (
+                  <View style={styles.entryMetaItem}>
+                    <Ionicons name="location-outline" size={14} color={theme.subText} />
+                    <Text style={[styles.entryMetaText, { color: theme.subText }]} numberOfLines={1}>{entry.room}</Text>
+                  </View>
+                ) : null}
+              </View>
             </View>
             <View style={[
               styles.entryTypeBadge,
@@ -341,28 +468,141 @@ export default function RoutineTab() {
               </Text>
             </View>
           </View>
-
-          <View style={styles.entryMetaRow}>
-            {!isParent && teacherText ? (
-              <View style={styles.entryMetaItem}>
-                <Ionicons name="person-outline" size={14} color={theme.subText} />
-                <Text style={[styles.entryMetaText, { color: theme.subText }]} numberOfLines={1}>{teacherText}</Text>
-              </View>
-            ) : null}
-            {!isParent && entry.room ? (
-              <View style={styles.entryMetaItem}>
-                <Ionicons name="location-outline" size={14} color={theme.subText} />
-                <Text style={[styles.entryMetaText, { color: theme.subText }]} numberOfLines={1}>{entry.room}</Text>
-              </View>
-            ) : null}
-          </View>
         </View>
       </View>
     );
   }
 
+  function renderFilterChips(label: string, value: string, options: string[], onChange: (next: string) => void) {
+    if (!options.length) return null;
+    return (
+      <View style={styles.filterBlock}>
+        <Text style={[styles.filterLabel, { color: theme.subText }]}>{label}</Text>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterChips}>
+          {["all", ...options].map((option) => {
+            const selected = value === option;
+            const display = option === "all" ? "All" : option === "hs" ? "HS" : option === "school" ? "School" : option;
+            return (
+              <Pressable
+                key={option}
+                style={[
+                  styles.filterChip,
+                  {
+                    backgroundColor: selected ? theme.primary : theme.card,
+                    borderColor: selected ? theme.primary : theme.border,
+                  },
+                ]}
+                onPress={() => onChange(option)}
+              >
+                <Text style={[styles.filterChipText, { color: selected ? theme.primaryText : theme.text }]} numberOfLines={1}>
+                  {display}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </ScrollView>
+      </View>
+    );
+  }
+
+  function filterDisplayValue(label: string, value: string) {
+    if (value === "all") return `${label}: All`;
+    if (value === "hs") return `${label}: HS`;
+    if (value === "school") return `${label}: School`;
+    return `${label}: ${value}`;
+  }
+
+  function resetRoutineFilters() {
+    setScopeFilter("all");
+    setClassFilter("all");
+    setSectionFilter("all");
+    setMediumFilter("all");
+  }
+
+  function renderAdminRoutineGroup(group: RoutineGroup) {
+    return (
+      <View key={group.key} style={styles.groupBlock}>
+        <View style={[styles.groupHeaderCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+          <View style={styles.entryTitleWrap}>
+            <Text style={[styles.groupTitle, { color: theme.text }]} numberOfLines={1}>{group.title}</Text>
+            <Text style={[styles.groupSubtitle, { color: theme.subText }]} numberOfLines={1}>{group.subtitle}</Text>
+          </View>
+          <View style={[styles.entryTypeBadge, { backgroundColor: theme.successSoft, borderColor: theme.successBorder }]}>
+            <Text style={[styles.entryTypeText, { color: theme.primary }]}>
+              {group.entries.length}
+            </Text>
+          </View>
+        </View>
+        <View style={styles.groupEntries}>
+          {group.entries.map(renderEntry)}
+        </View>
+      </View>
+    );
+  }
+
+  function renderAdminExamRoutineGroup(group: ExamRoutineGroup) {
+    return (
+      <View key={group.key} style={styles.groupBlock}>
+        <View style={[styles.groupHeaderCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+          <View style={styles.entryTitleWrap}>
+            <Text style={[styles.groupTitle, { color: theme.text }]} numberOfLines={1}>{group.title}</Text>
+            <Text style={[styles.groupSubtitle, { color: theme.subText }]} numberOfLines={1}>{group.subtitle}</Text>
+          </View>
+          <View style={[styles.entryTypeBadge, { backgroundColor: theme.infoSoft, borderColor: theme.infoBorder }]}>
+            <Text style={[styles.entryTypeText, { color: theme.infoText }]}>
+              {group.entries.length}
+            </Text>
+          </View>
+        </View>
+        <View style={styles.groupEntries}>
+          {group.entries.map(renderExamEntry)}
+        </View>
+      </View>
+    );
+  }
+
+  function renderRoutineGroupSelector<T extends RoutineGroup | ExamRoutineGroup>(
+    groups: T[],
+    selectedKey: string,
+    onSelect: (key: string) => void,
+  ) {
+    if (!groups.length) return null;
+    return (
+      <View style={styles.routineSelectorBlock}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.routineSelectorChips}>
+          {groups.map((group, index) => {
+            const fallbackSelected = !selectedKey && index === 0;
+            const selected = selectedKey === group.key || fallbackSelected;
+            return (
+              <Pressable
+                key={group.key}
+                style={[
+                  styles.routineSelectorChip,
+                  {
+                    backgroundColor: selected ? theme.primary : theme.card,
+                    borderColor: selected ? theme.primary : theme.border,
+                  },
+                ]}
+                onPress={() => onSelect(group.key)}
+              >
+                <View style={styles.routineSelectorTextBlock}>
+                  <Text style={[styles.routineSelectorTitle, { color: selected ? theme.primaryText : theme.text }]} numberOfLines={1}>
+                    {group.title}
+                  </Text>
+                  <Text style={[styles.routineSelectorSubtitle, { color: selected ? theme.primaryText : theme.subText }]} numberOfLines={1}>
+                    {group.subtitle}
+                  </Text>
+                </View>
+              </Pressable>
+            );
+          })}
+        </ScrollView>
+      </View>
+    );
+  }
+
   function renderExamEntry(entry: ExamRoutineEntry, index: number) {
-    const title = entry.subject_name || entry.title || "Exam";
+    const title = entry.title || entry.subject_name || "Exam";
     return (
       <View key={`${entry.routine_id || "exam"}-${entry.id || index}`} style={styles.timelineRow}>
         <View style={styles.timeRail}>
@@ -421,15 +661,11 @@ export default function RoutineTab() {
         <View>
           <Text style={[styles.kicker, { color: theme.primary }]}>Routine</Text>
           <Text style={[styles.title, { color: theme.text }]}>
-            {mode === "exam" ? "Exam Routine" : isParent ? selectedStudent?.name || "Student Routine" : isTeacher ? "My Teaching Routine" : "Routine"}
+            {mode === "exam" ? "Exam Routine" : isParent ? selectedStudent?.name || "Student Routine" : isTeacher ? "Class Routine" : "Routine"}
           </Text>
           <Text style={[styles.subtitle, { color: theme.subText }]} numberOfLines={2}>
-            {mode === "exam" ? `${visibleExamEntries.length} published paper${visibleExamEntries.length === 1 ? "" : "s"}` : isParent ? classLabel(selectedStudent) : isTeacher ? scopeText(firstEntry) : "Create and publish routines from the software portal."}
+            {mode === "exam" ? `${visibleExamEntries.length} published paper${visibleExamEntries.length === 1 ? "" : "s"}` : isParent ? classLabel(selectedStudent) : isTeacher ? "Assigned class routines" : "Create and publish routines from the software portal."}
           </Text>
-        </View>
-        <View style={[styles.datePill, { backgroundColor: theme.card, borderColor: theme.border }]}>
-          <Text style={[styles.dateDay, { color: theme.text }]}>{selectedDayMeta.short}</Text>
-          <Text style={[styles.dateText, { color: theme.subText }]}>{todayDate()}</Text>
         </View>
       </View>
 
@@ -457,12 +693,6 @@ export default function RoutineTab() {
           })}
         </ScrollView>
       ) : null}
-
-      <View style={styles.metricGrid}>
-        {renderMetric("Session", mode === "exam" ? visibleExamEntries[0]?.session_name || "Active" : firstEntry?.session_name || (firstEntry?.session_id ? String(firstEntry.session_id) : selectedStudent?.session_name || "Active"), "calendar-clear-outline")}
-        {renderMetric("Scope", mode === "exam" ? isParent ? classLabel(selectedStudent) : examScopeText(visibleExamEntries[0]) : isParent ? classLabel(selectedStudent) : scopeText(firstEntry), "school-outline")}
-        {renderMetric("Status", mode === "exam" ? `${visibleExamEntries.length} papers` : firstEntry ? "Published" : "No routine", "checkmark-done-outline")}
-      </View>
 
       <View style={[styles.segmented, { backgroundColor: theme.card, borderColor: theme.border }]}>
         {modeOptions.map(([key, label]) => {
@@ -497,7 +727,6 @@ export default function RoutineTab() {
                 ]}
                 onPress={() => {
                   setSelectedDay(day.key);
-                  if (mode === "week") setMode("day");
                 }}
               >
                 <Text style={[styles.dayChipText, { color: selected ? theme.primaryText : theme.text }]}>{day.short}</Text>
@@ -506,6 +735,59 @@ export default function RoutineTab() {
             );
           })}
         </ScrollView>
+      ) : null}
+
+      {classSwitchingRoutineView ? (
+        <View style={styles.compactFilterArea}>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.compactFilterRow}>
+            <Pressable
+              style={[styles.filterToggle, { backgroundColor: filtersOpen ? theme.primary : theme.card, borderColor: filtersOpen ? theme.primary : theme.border }]}
+              onPress={() => setFiltersOpen((current) => !current)}
+            >
+              <Ionicons name="options-outline" size={15} color={filtersOpen ? theme.primaryText : theme.text} />
+              <Text style={[styles.filterToggleText, { color: filtersOpen ? theme.primaryText : theme.text }]}>
+                Filters{activeRoutineFilterCount ? ` (${activeRoutineFilterCount})` : ""}
+              </Text>
+            </Pressable>
+            <View style={[styles.summaryChip, { backgroundColor: theme.card, borderColor: theme.border }]}>
+              <Text style={[styles.summaryChipText, { color: theme.subText }]} numberOfLines={1}>
+                {filterDisplayValue("Scope", scopeFilter)}
+              </Text>
+            </View>
+            <View style={[styles.summaryChip, { backgroundColor: theme.card, borderColor: theme.border }]}>
+              <Text style={[styles.summaryChipText, { color: theme.subText }]} numberOfLines={1}>
+                {filterDisplayValue("Class", classFilter)}
+              </Text>
+            </View>
+            {activeRoutineFilterCount ? (
+              <Pressable style={[styles.clearFilterChip, { borderColor: theme.border }]} onPress={resetRoutineFilters}>
+                <Text style={[styles.clearFilterText, { color: theme.danger }]}>Clear</Text>
+              </Pressable>
+            ) : null}
+          </ScrollView>
+          {classSwitchingClassRoutineView ? renderRoutineGroupSelector(groupedVisibleEntries, selectedRoutineGroup?.key || "", setSelectedRoutineGroupKey) : null}
+          {classSwitchingExamRoutineView ? renderRoutineGroupSelector(groupedVisibleExamEntries, selectedExamGroup?.key || "", setSelectedExamGroupKey) : null}
+          {filtersOpen ? (
+            <View style={[styles.filtersPanel, { backgroundColor: theme.cardMuted, borderColor: theme.border }]}>
+              {renderFilterChips("Scope", scopeFilter, scopeOptions, (next) => {
+                setScopeFilter(next);
+                setClassFilter("all");
+                setSectionFilter("all");
+                setMediumFilter("all");
+              })}
+              {renderFilterChips("Class", classFilter, classOptions, (next) => {
+                setClassFilter(next);
+                setSectionFilter("all");
+                setMediumFilter("all");
+              })}
+              {renderFilterChips("Section", sectionFilter, sectionOptions, (next) => {
+                setSectionFilter(next);
+                setMediumFilter("all");
+              })}
+              {renderFilterChips("Medium", mediumFilter, mediumOptions, setMediumFilter)}
+            </View>
+          ) : null}
+        </View>
       ) : null}
 
       {loading ? (
@@ -526,8 +808,12 @@ export default function RoutineTab() {
             <Text style={[styles.retryText, { color: theme.primaryText }]}>Retry</Text>
           </Pressable>
         </View>
+      ) : classSwitchingExamRoutineView && selectedExamGroup ? (
+        <View style={styles.groupList}>{renderAdminExamRoutineGroup(selectedExamGroup)}</View>
       ) : mode === "exam" && visibleExamEntries.length ? (
         <View style={styles.timelineList}>{visibleExamEntries.map(renderExamEntry)}</View>
+      ) : classSwitchingClassRoutineView && selectedRoutineGroup ? (
+        <View style={styles.groupList}>{renderAdminRoutineGroup(selectedRoutineGroup)}</View>
       ) : mode !== "exam" && visibleEntries.length ? (
         <View style={styles.timelineList}>{visibleEntries.map(renderEntry)}</View>
       ) : (
@@ -583,23 +869,6 @@ const styles = StyleSheet.create({
     marginTop: 4,
     maxWidth: 220,
   },
-  datePill: {
-    width: 86,
-    minHeight: 58,
-    borderWidth: 1,
-    borderRadius: 8,
-    alignItems: "center",
-    justifyContent: "center",
-    padding: 8,
-  },
-  dateDay: {
-    fontSize: 17,
-    fontWeight: "800",
-  },
-  dateText: {
-    fontSize: 10,
-    marginTop: 2,
-  },
   studentChips: {
     gap: 8,
     paddingBottom: 10,
@@ -615,36 +884,6 @@ const styles = StyleSheet.create({
   studentChipText: {
     fontSize: 13,
     fontWeight: "700",
-  },
-  metricGrid: {
-    flexDirection: "row",
-    gap: 8,
-    marginBottom: 12,
-  },
-  metricCard: {
-    flex: 1,
-    minHeight: 92,
-    borderWidth: 1,
-    borderRadius: 8,
-    padding: 10,
-  },
-  metricIcon: {
-    width: 30,
-    height: 30,
-    borderRadius: 8,
-    borderWidth: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 8,
-  },
-  metricLabel: {
-    fontSize: 11,
-    fontWeight: "700",
-  },
-  metricValue: {
-    fontSize: 13,
-    fontWeight: "800",
-    marginTop: 2,
   },
   segmented: {
     borderWidth: 1,
@@ -687,16 +926,148 @@ const styles = StyleSheet.create({
     fontSize: 10,
     marginTop: 2,
   },
+  compactFilterArea: {
+    marginBottom: 12,
+    gap: 8,
+  },
+  compactFilterRow: {
+    gap: 8,
+    alignItems: "center",
+    paddingBottom: 2,
+  },
+  filterToggle: {
+    minHeight: 34,
+    borderRadius: 8,
+    borderWidth: 1,
+    paddingHorizontal: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  filterToggleText: {
+    fontSize: 12,
+    fontWeight: "800",
+  },
+  summaryChip: {
+    maxWidth: 170,
+    minHeight: 34,
+    borderRadius: 8,
+    borderWidth: 1,
+    justifyContent: "center",
+    paddingHorizontal: 10,
+  },
+  summaryChipText: {
+    fontSize: 12,
+    fontWeight: "800",
+  },
+  clearFilterChip: {
+    minHeight: 34,
+    borderRadius: 8,
+    borderWidth: 1,
+    justifyContent: "center",
+    paddingHorizontal: 12,
+  },
+  clearFilterText: {
+    fontSize: 12,
+    fontWeight: "800",
+  },
+  filtersPanel: {
+    borderWidth: 1,
+    borderRadius: 8,
+    padding: 10,
+    gap: 10,
+    marginBottom: 14,
+  },
+  filterBlock: {
+    gap: 6,
+  },
+  filterLabel: {
+    fontSize: 11,
+    fontWeight: "800",
+    textTransform: "uppercase",
+  },
+  filterChips: {
+    gap: 8,
+  },
+  filterChip: {
+    maxWidth: 150,
+    minHeight: 34,
+    borderRadius: 8,
+    borderWidth: 1,
+    justifyContent: "center",
+    paddingHorizontal: 12,
+  },
+  filterChipText: {
+    fontSize: 12,
+    fontWeight: "800",
+  },
+  routineSelectorBlock: {
+    marginTop: 2,
+  },
+  routineSelectorChips: {
+    gap: 8,
+    paddingBottom: 2,
+  },
+  routineSelectorChip: {
+    maxWidth: 210,
+    minHeight: 42,
+    borderRadius: 8,
+    borderWidth: 1,
+    justifyContent: "center",
+    paddingHorizontal: 14,
+  },
+  routineSelectorTextBlock: {
+    maxWidth: 180,
+  },
+  routineSelectorTitle: {
+    fontSize: 12,
+    fontWeight: "800",
+  },
+  routineSelectorSubtitle: {
+    fontSize: 10,
+    fontWeight: "700",
+    marginTop: 1,
+  },
+  groupList: {
+    gap: 16,
+  },
+  groupBlock: {
+    gap: 10,
+  },
+  groupHeaderCard: {
+    minHeight: 58,
+    borderWidth: 1,
+    borderRadius: 8,
+    padding: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8,
+  },
+  groupEntries: {
+    gap: 10,
+  },
+  groupTitle: {
+    fontSize: 16,
+    fontWeight: "800",
+  },
+  groupSubtitle: {
+    fontSize: 12,
+    marginTop: 3,
+    fontWeight: "700",
+  },
   timelineList: {
     gap: 10,
   },
   timelineRow: {
     flexDirection: "row",
     gap: 10,
+    alignItems: "flex-start",
   },
   timeRail: {
     width: 54,
     alignItems: "center",
+    paddingTop: 26,
   },
   periodBadge: {
     width: 36,
@@ -722,6 +1093,17 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     padding: 12,
   },
+  entryContentRow: {
+    minHeight: 44,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8,
+  },
+  entryTextBlock: {
+    flex: 1,
+    minWidth: 0,
+  },
   rowBetween: {
     flexDirection: "row",
     alignItems: "flex-start",
@@ -734,6 +1116,11 @@ const styles = StyleSheet.create({
   entryTitle: {
     fontSize: 16,
     fontWeight: "800",
+  },
+  entryTimeRange: {
+    fontSize: 14,
+    fontWeight: "700",
+    marginTop: 2,
   },
   entrySubText: {
     fontSize: 12,
@@ -761,7 +1148,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     flexWrap: "wrap",
     gap: 10,
-    marginTop: 12,
+    marginTop: 2,
   },
   entryMetaItem: {
     maxWidth: "100%",

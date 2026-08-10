@@ -197,13 +197,26 @@ function fallbackSlotTime(period) {
 }
 
 function entryTitle(entry) {
-  return entry.subject_name || entry.activity_name || entry.title || displayChangeType(entry.entry_type);
+  return entry.title || entry.subject_name || entry.activity_name || displayChangeType(entry.entry_type);
+}
+
+function uniqueCsv(value) {
+  const seen = new Set();
+  return String(value || "")
+    .split(",")
+    .map((item) => item.trim())
+    .filter((item) => {
+      if (!item || seen.has(item)) return false;
+      seen.add(item);
+      return true;
+    })
+    .join(", ");
 }
 
 function entrySubtitle(entry, showTeachers = true) {
   if (entry.entry_type === "break") return "Break";
   if (!showTeachers) return "";
-  return entry.teacher_names || "Teacher not assigned";
+  return uniqueCsv(entry.teacher_names) || "Teacher not assigned";
 }
 
 function displaySlotLabel({ entry, slot, period }) {
@@ -531,7 +544,7 @@ function ClassRoutineDayBoard({ board, weekday, onSlotClick, showTeachers = true
 }
 
 function examEntryTitle(entry) {
-  return entry.subject_name || entry.title || displayChangeType(entry.entry_type || "subject");
+  return entry.title || entry.subject_name || displayChangeType(entry.entry_type || "subject");
 }
 
 function weekdayFromDate(value) {
@@ -677,6 +690,7 @@ export default function Routines() {
     activity_id: "",
     custom_title: "",
     custom_teacher_id: "",
+    customRows: [{ key: "custom-1", title: "", teacher_id: "" }],
     save_mode: "replace",
     weekdays: [],
     subjectRows: [{ key: "subject-1", subject_id: "", teacher_id: "" }],
@@ -1238,10 +1252,14 @@ export default function Routines() {
         setSlotForm((current) => ({
           ...current,
           subjectRows: (current.subjectRows || []).map((row) => {
-            if (!row.teacher_id || !row.subject_id) return row;
+            if (!row.subject_id) return row;
             const options = optionsBySubject[String(row.subject_id)] || [];
-            const teacherExists = options.some((teacher) => String(teacher.id) === String(row.teacher_id));
-            return teacherExists ? row : { ...row, teacher_id: "" };
+            const teacherRows = (row.teacherRows || [emptyTeacherSplitRow(1, row.teacher_id)]).map((teacherRow) => {
+              if (!teacherRow.teacher_id) return teacherRow;
+              const teacherExists = options.some((teacher) => String(teacher.id) === String(teacherRow.teacher_id));
+              return teacherExists ? teacherRow : { ...teacherRow, teacher_id: "" };
+            });
+            return { ...row, teacherRows, teacher_id: teacherRows[0]?.teacher_id || "" };
           }),
         }));
       })
@@ -1367,29 +1385,61 @@ export default function Routines() {
     });
   }
 
+  function emptyTeacherSplitRow(index = 1, teacherId = "") {
+    return { key: `teacher-${Date.now()}-${index}`, teacher_id: teacherId, weekdays: [] };
+  }
+
   function emptySubjectSlotRow(index = 1) {
-    return { key: `subject-${Date.now()}-${index}`, subject_id: "", teacher_id: "", applies_medium: "", section_ids: [] };
+    return {
+      key: `subject-${Date.now()}-${index}`,
+      subject_id: "",
+      display_title: "",
+      teacher_id: "",
+      teacherRows: [emptyTeacherSplitRow(1)],
+      applies_medium: "",
+      section_ids: [],
+    };
+  }
+
+  function emptyCustomSlotRow(index = 1) {
+    return { key: `custom-${Date.now()}-${index}`, title: "", teacher_id: "" };
   }
 
   function openSlotEditor(context) {
     setError("");
     const existingEntries = context.entries?.length ? context.entries : context.entry ? [context.entry] : [];
     const subjectEntries = existingEntries.filter((entry) => entry.entry_type === "subject");
+    const customEntries = existingEntries.filter((entry) => entry.entry_type === "custom");
     const primaryEntry = subjectEntries[0] || existingEntries[0] || null;
-    const entryType = subjectEntries.length ? "subject" : primaryEntry?.entry_type || context.slot?.default_entry_type || "subject";
+    const entryType = subjectEntries.length ? "subject" : customEntries.length ? "custom" : primaryEntry?.entry_type || context.slot?.default_entry_type || "subject";
     setSlotContext(context);
     setSlotForm({
       entry_type: entryType,
       activity_id: primaryEntry?.activity_id ? String(primaryEntry.activity_id) : "",
       custom_title: entryType === "custom" ? primaryEntry?.title || "" : "",
       custom_teacher_id: entryType === "custom" && primaryEntry?.teacher_ids?.[0] ? String(primaryEntry.teacher_ids[0]) : "",
+      customRows: customEntries.length
+        ? customEntries.map((entry, index) => ({
+            key: `custom-${entry.id || entry.entry_id || index}`,
+            title: entry.title || "",
+            teacher_id: entry.teacher_ids?.[0] ? String(entry.teacher_ids[0]) : "",
+          }))
+        : [{
+            ...emptyCustomSlotRow(1),
+            title: entryType === "custom" ? primaryEntry?.title || "" : "",
+            teacher_id: entryType === "custom" && primaryEntry?.teacher_ids?.[0] ? String(primaryEntry.teacher_ids[0]) : "",
+          }],
       save_mode: "replace",
       weekdays: [String(context.day.value)],
       subjectRows: subjectEntries.length
         ? subjectEntries.map((entry, index) => ({
             key: `subject-${entry.id || entry.entry_id || index}`,
             subject_id: entry.subject_id ? String(entry.subject_id) : "",
+            display_title: entry.title || "",
             teacher_id: entry.teacher_ids?.[0] ? String(entry.teacher_ids[0]) : "",
+            teacherRows: (entry.teacher_ids || []).length
+              ? entry.teacher_ids.map((teacherId, teacherIndex) => emptyTeacherSplitRow(teacherIndex + 1, String(teacherId)))
+              : [emptyTeacherSplitRow(1)],
             applies_medium: isPackedSelectedRoutine ? entry.applies_medium || "" : "",
             section_ids: isPackedSelectedRoutine ? (entry.applies_section_ids || []).map((sectionId) => String(sectionId)) : [],
           }))
@@ -1420,6 +1470,61 @@ export default function Routines() {
     }));
   }
 
+  function updateSlotSubjectTeacherRow(rowKey, teacherKey, updates) {
+    setSlotForm((current) => ({
+      ...current,
+      subjectRows: (current.subjectRows || []).map((row) => {
+        if (row.key !== rowKey) return row;
+        const teacherRows = (row.teacherRows || [emptyTeacherSplitRow(1, row.teacher_id)]).map((teacherRow) =>
+          teacherRow.key === teacherKey ? { ...teacherRow, ...updates } : teacherRow
+        );
+        return { ...row, teacherRows, teacher_id: teacherRows[0]?.teacher_id || "" };
+      }),
+    }));
+  }
+
+  function toggleSlotSubjectTeacherWeekday(rowKey, teacherKey, weekday) {
+    const value = String(weekday);
+    setSlotForm((current) => ({
+      ...current,
+      subjectRows: (current.subjectRows || []).map((row) => {
+        if (row.key !== rowKey) return row;
+        const teacherRows = (row.teacherRows || [emptyTeacherSplitRow(1, row.teacher_id)]).map((teacherRow) => {
+          if (teacherRow.key !== teacherKey) return teacherRow;
+          const currentDays = (teacherRow.weekdays || []).map(String);
+          const weekdays = currentDays.includes(value)
+            ? currentDays.filter((item) => item !== value)
+            : [...currentDays, value].sort((a, b) => Number(a) - Number(b));
+          return { ...teacherRow, weekdays };
+        });
+        return { ...row, teacherRows };
+      }),
+    }));
+  }
+
+  function addSlotSubjectTeacherRow(rowKey) {
+    setSlotForm((current) => ({
+      ...current,
+      subjectRows: (current.subjectRows || []).map((row) => {
+        if (row.key !== rowKey) return row;
+        const teacherRows = row.teacherRows || [emptyTeacherSplitRow(1, row.teacher_id)];
+        return { ...row, teacherRows: [...teacherRows, emptyTeacherSplitRow(teacherRows.length + 1)] };
+      }),
+    }));
+  }
+
+  function removeSlotSubjectTeacherRow(rowKey, teacherKey) {
+    setSlotForm((current) => ({
+      ...current,
+      subjectRows: (current.subjectRows || []).map((row) => {
+        if (row.key !== rowKey) return row;
+        const teacherRows = (row.teacherRows || [emptyTeacherSplitRow(1, row.teacher_id)]).filter((teacherRow) => teacherRow.key !== teacherKey);
+        const nextRows = teacherRows.length ? teacherRows : [emptyTeacherSplitRow(1)];
+        return { ...row, teacherRows: nextRows, teacher_id: nextRows[0]?.teacher_id || "" };
+      }),
+    }));
+  }
+
   function toggleSlotSubjectSection(rowKey, sectionId) {
     const value = String(sectionId);
     setSlotForm((current) => ({
@@ -1446,6 +1551,27 @@ export default function Routines() {
     setSlotForm((current) => {
       const nextRows = (current.subjectRows || []).filter((row) => row.key !== key);
       return { ...current, subjectRows: nextRows.length ? nextRows : [emptySubjectSlotRow(1)] };
+    });
+  }
+
+  function updateSlotCustomRow(key, updates) {
+    setSlotForm((current) => ({
+      ...current,
+      customRows: (current.customRows || []).map((row) => (row.key === key ? { ...row, ...updates } : row)),
+    }));
+  }
+
+  function addSlotCustomRow() {
+    setSlotForm((current) => ({
+      ...current,
+      customRows: [...(current.customRows || []), emptyCustomSlotRow((current.customRows || []).length + 1)],
+    }));
+  }
+
+  function removeSlotCustomRow(key) {
+    setSlotForm((current) => {
+      const nextRows = (current.customRows || []).filter((row) => row.key !== key);
+      return { ...current, customRows: nextRows.length ? nextRows : [emptyCustomSlotRow(1)] };
     });
   }
 
@@ -1495,17 +1621,24 @@ export default function Routines() {
   async function handleSaveSlot(event) {
     event.preventDefault();
     if (!selectedClassRoutine || !slotContext) return;
-    const subjectRows = (slotForm.subjectRows || []).filter((row) => row.subject_id || row.teacher_id);
-    if (slotForm.entry_type === "subject" && (!subjectRows.length || subjectRows.some((row) => !row.subject_id || !row.teacher_id))) {
-      showError("Every subject row needs a subject and assigned teacher.");
+    const subjectRows = (slotForm.subjectRows || []).filter((row) =>
+      row.subject_id || row.teacher_id || (row.teacherRows || []).some((teacherRow) => teacherRow.teacher_id)
+    );
+    const invalidSubjectRows = subjectRows.filter((row) => {
+      const teacherRows = (row.teacherRows || [emptyTeacherSplitRow(1, row.teacher_id)]).filter((teacherRow) => teacherRow.teacher_id);
+      return !row.subject_id || !teacherRows.length;
+    });
+    if (slotForm.entry_type === "subject" && (!subjectRows.length || invalidSubjectRows.length)) {
+      showError("Every subject row needs a subject and at least one assigned teacher.");
       return;
     }
     if (slotForm.entry_type === "activity" && !slotForm.activity_id) {
       showError("Activity is required for activity slots.");
       return;
     }
-    if (slotForm.entry_type === "custom" && !String(slotForm.custom_title || "").trim()) {
-      showError("Custom routine title is required.");
+    const customRows = (slotForm.customRows || []).filter((row) => String(row.title || "").trim() || row.teacher_id);
+    if (slotForm.entry_type === "custom" && (!customRows.length || customRows.some((row) => !String(row.title || "").trim()))) {
+      showError("Every custom routine row needs a title.");
       return;
     }
 
@@ -1529,17 +1662,43 @@ export default function Routines() {
     const buildSlotPayloadEntries = (weekday) => {
       const baseSlotPayload = buildBaseSlotPayload(weekday);
       const newEntries = slotForm.entry_type === "subject"
-        ? subjectRows.map((row, index) => ({
-          ...baseSlotPayload,
-          entry_type: "subject",
-          subject_id: Number(row.subject_id),
-          activity_id: null,
-          title: "",
-          applies_medium: isPackedSelectedRoutine ? row.applies_medium || null : null,
-          section_ids: isPackedSelectedRoutine ? (row.section_ids || []).map(Number).filter(Boolean) : [],
-          sort_order: Number(period) * 100 + index,
-          teachers: [{ teacher_id: Number(row.teacher_id), teacher_role: "primary" }],
-        }))
+        ? subjectRows
+          .map((row, index) => {
+            const teacherRows = (row.teacherRows || [emptyTeacherSplitRow(1, row.teacher_id)])
+              .filter((teacherRow) => teacherRow.teacher_id)
+              .filter((teacherRow) => {
+                const days = (teacherRow.weekdays || []).map(String).filter(Boolean);
+                return !days.length || days.includes(String(weekday));
+              });
+            if (!teacherRows.length) return null;
+            return {
+              ...baseSlotPayload,
+              entry_type: "subject",
+              subject_id: Number(row.subject_id),
+              activity_id: null,
+              title: String(row.display_title || "").trim(),
+              applies_medium: isPackedSelectedRoutine ? row.applies_medium || null : null,
+              section_ids: isPackedSelectedRoutine ? (row.section_ids || []).map(Number).filter(Boolean) : [],
+              sort_order: Number(period) * 100 + index,
+              teachers: teacherRows.map((teacherRow, teacherIndex) => ({
+                teacher_id: Number(teacherRow.teacher_id),
+                teacher_role: teacherIndex === 0 ? "primary" : "co_teacher",
+              })),
+            };
+          })
+          .filter(Boolean)
+        : slotForm.entry_type === "custom"
+          ? customRows.map((row, index) => ({
+            ...baseSlotPayload,
+            entry_type: "custom",
+            subject_id: null,
+            activity_id: null,
+            title: String(row.title || "").trim(),
+            sort_order: Number(period) * 100 + index,
+            teachers: row.teacher_id
+              ? [{ teacher_id: Number(row.teacher_id), teacher_role: "primary" }]
+              : [],
+          }))
         : [{
           ...baseSlotPayload,
           entry_type: slotForm.entry_type,
@@ -1547,13 +1706,9 @@ export default function Routines() {
           activity_id: slotForm.entry_type === "activity" ? Number(slotForm.activity_id) : null,
           title: slotForm.entry_type === "activity"
             ? activities.find((activity) => String(activity.id) === String(slotForm.activity_id))?.name || displayChangeType(slotForm.entry_type)
-            : slotForm.entry_type === "custom"
-              ? String(slotForm.custom_title || "").trim()
             : slot?.label || displayChangeType(slotForm.entry_type),
           sort_order: Number.isFinite(Number(primaryEntry?.sort_order)) ? Number(primaryEntry.sort_order) : Number(period) - 1,
-          teachers: slotForm.entry_type === "custom" && slotForm.custom_teacher_id
-            ? [{ teacher_id: Number(slotForm.custom_teacher_id), teacher_role: "primary" }]
-            : [],
+          teachers: [],
         }];
       if (!isPackedSelectedRoutine || slotForm.save_mode !== "add") return newEntries;
 
@@ -2288,7 +2443,7 @@ export default function Routines() {
                                 {
                                   value: "add",
                                   label: "Add to slot",
-                                  description: "Keep existing rows and add these subjects to selected days.",
+                                  description: "Keep existing rows and add these subject or custom rows to selected days.",
                                 },
                               ].map((option) => {
                                 const selected = slotForm.save_mode === option.value;
@@ -2318,11 +2473,12 @@ export default function Routines() {
                             onChange={(event) => setSlotForm((current) => ({
                               ...current,
                               entry_type: event.target.value,
-                              save_mode: event.target.value === "subject" ? current.save_mode : "replace",
+                              save_mode: ["subject", "custom"].includes(event.target.value) ? current.save_mode : "replace",
                               subjectRows: event.target.value === "subject" ? current.subjectRows : [emptySubjectSlotRow(1)],
                               activity_id: event.target.value === "activity" ? current.activity_id : "",
                               custom_title: event.target.value === "custom" ? current.custom_title : "",
                               custom_teacher_id: event.target.value === "custom" ? current.custom_teacher_id : "",
+                              customRows: event.target.value === "custom" ? current.customRows || [emptyCustomSlotRow(1)] : [emptyCustomSlotRow(1)],
                             }))}
                           >
                             <option value="subject">Subject</option>
@@ -2365,7 +2521,11 @@ export default function Routines() {
                                         required
                                         className={selectClassName}
                                         value={row.subject_id}
-                                        onChange={(event) => updateSlotSubjectRow(row.key, { subject_id: event.target.value, teacher_id: "" })}
+                                        onChange={(event) => updateSlotSubjectRow(row.key, {
+                                          subject_id: event.target.value,
+                                          teacher_id: "",
+                                          teacherRows: [emptyTeacherSplitRow(1)],
+                                        })}
                                       >
                                         <option value="">Select subject</option>
                                         {slotSubjects.map((subject) => (
@@ -2375,17 +2535,85 @@ export default function Routines() {
                                         ))}
                                       </select>
                                     </Field>
-                                    <Field label="Teacher">
-                                      <select
-                                        required
-                                        className={selectClassName}
-                                        value={row.teacher_id}
-                                        onChange={(event) => updateSlotSubjectRow(row.key, { teacher_id: event.target.value })}
-                                      >
-                                        <option value="">Select assigned teacher</option>
-                                        {teacherOptions.map((teacher) => <option key={teacher.id} value={teacher.id}>{teacher.name}</option>)}
-                                      </select>
+                                    <Field label="Routine Display Title">
+                                      <Input
+                                        value={row.display_title || ""}
+                                        placeholder={selectedSubject?.name ? `Shown as ${selectedSubject.name}` : "Optional alias, e.g. Botany"}
+                                        onChange={(event) => updateSlotSubjectRow(row.key, { display_title: event.target.value })}
+                                      />
+                                      <p className="mt-1 text-xs text-muted-foreground">
+                                        Optional. Use this for Biology classes shown separately as Botany or Zoology while keeping marks under Biology.
+                                      </p>
                                     </Field>
+                                  </div>
+                                  <div className="mt-3">
+                                    <Label className="text-xs font-medium text-muted-foreground">Teachers</Label>
+                                    <div className="mt-2 space-y-2">
+                                      {(row.teacherRows || [emptyTeacherSplitRow(1, row.teacher_id)]).map((teacherRow, teacherIndex) => (
+                                        <div key={teacherRow.key} className="rounded-md border border-border bg-background p-2">
+                                          <div className="flex items-center gap-2">
+                                            <select
+                                              required
+                                              className={selectClassName}
+                                              value={teacherRow.teacher_id}
+                                              onChange={(event) => updateSlotSubjectTeacherRow(row.key, teacherRow.key, { teacher_id: event.target.value })}
+                                            >
+                                              <option value="">Select assigned teacher</option>
+                                              {teacherOptions.map((teacher) => <option key={teacher.id} value={teacher.id}>{teacher.name}</option>)}
+                                            </select>
+                                            {(row.teacherRows || []).length > 1 ? (
+                                              <Button
+                                                type="button"
+                                                variant="outline"
+                                                size="icon"
+                                                className="shrink-0 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                                                onClick={() => removeSlotSubjectTeacherRow(row.key, teacherRow.key)}
+                                                aria-label={`Delete teacher split ${teacherIndex + 1}`}
+                                              >
+                                                <Trash2 className="size-4" />
+                                              </Button>
+                                            ) : null}
+                                          </div>
+                                          {(slotForm.weekdays || []).length > 1 ? (
+                                            <div className="mt-2">
+                                              <p className="mb-1 text-xs text-muted-foreground">Days for this teacher</p>
+                                              <div className="flex flex-wrap gap-1.5">
+                                                {(slotForm.weekdays || []).map((weekday) => {
+                                                  const selected = (teacherRow.weekdays || []).map(String).includes(String(weekday));
+                                                  const dayName = WEEKDAYS.find((day) => String(day.value) === String(weekday))?.label || weekday;
+                                                  const dayLabel = String(dayName).slice(0, 3);
+                                                  return (
+                                                    <button
+                                                      key={`${teacherRow.key}-${weekday}`}
+                                                      type="button"
+                                                      className={`rounded-md border px-2 py-1 text-xs font-medium transition ${
+                                                        selected
+                                                          ? "border-primary bg-primary text-primary-foreground"
+                                                          : "border-border bg-muted/30 text-foreground hover:bg-muted"
+                                                      }`}
+                                                      onClick={() => toggleSlotSubjectTeacherWeekday(row.key, teacherRow.key, weekday)}
+                                                    >
+                                                      {dayLabel}
+                                                    </button>
+                                                  );
+                                                })}
+                                              </div>
+                                              <p className="mt-1 text-xs text-muted-foreground">No day selected means all selected days.</p>
+                                            </div>
+                                          ) : null}
+                                        </div>
+                                      ))}
+                                      <Button
+                                        type="button"
+                                        variant="outline"
+                                        size="sm"
+                                        onClick={() => addSlotSubjectTeacherRow(row.key)}
+                                        disabled={!row.subject_id}
+                                      >
+                                        <Plus className="mr-2 size-4" />
+                                        Add Teacher Split
+                                      </Button>
+                                    </div>
                                   </div>
                                   {isPackedSelectedRoutine ? (
                                     <div className="mt-3 grid gap-3 sm:grid-cols-2">
@@ -2441,24 +2669,49 @@ export default function Routines() {
                           </div>
                         ) : null}
                         {slotForm.entry_type === "custom" ? (
-                          <div className="grid gap-3 sm:grid-cols-2">
-                            <Field label="Routine Title">
-                              <Input
-                                required
-                                value={slotForm.custom_title}
-                                onChange={(event) => setSlotForm((current) => ({ ...current, custom_title: event.target.value }))}
-                              />
-                            </Field>
-                            <Field label="Teacher">
-                              <select
-                                className={selectClassName}
-                                value={slotForm.custom_teacher_id}
-                                onChange={(event) => setSlotForm((current) => ({ ...current, custom_teacher_id: event.target.value }))}
-                              >
-                                <option value="">No teacher</option>
-                                {teachers.map((teacher) => <option key={teacher.id} value={teacher.id}>{teacher.name}</option>)}
-                              </select>
-                            </Field>
+                          <div className="space-y-3">
+                            {(slotForm.customRows || []).map((row, index) => (
+                              <div key={row.key} className="rounded-md border border-border bg-muted/20 p-3">
+                                <div className="mb-2 flex items-center justify-between gap-2">
+                                  <p className="text-sm font-medium text-foreground">Custom Subject {index + 1}</p>
+                                  {(slotForm.customRows || []).length > 1 ? (
+                                    <Button
+                                      type="button"
+                                      variant="outline"
+                                      size="icon"
+                                      className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+                                      onClick={() => removeSlotCustomRow(row.key)}
+                                      aria-label={`Delete custom subject ${index + 1}`}
+                                    >
+                                      <Trash2 className="size-4" />
+                                    </Button>
+                                  ) : null}
+                                </div>
+                                <div className="grid gap-3 sm:grid-cols-2">
+                                  <Field label="Routine Title">
+                                    <Input
+                                      required
+                                      value={row.title}
+                                      onChange={(event) => updateSlotCustomRow(row.key, { title: event.target.value })}
+                                    />
+                                  </Field>
+                                  <Field label="Teacher">
+                                    <select
+                                      className={selectClassName}
+                                      value={row.teacher_id}
+                                      onChange={(event) => updateSlotCustomRow(row.key, { teacher_id: event.target.value })}
+                                    >
+                                      <option value="">No teacher</option>
+                                      {teachers.map((teacher) => <option key={teacher.id} value={teacher.id}>{teacher.name}</option>)}
+                                    </select>
+                                  </Field>
+                                </div>
+                              </div>
+                            ))}
+                            <Button type="button" variant="outline" onClick={addSlotCustomRow}>
+                              <Plus className="mr-2 size-4" />
+                              Add Custom Subject
+                            </Button>
                           </div>
                         ) : null}
                         {slotForm.entry_type === "activity" ? (

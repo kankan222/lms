@@ -223,7 +223,9 @@
 - Announcement categories are configurable and should support general,
   holiday, festival, exam, exam reschedule, vacation, urgent, and future
   school-defined categories.
-- Announcements support online, offline SMS, and both delivery modes.
+- Announcements support custom online messages and registered DLT messages.
+  Custom messages are app/software/website only and must not be sent by SMS.
+  Registered DLT messages may use online, offline SMS, or both delivery modes.
 - Announcements support draft, scheduled, published, sent, failed, cancelled,
   and expired lifecycle states as needed.
 - Online announcements may target software, mobile, and optionally public
@@ -235,14 +237,17 @@
 - Published announcements may be edited, but content that has already been sent
   by SMS must be locked.
 - Offline SMS announcements use Fast2SMS with registered DLT templates. Both
-  `{#var#}` and `{#alp#}` placeholder styles must be supported.
+  `{#var#}` and `{#alp#}` placeholder styles must be supported. Template
+  variable metadata is stored as JSON so future registered templates can render
+  date, holiday, text, or numeric fields without hardcoded UI changes.
 - Offline SMS may be sent only after publish and may be scheduled.
 - SMS preview and placeholder-count validation are required before publish/send.
 - Failed SMS sends are retryable. Delivery status should be pulled from
   Fast2SMS when available.
-- Targeting supports roles, academic scopes, and individual users. Parent SMS
-  resolves to all linked active parent/guardian phone numbers and deduplicates
-  duplicate numbers.
+- Targeting uses the Messaging module pattern: choose audience first, then show
+  only relevant role/class/section/scope selectors and a selected-target
+  summary. Parent SMS resolves to all linked active parent/guardian phone
+  numbers and deduplicates duplicate numbers.
 - Inactive users, inactive students, and parents of inactive students are
   excluded from announcement targets.
 - Holiday and vacation announcements create display-only calendar records.

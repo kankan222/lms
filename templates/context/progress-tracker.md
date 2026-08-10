@@ -14,6 +14,67 @@ Update this file after every meaningful implementation change.
 
 ## Completed
 
+- Added routine display titles for real subject rows so entries like Botany or
+  Zoology can be saved under the Biology subject for student filtering and marks
+  while displaying the split class name in software, mobile, and routine PDFs;
+  packed HS Add to slot now also works for custom routine rows.
+- Added weekday-based teacher splits to software class routine subject rows so
+  one HS hybrid subject can assign different teachers across selected days,
+  expanding to the existing per-day routine entries without a backend migration.
+- Updated the software class routine slot editor so Custom / Routine-only
+  entries support multiple rows like Subject entries, with per-row titles,
+  optional teachers, add/delete controls, and one saved custom routine entry per
+  row.
+- Reworked the mobile Announcements tab into a role-aware module: all users get
+  the audience-filtered announcement inbox, while announcement admins/managers
+  can also view the queue, registered DLT templates, SMS jobs, and holiday
+  records through existing backend announcement endpoints.
+- Reordered the parent mobile footer navigation to Students, Messaging,
+  Routines, Announcements, and More, and aligned the parent default tab priority
+  with that order.
+- Changed the mobile Routine class/exam selector to compact horizontally
+  scrollable pills shown directly below the filter button row, including the
+  currently selected assigned routine/class for teachers.
+- Fixed the teacher routine assignment lookup for MySQL strict DISTINCT
+  ordering by selecting the class and section names used in the ORDER BY clause.
+- Changed mobile teacher routines to use assigned class routine boards instead
+  of a separate Teacher View, added teacher-scoped backend endpoints for class
+  and exam routines, and enabled the same class/exam switching controls for
+  teachers using only their assigned classes.
+- Updated teacher mobile footer navigation to show Student Attendance,
+  Messages, Routines, Announcements, and More in that order, with teacher
+  default tab preference following the same sequence.
+- Replaced the shared mobile header's top More icon with a Profile icon that
+  switches to the Profile tab and only uses accent color when Profile is active.
+- Simplified mobile class routine cards: period number and timings stay on the
+  left rail, subject/activity and the entry type badge align across the top row,
+  teacher assignment is shown underneath, and class/scope/section/medium text
+  was removed from inside each card.
+- Changed mobile Routine admin display to show one selected routine group at a
+  time for both class and exam routines, with the first matching group selected
+  by default and other groups available through a compact horizontal selector.
+- Matched mobile Routine admin viewing more closely to software: the compact
+  filter toggle now applies to both class and exam routines, exam routines can
+  be filtered by scope/class/section/medium, and admin exam results are grouped
+  by exam and academic scope instead of a mixed timeline.
+- Added admin filters and grouped class routine display to the mobile Routine
+  tab: admins can filter the selected day by scope, class, section, and medium,
+  and routines render grouped by class/section instead of one mixed timeline.
+- Removed Week View and overview metric/date summary cards from the mobile
+  Routine tab so routines open directly into the day/teacher/exam list flow.
+- Marked Announcement event/holiday date fields as optional in the software
+  dialog so normal notices do not look like they require event dates.
+- Split the software Announcement dialog into a Messaging-style flow: audience
+  picker first, target details second with Change Audience/Continue controls,
+  then message/delivery details with the selected audience carried forward.
+- Reworked Announcements around custom vs registered DLT messages: custom
+  announcements are online-only, registered DLT templates store JSON variable
+  metadata, announcement creation renders template-driven variable fields and
+  previews, targeting follows the Messaging audience-first pattern, and mobile
+  announcement cards/details now label custom vs registered notices.
+- Fixed repeated teacher names in Higher Secondary packed routine hover
+  displays by deduplicating routine teacher aggregation across applicability
+  joins and normalizing comma-separated teacher names before rendering.
 - Added Time Slot Template editing and guarded deletion: admins can edit
   template metadata/slots from the Routine Time Slots tab, remove individual
   slots, and delete only unused templates through a backend check that blocks

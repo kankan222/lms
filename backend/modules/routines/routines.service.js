@@ -60,6 +60,19 @@ function classScopeLabel(value) {
   return value === "hs" ? "Higher Secondary" : "School";
 }
 
+function uniqueCsv(value) {
+  const seen = new Set();
+  return String(value || "")
+    .split(",")
+    .map((item) => item.trim())
+    .filter((item) => {
+      if (!item || seen.has(item)) return false;
+      seen.add(item);
+      return true;
+    })
+    .join(", ");
+}
+
 function normalizeClassRoutineLayoutMode(value) {
   const raw = optionalString(value);
   if (!raw) return "standard";
@@ -666,7 +679,7 @@ function mapRoutineBoardEntry(row) {
     teacher_ids: row.teacher_ids
       ? String(row.teacher_ids).split(",").map((id) => Number(id)).filter(Boolean)
       : [],
-    teacher_names: row.teacher_names || "",
+    teacher_names: uniqueCsv(row.teacher_names),
   };
 }
 
@@ -697,19 +710,30 @@ function mapRoutineBoardCard(row) {
   };
 }
 
-export async function getClassRoutineBoard(filters = {}) {
-  const normalizedFilters = {
-    routine_version_id: intValue(filters.routine_version_id ?? filters.routineVersionId, "routine_version_id", { required: false }),
-    session_id: intValue(filters.session_id, "session_id", { required: false }),
-    class_id: intValue(filters.class_id, "class_id", { required: false }),
-    section_id: intValue(filters.section_id, "section_id", { required: false }),
-    medium: optionalString(filters.medium),
-    stream_id: intValue(filters.stream_id, "stream_id", { required: false }),
-    class_scope: normalizeClassScope(filters.class_scope || filters.scope),
-    status: normalizeBoardStatus(filters.status),
-    weekday: normalizeWeekdayFilter(filters.weekday),
-  };
-  const rows = await repo.listClassRoutineBoardRows(normalizedFilters);
+function rowMatchesTeacherAssignment(row, assignment) {
+  if (Number(row.session_id) !== Number(assignment.session_id)) return false;
+  if (Number(row.class_id) !== Number(assignment.class_id)) return false;
+  const layoutMode = row.layout_mode || "standard";
+  if (layoutMode !== "packed_hs") {
+    return Number(row.section_id) === Number(assignment.section_id);
+  }
+  const sectionIds = row.applies_section_ids
+    ? String(row.applies_section_ids).split(",").map((id) => Number(id)).filter(Boolean)
+    : [];
+  const sectionMatches = !sectionIds.length || sectionIds.includes(Number(assignment.section_id));
+  const mediumMatches = !row.applies_medium || String(row.applies_medium) === String(assignment.medium || "");
+  return sectionMatches && mediumMatches;
+}
+
+function examRoutineMatchesTeacherAssignment(routine, assignment) {
+  if (Number(routine.session_id) !== Number(assignment.session_id)) return false;
+  if (Number(routine.class_id) !== Number(assignment.class_id)) return false;
+  if (routine.section_id && Number(routine.section_id) !== Number(assignment.section_id)) return false;
+  if (routine.medium && String(routine.medium) !== String(assignment.medium || "")) return false;
+  return true;
+}
+
+function buildClassRoutineBoardFromRows(rows, normalizedFilters = {}) {
   const scopes = new Map();
 
   for (const row of rows) {
@@ -755,6 +779,40 @@ export async function getClassRoutineBoard(filters = {}) {
       })),
     })),
   };
+}
+
+export async function getClassRoutineBoard(filters = {}) {
+  const normalizedFilters = {
+    routine_version_id: intValue(filters.routine_version_id ?? filters.routineVersionId, "routine_version_id", { required: false }),
+    session_id: intValue(filters.session_id, "session_id", { required: false }),
+    class_id: intValue(filters.class_id, "class_id", { required: false }),
+    section_id: intValue(filters.section_id, "section_id", { required: false }),
+    medium: optionalString(filters.medium),
+    stream_id: intValue(filters.stream_id, "stream_id", { required: false }),
+    class_scope: normalizeClassScope(filters.class_scope || filters.scope),
+    status: normalizeBoardStatus(filters.status),
+    weekday: normalizeWeekdayFilter(filters.weekday),
+  };
+  const rows = await repo.listClassRoutineBoardRows(normalizedFilters);
+  return buildClassRoutineBoardFromRows(rows, normalizedFilters);
+}
+
+export async function getMyTeacherClassRoutineBoard(userId, filters = {}) {
+  const assignments = await repo.getTeacherRoutineAssignmentsByUserId(userId);
+  if (!assignments.length) return buildClassRoutineBoardFromRows([], {});
+  const normalizedFilters = {
+    session_id: intValue(filters.session_id, "session_id", { required: false }),
+    class_id: intValue(filters.class_id, "class_id", { required: false }),
+    section_id: intValue(filters.section_id, "section_id", { required: false }),
+    medium: optionalString(filters.medium),
+    stream_id: intValue(filters.stream_id, "stream_id", { required: false }),
+    class_scope: normalizeClassScope(filters.class_scope || filters.scope),
+    status: "published",
+    weekday: normalizeWeekdayFilter(filters.weekday),
+  };
+  const rows = await repo.listClassRoutineBoardRows(normalizedFilters);
+  const visibleRows = rows.filter((row) => assignments.some((assignment) => rowMatchesTeacherAssignment(row, assignment)));
+  return buildClassRoutineBoardFromRows(visibleRows, normalizedFilters);
 }
 
 function routineForResponse(routine) {
@@ -1182,6 +1240,16 @@ export function listExamRoutines(filters = {}) {
     ...filters,
     status: normalizeBoardStatus(filters.status),
   });
+}
+
+export async function listMyTeacherExamRoutines(userId, filters = {}) {
+  const assignments = await repo.getTeacherRoutineAssignmentsByUserId(userId);
+  if (!assignments.length) return [];
+  const rows = await repo.listExamRoutineVersions({
+    ...filters,
+    status: normalizeBoardStatus(filters.status || "published"),
+  });
+  return rows.filter((routine) => assignments.some((assignment) => examRoutineMatchesTeacherAssignment(routine, assignment)));
 }
 
 export async function getExamRoutine(id) {

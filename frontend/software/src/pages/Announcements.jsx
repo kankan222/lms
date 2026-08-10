@@ -37,6 +37,7 @@ import {
 } from "@/components/ui/popover";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { getClassStructure, getSessions } from "../api/academic.api";
 import {
   createAnnouncement,
@@ -77,7 +78,24 @@ const deliveryLabels = {
   both: "Online + SMS",
 };
 
+const announcementTargetOptions = [
+  { value: "parents", label: "Parents", description: "All parents or filtered parent groups" },
+  { value: "teachers", label: "Teachers", description: "Teaching staff with accounts" },
+  { value: "section", label: "Section", description: "Parents in one selected section" },
+  { value: "class", label: "Class", description: "Parents in one selected class" },
+  { value: "scope", label: "School / HS", description: "School or Higher Secondary scope" },
+  { value: "all", label: "All Users", description: "Everyone with an active account" },
+  { value: "staff", label: "Staff", description: "Staff role users" },
+  { value: "accounts", label: "Accounts", description: "Accounts role users" },
+  { value: "role", label: "Custom Role", description: "Type a specific role name" },
+];
+
+function announcementTargetLabel(value) {
+  return announcementTargetOptions.find((item) => item.value === value)?.label || "Target";
+}
+
 const emptyAnnouncementForm = {
+  message_type: "custom",
   title: "",
   body: "",
   category_id: "",
@@ -95,10 +113,12 @@ const emptyAnnouncementForm = {
   create_notification: true,
   send_push: true,
   sms_template_id: "",
+  sms_variables: {},
   sms_send_at: "",
   target_type: "all",
   role_name: "",
   session_id: "",
+  scope_code: "",
   class_id: "",
   section_id: "",
   medium: "",
@@ -114,6 +134,7 @@ const emptyTemplateForm = {
   brand_dlt_id: "",
   placeholder_style: "alp",
   placeholder_count: "0",
+  placeholder_schema: [],
   status: "registered",
   provider: "fast2sms",
   creator: "",
@@ -138,6 +159,36 @@ function formatDateTime(value) {
   if (!value) return "-";
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleString();
+}
+
+function parseJsonValue(value, fallback = null) {
+  if (!value) return fallback;
+  if (typeof value === "object") return value;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return fallback;
+  }
+}
+
+function parsePlaceholderSchema(template) {
+  const schema = parseJsonValue(template?.placeholder_schema_json || template?.placeholder_schema, []);
+  if (Array.isArray(schema) && schema.length) return schema;
+  const count = Number(template?.placeholder_count || String(template?.template_content || "").match(/\{#(?:var|alp)#\}/gi)?.length || 0);
+  return Array.from({ length: count }, (_, index) => ({
+    key: `value_${index + 1}`,
+    label: `Value ${index + 1}`,
+    type: "text",
+    required: true,
+  }));
+}
+
+function renderTemplateContent(content = "", schema = [], variables = {}) {
+  let index = 0;
+  return String(content || "").replace(/\{#(?:var|alp)#\}/gi, () => {
+    const item = schema[index++];
+    return item ? String(variables[item.key] || "") : "";
+  });
 }
 
 function toDateInput(value) {
@@ -215,6 +266,7 @@ function announcementToForm(item = {}) {
   const target = Array.isArray(item.targets) && item.targets.length ? item.targets[0] : {};
   return {
     ...emptyAnnouncementForm,
+    message_type: item.message_type || (item.sms_template_id ? "registered_dlt" : "custom"),
     title: item.title || "",
     body: item.body || "",
     category_id: item.category_id ? String(item.category_id) : "",
@@ -232,10 +284,12 @@ function announcementToForm(item = {}) {
     create_notification: Boolean(item.create_notification),
     send_push: Boolean(item.send_push),
     sms_template_id: item.sms_template_id ? String(item.sms_template_id) : "",
+    sms_variables: parseJsonValue(item.sms_variables_json, {}) || {},
     sms_send_at: toDateTimeInput(item.sms_send_at),
     target_type: target.target_type || "all",
     role_name: target.role_name || "",
     session_id: target.session_id ? String(target.session_id) : "",
+    scope_code: target.scope_code || "",
     class_id: target.class_id ? String(target.class_id) : "",
     section_id: target.section_id ? String(target.section_id) : "",
     medium: target.medium || "",
@@ -325,6 +379,7 @@ function normalizeTarget(form) {
     target_type: form.target_type,
     role_name: form.target_type === "role" ? form.role_name : null,
     session_id: toNumberOrNull(form.session_id),
+    scope_code: form.target_type === "scope" ? form.scope_code || null : null,
     class_id: toNumberOrNull(form.class_id),
     section_id: toNumberOrNull(form.section_id),
     medium: form.medium || null,
@@ -332,12 +387,17 @@ function normalizeTarget(form) {
   };
 }
 
-function buildAnnouncementPayload(form) {
+function buildAnnouncementPayload(form, selectedTemplate = null) {
+  const schema = selectedTemplate ? parsePlaceholderSchema(selectedTemplate) : [];
+  const renderedBody = form.message_type === "registered_dlt"
+    ? renderTemplateContent(selectedTemplate?.template_content || "", schema, form.sms_variables)
+    : form.body.trim();
   return {
+    message_type: form.message_type,
     title: form.title.trim(),
-    body: form.body.trim(),
+    body: renderedBody,
     category_id: toNumberOrNull(form.category_id),
-    delivery_mode: form.delivery_mode,
+    delivery_mode: form.message_type === "custom" ? "online" : form.delivery_mode,
     status: form.status,
     priority: form.priority,
     publish_at: form.publish_at || null,
@@ -350,9 +410,9 @@ function buildAnnouncementPayload(form) {
     show_on_website: form.show_on_website,
     create_notification: form.create_notification,
     send_push: form.send_push,
-    sms_template_id: toNumberOrNull(form.sms_template_id),
+    sms_template_id: form.message_type === "registered_dlt" ? toNumberOrNull(form.sms_template_id) : null,
     sms_send_at: form.sms_send_at || null,
-    sms_variables: {},
+    sms_variables: form.message_type === "registered_dlt" ? form.sms_variables || {} : {},
     targets: [normalizeTarget(form)],
   };
 }
@@ -372,6 +432,7 @@ export default function Announcements() {
   const [errorTitle, setErrorTitle] = useState("Action failed");
   const [notice, setNotice] = useState(null);
   const [announcementOpen, setAnnouncementOpen] = useState(false);
+  const [announcementStep, setAnnouncementStep] = useState("targeting-audience");
   const [templateOpen, setTemplateOpen] = useState(false);
   const [categoryOpen, setCategoryOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
@@ -395,6 +456,38 @@ export default function Announcements() {
     () => classes.find((item) => String(item.id) === String(announcementForm.class_id)),
     [announcementForm.class_id, classes]
   );
+  const selectedTemplate = useMemo(
+    () => templates.find((item) => String(item.id) === String(announcementForm.sms_template_id)) || null,
+    [announcementForm.sms_template_id, templates]
+  );
+  const selectedTemplateSchema = useMemo(() => parsePlaceholderSchema(selectedTemplate), [selectedTemplate]);
+  const renderedDltBody = useMemo(
+    () => renderTemplateContent(selectedTemplate?.template_content || "", selectedTemplateSchema, announcementForm.sms_variables),
+    [announcementForm.sms_variables, selectedTemplate, selectedTemplateSchema]
+  );
+  const targetSummary = useMemo(() => {
+    if (announcementForm.target_type === "all") return "All active users";
+    if (announcementForm.target_type === "parents") return "All parents";
+    if (announcementForm.target_type === "teachers") return "All teachers";
+    if (announcementForm.target_type === "staff") return "Staff";
+    if (announcementForm.target_type === "accounts") return "Accounts";
+    if (announcementForm.target_type === "role") return announcementForm.role_name ? `Role: ${announcementForm.role_name}` : "Select a role";
+    const className = selectedClass?.name || "selected class";
+    if (announcementForm.target_type === "class") return announcementForm.class_id ? `Parents in ${className}` : "Select class";
+    if (announcementForm.target_type === "section") {
+      const section = (selectedClass?.sections || []).find((item) => String(item.id) === String(announcementForm.section_id));
+      return announcementForm.section_id ? `Parents in ${className} / ${section?.name || "section"}` : "Select class and section";
+    }
+    if (announcementForm.target_type === "scope") return announcementForm.scope_code === "hs" ? "Higher Secondary scope" : "School scope";
+    return "Select target";
+  }, [announcementForm, selectedClass]);
+  const canContinueAnnouncementTargeting = useMemo(() => {
+    if (announcementForm.target_type === "role") return Boolean(String(announcementForm.role_name || "").trim());
+    if (announcementForm.target_type === "class") return Boolean(announcementForm.class_id);
+    if (announcementForm.target_type === "section") return Boolean(announcementForm.class_id && announcementForm.section_id);
+    if (announcementForm.target_type === "scope") return Boolean(announcementForm.scope_code);
+    return Boolean(announcementForm.target_type);
+  }, [announcementForm]);
   const holidayCategoryIds = useMemo(
     () => new Set(categories.filter((item) => ["holiday", "festival", "vacation"].includes(item.slug)).map((item) => Number(item.id))),
     [categories]
@@ -496,7 +589,7 @@ export default function Announcements() {
     setSaving(true);
     clearFeedback();
     try {
-      const payload = buildAnnouncementPayload(announcementForm);
+      const payload = buildAnnouncementPayload(announcementForm, selectedTemplate);
       if (editingAnnouncement) {
         const response = await updateAnnouncement(editingAnnouncement.id, payload);
         await loadInitial();
@@ -522,6 +615,7 @@ export default function Announcements() {
       setAnnouncementOpen(false);
       setAnnouncementForm(emptyAnnouncementForm);
       setEditingAnnouncement(null);
+      setAnnouncementStep("targeting-audience");
     } catch (err) {
       showError("Save Failed", err?.message || "Could not save announcement.");
     } finally {
@@ -537,6 +631,7 @@ export default function Announcements() {
       const detail = response.data || item;
       setEditingAnnouncement(detail);
       setAnnouncementForm(announcementToForm(detail));
+      setAnnouncementStep("targeting-details");
       setAnnouncementOpen(true);
     } catch (err) {
       showError("Load Failed", err?.message || "Could not load announcement.");
@@ -573,6 +668,7 @@ export default function Announcements() {
       const payload = {
         ...templateForm,
         placeholder_count: Number(templateForm.placeholder_count || 0),
+        placeholder_schema: templateForm.placeholder_schema || [],
       };
       const response = await createAnnouncementSmsTemplate(payload);
       setTemplates((prev) => [response.data, ...prev]);
@@ -705,9 +801,55 @@ export default function Announcements() {
     setAnnouncementForm((prev) => ({
       ...prev,
       [field]: value,
-      ...(field === "delivery_mode" && value === "online" ? { sms_template_id: "", sms_send_at: "" } : {}),
+      ...(field === "target_type" ? { role_name: "", class_id: "", section_id: "", medium: "", scope_code: "" } : {}),
+      ...(field === "message_type" && value === "custom" ? { delivery_mode: "online", sms_template_id: "", sms_send_at: "", sms_variables: {} } : {}),
+      ...(field === "message_type" && value === "registered_dlt" ? { delivery_mode: "both" } : {}),
+      ...(field === "delivery_mode" && value === "online" && prev.message_type === "custom" ? { sms_template_id: "", sms_send_at: "" } : {}),
+      ...(field === "sms_template_id" ? { sms_variables: {} } : {}),
       ...(field === "class_id" ? { section_id: "", medium: "" } : {}),
     }));
+  }
+
+  function selectAnnouncementAudience(targetType) {
+    updateAnnouncementField("target_type", targetType);
+    setAnnouncementStep("targeting-details");
+  }
+
+  function updateSmsVariable(key, value) {
+    setAnnouncementForm((prev) => ({
+      ...prev,
+      sms_variables: {
+        ...(prev.sms_variables || {}),
+        [key]: value,
+      },
+    }));
+  }
+
+  function updateTemplateSchema(index, key, value) {
+    setTemplateForm((prev) => ({
+      ...prev,
+      placeholder_schema: (prev.placeholder_schema || []).map((item, itemIndex) =>
+        itemIndex === index ? { ...item, [key]: value } : item
+      ),
+    }));
+  }
+
+  function syncTemplateSchemaFromContent(content) {
+    const count = String(content || "").match(/\{#(?:var|alp)#\}/gi)?.length || 0;
+    setTemplateForm((prev) => {
+      const current = prev.placeholder_schema || [];
+      return {
+        ...prev,
+        template_content: content,
+        placeholder_count: String(count),
+        placeholder_schema: Array.from({ length: count }, (_, index) => current[index] || {
+          key: `value_${index + 1}`,
+          label: `Value ${index + 1}`,
+          type: "text",
+          required: true,
+        }),
+      };
+    });
   }
 
   return (
@@ -802,7 +944,33 @@ export default function Announcements() {
                     <Field label="Brand DLT ID"><Input value={templateForm.brand_dlt_id} onChange={(event) => setTemplateForm((prev) => ({ ...prev, brand_dlt_id: event.target.value }))} /></Field>
                     <Field label="Placeholder Count"><Input type="number" value={templateForm.placeholder_count} onChange={(event) => setTemplateForm((prev) => ({ ...prev, placeholder_count: event.target.value }))} /></Field>
                   </div>
-                  <Field label="Template Content"><Textarea className="min-h-28" value={templateForm.template_content} onChange={(event) => setTemplateForm((prev) => ({ ...prev, template_content: event.target.value }))} /></Field>
+                  <Field label="Template Content"><Textarea className="min-h-28" value={templateForm.template_content} onChange={(event) => syncTemplateSchemaFromContent(event.target.value)} /></Field>
+                  {templateForm.placeholder_schema?.length ? (
+                    <div className="space-y-2 rounded-md border border-border bg-muted/20 p-3">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Template Variables</p>
+                      {templateForm.placeholder_schema.map((item, index) => (
+                        <div key={index} className="grid gap-2 md:grid-cols-[1fr_1.4fr_0.9fr_auto]">
+                          <Field label={`Key ${index + 1}`}>
+                            <Input value={item.key} onChange={(event) => updateTemplateSchema(index, "key", event.target.value)} />
+                          </Field>
+                          <Field label="Label">
+                            <Input value={item.label} onChange={(event) => updateTemplateSchema(index, "label", event.target.value)} />
+                          </Field>
+                          <Field label="Type">
+                            <select className={selectClassName} value={item.type || "text"} onChange={(event) => updateTemplateSchema(index, "type", event.target.value)}>
+                              <option value="text">Text</option>
+                              <option value="date">Date</option>
+                              <option value="holiday">Holiday</option>
+                              <option value="number">Number</option>
+                            </select>
+                          </Field>
+                          <div className="flex items-end">
+                            <ToggleField label="Required" checked={item.required !== false} onChange={(value) => updateTemplateSchema(index, "required", value)} />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
                   <div className="grid gap-3 md:grid-cols-2">
                     <Field label="Status">
                       <select className={selectClassName} value={templateForm.status} onChange={(event) => setTemplateForm((prev) => ({ ...prev, status: event.target.value }))}>
@@ -854,6 +1022,7 @@ export default function Announcements() {
               if (!open) {
                 setEditingAnnouncement(null);
                 setAnnouncementForm(emptyAnnouncementForm);
+                setAnnouncementStep("targeting-audience");
               }
             }}
           >
@@ -861,24 +1030,187 @@ export default function Announcements() {
               <Button className="gap-1" onClick={() => {
                 setEditingAnnouncement(null);
                 setAnnouncementForm(emptyAnnouncementForm);
+                setAnnouncementStep("targeting-audience");
               }}>
                 <Plus className="size-4" /> Announcement
               </Button>
             </DialogTrigger>
-            <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-5xl">
-              <DialogHeader>
+            <DialogContent className="max-h-[88vh] overflow-hidden p-0 sm:max-w-4xl">
+              <DialogHeader className="border-b bg-card px-6 py-5">
                 <DialogTitle>{editingAnnouncement ? "Edit Announcement" : "New Announcement"}</DialogTitle>
                 <DialogDescription>
-                  {editingAnnouncement && ["published", "sent"].includes(editingAnnouncement.status)
-                    ? "Saving changes creates a new draft version. The published version stays live until the draft is published."
-                    : "Save as draft or scheduled. Offline SMS is queued only when published."}
+                  Step {announcementStep === "message" ? "2" : "1"} of 2
                 </DialogDescription>
               </DialogHeader>
-              <div className="grid gap-4 xl:grid-cols-[minmax(0,1.3fr)_360px]">
-                <div className="space-y-3">
+              <div className="flex h-[calc(88vh-96px)] min-h-0 flex-col">
+                <ScrollArea className="min-h-0 flex-1">
+                  <div className="space-y-4 px-6 py-5">
+                    {editingAnnouncement && ["published", "sent"].includes(editingAnnouncement.status) ? (
+                      <Alert>
+                        <AlertTitle>Published version stays live</AlertTitle>
+                        <AlertDescription>Saving changes creates a new draft version. Publish the draft when it is ready.</AlertDescription>
+                      </Alert>
+                    ) : null}
+                    {announcementStep === "targeting-audience" ? (
+                      <>
+                        <div className="space-y-5">
+                          {[
+                            { title: "Class Or Section", values: ["section", "class", "scope"] },
+                            { title: "Whole Group", values: ["parents", "teachers", "all"] },
+                            { title: "Role", values: ["staff", "accounts", "role"] },
+                          ].map((group) => (
+                            <section key={group.title} className="space-y-2">
+                              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{group.title}</p>
+                              <div className="grid gap-2">
+                                {group.values.map((value) => {
+                                  const option = announcementTargetOptions.find((item) => item.value === value);
+                                  if (!option) return null;
+                                  return (
+                                    <button
+                                      key={value}
+                                      type="button"
+                                      className="flex items-center justify-between rounded-xl border bg-card px-4 py-3 text-left transition hover:bg-muted/50"
+                                      onClick={() => selectAnnouncementAudience(value)}
+                                    >
+                                      <span>
+                                        <span className="block text-sm font-semibold text-foreground">{option.label}</span>
+                                        <span className="mt-1 block text-xs text-muted-foreground">{option.description}</span>
+                                      </span>
+                                      <span className="text-lg text-muted-foreground">&gt;</span>
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </section>
+                          ))}
+                        </div>
+                      </>
+                    ) : announcementStep === "targeting-details" ? (
+                      <>
+                        <div className="rounded-xl border border-primary/20 bg-primary/5 px-4 py-3">
+                          <p className="text-xs font-semibold uppercase tracking-wide text-primary">Sending To</p>
+                          <p className="mt-1 font-semibold text-foreground">{announcementTargetLabel(announcementForm.target_type)}</p>
+                          <p className="mt-1 text-xs text-muted-foreground">{targetSummary}</p>
+                        </div>
+                        <div className="space-y-4">
+                          {announcementForm.target_type === "role" ? (
+                            <Field label="Role Name"><Input value={announcementForm.role_name} onChange={(event) => updateAnnouncementField("role_name", event.target.value)} placeholder="parent, teacher, staff" /></Field>
+                          ) : null}
+                          {["class", "section", "parents", "scope"].includes(announcementForm.target_type) ? (
+                            <Field label="Session">
+                              <select className={selectClassName} value={announcementForm.session_id} onChange={(event) => updateAnnouncementField("session_id", event.target.value)}>
+                                <option value="">Any session</option>
+                                {sessions.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+                              </select>
+                            </Field>
+                          ) : null}
+                          {announcementForm.target_type === "scope" ? (
+                            <Field label="Scope">
+                              <select className={selectClassName} value={announcementForm.scope_code} onChange={(event) => updateAnnouncementField("scope_code", event.target.value)}>
+                                <option value="">Select scope</option>
+                                <option value="school">School</option>
+                                <option value="hs">Higher Secondary</option>
+                              </select>
+                            </Field>
+                          ) : null}
+                          {["class", "section"].includes(announcementForm.target_type) ? (
+                            <Field label="Class">
+                              <select className={selectClassName} value={announcementForm.class_id} onChange={(event) => updateAnnouncementField("class_id", event.target.value)}>
+                                <option value="">Select class</option>
+                                {classes.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+                              </select>
+                            </Field>
+                          ) : null}
+                          {announcementForm.target_type === "section" ? (
+                            <div className="grid gap-3 md:grid-cols-2">
+                              <Field label="Section">
+                                <select className={selectClassName} value={announcementForm.section_id} onChange={(event) => updateAnnouncementField("section_id", event.target.value)}>
+                                  <option value="">Select section</option>
+                                  {(selectedClass?.sections || []).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+                                </select>
+                              </Field>
+                              <Field label="Medium">
+                                <select className={selectClassName} value={announcementForm.medium} onChange={(event) => updateAnnouncementField("medium", event.target.value)}>
+                                  <option value="">Any</option>
+                                  {(selectedClass?.mediums || ["English", "Assamese"]).map((medium) => <option key={medium} value={medium}>{medium}</option>)}
+                                </select>
+                              </Field>
+                            </div>
+                          ) : null}
+                          <div className="grid gap-2 md:grid-cols-2">
+                            <ToggleField label="Show in software" checked={announcementForm.show_in_software} onChange={(value) => updateAnnouncementField("show_in_software", value)} />
+                            <ToggleField label="Show in mobile" checked={announcementForm.show_in_mobile} onChange={(value) => updateAnnouncementField("show_in_mobile", value)} />
+                            <ToggleField label="Create online notification" checked={announcementForm.create_notification} onChange={(value) => updateAnnouncementField("create_notification", value)} />
+                            <ToggleField label="Send push notification" checked={announcementForm.send_push} onChange={(value) => updateAnnouncementField("send_push", value)} />
+                          </div>
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <div className="rounded-xl border border-primary/20 bg-primary/5 px-4 py-3">
+                          <p className="text-xs font-semibold uppercase tracking-wide text-primary">Sending To</p>
+                          <p className="mt-1 text-sm font-semibold text-foreground">{targetSummary}</p>
+                        </div>
                   <FormSection title="Details" description="Content and category for the announcement feed.">
                     <Field label="Title"><Input value={announcementForm.title} onChange={(event) => updateAnnouncementField("title", event.target.value)} /></Field>
-                    <Field label="Body"><Textarea className="min-h-32" value={announcementForm.body} onChange={(event) => updateAnnouncementField("body", event.target.value)} /></Field>
+                    <div className="grid gap-2 md:grid-cols-2">
+                      {[
+                        { value: "custom", title: "Custom Message", description: "App/software notice only. SMS is not allowed." },
+                        { value: "registered_dlt", title: "Registered DLT Message", description: "Uses approved template variables and may send SMS." },
+                      ].map((option) => (
+                        <button
+                          key={option.value}
+                          type="button"
+                          className={`rounded-xl border px-4 py-3 text-left transition ${
+                            announcementForm.message_type === option.value ? "border-primary bg-primary/5" : "border-border bg-background hover:bg-muted/50"
+                          }`}
+                          onClick={() => updateAnnouncementField("message_type", option.value)}
+                        >
+                          <span className="block text-sm font-semibold text-foreground">{option.title}</span>
+                          <span className="mt-1 block text-xs text-muted-foreground">{option.description}</span>
+                        </button>
+                      ))}
+                    </div>
+                    {announcementForm.message_type === "custom" ? (
+                      <Field label="Body"><Textarea className="min-h-32" value={announcementForm.body} onChange={(event) => updateAnnouncementField("body", event.target.value)} /></Field>
+                    ) : (
+                      <div className="space-y-3 rounded-md border border-border bg-muted/20 p-3">
+                        <div className="grid gap-3 md:grid-cols-2">
+                          <Field label="DLT Template">
+                            <select className={selectClassName} value={announcementForm.sms_template_id} onChange={(event) => updateAnnouncementField("sms_template_id", event.target.value)}>
+                              <option value="">Select registered template</option>
+                              {templates.filter((item) => item.status === "registered").map((item) => <option key={item.id} value={item.id}>{item.template_name}</option>)}
+                            </select>
+                          </Field>
+                          <Field label="SMS Send At"><Input type="datetime-local" value={announcementForm.sms_send_at} onChange={(event) => updateAnnouncementField("sms_send_at", event.target.value)} /></Field>
+                        </div>
+                        {selectedTemplate ? (
+                          <>
+                            <div className="rounded-md border border-border bg-background p-3 text-xs text-muted-foreground">
+                              {selectedTemplate.template_content}
+                            </div>
+                            <div className="grid gap-3 md:grid-cols-2">
+                              {selectedTemplateSchema.map((item) => (
+                                <Field key={item.key} label={item.label}>
+                                  {item.type === "date" ? (
+                                    <Input required={item.required !== false} type="date" value={announcementForm.sms_variables?.[item.key] || ""} onChange={(event) => updateSmsVariable(item.key, event.target.value)} />
+                                  ) : item.type === "holiday" ? (
+                                    <Input required={item.required !== false} list="announcement-holiday-options" value={announcementForm.sms_variables?.[item.key] || ""} onChange={(event) => updateSmsVariable(item.key, event.target.value)} placeholder="Select or type holiday" />
+                                  ) : (
+                                    <Input required={item.required !== false} type={item.type === "number" ? "number" : "text"} value={announcementForm.sms_variables?.[item.key] || ""} onChange={(event) => updateSmsVariable(item.key, event.target.value)} />
+                                  )}
+                                </Field>
+                              ))}
+                            </div>
+                            <datalist id="announcement-holiday-options">
+                              {holidays.map((item) => <option key={item.id} value={item.title} />)}
+                              {categories.filter((item) => ["holiday", "festival", "vacation"].includes(item.slug)).map((item) => <option key={item.slug} value={item.name} />)}
+                            </datalist>
+                            <Field label="Preview"><Textarea readOnly className="min-h-24 bg-background" value={renderedDltBody} /></Field>
+                          </>
+                        ) : null}
+                      </div>
+                    )}
                     <div className="grid gap-3 md:grid-cols-3">
                       <Field label="Category">
                         <select className={selectClassName} value={announcementForm.category_id} onChange={(event) => updateAnnouncementField("category_id", event.target.value)}>
@@ -905,83 +1237,25 @@ export default function Announcements() {
                       <Field label="Delivery">
                         <select className={selectClassName} value={announcementForm.delivery_mode} onChange={(event) => updateAnnouncementField("delivery_mode", event.target.value)}>
                           <option value="online">Online</option>
-                          <option value="offline_sms">Offline SMS</option>
-                          <option value="both">Online + SMS</option>
+                          {announcementForm.message_type === "registered_dlt" ? <option value="offline_sms">Offline SMS</option> : null}
+                          {announcementForm.message_type === "registered_dlt" ? <option value="both">Online + SMS</option> : null}
                         </select>
                       </Field>
                       <Field label="Publish At"><Input type="datetime-local" value={announcementForm.publish_at} onChange={(event) => updateAnnouncementField("publish_at", event.target.value)} /></Field>
                       <Field label="Expires At"><Input type="datetime-local" value={announcementForm.expires_at} onChange={(event) => updateAnnouncementField("expires_at", event.target.value)} /></Field>
                     </div>
-                    {["offline_sms", "both"].includes(announcementForm.delivery_mode) ? (
-                      <div className="grid gap-3 rounded-md border border-border bg-muted/20 p-3 md:grid-cols-2">
-                        <Field label="DLT Template">
-                          <select className={selectClassName} value={announcementForm.sms_template_id} onChange={(event) => updateAnnouncementField("sms_template_id", event.target.value)}>
-                            <option value="">Select template</option>
-                            {templates.map((item) => <option key={item.id} value={item.id}>{item.template_name}</option>)}
-                          </select>
-                        </Field>
-                        <Field label="SMS Send At"><Input type="datetime-local" value={announcementForm.sms_send_at} onChange={(event) => updateAnnouncementField("sms_send_at", event.target.value)} /></Field>
-                      </div>
+                    {announcementForm.message_type === "custom" ? (
+                      <p className="rounded-md border border-border bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
+                        Custom messages are online only because DLT SMS requires registered template content.
+                      </p>
                     ) : null}
                   </FormSection>
-                  <FormSection title="Event / Holiday Dates" description="Holiday categories create calendar records when published.">
+                  <FormSection title="Event / Holiday Dates (Optional)" description="Use only for holidays, closures, vacations, or dated events.">
                     <div className="grid gap-3 md:grid-cols-3">
-                      <Field label="Event Starts"><Input type="date" value={announcementForm.event_start_date} onChange={(event) => updateAnnouncementField("event_start_date", event.target.value)} /></Field>
-                      <Field label="Event Ends"><Input type="date" value={announcementForm.event_end_date} onChange={(event) => updateAnnouncementField("event_end_date", event.target.value)} /></Field>
-                      <Field label="Reopen Date"><Input type="date" value={announcementForm.reopen_date} onChange={(event) => updateAnnouncementField("reopen_date", event.target.value)} /></Field>
+                      <Field label="Event Starts (Optional)"><Input type="date" value={announcementForm.event_start_date} onChange={(event) => updateAnnouncementField("event_start_date", event.target.value)} /></Field>
+                      <Field label="Event Ends (Optional)"><Input type="date" value={announcementForm.event_end_date} onChange={(event) => updateAnnouncementField("event_end_date", event.target.value)} /></Field>
+                      <Field label="Reopen Date (Optional)"><Input type="date" value={announcementForm.reopen_date} onChange={(event) => updateAnnouncementField("reopen_date", event.target.value)} /></Field>
                     </div>
-                  </FormSection>
-                </div>
-                <div className="space-y-3">
-                  <FormSection title="Target" description="Choose who should receive this announcement.">
-                      <Field label="Target Type">
-                        <select className={selectClassName} value={announcementForm.target_type} onChange={(event) => updateAnnouncementField("target_type", event.target.value)}>
-                          <option value="all">Schoolwide</option>
-                          <option value="parents">Parents</option>
-                          <option value="teachers">Teachers</option>
-                          <option value="staff">Staff</option>
-                          <option value="accounts">Accounts</option>
-                          <option value="role">Role</option>
-                          <option value="class">Class</option>
-                          <option value="section">Section</option>
-                        </select>
-                      </Field>
-                      {announcementForm.target_type === "role" ? (
-                        <Field label="Role Name"><Input value={announcementForm.role_name} onChange={(event) => updateAnnouncementField("role_name", event.target.value)} placeholder="parent, teacher, staff" /></Field>
-                      ) : null}
-                      <Field label="Session">
-                        <select className={selectClassName} value={announcementForm.session_id} onChange={(event) => updateAnnouncementField("session_id", event.target.value)}>
-                          <option value="">Any session</option>
-                          {sessions.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
-                        </select>
-                      </Field>
-                      <Field label="Class">
-                        <select className={selectClassName} value={announcementForm.class_id} onChange={(event) => updateAnnouncementField("class_id", event.target.value)}>
-                          <option value="">Any class</option>
-                          {classes.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
-                        </select>
-                      </Field>
-                      <div className="grid gap-3 md:grid-cols-2">
-                        <Field label="Section">
-                          <select className={selectClassName} value={announcementForm.section_id} onChange={(event) => updateAnnouncementField("section_id", event.target.value)}>
-                            <option value="">Any</option>
-                            {(selectedClass?.sections || []).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
-                          </select>
-                        </Field>
-                        <Field label="Medium">
-                          <select className={selectClassName} value={announcementForm.medium} onChange={(event) => updateAnnouncementField("medium", event.target.value)}>
-                            <option value="">Any</option>
-                            <option value="English">English</option>
-                            <option value="Assamese">Assamese</option>
-                          </select>
-                        </Field>
-                      </div>
-                      <div className="grid gap-2">
-                        <ToggleField label="Show in software" checked={announcementForm.show_in_software} onChange={(value) => updateAnnouncementField("show_in_software", value)} />
-                        <ToggleField label="Show in mobile" checked={announcementForm.show_in_mobile} onChange={(value) => updateAnnouncementField("show_in_mobile", value)} />
-                        <ToggleField label="Create online notification" checked={announcementForm.create_notification} onChange={(value) => updateAnnouncementField("create_notification", value)} />
-                        <ToggleField label="Send push notification" checked={announcementForm.send_push} onChange={(value) => updateAnnouncementField("send_push", value)} />
-                      </div>
                   </FormSection>
                   {holidayCategoryIds.has(Number(announcementForm.category_id)) ? (
                     <Alert>
@@ -990,13 +1264,30 @@ export default function Announcements() {
                       <AlertDescription>Publishing this category will create calendar holiday records for the selected target.</AlertDescription>
                     </Alert>
                   ) : null}
-                  <div className="flex justify-end gap-2 border-t border-border pt-3">
-                    <Button variant="outline" onClick={() => setAnnouncementOpen(false)}>Cancel</Button>
-                    <Button onClick={saveAnnouncement} disabled={saving}>
-                      {editingAnnouncement ? "Save Changes" : "Save Announcement"}
-                    </Button>
+                      </>
+                    )}
                   </div>
-                </div>
+                </ScrollArea>
+                {announcementStep !== "targeting-audience" ? (
+                  <div className="flex items-center justify-between gap-3 border-t bg-card px-6 py-4">
+                    <Button variant="outline" onClick={() => setAnnouncementOpen(false)}>Cancel</Button>
+                    <div className="flex gap-2">
+                      {announcementStep === "targeting-details" ? (
+                        <Button type="button" variant="outline" onClick={() => setAnnouncementStep("targeting-audience")}>Change Audience</Button>
+                      ) : null}
+                      {announcementStep === "message" ? (
+                        <Button type="button" variant="outline" onClick={() => setAnnouncementStep("targeting-details")}>Back</Button>
+                      ) : null}
+                      {announcementStep === "targeting-details" ? (
+                        <Button type="button" onClick={() => setAnnouncementStep("message")} disabled={!canContinueAnnouncementTargeting}>Continue to Message</Button>
+                      ) : (
+                        <Button onClick={saveAnnouncement} disabled={saving}>
+                          {editingAnnouncement ? "Save Changes" : "Save Announcement"}
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                ) : null}
               </div>
             </DialogContent>
           </Dialog>

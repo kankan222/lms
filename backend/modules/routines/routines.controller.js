@@ -150,6 +150,22 @@ export async function myTeacherRoutine(req, res, next) {
   }
 }
 
+export async function myTeacherClassRoutineBoard(req, res, next) {
+  try {
+    res.json({ success: true, data: await service.getMyTeacherClassRoutineBoard(req.user.userId, req.query) });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function myTeacherExamRoutines(req, res, next) {
+  try {
+    res.json({ success: true, data: await service.listMyTeacherExamRoutines(req.user.userId, req.query) });
+  } catch (err) {
+    next(err);
+  }
+}
+
 export async function listExamRoutines(req, res, next) {
   try {
     res.json({ success: true, data: await service.listExamRoutines(req.query) });

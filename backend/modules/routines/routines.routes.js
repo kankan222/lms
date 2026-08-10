@@ -44,6 +44,8 @@ router.delete("/exam-routines/:id", requirePermission("exam_routines.manage"), c
 router.post("/exam-routines/:id/publish", requirePermission("routines.publish"), controller.publishExamRoutine);
 router.get("/exam-routines/:id/pdf", requirePermission("routines.view"), controller.examRoutinePdf);
 
+router.get("/teacher/class-routines/board", requirePermission("routines.view"), controller.myTeacherClassRoutineBoard);
+router.get("/teacher/exam-routines", requirePermission("routines.view"), controller.myTeacherExamRoutines);
 router.get("/teacher/me", requirePermission("routines.view"), controller.myTeacherRoutine);
 router.get("/students/:studentId", requirePermission("routines.view"), controller.studentRoutine);
 

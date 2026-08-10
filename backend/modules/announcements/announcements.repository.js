@@ -51,8 +51,8 @@ export async function createSmsTemplate(data) {
   const result = await execute(
     `INSERT INTO announcement_sms_templates
      (template_name, dlt_template_id, header, communication_type, template_content, brand_dlt_id,
-      placeholder_style, placeholder_count, status, provider, creator, registered_on, created_by)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      placeholder_style, placeholder_count, placeholder_schema_json, status, provider, creator, registered_on, created_by)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       data.template_name,
       data.dlt_template_id,
@@ -62,6 +62,7 @@ export async function createSmsTemplate(data) {
       data.brand_dlt_id || null,
       data.placeholder_style || "alp",
       data.placeholder_count || 0,
+      JSON.stringify(data.placeholder_schema || []),
       data.status || "registered",
       data.provider || "fast2sms",
       data.creator || null,
@@ -81,7 +82,7 @@ export async function updateSmsTemplate(id, data) {
     `UPDATE announcement_sms_templates
      SET template_name = ?, dlt_template_id = ?, header = ?, communication_type = ?,
          template_content = ?, brand_dlt_id = ?, placeholder_style = ?, placeholder_count = ?,
-         status = ?, provider = ?, creator = ?, registered_on = ?
+         placeholder_schema_json = ?, status = ?, provider = ?, creator = ?, registered_on = ?
      WHERE id = ?`,
     [
       data.template_name,
@@ -92,6 +93,7 @@ export async function updateSmsTemplate(id, data) {
       data.brand_dlt_id || null,
       data.placeholder_style || "alp",
       data.placeholder_count || 0,
+      JSON.stringify(data.placeholder_schema || []),
       data.status || "registered",
       data.provider || "fast2sms",
       data.creator || null,
@@ -106,8 +108,8 @@ export async function upsertSmsTemplate(data) {
   await execute(
     `INSERT INTO announcement_sms_templates
      (template_name, dlt_template_id, header, communication_type, template_content, brand_dlt_id,
-      placeholder_style, placeholder_count, status, provider, creator, registered_on, created_by)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      placeholder_style, placeholder_count, placeholder_schema_json, status, provider, creator, registered_on, created_by)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON DUPLICATE KEY UPDATE
        template_name = VALUES(template_name),
        header = VALUES(header),
@@ -116,6 +118,7 @@ export async function upsertSmsTemplate(data) {
        brand_dlt_id = VALUES(brand_dlt_id),
        placeholder_style = VALUES(placeholder_style),
        placeholder_count = VALUES(placeholder_count),
+       placeholder_schema_json = VALUES(placeholder_schema_json),
        status = VALUES(status),
        provider = VALUES(provider),
        creator = VALUES(creator),
@@ -130,6 +133,7 @@ export async function upsertSmsTemplate(data) {
       data.brand_dlt_id || null,
       data.placeholder_style || "alp",
       data.placeholder_count || 0,
+      JSON.stringify(data.placeholder_schema || []),
       data.status || "registered",
       data.provider || "fast2sms",
       data.creator || null,
@@ -231,7 +235,7 @@ export function listMobileAnnouncementsForUser(userId, filters = {}) {
   appendFilter(where, params, "a.category_id", filters.category_id);
   const limit = Math.max(1, Math.min(100, Number(filters.limit) || 50));
   return query(
-    `SELECT a.id, a.category_id, a.title, a.body, a.delivery_mode, a.status, a.priority,
+    `SELECT a.id, a.category_id, a.message_type, a.title, a.body, a.delivery_mode, a.status, a.priority,
             a.published_at, a.publish_at, a.expires_at, a.event_start_date, a.event_end_date,
             a.reopen_date, c.name AS category_name, c.slug AS category_slug
      FROM announcements a
@@ -245,7 +249,7 @@ export function listMobileAnnouncementsForUser(userId, filters = {}) {
 
 export async function getMobileAnnouncementForUser(id, userId) {
   const rows = await query(
-    `SELECT a.id, a.category_id, a.title, a.body, a.delivery_mode, a.status, a.priority,
+    `SELECT a.id, a.category_id, a.message_type, a.title, a.body, a.delivery_mode, a.status, a.priority,
             a.published_at, a.publish_at, a.expires_at, a.event_start_date, a.event_end_date,
             a.reopen_date, c.name AS category_name, c.slug AS category_slug
      FROM announcements a
@@ -274,7 +278,8 @@ export async function getMobileAnnouncementForUser(id, userId) {
 export async function getAnnouncementById(id) {
   const rows = await query(
     `SELECT a.*, c.name AS category_name, c.slug AS category_slug, st.template_name AS sms_template_name,
-            st.dlt_template_id, st.header AS sms_header
+            st.dlt_template_id, st.header AS sms_header, st.template_content AS sms_template_content,
+            st.placeholder_schema_json
      FROM announcements a
      LEFT JOIN announcement_categories c ON c.id = a.category_id
      LEFT JOIN announcement_sms_templates st ON st.id = a.sms_template_id
@@ -298,16 +303,17 @@ export async function createAnnouncement(data, targets = [], attachments = []) {
     await conn.beginTransaction();
     const [result] = await conn.execute(
       `INSERT INTO announcements
-       (root_announcement_id, version_number, is_current, category_id, title, body, delivery_mode, status, priority, publish_at, expires_at,
+       (root_announcement_id, version_number, is_current, category_id, message_type, title, body, delivery_mode, status, priority, publish_at, expires_at,
         event_start_date, event_end_date, reopen_date, show_in_software, show_in_mobile,
         show_on_website, create_notification, send_push, sms_template_id, sms_variables_json,
         sms_send_at, created_by, updated_by)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         data.root_announcement_id || null,
         data.version_number || 1,
         data.is_current === 0 ? 0 : 1,
         data.category_id || null,
+        data.message_type || "custom",
         data.title,
         data.body,
         data.delivery_mode,
@@ -351,7 +357,7 @@ export async function updateAnnouncement(id, data, targets = [], attachments = [
     await conn.beginTransaction();
     const [result] = await conn.execute(
       `UPDATE announcements
-       SET category_id = ?, title = ?, body = ?, delivery_mode = ?, status = ?, priority = ?,
+       SET category_id = ?, message_type = ?, title = ?, body = ?, delivery_mode = ?, status = ?, priority = ?,
            publish_at = ?, expires_at = ?, event_start_date = ?, event_end_date = ?, reopen_date = ?,
            show_in_software = ?, show_in_mobile = ?, show_on_website = ?, create_notification = ?,
            send_push = ?, sms_template_id = ?, sms_variables_json = ?, sms_send_at = ?,
@@ -359,6 +365,7 @@ export async function updateAnnouncement(id, data, targets = [], attachments = [
        WHERE id = ? AND status IN ('draft', 'scheduled')`,
       [
         data.category_id || null,
+        data.message_type || "custom",
         data.title,
         data.body,
         data.delivery_mode,
@@ -703,7 +710,7 @@ export async function getSmsJobForDispatch(id) {
   const rows = await query(
     `SELECT j.*, a.title, a.body, a.sms_variables_json, a.event_start_date, a.event_end_date, a.reopen_date,
             st.template_name, st.dlt_template_id, st.header, st.brand_dlt_id, st.template_content,
-            st.placeholder_count, st.provider AS template_provider
+            st.placeholder_count, st.placeholder_schema_json, st.provider AS template_provider
      FROM announcement_sms_jobs j
      JOIN announcements a ON a.id = j.announcement_id
      JOIN announcement_sms_templates st ON st.id = j.sms_template_id
