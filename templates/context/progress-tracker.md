@@ -14,6 +14,24 @@ Update this file after every meaningful implementation change.
 
 ## Completed
 
+- Linked new message notifications to message ids and added cleanup when a
+  message is deleted for self, deleted for everyone, or a conversation is hidden
+  for the user; added a migration to clear stale message notifications for
+  already-hidden conversations and safely identifiable deleted messages.
+- Fixed mobile messaging text wrapping by allowing chat bubbles and preview
+  text to shrink/wrap correctly across device widths, and tightened teacher
+  messaging visibility so teacher users with a staff role no longer bypass
+  scoped visibility; added a migration to remove existing teacher memberships
+  from class and section conversations.
+- Added class routine Excel export from the software routine download button:
+  standard routines export in day-block class timetable format, HS packed
+  routines export as period-column grids with subject and teacher names in the
+  same wrapped cell, backed by a dependency-free backend XLSX generator and a
+  new `/class-routines/:id/xlsx` endpoint.
+- Removed Android boot/reboot delivery from the generated Expo Notifications
+  receiver and blocked `RECEIVE_BOOT_COMPLETED` in the mobile app config so
+  Android 15 builds do not associate boot broadcasts with Expo Audio foreground
+  services while preserving push notifications and voice messaging.
 - Reworked exam routine navigation in software and mobile into a two-level
   exam-first, class/section-second selector, with scoped previous/next controls
   and full mobile exam routine detail loading instead of limiting results to the
@@ -1227,3 +1245,44 @@ Update this file after every meaningful implementation change.
 - Updated the HS routine migration to replace the old one-entry-per-period
   unique key with a normal period index so parallel subject rows can coexist in
   the same slot.
+- Updated the mobile class routine view to render routine slots by label instead
+  of fallback serial numbers, show break slots, group packed HS subjects under a
+  single period label, and highlight entries assigned to the logged-in teacher
+  using teacher user IDs exposed by the routine board payload.
+- Simplified the mobile exam routine row layout to show the exam number on the
+  left with subject, date, and time stacked in the card, and switched mobile
+  routine times from 24-hour format to 12-hour AM/PM format.
+- Fixed mobile class routine break detection to honor time-slot default break
+  metadata, so break rows show the Break text, time range, and period metadata.
+- Fixed class routine payload timing to fall back to linked time-slot template
+  start/end values when an entry does not store its own times, allowing mobile
+  break rows to show the actual break time.
+- Added synthetic break-slot rows to class routine board/detail responses when
+  a time-slot template has a break period but no saved routine entry, so mobile
+  shows breaks such as Period 5 between surrounding class periods.
+- Updated mobile routine period labels to count only class slots, so break rows
+  display as Break and the next teaching period continues with the next number.
+- Applied the same break-aware display numbering in the software class routine
+  week/day boards and slot editor description, keeping raw period numbers only
+  for internal save/edit operations.
+- Removed the mobile announcements inbox overview cards for Visible and Urgent,
+  leaving the filter chips and announcement list as the first visible content.
+- Matched the mobile Announcements header and filter chips to the Messaging
+  screen pattern with a compact title/action row, refresh icon, New action, and
+  soft bordered active filter chips.
+- Switched the mobile Dashboard tab to use the shared AppShell header used by
+  other tabs and removed its duplicate private dashboard header/actions.
+- Added top padding to the mobile Dashboard content now that it sits below the
+  shared AppShell header.
+- Made the automatic mobile app update prompt one-shot per platform/version/build
+  by storing the last prompted update key locally, while keeping manual update
+  checks in Profile able to show the prompt on demand.
+- Simplified mobile Announcements for parent/teacher roles to an inbox-only
+  view: no Queue, DLT, SMS, Holidays tab, compose/publish actions, or
+  urgent/holiday filters even if broad announcement permissions are present.
+- Fixed parent/student HS class routine lookup so packed HS routines with no
+  stream-specific version can still match students who have a stream assigned,
+  mirroring the existing packed HS section/medium fallback behavior.
+- Tightened class routine teacher conflict diagnostics: the validator now
+  compares effective entry/template slot times and reports both the publishing
+  class/period/time and the already-published conflicting class/period/time.

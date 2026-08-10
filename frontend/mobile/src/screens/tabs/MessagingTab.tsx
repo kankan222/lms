@@ -2069,7 +2069,7 @@ export default function MessagingTab({
                       </Text>
                     ) : null}
                     <View style={styles.rowBottom}>
-                      <Text style={[styles.rowPreview, { color: theme.subText }]} numberOfLines={1}>
+                      <Text style={[styles.rowPreview, { color: theme.subText }]} numberOfLines={2}>
                         {conversation.last_message || "No messages yet"}
                       </Text>
                       {Number(conversation.unread || 0) > 0 ? <Text style={styles.unread}>{conversation.unread}</Text> : null}
@@ -2246,7 +2246,14 @@ export default function MessagingTab({
                             {hasMediaAttachment ? attachments.map((attachment) => (
                               <MessageAttachmentView key={`${message.id}-${attachment.id}`} attachment={attachment} />
                             )) : null}
-                            {message.message ? <Text style={[styles.messageText, hasMediaAttachment ? styles.mediaBubbleInset : null, { color: bubbleTextColor }]}>{message.message}</Text> : null}
+                            {message.message ? (
+                              <Text
+                                style={[styles.messageText, hasMediaAttachment ? styles.mediaBubbleInset : null, { color: bubbleTextColor }]}
+                                selectable
+                              >
+                                {message.message}
+                              </Text>
+                            ) : null}
                             {!hasMediaAttachment ? attachments.map((attachment) => (
                               <MessageAttachmentView key={`${message.id}-${attachment.id}`} attachment={attachment} />
                             )) : null}
@@ -2461,12 +2468,12 @@ return StyleSheet.create({
   rowCard: { flexDirection: "row", gap: 12, borderBottomWidth: 1, paddingHorizontal: 14, paddingVertical: 11 },
   rowBody: { flex: 1, gap: 3, justifyContent: "center", minWidth: 0 },
   rowTop: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 },
-  rowBottom: { flexDirection: "row", alignItems: "center", gap: 8 },
+  rowBottom: { flexDirection: "row", alignItems: "flex-start", gap: 8 },
   rowTitle: { fontSize: 15, fontWeight: "800", flex: 1 },
   avatarSelectionWrap: { position: "relative" },
   selectionBadge: { position: "absolute", right: 0, bottom: 0, width: 20, height: 20, borderRadius: 10, alignItems: "center", justifyContent: "center" },
   rowTime: { fontSize: 11, flexShrink: 0 },
-  rowPreview: { flex: 1, fontSize: 13, fontWeight: "600" },
+  rowPreview: { flex: 1, minWidth: 0, flexShrink: 1, fontSize: 13, lineHeight: 18, fontWeight: "600" },
   rowMeta: { fontSize: 12, flex: 1 },
   unread: { minWidth: 20, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 999, textAlign: "center", backgroundColor: theme.success, color: theme.successText, fontSize: 11, fontWeight: "700" },
   emptyCard: { borderWidth: 1, borderRadius: 20, paddingHorizontal: 18, paddingVertical: 24, alignItems: "center", justifyContent: "center", gap: 8 },
@@ -2489,10 +2496,10 @@ return StyleSheet.create({
   chatHeaderCopy: { flex: 1, gap: 2 },
   chatTitle: { fontSize: 15, fontWeight: "800" },
   chatMeta: { fontSize: 12 },
-  messageRow: { flexDirection: "row", gap: 8, paddingHorizontal: 2 },
-  mine: { justifyContent: "flex-end" },
-  other: { justifyContent: "flex-start" },
-  bubble: { maxWidth: "80%", borderRadius: 18, paddingHorizontal: 12, paddingVertical: 8 },
+  messageRow: { flexDirection: "row", gap: 8, paddingHorizontal: 2, minWidth: 0 },
+  mine: { justifyContent: "flex-end", alignItems: "flex-end" },
+  other: { justifyContent: "flex-start", alignItems: "flex-start" },
+  bubble: { maxWidth: "82%", minWidth: 0, flexShrink: 1, alignSelf: "flex-start", borderRadius: 18, paddingHorizontal: 12, paddingVertical: 8 },
   mediaBubble: { paddingHorizontal: 0, paddingVertical: 0, overflow: "hidden" },
   mediaBubbleInset: { marginHorizontal: 10, marginTop: 8 },
   mediaBubbleMeta: { paddingHorizontal: 10, paddingBottom: 7 },
@@ -2501,7 +2508,7 @@ return StyleSheet.create({
   senderName: { flex: 1, fontSize: 11, fontWeight: "700" },
   senderNameSpacer: { flex: 1 },
   messageActionBtn: { width: 24, height: 20, alignItems: "center", justifyContent: "center", borderRadius: 10 },
-  messageText: { fontSize: 14, lineHeight: 20, fontWeight: "600" },
+  messageText: { minWidth: 0, flexShrink: 1, flexWrap: "wrap", fontSize: 14, lineHeight: 20, fontWeight: "600" },
   bubbleTime: { fontSize: 11 },
   messageMetaRow: { marginTop: 6, flexDirection: "row", flexWrap: "wrap", justifyContent: "flex-end", gap: 6 },
   deliveryIconWrap: { width: 16, height: 14, alignItems: "center", justifyContent: "center" },

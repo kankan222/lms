@@ -59,8 +59,14 @@ function hasPrivilegedMessagingRole(actor) {
   );
 }
 
+function hasAdminMessagingRole(actor) {
+  return actor.roles.some((role) =>
+    ["super_admin", "admin", "accounts"].includes(role)
+  );
+}
+
 function requiresScopedConversationVisibility(actor) {
-  return isParentOrTeacher(actor) && !hasPrivilegedMessagingRole(actor);
+  return isParentOrTeacher(actor) && !hasAdminMessagingRole(actor);
 }
 
 function assertCanSendMessages(actor) {
@@ -183,6 +189,14 @@ async function getOrCreateAdminConversation(senderId) {
 
 function uniqueUserIds(rows) {
   return [...new Set((rows || []).map((row) => Number(row.user_id)).filter(Boolean))];
+}
+
+function messageNotificationPreview(message) {
+  const messageType = String(message?.message_type || "text");
+  if (messageType === "image") return "Sent a photo";
+  if (messageType === "document") return "Sent a file";
+  if (messageType === "voice") return "Sent a voice message";
+  return String(message?.message || "").slice(0, 120);
 }
 
 async function syncTeacherMemberships(userId) {
@@ -422,14 +436,7 @@ export async function sendMessage(data, actorInput, options = {}) {
   });
 
   const recipients = memberUserIds.filter((userId) => Number(userId) !== senderUserId);
-  const preview =
-    messageType === "image"
-      ? "Sent a photo"
-      : messageType === "document"
-        ? "Sent a file"
-        : messageType === "voice"
-          ? "Sent a voice message"
-          : messageText.slice(0, 120);
+  const preview = messageNotificationPreview({ message_type: messageType, message: messageText });
 
   if (recipients.length && !options.suppressNotification) {
     notificationService
@@ -437,8 +444,8 @@ export async function sendMessage(data, actorInput, options = {}) {
         userIds: recipients,
         category: "message",
         type: "message",
-        entityType: "conversation",
-        entityId: conversationId,
+        entityType: "message",
+        entityId: messageId,
         title: conversation.name || "New message",
         body: preview,
         deepLink: `app://messages/conversations/${conversationId}`,
@@ -588,6 +595,10 @@ export async function deleteConversationForMe(conversationId, actorInput) {
   await assertCanViewConversation(actor, conversationId);
 
   await repo.hideConversationForUser(conversationId, actor.userId);
+  await notificationService.deleteMessageNotificationsForConversation({
+    conversationId,
+    userIds: [actor.userId],
+  });
   await repo.createMessagingAudit({
     actorUserId: actor.userId,
     action: "conversation.deleted_for_self",
@@ -725,6 +736,12 @@ export async function deleteMessage(messageId, mode, actorInput) {
 
   if (mode === "self") {
     await repo.hideMessageForUser(messageId, actor.userId);
+    await notificationService.deleteMessageNotificationsForMessage({
+      messageId,
+      conversationId: existing.conversation_id,
+      legacyBody: messageNotificationPreview(existing),
+      userIds: [actor.userId],
+    });
     await repo.createMessagingAudit({
       actorUserId: actor.userId,
       action: "message.deleted_for_self",
@@ -752,13 +769,19 @@ export async function deleteMessage(messageId, mode, actorInput) {
   }
 
   await repo.deleteMessageForEveryone(messageId, actor.userId);
+  const memberUserIds = await repo.getConversationMemberUserIds(existing.conversation_id);
+  await notificationService.deleteMessageNotificationsForMessage({
+    messageId,
+    conversationId: existing.conversation_id,
+    legacyBody: messageNotificationPreview(existing),
+    userIds: memberUserIds,
+  });
   await repo.createMessagingAudit({
     actorUserId: actor.userId,
     action: isModerator && !isSender ? "message.moderator_removed" : "message.deleted_for_everyone",
     conversationId: existing.conversation_id,
     messageId,
   });
-  const memberUserIds = await repo.getConversationMemberUserIds(existing.conversation_id);
   publishMessagingEvent(memberUserIds, "message:deleted", {
     conversation_id: existing.conversation_id,
     message_id: Number(messageId),

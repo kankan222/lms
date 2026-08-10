@@ -2,6 +2,7 @@ import AppError from "../../core/errors/AppError.js";
 import { inflateRawSync } from "node:zlib";
 import * as repo from "./routines.repository.js";
 import { buildClassRoutinePdf, buildExamRoutinePdf } from "./routines.pdf.service.js";
+import { buildClassRoutineXlsx, classRoutineXlsxFileName } from "./routines.excel.service.js";
 
 const ROUTINE_ENTRY_TYPES = new Set([
   "subject",
@@ -679,6 +680,9 @@ function mapRoutineBoardEntry(row) {
     teacher_ids: row.teacher_ids
       ? String(row.teacher_ids).split(",").map((id) => Number(id)).filter(Boolean)
       : [],
+    teacher_user_ids: row.teacher_user_ids
+      ? String(row.teacher_user_ids).split(",").map((id) => Number(id)).filter(Boolean)
+      : [],
     teacher_names: uniqueCsv(row.teacher_names),
   };
 }
@@ -723,6 +727,154 @@ function rowMatchesTeacherAssignment(row, assignment) {
   const sectionMatches = !sectionIds.length || sectionIds.includes(Number(assignment.section_id));
   const mediumMatches = !row.applies_medium || String(row.applies_medium) === String(assignment.medium || "");
   return sectionMatches && mediumMatches;
+}
+
+function breakSlotAppliesToWeekday(slot, weekday) {
+  return !slot.weekday || Number(slot.weekday) === Number(weekday);
+}
+
+function routineEntrySlotKey(entry) {
+  return [
+    Number(entry.weekday || 0),
+    Number(entry.period_number || 0),
+    String(entry.start_time || ""),
+    String(entry.end_time || ""),
+  ].join("|");
+}
+
+function sortRoutineEntryLike(a, b) {
+  return Number(a.weekday || 0) - Number(b.weekday || 0) ||
+    Number(a.sort_order || 0) - Number(b.sort_order || 0) ||
+    Number(a.period_number || 0) - Number(b.period_number || 0) ||
+    String(a.start_time || "").localeCompare(String(b.start_time || ""));
+}
+
+function missingBreakSlotKey(weekday, slot) {
+  return [
+    Number(weekday || 0),
+    Number(slot.period_number || 0),
+    String(slot.start_time || ""),
+    String(slot.end_time || ""),
+  ].join("|");
+}
+
+function syntheticBreakRowFromBoardRow(row, slot, weekday) {
+  const syntheticId = -1 * (Number(slot.time_slot_id || 0) * 10 + Number(weekday || 0));
+  return {
+    ...row,
+    entry_id: syntheticId,
+    weekday: Number(weekday),
+    period_number: Number(slot.period_number),
+    start_time: slot.start_time,
+    end_time: slot.end_time,
+    entry_type: "break",
+    subject_id: null,
+    subject_name: null,
+    activity_id: null,
+    activity_name: null,
+    entry_title: slot.label || "Break",
+    room: null,
+    notes: null,
+    sort_order: Number(slot.sort_order || slot.period_number || 0),
+    slot_label: slot.label || "Break",
+    slot_default_entry_type: "break",
+    teacher_ids: null,
+    teacher_user_ids: null,
+    teacher_names: null,
+    applies_section_ids: null,
+    applies_section_names: null,
+  };
+}
+
+async function includeMissingBreakRows(rows = []) {
+  const templateIds = rows.map((row) => row.time_slot_template_id).filter(Boolean);
+  if (!templateIds.length) return rows;
+  const breakSlots = await repo.listBreakTimeSlotsForTemplateIds(templateIds);
+  if (!breakSlots.length) return rows;
+  const slotsByTemplate = new Map();
+  for (const slot of breakSlots) {
+    const key = Number(slot.template_id);
+    if (!slotsByTemplate.has(key)) slotsByTemplate.set(key, []);
+    slotsByTemplate.get(key).push(slot);
+  }
+
+  const routineDays = new Map();
+  const existingKeys = new Set();
+  for (const row of rows) {
+    const templateId = Number(row.time_slot_template_id || 0);
+    if (!templateId) continue;
+    const key = `${row.routine_version_id}|${row.weekday}`;
+    if (!routineDays.has(key)) routineDays.set(key, row);
+    existingKeys.add(`${row.routine_version_id}|${routineEntrySlotKey(row)}`);
+  }
+
+  const syntheticRows = [];
+  for (const [key, sampleRow] of routineDays.entries()) {
+    const [, weekdayValue] = key.split("|");
+    const weekday = Number(weekdayValue);
+    const slots = slotsByTemplate.get(Number(sampleRow.time_slot_template_id || 0)) || [];
+    for (const slot of slots) {
+      if (!breakSlotAppliesToWeekday(slot, weekday)) continue;
+      const slotKey = `${sampleRow.routine_version_id}|${missingBreakSlotKey(weekday, slot)}`;
+      if (existingKeys.has(slotKey)) continue;
+      existingKeys.add(slotKey);
+      syntheticRows.push(syntheticBreakRowFromBoardRow(sampleRow, slot, weekday));
+    }
+  }
+  return [...rows, ...syntheticRows];
+}
+
+function syntheticBreakEntryFromRoutine(routine, slot, weekday) {
+  const syntheticId = -1 * (Number(slot.time_slot_id || 0) * 10 + Number(weekday || 0));
+  return {
+    id: syntheticId,
+    routine_version_id: Number(routine.id),
+    time_slot_id: Number(slot.time_slot_id),
+    weekday: Number(weekday),
+    period_number: Number(slot.period_number),
+    start_time: slot.start_time,
+    end_time: slot.end_time,
+    entry_type: "break",
+    subject_id: null,
+    subject_name: null,
+    activity_id: null,
+    activity_name: null,
+    title: slot.label || "Break",
+    room: null,
+    notes: null,
+    sort_order: Number(slot.sort_order || slot.period_number || 0),
+    slot_label: slot.label || "Break",
+    slot_default_entry_type: "break",
+    teacher_ids: [],
+    teacher_user_ids: [],
+    teacher_names: "",
+    applies_medium: null,
+    applies_section_ids: [],
+    applies_section_names: "",
+  };
+}
+
+async function includeMissingBreakEntries(routine) {
+  if (!routine?.time_slot_template_id || !Array.isArray(routine.entries)) return routine;
+  const breakSlots = await repo.listBreakTimeSlotsForTemplateIds([routine.time_slot_template_id]);
+  if (!breakSlots.length) return routine;
+  const weekdays = [...new Set((routine.entries || []).map((entry) => Number(entry.weekday)).filter(Boolean))];
+  if (!weekdays.length) return routine;
+  const existingKeys = new Set(routine.entries.map(routineEntrySlotKey));
+  const syntheticEntries = [];
+  for (const weekday of weekdays) {
+    for (const slot of breakSlots) {
+      if (!breakSlotAppliesToWeekday(slot, weekday)) continue;
+      const key = missingBreakSlotKey(weekday, slot);
+      if (existingKeys.has(key)) continue;
+      existingKeys.add(key);
+      syntheticEntries.push(syntheticBreakEntryFromRoutine(routine, slot, weekday));
+    }
+  }
+  return {
+    ...routine,
+    entries: [...routine.entries, ...syntheticEntries].sort((a, b) => sortRoutineEntryLike(a, b)),
+  };
 }
 
 function examRoutineMatchesTeacherAssignment(routine, assignment) {
@@ -793,7 +945,7 @@ export async function getClassRoutineBoard(filters = {}) {
     status: normalizeBoardStatus(filters.status),
     weekday: normalizeWeekdayFilter(filters.weekday),
   };
-  const rows = await repo.listClassRoutineBoardRows(normalizedFilters);
+  const rows = await includeMissingBreakRows(await repo.listClassRoutineBoardRows(normalizedFilters));
   return buildClassRoutineBoardFromRows(rows, normalizedFilters);
 }
 
@@ -810,7 +962,7 @@ export async function getMyTeacherClassRoutineBoard(userId, filters = {}) {
     status: "published",
     weekday: normalizeWeekdayFilter(filters.weekday),
   };
-  const rows = await repo.listClassRoutineBoardRows(normalizedFilters);
+  const rows = await includeMissingBreakRows(await repo.listClassRoutineBoardRows(normalizedFilters));
   const visibleRows = rows.filter((row) => assignments.some((assignment) => rowMatchesTeacherAssignment(row, assignment)));
   return buildClassRoutineBoardFromRows(visibleRows, normalizedFilters);
 }
@@ -830,7 +982,7 @@ function routineForResponse(routine) {
 }
 
 export async function getClassRoutine(id) {
-  const routine = await repo.getClassRoutineWithEntries(intValue(id, "routine id"));
+  const routine = await includeMissingBreakEntries(await repo.getClassRoutineWithEntries(intValue(id, "routine id")));
   if (!routine) throw new AppError("Class routine not found", 404);
   return routineForResponse(routine);
 }
@@ -1059,9 +1211,13 @@ function summarizeClassRoutineTeacherConflicts(conflicts = []) {
       const day = WEEKDAY_LABELS[Number(item.weekday)] || `Day ${item.weekday || ""}`.trim() || "selected day";
       const period = item.period_number ? `Period ${item.period_number}` : "selected period";
       const time = formatRoutineTimeRange(item.start_time, item.end_time);
-      const scope = [item.conflicting_class_name, item.conflicting_section_name].filter(Boolean).join(" ");
-      const slot = [day, period, time].filter(Boolean).join("  ");
-      return `${teacher} has a scheduling conflict\n${slot}\nAlready teaching ${scope || "another class"} at this time.`;
+      const targetScope = [item.class_name, item.section_name].filter(Boolean).join(" ");
+      const conflictScope = [item.conflicting_class_name, item.conflicting_section_name].filter(Boolean).join(" ");
+      const conflictPeriod = item.conflicting_period_number ? `Period ${item.conflicting_period_number}` : "selected period";
+      const conflictTime = formatRoutineTimeRange(item.conflicting_start_time, item.conflicting_end_time);
+      const slot = [day, targetScope, period, time].filter(Boolean).join("  ");
+      const conflictingSlot = [conflictScope || "another class", conflictPeriod, conflictTime].filter(Boolean).join("  ");
+      return `${teacher} has a scheduling conflict\nPublishing: ${slot}\nAlready teaching: ${conflictingSlot}.`;
     })
     .join("\n\n");
 }
@@ -1100,7 +1256,7 @@ export async function getEffectiveClassRoutine(filters) {
   const date = normalizeDate(filters.date, "date");
   const published = await repo.getPublishedClassRoutineForScope(scope);
   if (!published) throw new AppError("Published routine not found", 404);
-  const routine = await repo.getClassRoutineWithEntries(published.id);
+  const routine = await includeMissingBreakEntries(await repo.getClassRoutineWithEntries(published.id));
   return { routine: routineForResponse(routine), substitutions: [], date };
 }
 
@@ -1470,6 +1626,14 @@ export async function downloadClassRoutinePdf(id) {
   return {
     buffer: await buildClassRoutinePdf(routine),
     fileName: `class-routine-${routine.id}.pdf`,
+  };
+}
+
+export async function downloadClassRoutineXlsx(id) {
+  const routine = await getClassRoutine(id);
+  return {
+    buffer: buildClassRoutineXlsx(routine),
+    fileName: classRoutineXlsxFileName(routine),
   };
 }
 

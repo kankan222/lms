@@ -28,6 +28,7 @@ router.post("/class-routines/:id/draft", requirePermission("routines.manage"), c
 router.post("/class-routines/:id/publish", requirePermission("routines.publish"), controller.publishClassRoutine);
 router.delete("/class-routines/:id", requirePermission("routines.manage"), controller.deleteClassRoutineDraft);
 router.get("/class-routines/:id/pdf", requirePermission("routines.view"), controller.classRoutinePdf);
+router.get("/class-routines/:id/xlsx", requirePermission("routines.view"), controller.classRoutineXlsx);
 
 router.get("/exam-routines", requirePermission("routines.view"), controller.listExamRoutines);
 router.post(

@@ -209,6 +209,56 @@ export async function markAllNotifications(userId) {
   }
 }
 
+async function publishNotificationCleanup(userIds = [], event = "notification:deleted") {
+  const normalizedUserIds = normalizeUserIds(userIds);
+  if (!normalizedUserIds.length) return;
+
+  const conn = await pool.getConnection();
+  try {
+    for (const userId of normalizedUserIds) {
+      const unread = await repo.getUnreadCount(conn, userId);
+      publishNotificationEvent([userId], {
+        event,
+        unread: Number(unread || 0),
+      });
+    }
+  } finally {
+    conn.release();
+  }
+}
+
+export async function deleteMessageNotificationsForMessage(data = {}) {
+  const targetUserIds = normalizeUserIds(data.userIds ?? data.userId);
+  const conn = await pool.getConnection();
+  try {
+    await repo.deleteMessageNotificationsForMessage(conn, {
+      messageId: data.messageId,
+      conversationId: data.conversationId,
+      legacyBody: data.legacyBody,
+      userIds: targetUserIds,
+    });
+  } finally {
+    conn.release();
+  }
+  await publishNotificationCleanup(targetUserIds);
+  return { deleted: true };
+}
+
+export async function deleteMessageNotificationsForConversation(data = {}) {
+  const targetUserIds = normalizeUserIds(data.userIds ?? data.userId);
+  const conn = await pool.getConnection();
+  try {
+    await repo.deleteMessageNotificationsForConversation(conn, {
+      conversationId: data.conversationId,
+      userIds: targetUserIds,
+    });
+  } finally {
+    conn.release();
+  }
+  await publishNotificationCleanup(targetUserIds);
+  return { deleted: true };
+}
+
 export async function registerDevice(userId, data = {}) {
   const deviceToken = String(data.device_token || data.deviceToken || "").trim();
   const platform = String(data.platform || "").trim().toLowerCase();

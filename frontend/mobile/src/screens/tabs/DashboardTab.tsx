@@ -1,6 +1,5 @@
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { useMemo, useState } from "react";
-import { Ionicons } from "@expo/vector-icons";
 import { DashboardSummary } from "../../services/dashboardService";
 import { useAppTheme } from "../../theme/AppThemeProvider";
 import { DEFAULT_MOBILE_THEME, type MobileTheme } from "../../theme/mobileTheme";
@@ -10,13 +9,7 @@ type Props = {
   loading?: boolean;
   error?: string | null;
   onRefresh?: () => void;
-  topInset?: number;
-  notificationUnread?: number;
-  canViewNotifications?: boolean;
-  onOpenNotifications?: () => void;
   onOpenMessages?: () => void;
-  onOpenMore?: () => void;
-  onToggleTheme?: () => void;
 };
 
 type ScopeValue = "all" | "school" | "hs";
@@ -156,60 +149,17 @@ export default function DashboardTab({
   loading,
   error,
   onRefresh,
-  topInset = 0,
-  notificationUnread = 0,
-  canViewNotifications = false,
-  onOpenNotifications,
   onOpenMessages,
-  onOpenMore,
-  onToggleTheme,
 }: Props) {
-  const { theme, isDark } = useAppTheme();
+  const { theme } = useAppTheme();
   styles = useMemo(() => createStyles(theme), [theme]);
   const [scope, setScope] = useState<ScopeValue>("all");
   const [pane, setPane] = useState<PaneValue>("overview");
   const [showAllSections, setShowAllSections] = useState(false);
 
-  const header = (
-    <View style={[styles.dashboardHeader, { borderBottomColor: theme.border, paddingTop: Math.max(topInset, 6) }]}>
-      <View style={styles.dashboardTitleBlock}>
-        <Text style={[styles.heroTitle, { color: theme.text }]}>KKV</Text>
-        <Text style={[styles.heroText, { color: theme.subText }]}>Dashboard</Text>
-      </View>
-      <View style={styles.dashboardActions}>
-        {canViewNotifications ? (
-          <Pressable
-            style={[styles.headerIconButton, { borderColor: theme.border, backgroundColor: theme.card }]}
-            onPress={onOpenNotifications}
-          >
-            <Ionicons name="notifications-outline" size={17} color={theme.icon} />
-            {notificationUnread ? (
-              <View style={[styles.headerBadge, { backgroundColor: theme.primary }]}>
-                <Text style={styles.headerBadgeText}>{notificationUnread > 99 ? "99+" : notificationUnread}</Text>
-              </View>
-            ) : null}
-          </Pressable>
-        ) : null}
-        <Pressable
-          style={[styles.headerIconButton, { borderColor: theme.border, backgroundColor: theme.card }]}
-          onPress={onToggleTheme}
-        >
-          <Ionicons name={isDark ? "sunny-outline" : "moon-outline"} size={17} color={theme.icon} />
-        </Pressable>
-        <Pressable
-          style={[styles.headerIconButton, { borderColor: theme.border, backgroundColor: theme.card }]}
-          onPress={onOpenMore}
-        >
-          <Ionicons name="apps-outline" size={17} color={theme.icon} />
-        </Pressable>
-      </View>
-    </View>
-  );
-
   if (loading) {
     return (
       <View style={styles.container}>
-        {header}
         <View style={styles.contentBody}>
           <View style={[styles.messageCard, { borderColor: theme.border, backgroundColor: theme.card }]}>
             <Text style={[styles.messageTitle, { color: theme.text }]}>Loading dashboard...</Text>
@@ -223,7 +173,6 @@ export default function DashboardTab({
   if (error) {
     return (
       <View style={styles.container}>
-        {header}
         <View style={styles.contentBody}>
           <View style={[styles.messageCard, { borderColor: theme.dangerBorder, backgroundColor: theme.dangerSoft }]}>
             <Text style={[styles.messageTitle, { color: theme.danger }]}>Dashboard unavailable</Text>
@@ -242,7 +191,6 @@ export default function DashboardTab({
   if (!summary) {
     return (
       <View style={styles.container}>
-        {header}
         <View style={styles.contentBody}>
           <View style={[styles.messageCard, { borderColor: theme.border, backgroundColor: theme.card }]}>
             <Text style={[styles.messageTitle, { color: theme.text }]}>No dashboard data available.</Text>
@@ -292,7 +240,6 @@ export default function DashboardTab({
 
   return (
     <View style={styles.container}>
-      {header}
       <View style={styles.contentBody}>
         <View style={styles.topBlock}>
         <View style={styles.scopeControl}>
@@ -726,13 +673,7 @@ let styles = createStyles(DEFAULT_MOBILE_THEME);
 function createStyles(theme: MobileTheme) {
 return StyleSheet.create({
   container: { gap: 12, paddingBottom: 118 },
-  contentBody: { gap: 12, paddingHorizontal: 16 },
-  dashboardHeader: { minHeight: 36, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10, paddingHorizontal: 14, paddingBottom: 8, borderBottomWidth: 1 },
-  dashboardTitleBlock: { minWidth: 0 },
-  dashboardActions: { flexDirection: "row", alignItems: "center", gap: 8 },
-  headerIconButton: { width: 38, height: 38, borderRadius: 19, borderWidth: 1, alignItems: "center", justifyContent: "center", position: "relative" },
-  headerBadge: { position: "absolute", top: -5, right: -5, minWidth: 17, height: 17, borderRadius: 9, paddingHorizontal: 4, alignItems: "center", justifyContent: "center" },
-  headerBadgeText: { color: "#ffffff", fontSize: 9, fontWeight: "800" },
+  contentBody: { gap: 12, paddingHorizontal: 16, paddingTop: 12 },
   topBlock: { gap: 10 },
   heroTitle: { fontSize: 16, lineHeight: 20, fontWeight: "800", letterSpacing: 0.4 },
   heroText: { fontSize: 12, lineHeight: 16, fontWeight: "400" },

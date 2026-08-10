@@ -4,7 +4,7 @@ import type { ExpoConfig } from "expo/config";
 const config: ExpoConfig = {
   name: "Kalong Kapili Vidyapith",
   slug: "kalong-kapili-vidyapith",
-  version: "1.1.6",
+  version: "1.1.7",
   orientation: "portrait",
   icon: "./assets/splash-icon.png",
   userInterfaceStyle: "light",
@@ -25,6 +25,7 @@ const config: ExpoConfig = {
     versionCode: 27,
     blockedPermissions: [
       "android.permission.CAMERA",
+      "android.permission.RECEIVE_BOOT_COMPLETED",
     ],
     adaptiveIcon: {
       backgroundColor: "#E6F4FE",
@@ -46,6 +47,7 @@ const config: ExpoConfig = {
         color: "#da271f",
       },
     ],
+    "./plugins/withRemoveNotificationBootReceivers",
     [
       "expo-audio",
       {

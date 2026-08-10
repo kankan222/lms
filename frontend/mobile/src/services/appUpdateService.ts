@@ -1,4 +1,5 @@
 import { Alert, Linking, Platform } from "react-native";
+import * as SecureStore from "expo-secure-store";
 import {
   MOBILE_ANDROID_VERSION_CODE,
   MOBILE_APP_VERSION,
@@ -12,6 +13,8 @@ type ApiEnvelope<T> = {
   error?: string;
   message?: string;
 };
+
+const UPDATE_PROMPT_SEEN_KEY = "kkv:last_seen_app_update_prompt";
 
 export type AppUpdateInfo = {
   update_available: boolean;
@@ -30,6 +33,16 @@ export type AppUpdateInfo = {
 
 function currentBuild() {
   return Platform.OS === "ios" ? MOBILE_IOS_BUILD_NUMBER : MOBILE_ANDROID_VERSION_CODE;
+}
+
+function updatePromptKey(info: AppUpdateInfo) {
+  return [
+    info.platform,
+    info.latest_version || "",
+    info.latest_build ?? "",
+    info.minimum_version || "",
+    info.minimum_build ?? "",
+  ].join("|");
 }
 
 export async function checkAppUpdate() {
@@ -86,6 +99,15 @@ export function showAppUpdatePrompt(info: AppUpdateInfo, options: { force?: bool
   Alert.alert(info.title || "App update available", info.message, buttons, {
     cancelable: !info.required && !options.force,
   });
+}
+
+export async function showAppUpdatePromptOnce(info: AppUpdateInfo) {
+  if (!info.update_available) return;
+  const promptKey = updatePromptKey(info);
+  const seenKey = await SecureStore.getItemAsync(UPDATE_PROMPT_SEEN_KEY);
+  if (seenKey === promptKey) return;
+  await SecureStore.setItemAsync(UPDATE_PROMPT_SEEN_KEY, promptKey);
+  showAppUpdatePrompt(info);
 }
 
 export async function notifyAppUpdateAvailable(platform?: "android" | "ios") {

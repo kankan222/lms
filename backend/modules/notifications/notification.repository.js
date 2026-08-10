@@ -95,6 +95,79 @@ export async function markAllAsRead(conn, userId){
   `,[userId]);
 }
 
+function userFilter(userIds = [], alias = "") {
+  const normalized = [...new Set((userIds || []).map(Number).filter(Boolean))];
+  if (!normalized.length) return { sql: "", params: [] };
+  const column = alias ? `${alias}.user_id` : "user_id";
+  return {
+    sql: ` AND ${column} IN (${normalized.map(() => "?").join(",")})`,
+    params: normalized,
+  };
+}
+
+export async function deleteMessageNotificationsForMessage(conn, data = {}) {
+  const messageId = Number(data.messageId);
+  const conversationId = Number(data.conversationId);
+  const legacyBody = data.legacyBody === undefined || data.legacyBody === null ? null : String(data.legacyBody);
+  const filter = userFilter(data.userIds);
+  if (!messageId && !conversationId) return { affectedRows: 0 };
+
+  const conditions = [];
+  const params = [];
+  if (messageId) {
+    conditions.push("(entity_type = 'message' AND entity_id = ?)");
+    params.push(messageId);
+  }
+  if (conversationId && legacyBody !== null) {
+    conditions.push("(entity_type = 'conversation' AND entity_id = ? AND body = ?)");
+    params.push(conversationId, legacyBody);
+  }
+  if (!conditions.length) return { affectedRows: 0 };
+
+  const [result] = await conn.execute(
+    `
+      DELETE FROM notifications
+      WHERE category = 'message'
+        AND (${conditions.join(" OR ")})
+        ${filter.sql}
+    `,
+    [...params, ...filter.params]
+  );
+  return { affectedRows: Number(result.affectedRows || 0) };
+}
+
+export async function deleteMessageNotificationsForConversation(conn, data = {}) {
+  const conversationId = Number(data.conversationId);
+  const filter = userFilter(data.userIds, "n");
+  if (!conversationId) return { affectedRows: 0 };
+
+  const [result] = await conn.execute(
+    `
+      DELETE n
+      FROM notifications n
+      LEFT JOIN messages m
+        ON n.entity_type = 'message'
+       AND n.entity_id = m.id
+      WHERE n.category = 'message'
+        AND (
+          (n.entity_type = 'conversation' AND n.entity_id = ?)
+          OR m.conversation_id = ?
+          OR n.action_url = ?
+          OR n.deep_link = ?
+        )
+        ${filter.sql}
+    `,
+    [
+      conversationId,
+      conversationId,
+      `/messages?conversation_id=${conversationId}`,
+      `app://messages/conversations/${conversationId}`,
+      ...filter.params,
+    ]
+  );
+  return { affectedRows: Number(result.affectedRows || 0) };
+}
+
 export async function upsertDevice(conn, data) {
   await conn.execute(
     `

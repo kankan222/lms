@@ -26,6 +26,7 @@ import { useAppTheme } from "../../theme/AppThemeProvider";
 type RoutineMode = "day" | "exam";
 type DayItem = { key: number; short: string; label: string };
 type RoutineGroup = { key: string; title: string; subtitle: string; entries: RoutineEntry[] };
+type RoutineSlotGroup = { key: string; entry: RoutineEntry; entries: RoutineEntry[]; displayLabel?: string };
 type ExamRoutineGroup = { key: string; title: string; subtitle: string; entries: ExamRoutineEntry[] };
 type ExamRoutineExamGroup = { key: string; title: string; subtitle: string; groups: ExamRoutineGroup[] };
 
@@ -61,11 +62,21 @@ function formatTime(value?: string | null) {
   const raw = String(value || "").trim();
   if (!raw) return "--:--";
   const [hour = "00", minute = "00"] = raw.split(":");
-  return `${hour.padStart(2, "0")}:${minute.padStart(2, "0")}`;
+  const hourNumber = Number(hour);
+  if (!Number.isFinite(hourNumber)) return `${hour.padStart(2, "0")}:${minute.padStart(2, "0")}`;
+  const suffix = hourNumber >= 12 ? "PM" : "AM";
+  const displayHour = hourNumber % 12 || 12;
+  return `${displayHour}:${minute.padStart(2, "0")} ${suffix}`;
+}
+
+function isBreakEntry(entry: RoutineEntry) {
+  return String(entry.entry_type || entry.slot_default_entry_type || "").toLowerCase() === "break";
 }
 
 function entryTitle(entry: RoutineEntry) {
-  return entry.title || entry.subject_name || entry.activity_name || entry.slot_label || (entry.entry_type === "break" ? "Break" : "Free Period");
+  return isBreakEntry(entry)
+    ? entry.title || entry.activity_name || entry.slot_label || "Break"
+    : entry.title || entry.subject_name || entry.activity_name || entry.slot_label || "Free Period";
 }
 
 function entryTeachers(entry: RoutineEntry) {
@@ -80,7 +91,59 @@ function getEntryWeekday(entry: RoutineEntry) {
 function sortRoutine(a: RoutineEntry, b: RoutineEntry) {
   const dayDiff = getEntryWeekday(a) - getEntryWeekday(b);
   if (dayDiff) return dayDiff;
-  return Number(a.period_number || 0) - Number(b.period_number || 0);
+  return Number(a.period_number || 0) - Number(b.period_number || 0) ||
+    String(a.start_time || "").localeCompare(String(b.start_time || "")) ||
+    Number(a.entry_id || a.id || 0) - Number(b.entry_id || b.id || 0);
+}
+
+function entryPeriodLabel(entry: RoutineEntry) {
+  const explicitLabel = normalizeFilterValue(entry.slot_label);
+  if (isBreakEntry(entry)) return explicitLabel || "Break";
+  if (explicitLabel) return explicitLabel;
+  const period = normalizeFilterValue(entry.period_number);
+  return period ? `P${period}` : "Slot";
+}
+
+function entryPeriodMeta(entry: RoutineEntry) {
+  const period = normalizeFilterValue(entry.period_number);
+  return period ? `Period ${period}` : "";
+}
+
+function groupRoutineSlots(entries: RoutineEntry[]): RoutineSlotGroup[] {
+  const groups = new Map<string, RoutineSlotGroup>();
+  for (const entry of entries) {
+    const keyParts = [
+      getEntryWeekday(entry),
+      normalizeFilterValue(entry.period_number),
+      normalizeFilterValue(entry.start_time),
+      normalizeFilterValue(entry.end_time),
+      normalizeFilterValue(entry.slot_label),
+    ];
+    const key = keyParts.join("|") || `entry-${entry.entry_id || entry.id || groups.size}`;
+    if (!groups.has(key)) groups.set(key, { key, entry, entries: [] });
+    groups.get(key)?.entries.push(entry);
+  }
+  return Array.from(groups.values()).map((group) => ({
+    ...group,
+    entries: [...group.entries].sort(sortRoutine),
+  }));
+}
+
+function withDisplayPeriodLabels(groups: RoutineSlotGroup[]) {
+  let classPeriod = 0;
+  return groups.map((group) => {
+    if (isBreakEntry(group.entry)) {
+      return { ...group, displayLabel: entryPeriodLabel(group.entry) };
+    }
+    classPeriod += 1;
+    return { ...group, displayLabel: `Period ${classPeriod}` };
+  });
+}
+
+function normalizeIdList(value?: Array<number | string> | string | null) {
+  if (Array.isArray(value)) return value.map((item) => Number(item)).filter((item) => Number.isFinite(item) && item > 0);
+  if (typeof value === "string") return value.split(",").map((item) => Number(item.trim())).filter((item) => Number.isFinite(item) && item > 0);
+  return [];
 }
 
 function scopeText(entry?: RoutineEntry | null) {
@@ -464,24 +527,37 @@ export default function RoutineTab() {
       .catch(() => setError("Could not load routine right now."));
   }, [isParent, loadExamRoutineEntries, selectedStudentId, students]);
 
-  function renderEntry(entry: RoutineEntry, index: number) {
-    const isBreak = String(entry.entry_type || "").toLowerCase() === "break";
+  function entryBelongsToCurrentTeacher(entry: RoutineEntry) {
+    if (!isTeacher || !user?.id) return false;
+    const userIds = normalizeIdList(entry.teacher_user_ids);
+    return userIds.includes(Number(user.id));
+  }
+
+  function renderRoutineSlotGroup(slot: RoutineSlotGroup, index: number) {
+    const entry = slot.entry;
+    const isBreak = isBreakEntry(entry);
     const isFree = ["free", "custom"].includes(String(entry.entry_type || "").toLowerCase());
     const muted = isBreak || isFree;
-    const teacherText = entryTeachers(entry);
+    const assignedToTeacher = slot.entries.some(entryBelongsToCurrentTeacher);
+    const label = slot.displayLabel || entryPeriodLabel(entry);
+    const periodMeta = entryPeriodMeta(entry);
+    const multipleEntries = slot.entries.length > 1;
 
     return (
-      <View key={`${entry.routine_version_id || "routine"}-${entry.entry_id || entry.id || index}-${getEntryWeekday(entry)}`} style={styles.timelineRow}>
+      <View key={`${slot.key}-${index}`} style={styles.timelineRow}>
         <View style={styles.timeRail}>
           <View style={[
             styles.periodBadge,
             {
-              backgroundColor: muted ? theme.cardMuted : theme.successSoft,
-              borderColor: muted ? theme.border : theme.successBorder,
+              backgroundColor: assignedToTeacher ? theme.infoSoft : muted ? theme.cardMuted : theme.successSoft,
+              borderColor: assignedToTeacher ? theme.infoBorder : muted ? theme.border : theme.successBorder,
             },
           ]}>
-          <Text style={[styles.periodText, { color: muted ? theme.subText : theme.primary }]}>
-              {entry.period_number || index + 1}
+            <Text
+              style={[styles.periodText, { color: assignedToTeacher ? theme.infoText : muted ? theme.subText : theme.primary }]}
+              numberOfLines={2}
+            >
+              {label}
             </Text>
           </View>
         </View>
@@ -489,43 +565,81 @@ export default function RoutineTab() {
         <View style={[
           styles.entryCard,
           {
-            backgroundColor: muted ? theme.cardMuted : theme.card,
-            borderColor: theme.border,
+            backgroundColor: assignedToTeacher ? theme.infoSoft : muted ? theme.cardMuted : theme.card,
+            borderColor: assignedToTeacher ? theme.infoBorder : theme.border,
           },
         ]}>
           <View style={styles.entryContentRow}>
             <View style={styles.entryTextBlock}>
-              <Text style={[styles.entryTitle, { color: theme.text }]} numberOfLines={1}>{entryTitle(entry)}</Text>
+              <Text style={[styles.entryTitle, { color: theme.text }]} numberOfLines={multipleEntries ? 2 : 1}>
+                {multipleEntries ? label : entryTitle(entry)}
+              </Text>
               <Text style={[styles.entryTimeRange, { color: theme.subText }]} numberOfLines={1}>
                 {formatTime(entry.start_time)} - {formatTime(entry.end_time)}
               </Text>
-              <View style={styles.entryMetaRow}>
-                {teacherText ? (
-                  <View style={styles.entryMetaItem}>
-                    <Ionicons name="person-outline" size={14} color={theme.subText} />
-                    <Text style={[styles.entryMetaText, { color: theme.subText }]} numberOfLines={1}>{teacherText}</Text>
-                  </View>
-                ) : null}
-                {!isParent && entry.room ? (
-                  <View style={styles.entryMetaItem}>
-                    <Ionicons name="location-outline" size={14} color={theme.subText} />
-                    <Text style={[styles.entryMetaText, { color: theme.subText }]} numberOfLines={1}>{entry.room}</Text>
-                  </View>
-                ) : null}
-              </View>
+              {isBreak && periodMeta ? (
+                <Text style={[styles.entrySubText, { color: theme.subText }]} numberOfLines={1}>{periodMeta}</Text>
+              ) : null}
+              {multipleEntries ? (
+                <View style={styles.slotSubjectList}>
+                  {slot.entries.map((item, itemIndex) => {
+                    const itemTeacherText = entryTeachers(item);
+                    const itemAssigned = entryBelongsToCurrentTeacher(item);
+                    return (
+                      <View
+                        key={`${item.entry_id || item.id || itemIndex}-${item.subject_name || item.title || itemIndex}`}
+                        style={[
+                          styles.slotSubjectRow,
+                          {
+                            backgroundColor: itemAssigned ? theme.card : "transparent",
+                            borderColor: itemAssigned ? theme.infoBorder : theme.border,
+                          },
+                        ]}
+                      >
+                        <View style={styles.entryTextBlock}>
+                          <Text style={[styles.slotSubjectTitle, { color: theme.text }]} numberOfLines={1}>{entryTitle(item)}</Text>
+                          {itemTeacherText ? (
+                            <Text style={[styles.entryMetaText, { color: theme.subText }]} numberOfLines={1}>{itemTeacherText}</Text>
+                          ) : null}
+                        </View>
+                        {itemAssigned ? (
+                          <View style={[styles.teacherHighlightPill, { backgroundColor: theme.infoSoft, borderColor: theme.infoBorder }]}>
+                            <Text style={[styles.teacherHighlightText, { color: theme.infoText }]}>Yours</Text>
+                          </View>
+                        ) : null}
+                      </View>
+                    );
+                  })}
+                </View>
+              ) : (
+                <View style={styles.entryMetaRow}>
+                  {entryTeachers(entry) ? (
+                    <View style={styles.entryMetaItem}>
+                      <Ionicons name="person-outline" size={14} color={theme.subText} />
+                      <Text style={[styles.entryMetaText, { color: theme.subText }]} numberOfLines={1}>{entryTeachers(entry)}</Text>
+                    </View>
+                  ) : null}
+                  {!isParent && entry.room ? (
+                    <View style={styles.entryMetaItem}>
+                      <Ionicons name="location-outline" size={14} color={theme.subText} />
+                      <Text style={[styles.entryMetaText, { color: theme.subText }]} numberOfLines={1}>{entry.room}</Text>
+                    </View>
+                  ) : null}
+                </View>
+              )}
             </View>
             <View style={[
               styles.entryTypeBadge,
               {
-                backgroundColor: theme.successSoft,
-                borderColor: theme.successBorder,
+                backgroundColor: assignedToTeacher ? theme.infoSoft : theme.successSoft,
+                borderColor: assignedToTeacher ? theme.infoBorder : theme.successBorder,
               },
             ]}>
               <Text style={[
                 styles.entryTypeText,
-                { color: theme.primary },
+                { color: assignedToTeacher ? theme.infoText : theme.primary },
               ]}>
-                {isBreak ? "Break" : isFree ? "Free" : "Class"}
+                {assignedToTeacher ? "Yours" : isBreak ? "Break" : isFree ? "Free" : "Class"}
               </Text>
             </View>
           </View>
@@ -581,6 +695,7 @@ export default function RoutineTab() {
   }
 
   function renderAdminRoutineGroup(group: RoutineGroup) {
+    const slotGroups = withDisplayPeriodLabels(groupRoutineSlots(group.entries));
     return (
       <View key={group.key} style={styles.groupBlock}>
         <View style={[styles.groupHeaderCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
@@ -590,12 +705,12 @@ export default function RoutineTab() {
           </View>
           <View style={[styles.entryTypeBadge, { backgroundColor: theme.successSoft, borderColor: theme.successBorder }]}>
             <Text style={[styles.entryTypeText, { color: theme.primary }]}>
-              {group.entries.length}
+              {slotGroups.length}
             </Text>
           </View>
         </View>
         <View style={styles.groupEntries}>
-          {group.entries.map(renderEntry)}
+          {slotGroups.map(renderRoutineSlotGroup)}
         </View>
       </View>
     );
@@ -668,30 +783,18 @@ export default function RoutineTab() {
       <View key={`${entry.routine_id || "exam"}-${entry.id || index}`} style={styles.timelineRow}>
         <View style={styles.timeRail}>
           <View style={[styles.periodBadge, { backgroundColor: theme.infoSoft, borderColor: theme.infoBorder }]}>
-            <Ionicons name="document-text-outline" size={16} color={theme.infoText} />
+            <Text style={[styles.periodText, { color: theme.infoText }]}>{index + 1}</Text>
           </View>
-          <Text style={[styles.timeText, { color: theme.subText }]}>{formatTime(entry.start_time)}</Text>
-          <Text style={[styles.timeText, { color: theme.mutedText }]}>{formatTime(entry.end_time)}</Text>
         </View>
 
         <View style={[styles.entryCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
-          <View style={styles.rowBetween}>
-            <View style={styles.entryTitleWrap}>
-              <Text style={[styles.entryTitle, { color: theme.text }]} numberOfLines={1}>{title}</Text>
-              <Text style={[styles.entrySubText, { color: theme.subText }]} numberOfLines={1}>
-                {entry.exam_name || entry.routine_title || "Published exam"} / {formatDate(entry.exam_date)}
-              </Text>
-            </View>
-            <View style={[styles.entryTypeBadge, { backgroundColor: theme.infoSoft, borderColor: theme.infoBorder }]}>
-              <Text style={[styles.entryTypeText, { color: theme.infoText }]}>Exam</Text>
-            </View>
-          </View>
-
-          <Text style={[styles.examScope, { color: theme.subText }]} numberOfLines={1}>
-            {isParent ? "Subject and time" : examScopeText(entry)}
+          <Text style={[styles.entryTitle, { color: theme.text }]} numberOfLines={2}>{title}</Text>
+          <Text style={[styles.entryTimeRange, { color: theme.subText }]} numberOfLines={2}>
+            {formatDate(entry.exam_date)} / {formatTime(entry.start_time)} - {formatTime(entry.end_time)}
           </Text>
           {!isParent ? (
             <View style={styles.entryMetaRow}>
+              <Text style={[styles.examScopeInline, { color: theme.subText }]} numberOfLines={1}>{examScopeText(entry)}</Text>
               {entry.invigilator_names ? (
                 <View style={styles.entryMetaItem}>
                   <Ionicons name="person-outline" size={14} color={theme.subText} />
@@ -881,7 +984,7 @@ export default function RoutineTab() {
       ) : classSwitchingClassRoutineView && selectedRoutineGroup ? (
         <View style={styles.groupList}>{renderAdminRoutineGroup(selectedRoutineGroup)}</View>
       ) : mode !== "exam" && visibleEntries.length ? (
-        <View style={styles.timelineList}>{visibleEntries.map(renderEntry)}</View>
+        <View style={styles.timelineList}>{withDisplayPeriodLabels(groupRoutineSlots(visibleEntries)).map(renderRoutineSlotGroup)}</View>
       ) : (
         <View style={[styles.emptyCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
           <Ionicons name={isAdmin ? "desktop-outline" : "calendar-outline"} size={24} color={theme.subText} />
@@ -1131,21 +1234,23 @@ const styles = StyleSheet.create({
     alignItems: "flex-start",
   },
   timeRail: {
-    width: 54,
+    width: 64,
     alignItems: "center",
     paddingTop: 26,
   },
   periodBadge: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: 54,
+    minHeight: 38,
+    borderRadius: 8,
     borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
+    paddingHorizontal: 4,
   },
   periodText: {
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: "800",
+    textAlign: "center",
   },
   timeText: {
     fontSize: 10,
@@ -1197,6 +1302,11 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     marginTop: 10,
   },
+  examScopeInline: {
+    maxWidth: "100%",
+    fontSize: 12,
+    fontWeight: "700",
+  },
   entryTypeBadge: {
     minWidth: 52,
     minHeight: 26,
@@ -1225,6 +1335,36 @@ const styles = StyleSheet.create({
   entryMetaText: {
     fontSize: 12,
     fontWeight: "700",
+  },
+  slotSubjectList: {
+    gap: 8,
+    marginTop: 10,
+  },
+  slotSubjectRow: {
+    minHeight: 44,
+    borderWidth: 1,
+    borderRadius: 8,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
+  slotSubjectTitle: {
+    fontSize: 14,
+    fontWeight: "800",
+  },
+  teacherHighlightPill: {
+    minHeight: 24,
+    borderWidth: 1,
+    borderRadius: 6,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 8,
+  },
+  teacherHighlightText: {
+    fontSize: 10,
+    fontWeight: "900",
   },
   stateBlock: {
     minHeight: 220,

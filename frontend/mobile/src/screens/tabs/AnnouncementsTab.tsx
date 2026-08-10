@@ -157,10 +157,11 @@ export default function AnnouncementsTab() {
   const roles = Array.isArray(user?.roles) ? user.roles : [];
   const permissions = Array.isArray(user?.permissions) ? user.permissions : [];
   const isSuperAdmin = hasRole(roles, "super_admin");
-  const canViewAdmin = isSuperAdmin || hasAny(permissions, ["announcements.view", "announcements.manage", "announcements.publish"]);
-  const canManage = isSuperAdmin || permissions.includes("announcements.manage");
-  const canPublish = isSuperAdmin || permissions.includes("announcements.publish");
-  const canViewSms = isSuperAdmin || permissions.includes("announcements.sms.send");
+  const isParentOrTeacher = hasRole(roles, "parent") || hasRole(roles, "teacher");
+  const canViewAdmin = isSuperAdmin || (!isParentOrTeacher && hasAny(permissions, ["announcements.view", "announcements.manage", "announcements.publish"]));
+  const canManage = canViewAdmin && (isSuperAdmin || permissions.includes("announcements.manage"));
+  const canPublish = canViewAdmin && (isSuperAdmin || permissions.includes("announcements.publish"));
+  const canViewSms = canViewAdmin && (isSuperAdmin || permissions.includes("announcements.sms.send"));
 
   const [activeTab, setActiveTab] = useState<TabKey>("inbox");
   const [items, setItems] = useState<MobileAnnouncement[]>([]);
@@ -196,10 +197,11 @@ export default function AnnouncementsTab() {
   }, [canViewAdmin, canViewSms]);
 
   const filteredItems = useMemo(() => {
+    if (!canViewAdmin) return items;
     if (filter === "urgent") return items.filter((item) => item.priority === "urgent");
     if (filter === "holiday") return items.filter(isHoliday);
     return items;
-  }, [filter, items]);
+  }, [canViewAdmin, filter, items]);
 
   const filteredQueue = useMemo(() => {
     if (queueFilter === "all") return queue;
@@ -447,15 +449,16 @@ export default function AnnouncementsTab() {
         style={[
           styles.chip,
           {
-            backgroundColor: active ? theme.primary : theme.card,
-            borderColor: active ? theme.primary : theme.border,
+            backgroundColor: active ? theme.successSoft : "transparent",
+            borderColor: active ? theme.success : theme.border,
           },
         ]}
         onPress={onPress}
       >
-        <Text style={[styles.chipText, { color: active ? theme.primaryText : theme.text }]}>
-          {count === null ? label : `${label} ${count}`}
-        </Text>
+        <Text style={[styles.chipText, { color: active ? theme.success : theme.subText }]}>{label}</Text>
+        {count !== null && count > 0 ? (
+          <Text style={[styles.chipCount, { color: active ? theme.success : theme.mutedText }]}>{count}</Text>
+        ) : null}
       </Pressable>
     );
   }
@@ -617,21 +620,13 @@ export default function AnnouncementsTab() {
   function renderInbox() {
     return (
       <>
-        <View style={styles.summaryRow}>
-          <View style={[styles.summaryCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
-            <Text style={[styles.summaryValue, { color: theme.text }]}>{items.length}</Text>
-            <Text style={[styles.summaryLabel, { color: theme.subText }]}>Visible</Text>
-          </View>
-          <View style={[styles.summaryCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
-            <Text style={[styles.summaryValue, { color: theme.text }]}>{items.filter((item) => item.priority === "urgent").length}</Text>
-            <Text style={[styles.summaryLabel, { color: theme.subText }]}>Urgent</Text>
-          </View>
-        </View>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow}>
-          {renderFilterChip("all", "All", items.length)}
-          {renderFilterChip("urgent", "Urgent", items.filter((item) => item.priority === "urgent").length)}
-          {renderFilterChip("holiday", "Holidays", items.filter(isHoliday).length)}
-        </ScrollView>
+        {canViewAdmin ? (
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow}>
+            {renderFilterChip("all", "All", items.length)}
+            {renderFilterChip("urgent", "Urgent", items.filter((item) => item.priority === "urgent").length)}
+            {renderFilterChip("holiday", "Holidays", items.filter(isHoliday).length)}
+          </ScrollView>
+        ) : null}
         {renderList(filteredItems, "No announcements available.", (item) => renderAnnouncementCard(item, "mobile"))}
       </>
     );
@@ -953,20 +948,28 @@ export default function AnnouncementsTab() {
       contentContainerStyle={styles.content}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={theme.primary} />}
     >
-      {canManage ? (
-        <Pressable
-          style={[styles.newButton, { backgroundColor: theme.primary }]}
-          onPress={() => {
-            setError(null);
-            setComposing(true);
-          }}
-        >
-          <Ionicons name="add-circle-outline" size={18} color={theme.primaryText} />
-          <Text style={[styles.newButtonText, { color: theme.primaryText }]}>New Announcement</Text>
-        </Pressable>
-      ) : null}
+      <View style={styles.listTitleRow}>
+        <Text style={[styles.listTitle, { color: theme.text }]}>Announcements</Text>
+        <View style={styles.listTitleActions}>
+          <Pressable style={[styles.listIconBtn, { backgroundColor: theme.cardMuted, borderColor: theme.border }]} onPress={() => void refresh()}>
+            <Ionicons name="refresh-outline" size={19} color={theme.icon} />
+          </Pressable>
+          {canManage ? (
+            <Pressable
+              style={[styles.newAnnouncementBtn, { backgroundColor: theme.primary, shadowColor: theme.primary }]}
+              onPress={() => {
+                setError(null);
+                setComposing(true);
+              }}
+            >
+              <Ionicons name="megaphone-outline" size={16} color={theme.primaryText} />
+              <Text style={[styles.newAnnouncementBtnText, { color: theme.primaryText }]}>New</Text>
+            </Pressable>
+          ) : null}
+        </View>
+      </View>
 
-      {renderTabs()}
+      {tabs.length > 1 ? renderTabs() : null}
 
       {error ? (
         <View style={[styles.messageCard, { backgroundColor: theme.dangerSoft, borderColor: theme.dangerBorder }]}>
@@ -998,17 +1001,48 @@ const styles = StyleSheet.create({
     padding: 16,
     paddingBottom: 110,
   },
-  newButton: {
-    minHeight: 42,
+  listTitleRow: {
+    minHeight: 36,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10,
+  },
+  listTitle: {
+    flex: 1,
+    fontSize: 20,
+    lineHeight: 25,
+    fontWeight: "800",
+  },
+  listTitleActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  listIconBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 12,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  newAnnouncementBtn: {
+    minHeight: 36,
     borderRadius: 8,
+    paddingHorizontal: 12,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 8,
+    gap: 7,
+    shadowOpacity: 0.18,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 3,
   },
-  newButtonText: {
-    fontSize: 13,
-    fontWeight: "900",
+  newAnnouncementBtnText: {
+    fontSize: 12,
+    fontWeight: "800",
   },
   heroEyebrow: {
     fontSize: 11,
@@ -1083,39 +1117,28 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "800",
   },
-  summaryRow: {
-    flexDirection: "row",
-    gap: 12,
-  },
-  summaryCard: {
-    flex: 1,
-    borderWidth: 1,
-    borderRadius: 8,
-    padding: 14,
-  },
-  summaryValue: {
-    fontSize: 24,
-    fontWeight: "800",
-  },
-  summaryLabel: {
-    marginTop: 2,
-    fontSize: 12,
-    fontWeight: "700",
-  },
   chipRow: {
-    gap: 8,
+    gap: 7,
+    paddingRight: 14,
     paddingVertical: 2,
   },
   chip: {
     minHeight: 34,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
     borderWidth: 1,
-    borderRadius: 8,
+    borderRadius: 12,
     justifyContent: "center",
-    paddingHorizontal: 12,
+    paddingHorizontal: 11,
   },
   chipText: {
-    fontSize: 12,
-    fontWeight: "800",
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  chipCount: {
+    fontSize: 11,
+    fontWeight: "700",
   },
   segmentWrap: {
     flexDirection: "row",

@@ -154,6 +154,10 @@ export function downloadClassRoutinePdf(id) {
   return fetchRoutineBlob(`/routines/class-routines/${id}/pdf`, "Failed to download class routine PDF");
 }
 
+export function downloadClassRoutineXlsx(id) {
+  return fetchRoutineBlob(`/routines/class-routines/${id}/xlsx`, "Failed to download class routine Excel file");
+}
+
 export function getExamRoutines(params = {}) {
   return apiRequest(`/routines/exam-routines${buildQuery(params)}`);
 }

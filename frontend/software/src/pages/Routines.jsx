@@ -63,7 +63,7 @@ import {
   deleteClassRoutine,
   deleteExamRoutine,
   deleteTimeSlotTemplate,
-  downloadClassRoutinePdf,
+  downloadClassRoutineXlsx,
   downloadExamRoutinePdf,
   getClassRoutine,
   getClassRoutineBoard,
@@ -211,6 +211,14 @@ function entryTitle(entry) {
   return entry.title || entry.subject_name || entry.activity_name || displayChangeType(entry.entry_type);
 }
 
+function isBreakEntry(entry) {
+  return entry?.entry_type === "break" || entry?.slot_default_entry_type === "break";
+}
+
+function isBreakSlot(slot) {
+  return slot?.default_entry_type === "break" || Boolean(slot?.is_break);
+}
+
 function uniqueCsv(value) {
   const seen = new Set();
   return String(value || "")
@@ -225,19 +233,35 @@ function uniqueCsv(value) {
 }
 
 function entrySubtitle(entry, showTeachers = true) {
-  if (entry.entry_type === "break") return "Break";
+  if (isBreakEntry(entry)) return "Break";
   if (!showTeachers) return "";
   return uniqueCsv(entry.teacher_names) || "Teacher not assigned";
 }
 
-function displaySlotLabel({ entry, slot, period }) {
+function displaySlotLabel({ entry, slot, period, displayPeriodLabel }) {
   const slotLabel = String(slot?.label || entry?.slot_label || "").trim();
-  if (slotLabel) return slotLabel;
-  const isBreak = entry?.entry_type === "break" || slot?.default_entry_type === "break" || entry?.slot_default_entry_type === "break";
-  if (isBreak) return "Break";
+  const isBreak = isBreakEntry(entry) || isBreakSlot(slot);
+  if (isBreak) return slotLabel || "Break";
+  if (displayPeriodLabel) return displayPeriodLabel;
+  if (slotLabel && !/^period\s+\d+$/i.test(slotLabel)) return slotLabel;
   const entryTitleText = String(entry?.title || "").trim();
   if (entryTitleText && entry?.entry_type !== "subject") return entryTitleText;
   return `Period ${period}`;
+}
+
+function buildDisplayPeriodLabels(periods, entries = [], templateSlots = []) {
+  let classPeriod = 0;
+  return periods.reduce((map, period) => {
+    const firstEntry = entries.find((entry) => Number(entry.period_number) === Number(period));
+    const firstSlot = templateSlots.find((slot) => Number(slot.period_number) === Number(period));
+    if (isBreakEntry(firstEntry) || isBreakSlot(firstSlot)) {
+      map.set(period, displaySlotLabel({ entry: firstEntry, slot: firstSlot, period }));
+      return map;
+    }
+    classPeriod += 1;
+    map.set(period, `Period ${classPeriod}`);
+    return map;
+  }, new Map());
 }
 
 function uniqueCount(values) {
@@ -291,7 +315,7 @@ function RoutineCard({ children }) {
 }
 
 function RoutineEntryBlock({ entry, showTeachers = true }) {
-  const isBreak = entry?.entry_type === "break";
+  const isBreak = isBreakEntry(entry);
   const isFree = !entry || entry.entry_type === "free";
   const subtitle = !isFree ? entrySubtitle(entry, showTeachers) : "";
   return (
@@ -383,6 +407,7 @@ function ClassRoutineBoard({ routine, templateSlots = [], onSlotClick, showTeach
   ]
     .sort((a, b) => a - b);
   const rows = periods.length ? periods : [1, 2, 3, 4, 5, 6, 7];
+  const displayPeriodLabels = buildDisplayPeriodLabels(rows, entries, templateSlots);
   const byDayPeriod = entries.reduce((map, entry) => {
     const key = `${entry.weekday}-${entry.period_number}`;
     const current = map.get(key) || [];
@@ -398,8 +423,9 @@ function ClassRoutineBoard({ routine, templateSlots = [], onSlotClick, showTeach
     const firstEntry = entries.find((entry) => Number(entry.period_number) === Number(period));
     const firstSlot = templateSlots.find((slot) => Number(slot.period_number) === Number(period));
     const timeSource = firstEntry || firstSlot;
+    const displayPeriodLabel = displayPeriodLabels.get(period);
     return {
-      label: displaySlotLabel({ entry: firstEntry, slot: firstSlot, period }),
+      label: displaySlotLabel({ entry: firstEntry, slot: firstSlot, period, displayPeriodLabel }),
       time: timeSource ? `${String(timeSource.start_time).slice(0, 5)} - ${String(timeSource.end_time).slice(0, 5)}` : "",
     };
   };
@@ -434,12 +460,13 @@ function ClassRoutineBoard({ routine, templateSlots = [], onSlotClick, showTeach
             {rows.map((period) => {
                 const slotEntries = byDayPeriod.get(`${day.value}-${period}`) || [];
                 const slot = slotFor(day.value, period);
+                const meta = periodMeta(period);
                 return (
                   <button
                     key={`${day.value}-${period}`}
                     type="button"
                     className="min-w-0 border-l border-border p-1.5 text-left outline-none transition-colors hover:bg-muted/20 focus-visible:bg-muted/30"
-                    onClick={() => onSlotClick?.({ day, period, entries: slotEntries, entry: slotEntries[0] || null, slot })}
+                    onClick={() => onSlotClick?.({ day, period, displayPeriodLabel: meta.label, entries: slotEntries, entry: slotEntries[0] || null, slot })}
                   >
                     <RoutineSlotBlock
                       entries={slotEntries}
@@ -482,12 +509,13 @@ function ClassRoutineDayBoard({ board, weekday, onSlotClick, showTeachers = true
     ),
   ].sort((a, b) => a - b);
   const rows = periods.length ? periods : [1, 2, 3, 4, 5, 6, 7];
+  const allEntries = routines.flatMap((routine) => routine.entries || []);
+  const displayPeriodLabels = buildDisplayPeriodLabels(rows, allEntries);
   const periodMeta = (period) => {
-    const firstEntry = routines
-      .flatMap((routine) => routine.entries || [])
-      .find((entry) => Number(entry.period_number) === Number(period));
+    const firstEntry = allEntries.find((entry) => Number(entry.period_number) === Number(period));
+    const displayPeriodLabel = displayPeriodLabels.get(period);
     return {
-      label: displaySlotLabel({ entry: firstEntry, period }),
+      label: displaySlotLabel({ entry: firstEntry, period, displayPeriodLabel }),
       time: firstEntry ? `${String(firstEntry.start_time).slice(0, 5)} - ${String(firstEntry.end_time).slice(0, 5)}` : "",
     };
   };
@@ -536,6 +564,7 @@ function ClassRoutineDayBoard({ board, weekday, onSlotClick, showTeachers = true
               </div>
               {rows.map((period) => {
                 const slotEntries = entriesByPeriod.get(period) || [];
+                const meta = periodMeta(period);
                 return (
                   <button
                     key={`${routine.routine_version_id}-${period}`}
@@ -544,6 +573,7 @@ function ClassRoutineDayBoard({ board, weekday, onSlotClick, showTeachers = true
                     onClick={() => onSlotClick?.({
                       day: { value: String(selectedWeekday), label: dayMeta.label },
                       period,
+                      displayPeriodLabel: meta.label,
                       entries: slotEntries,
                       entry: slotEntries[0] || null,
                       slot: null,
@@ -2159,13 +2189,13 @@ export default function Routines() {
     }
   }
 
-  async function downloadPdf(downloadFn, id, fileName) {
+  async function downloadFile(downloadFn, id, fileName, fallbackMessage = "Failed to download file") {
     setError("");
     try {
       const blob = await downloadFn(id);
       saveBlob(blob, fileName);
     } catch (err) {
-      showError(err.message || "Failed to download PDF");
+      showError(err.message || fallbackMessage);
     }
   }
 
@@ -2513,8 +2543,8 @@ export default function Routines() {
                       Import
                     </Button>
                     {selectedClassRoutine?.id ? (
-                      <Button size="sm" variant="outline" onClick={() => downloadPdf(downloadClassRoutinePdf, selectedClassRoutine.id, `class-routine-${selectedClassRoutine.id}.pdf`)}>
-                        Download PDF
+                      <Button size="sm" variant="outline" onClick={() => downloadFile(downloadClassRoutineXlsx, selectedClassRoutine.id, `class-routine-${selectedClassRoutine.id}.xlsx`, "Failed to download class routine Excel file")}>
+                        Download Excel
                       </Button>
                     ) : null}
                     {selectedClassRoutine?.id ? (
@@ -2564,7 +2594,7 @@ export default function Routines() {
                       <DialogHeader>
                         <DialogTitle>Edit Routine Slot</DialogTitle>
                         <DialogDescription>
-                          {slotContext ? `${slotContext.day.label}, Period ${slotContext.period}` : "Select slot details."}
+                          {slotContext ? `${slotContext.day.label}, ${slotContext.displayPeriodLabel || `Period ${slotContext.period}`}` : "Select slot details."}
                         </DialogDescription>
                       </DialogHeader>
                       <form className="flex min-h-0 flex-1 flex-col" onSubmit={handleSaveSlot}>
@@ -3049,7 +3079,7 @@ export default function Routines() {
                       </DialogContent>
                     </Dialog>
                     {selectedExamRoutine?.id ? (
-                      <Button size="sm" variant="outline" onClick={() => downloadPdf(downloadExamRoutinePdf, selectedExamRoutine.id, `exam-routine-${selectedExamRoutine.id}.pdf`)}>
+                      <Button size="sm" variant="outline" onClick={() => downloadFile(downloadExamRoutinePdf, selectedExamRoutine.id, `exam-routine-${selectedExamRoutine.id}.pdf`, "Failed to download exam routine PDF")}>
                         Download PDF
                       </Button>
                     ) : null}

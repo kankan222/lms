@@ -1,7 +1,14 @@
 import * as service from "./routines.service.js";
+import { XLSX_CONTENT_TYPE } from "./routines.excel.service.js";
 
 function sendPdf(res, payload) {
   res.setHeader("Content-Type", "application/pdf");
+  res.setHeader("Content-Disposition", `attachment; filename=${payload.fileName}`);
+  res.send(payload.buffer);
+}
+
+function sendXlsx(res, payload) {
+  res.setHeader("Content-Type", XLSX_CONTENT_TYPE);
   res.setHeader("Content-Disposition", `attachment; filename=${payload.fileName}`);
   res.send(payload.buffer);
 }
@@ -233,6 +240,14 @@ export async function publishExamRoutine(req, res, next) {
 export async function classRoutinePdf(req, res, next) {
   try {
     sendPdf(res, await service.downloadClassRoutinePdf(req.params.id));
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function classRoutineXlsx(req, res, next) {
+  try {
+    sendXlsx(res, await service.downloadClassRoutineXlsx(req.params.id));
   } catch (err) {
     next(err);
   }

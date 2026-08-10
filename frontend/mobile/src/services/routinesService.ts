@@ -28,9 +28,12 @@ export type RoutineEntry = {
   applies_section_names?: string | null;
   teacher_name?: string | null;
   teacher_names?: string | null;
+  teacher_ids?: Array<number | string> | string | null;
+  teacher_user_ids?: Array<number | string> | string | null;
   room?: string | null;
   notes?: string | null;
   slot_label?: string | null;
+  slot_default_entry_type?: string | null;
   class_name?: string | null;
   section_name?: string | null;
   medium?: string | null;

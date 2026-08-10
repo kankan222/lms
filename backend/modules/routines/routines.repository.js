@@ -223,6 +223,32 @@ export async function getTimeSlotTemplateWithSlots(id) {
   return { ...template, slots };
 }
 
+export function listBreakTimeSlotsForTemplateIds(templateIds = []) {
+  const ids = [...new Set(templateIds.map((id) => Number(id)).filter(Boolean))];
+  if (!ids.length) return Promise.resolve([]);
+  const placeholders = ids.map(() => "?").join(",");
+  return query(
+    `
+      SELECT
+        id AS time_slot_id,
+        template_id,
+        weekday,
+        period_number,
+        label,
+        start_time,
+        end_time,
+        default_entry_type,
+        is_break,
+        sort_order
+      FROM routine_time_slots
+      WHERE template_id IN (${placeholders})
+        AND (default_entry_type = 'break' OR is_break = 1)
+      ORDER BY template_id, COALESCE(weekday, 0), sort_order, period_number, start_time
+    `,
+    ids
+  );
+}
+
 export function getClassById(id) {
   return query(
     `
@@ -400,8 +426,8 @@ export async function listClassRoutineBoardRowsImpl(filters = {}) {
         e.id AS entry_id,
         e.weekday,
         e.period_number,
-        e.start_time,
-        e.end_time,
+        COALESCE(e.start_time, MAX(COALESCE(ts_exact.start_time, ts_day.start_time, ts_all.start_time))) AS start_time,
+        COALESCE(e.end_time, MAX(COALESCE(ts_exact.end_time, ts_day.end_time, ts_all.end_time))) AS end_time,
         e.entry_type,
         e.subject_id,
         sub.name AS subject_name,
@@ -415,6 +441,7 @@ export async function listClassRoutineBoardRowsImpl(filters = {}) {
         MAX(COALESCE(ts_exact.label, ts_day.label, ts_all.label)) AS slot_label,
         MAX(COALESCE(ts_exact.default_entry_type, ts_day.default_entry_type, ts_all.default_entry_type)) AS slot_default_entry_type,
         GROUP_CONCAT(DISTINCT t.id ORDER BY t.name SEPARATOR ',') AS teacher_ids,
+        GROUP_CONCAT(DISTINCT t.user_id ORDER BY t.name SEPARATOR ',') AS teacher_user_ids,
         GROUP_CONCAT(DISTINCT t.name ORDER BY t.name SEPARATOR ', ') AS teacher_names
         ${hasApplicability ? ", GROUP_CONCAT(DISTINCT es.section_id ORDER BY sec_app.name SEPARATOR ',') AS applies_section_ids" : ", NULL AS applies_section_ids"}
         ${hasApplicability ? ", GROUP_CONCAT(DISTINCT sec_app.name ORDER BY sec_app.name SEPARATOR ', ') AS applies_section_names" : ", NULL AS applies_section_names"}
@@ -519,12 +546,15 @@ export async function getClassRoutineEntries(versionId) {
     `
       SELECT
         e.*,
+        COALESCE(e.start_time, MAX(COALESCE(ts_exact.start_time, ts_day.start_time, ts_all.start_time))) AS start_time,
+        COALESCE(e.end_time, MAX(COALESCE(ts_exact.end_time, ts_day.end_time, ts_all.end_time))) AS end_time,
         ${hasApplicability ? "e.applies_medium" : "NULL"} AS applies_medium,
         sub.name AS subject_name,
         act.name AS activity_name,
         MAX(COALESCE(ts_exact.label, ts_day.label, ts_all.label)) AS slot_label,
         MAX(COALESCE(ts_exact.default_entry_type, ts_day.default_entry_type, ts_all.default_entry_type)) AS slot_default_entry_type,
         GROUP_CONCAT(DISTINCT t.id ORDER BY t.name SEPARATOR ',') AS teacher_ids,
+        GROUP_CONCAT(DISTINCT t.user_id ORDER BY t.name SEPARATOR ',') AS teacher_user_ids,
         GROUP_CONCAT(DISTINCT t.name ORDER BY t.name SEPARATOR ', ') AS teacher_names
         ${hasApplicability ? ", GROUP_CONCAT(DISTINCT es.section_id ORDER BY sec_app.name SEPARATOR ',') AS applies_section_ids" : ", NULL AS applies_section_ids"}
         ${hasApplicability ? ", GROUP_CONCAT(DISTINCT sec_app.name ORDER BY sec_app.name SEPARATOR ', ') AS applies_section_names" : ", NULL AS applies_section_names"}
@@ -558,6 +588,9 @@ export async function getClassRoutineEntries(versionId) {
     ...row,
     teacher_ids: row.teacher_ids
       ? String(row.teacher_ids).split(",").map((id) => Number(id)).filter(Boolean)
+      : [],
+    teacher_user_ids: row.teacher_user_ids
+      ? String(row.teacher_user_ids).split(",").map((id) => Number(id)).filter(Boolean)
       : [],
     teacher_names: row.teacher_names || "",
     applies_section_ids: row.applies_section_ids
@@ -830,11 +863,17 @@ export function findClassRoutineTeacherConflicts(versionId) {
         t.name AS teacher_name,
         ne.weekday,
         ne.period_number,
-        ne.start_time,
-        ne.end_time,
+        COALESCE(ne.start_time, MAX(COALESCE(nts_exact.start_time, nts_day.start_time, nts_all.start_time))) AS start_time,
+        COALESCE(ne.end_time, MAX(COALESCE(nts_exact.end_time, nts_day.end_time, nts_all.end_time))) AS end_time,
         ce.period_number AS conflicting_period_number,
-        ce.start_time AS conflicting_start_time,
-        ce.end_time AS conflicting_end_time,
+        COALESCE(ce.start_time, MAX(COALESCE(cts_exact.start_time, cts_day.start_time, cts_all.start_time))) AS conflicting_start_time,
+        COALESCE(ce.end_time, MAX(COALESCE(cts_exact.end_time, cts_day.end_time, cts_all.end_time))) AS conflicting_end_time,
+        ne.id AS entry_id,
+        ce.id AS conflicting_entry_id,
+        nv.class_id,
+        nv.section_id,
+        nc.name AS class_name,
+        ns.name AS section_name,
         v.id AS conflicting_version_id,
         cv.class_id AS conflicting_class_id,
         cv.section_id AS conflicting_section_id,
@@ -843,6 +882,20 @@ export function findClassRoutineTeacherConflicts(versionId) {
       FROM class_routine_versions nv
       JOIN class_routine_entries ne ON ne.routine_version_id = nv.id
       JOIN class_routine_entry_teachers nt ON nt.routine_entry_id = ne.id
+      JOIN classes nc ON nc.id = nv.class_id
+      LEFT JOIN sections ns ON ns.id = nv.section_id
+      LEFT JOIN routine_time_slots nts_exact
+        ON nts_exact.id = ne.time_slot_id
+      LEFT JOIN routine_time_slots nts_day
+        ON ne.time_slot_id IS NULL
+       AND nts_day.template_id = nv.time_slot_template_id
+       AND nts_day.period_number = ne.period_number
+       AND nts_day.weekday = ne.weekday
+      LEFT JOIN routine_time_slots nts_all
+        ON ne.time_slot_id IS NULL
+       AND nts_all.template_id = nv.time_slot_template_id
+       AND nts_all.period_number = ne.period_number
+       AND nts_all.weekday IS NULL
       JOIN class_routine_versions cv
         ON cv.session_id = nv.session_id
        AND cv.status = 'published'
@@ -856,8 +909,18 @@ export function findClassRoutineTeacherConflicts(versionId) {
       JOIN class_routine_entries ce
         ON ce.routine_version_id = cv.id
        AND ce.weekday = ne.weekday
-       AND ne.start_time < ce.end_time
-       AND ne.end_time > ce.start_time
+      LEFT JOIN routine_time_slots cts_exact
+        ON cts_exact.id = ce.time_slot_id
+      LEFT JOIN routine_time_slots cts_day
+        ON ce.time_slot_id IS NULL
+       AND cts_day.template_id = cv.time_slot_template_id
+       AND cts_day.period_number = ce.period_number
+       AND cts_day.weekday = ce.weekday
+      LEFT JOIN routine_time_slots cts_all
+        ON ce.time_slot_id IS NULL
+       AND cts_all.template_id = cv.time_slot_template_id
+       AND cts_all.period_number = ce.period_number
+       AND cts_all.weekday IS NULL
       JOIN class_routine_entry_teachers ct
         ON ct.routine_entry_id = ce.id
        AND ct.teacher_id = nt.teacher_id
@@ -866,6 +929,9 @@ export function findClassRoutineTeacherConflicts(versionId) {
       LEFT JOIN sections cs ON cs.id = cv.section_id
       JOIN class_routine_versions v ON v.id = cv.id
       WHERE nv.id = ?
+      GROUP BY ne.id, ce.id, nt.teacher_id
+      HAVING start_time < conflicting_end_time
+         AND end_time > conflicting_start_time
       ORDER BY ne.weekday, ne.start_time, t.name
     `,
     [versionId]
@@ -909,16 +975,17 @@ export function getPublishedClassRoutineForScope(filters) {
         AND class_id = ?
         AND (section_id = ? OR (layout_mode = 'packed_hs' AND section_id IS NULL))
         AND (medium = ? OR (layout_mode = 'packed_hs' AND medium IS NULL))
-        AND stream_id_dedupe = COALESCE(?, 0)
+        AND (stream_id_dedupe = COALESCE(?, 0) OR (layout_mode = 'packed_hs' AND stream_id IS NULL))
         AND status = 'published'
       ORDER BY
         CASE WHEN section_id = ? THEN 0 ELSE 1 END,
         CASE WHEN medium = ? THEN 0 ELSE 1 END,
+        CASE WHEN stream_id_dedupe = COALESCE(?, 0) THEN 0 ELSE 1 END,
         published_at DESC,
         id DESC
       LIMIT 1
     `,
-    [filters.session_id, filters.class_id, filters.section_id, filters.medium, filters.stream_id, filters.section_id, filters.medium]
+    [filters.session_id, filters.class_id, filters.section_id, filters.medium, filters.stream_id, filters.section_id, filters.medium, filters.stream_id]
   ).then((rows) => rows[0] || null);
 }
 

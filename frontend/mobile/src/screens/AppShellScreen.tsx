@@ -18,7 +18,7 @@ import { DashboardSummary, getDashboardSummary } from "../services/dashboardServ
 import { getUnreadMessageTotal } from "../services/messagingService";
 import { getMyNotifications } from "../services/notificationsService";
 import { syncPushNotificationsAfterSignIn } from "../services/pushNotificationService";
-import { checkAppUpdate, showAppUpdatePrompt } from "../services/appUpdateService";
+import { checkAppUpdate, showAppUpdatePromptOnce } from "../services/appUpdateService";
 import { useAppTheme } from "../theme/AppThemeProvider";
 import DashboardTab from "./tabs/DashboardTab";
 import ClassesTab from "./tabs/ClassesTab";
@@ -350,7 +350,7 @@ export default function AppShellScreen({ navigation, route }: Props) {
     checkAppUpdate()
       .then((info) => {
         if (active && info?.update_available) {
-          showAppUpdatePrompt(info);
+          void showAppUpdatePromptOnce(info);
         }
       })
       .catch(() => {});
@@ -518,13 +518,7 @@ export default function AppShellScreen({ navigation, route }: Props) {
             loading={isLoading}
             error={error}
             onRefresh={refreshDashboard}
-            topInset={insets.top}
-            notificationUnread={notificationUnread}
-            canViewNotifications={canViewNotifications}
-            onOpenNotifications={() => navigation.navigate("Notifications")}
             onOpenMessages={() => selectTab("messaging")}
-            onOpenMore={() => navigation.navigate("More")}
-            onToggleTheme={toggleTheme}
           />
         );
       case "classes":
@@ -577,49 +571,28 @@ export default function AppShellScreen({ navigation, route }: Props) {
     }
   }
 
-  const showAppHeader = activeTab !== "dashboard";
-
   return (
     <SafeAreaView edges={["left", "right", "bottom"]} style={[styles.safeArea, { backgroundColor: theme.bg }]}>
-      {showAppHeader ? (
-        <View
-          style={[
-            styles.header,
-            {
-              backgroundColor: theme.bg,
-              borderBottomColor: theme.border,
-              paddingTop: Math.max(insets.top, 6),
-              minHeight: 52 + Math.max(insets.top, 6),
-            },
-          ]}
-        >
-          <View style={styles.headerLeft}>
-            <View>
-              <Text style={[styles.brandText, { color: theme.text }]}>{headerBrand}</Text>
-              <Text style={[styles.subtitle, { color: theme.subText }]}>{headerSubtitle}</Text>
-            </View>
+      <View
+        style={[
+          styles.header,
+          {
+            backgroundColor: theme.bg,
+            borderBottomColor: theme.border,
+            paddingTop: Math.max(insets.top, 6),
+            minHeight: 52 + Math.max(insets.top, 6),
+          },
+        ]}
+      >
+        <View style={styles.headerLeft}>
+          <View>
+            <Text style={[styles.brandText, { color: theme.text }]}>{headerBrand}</Text>
+            <Text style={[styles.subtitle, { color: theme.subText }]}>{headerSubtitle}</Text>
           </View>
+        </View>
 
-          <View style={styles.headerRight}>
-            {canViewNotifications ? (
-              <Pressable
-                style={[
-                  styles.iconButton,
-                  {
-                    backgroundColor: isDark ? theme.card : "#ffffff",
-                    borderColor: theme.border,
-                  },
-                ]}
-                onPress={() => navigation.navigate("Notifications")}
-              >
-                <Ionicons name="notifications-outline" size={18} color={theme.icon} />
-                {notificationUnread ? (
-                  <View style={[styles.headerBadge, { backgroundColor: theme.success }]}>
-                    <Text style={styles.headerBadgeText}>{notificationUnread > 99 ? "99+" : notificationUnread}</Text>
-                  </View>
-                ) : null}
-              </Pressable>
-            ) : null}
+        <View style={styles.headerRight}>
+          {canViewNotifications ? (
             <Pressable
               style={[
                 styles.iconButton,
@@ -628,25 +601,42 @@ export default function AppShellScreen({ navigation, route }: Props) {
                   borderColor: theme.border,
                 },
               ]}
-              onPress={toggleTheme}
+              onPress={() => navigation.navigate("Notifications")}
             >
-              <Ionicons name={isDark ? "sunny-outline" : "moon-outline"} size={18} color={theme.icon} />
+              <Ionicons name="notifications-outline" size={18} color={theme.icon} />
+              {notificationUnread ? (
+                <View style={[styles.headerBadge, { backgroundColor: theme.success }]}>
+                  <Text style={styles.headerBadgeText}>{notificationUnread > 99 ? "99+" : notificationUnread}</Text>
+                </View>
+              ) : null}
             </Pressable>
-            <Pressable
-              style={[
-                styles.iconButton,
-                {
-                  backgroundColor: activeTab === "users" ? theme.primary : isDark ? theme.card : "#ffffff",
-                  borderColor: activeTab === "users" ? theme.primary : theme.border,
-                },
-              ]}
-              onPress={() => selectTab("users")}
-            >
-              <Ionicons name="person-circle-outline" size={20} color={activeTab === "users" ? theme.primaryText : theme.icon} />
-            </Pressable>
-          </View>
+          ) : null}
+          <Pressable
+            style={[
+              styles.iconButton,
+              {
+                backgroundColor: isDark ? theme.card : "#ffffff",
+                borderColor: theme.border,
+              },
+            ]}
+            onPress={toggleTheme}
+          >
+            <Ionicons name={isDark ? "sunny-outline" : "moon-outline"} size={18} color={theme.icon} />
+          </Pressable>
+          <Pressable
+            style={[
+              styles.iconButton,
+              {
+                backgroundColor: activeTab === "users" ? theme.primary : isDark ? theme.card : "#ffffff",
+                borderColor: activeTab === "users" ? theme.primary : theme.border,
+              },
+            ]}
+            onPress={() => selectTab("users")}
+          >
+            <Ionicons name="person-circle-outline" size={20} color={activeTab === "users" ? theme.primaryText : theme.icon} />
+          </Pressable>
         </View>
-      ) : null}
+      </View>
 
       <View style={styles.contentStatic}>
         {mountedTabs.map((tab) => {
