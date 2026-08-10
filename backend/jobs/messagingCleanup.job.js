@@ -1,22 +1,20 @@
-import cron from "node-cron";
 import { purgeExpiredAttachments } from "../modules/messaging/messaging.media.service.js";
+import { envFlag, startGuardedCronJob } from "./cronRunner.js";
 
 export function startMessagingCleanupJob() {
-  const enabled =
-    String(process.env.MESSAGING_CLEANUP_ENABLED || "true").toLowerCase() === "true";
-  if (!enabled) return;
+  const enabled = envFlag("MESSAGING_CLEANUP_ENABLED", true);
+  const cronExpr = process.env.MESSAGING_CLEANUP_CRON || "30 3 * * *";
 
-  const run = async () => {
-    try {
+  return startGuardedCronJob({
+    name: "Messaging cleanup worker",
+    enabled,
+    cronExpr,
+    runOnStartDelayMs: 5000,
+    run: async () => {
       const result = await purgeExpiredAttachments(200);
       if (result.purged) {
         console.log(`Messaging cleanup purged ${result.purged} attachment(s)`);
       }
-    } catch (err) {
-      console.error("Messaging cleanup failed:", err);
-    }
-  };
-
-  setTimeout(run, 5000);
-  cron.schedule("30 3 * * *", run);
+    },
+  });
 }

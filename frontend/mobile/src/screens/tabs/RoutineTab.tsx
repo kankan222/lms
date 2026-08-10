@@ -27,6 +27,7 @@ type RoutineMode = "day" | "exam";
 type DayItem = { key: number; short: string; label: string };
 type RoutineGroup = { key: string; title: string; subtitle: string; entries: RoutineEntry[] };
 type ExamRoutineGroup = { key: string; title: string; subtitle: string; entries: ExamRoutineEntry[] };
+type ExamRoutineExamGroup = { key: string; title: string; subtitle: string; groups: ExamRoutineGroup[] };
 
 const DAYS: DayItem[] = [
   { key: 1, short: "Mon", label: "Monday" },
@@ -133,8 +134,11 @@ function groupExamRoutineEntries(entries: ExamRoutineEntry[]): ExamRoutineGroup[
       entry.stream_name || "",
     ];
     const key = keyParts.map((part) => String(part ?? "")).join("|");
-    const title = entry.exam_name || entry.routine_title || "Exam Routine";
-    const subtitle = [entry.class_scope === "hs" ? "Higher Secondary" : entry.class_scope === "school" ? "School" : "", entry.class_name, entry.section_name, entry.medium, entry.stream_name]
+    const title = [entry.class_name, entry.section_name, entry.medium, entry.stream_name]
+      .map(normalizeFilterValue)
+      .filter(Boolean)
+      .join(" / ") || "Class Routine";
+    const subtitle = [entry.class_scope === "hs" ? "Higher Secondary" : entry.class_scope === "school" ? "School" : "", entry.exam_name || entry.routine_title]
       .map(normalizeFilterValue)
       .filter(Boolean)
       .join(" / ") || "Published exam routine";
@@ -145,6 +149,27 @@ function groupExamRoutineEntries(entries: ExamRoutineEntry[]): ExamRoutineGroup[
     ...group,
     entries: [...group.entries].sort(sortExamEntries),
   }));
+}
+
+function groupExamRoutinesByExam(groups: ExamRoutineGroup[]): ExamRoutineExamGroup[] {
+  const examGroups = new Map<string, ExamRoutineExamGroup>();
+  for (const group of groups) {
+    const firstEntry = group.entries[0];
+    const keyParts = [
+      firstEntry?.session_name || "",
+      firstEntry?.exam_name || group.title || "",
+    ];
+    const key = keyParts.map((part) => String(part ?? "")).join("|");
+    const current = examGroups.get(key) || {
+      key,
+      title: firstEntry?.exam_name || group.title || "Exam Routine",
+      subtitle: firstEntry?.session_name || "Published exam",
+      groups: [],
+    };
+    current.groups.push(group);
+    examGroups.set(key, current);
+  }
+  return Array.from(examGroups.values());
 }
 
 function classLabel(student?: Student | null) {
@@ -193,6 +218,7 @@ export default function RoutineTab() {
   const [mediumFilter, setMediumFilter] = useState("all");
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [selectedRoutineGroupKey, setSelectedRoutineGroupKey] = useState("");
+  const [selectedExamRoutineExamKey, setSelectedExamRoutineExamKey] = useState("");
   const [selectedExamGroupKey, setSelectedExamGroupKey] = useState("");
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -266,9 +292,21 @@ export default function RoutineTab() {
     () => classSwitchingExamRoutineView ? groupExamRoutineEntries(visibleExamEntries) : [],
     [classSwitchingExamRoutineView, visibleExamEntries],
   );
+  const groupedVisibleExamRoutineExams = useMemo(
+    () => classSwitchingExamRoutineView ? groupExamRoutinesByExam(groupedVisibleExamEntries) : [],
+    [classSwitchingExamRoutineView, groupedVisibleExamEntries],
+  );
+  const selectedExamRoutineExam = useMemo(
+    () => groupedVisibleExamRoutineExams.find((group) => group.key === selectedExamRoutineExamKey) || groupedVisibleExamRoutineExams[0] || null,
+    [groupedVisibleExamRoutineExams, selectedExamRoutineExamKey],
+  );
+  const selectedExamRoutineClassGroups = useMemo(
+    () => selectedExamRoutineExam?.groups || [],
+    [selectedExamRoutineExam],
+  );
   const selectedExamGroup = useMemo(
-    () => groupedVisibleExamEntries.find((group) => group.key === selectedExamGroupKey) || groupedVisibleExamEntries[0] || null,
-    [groupedVisibleExamEntries, selectedExamGroupKey],
+    () => selectedExamRoutineClassGroups.find((group) => group.key === selectedExamGroupKey) || selectedExamRoutineClassGroups[0] || null,
+    [selectedExamGroupKey, selectedExamRoutineClassGroups],
   );
   const activeRoutineFilterCount = [scopeFilter, classFilter, sectionFilter, mediumFilter].filter((value) => value !== "all").length;
   const firstEntry = sortedEntries[0] ?? null;
@@ -305,13 +343,36 @@ export default function RoutineTab() {
     );
   }, [isTeacher]);
 
+  useEffect(() => {
+    if (!groupedVisibleExamRoutineExams.length) {
+      setSelectedExamRoutineExamKey("");
+      setSelectedExamGroupKey("");
+      return;
+    }
+    setSelectedExamRoutineExamKey((current) => {
+      if (current && groupedVisibleExamRoutineExams.some((group) => group.key === current)) return current;
+      return groupedVisibleExamRoutineExams[0]?.key || "";
+    });
+  }, [groupedVisibleExamRoutineExams]);
+
+  useEffect(() => {
+    if (!selectedExamRoutineClassGroups.length) {
+      setSelectedExamGroupKey("");
+      return;
+    }
+    setSelectedExamGroupKey((current) => {
+      if (current && selectedExamRoutineClassGroups.some((group) => group.key === current)) return current;
+      return selectedExamRoutineClassGroups[0]?.key || "";
+    });
+  }, [selectedExamRoutineClassGroups]);
+
   const loadExamRoutineEntries = useCallback(async (student?: Student | null) => {
     try {
       const summaries = isTeacher
         ? await getMyTeacherExamRoutines({ status: "published" })
         : await getExamRoutines({ status: "published" });
       const details = await Promise.all(
-        summaries.slice(0, 8).map(async (summary) => {
+        summaries.map(async (summary) => {
           try {
             return await getExamRoutineById(summary.id);
           } catch {
@@ -561,7 +622,7 @@ export default function RoutineTab() {
     );
   }
 
-  function renderRoutineGroupSelector<T extends RoutineGroup | ExamRoutineGroup>(
+  function renderRoutineGroupSelector<T extends { key: string; title: string; subtitle: string }>(
     groups: T[],
     selectedKey: string,
     onSelect: (key: string) => void,
@@ -766,7 +827,12 @@ export default function RoutineTab() {
             ) : null}
           </ScrollView>
           {classSwitchingClassRoutineView ? renderRoutineGroupSelector(groupedVisibleEntries, selectedRoutineGroup?.key || "", setSelectedRoutineGroupKey) : null}
-          {classSwitchingExamRoutineView ? renderRoutineGroupSelector(groupedVisibleExamEntries, selectedExamGroup?.key || "", setSelectedExamGroupKey) : null}
+          {classSwitchingExamRoutineView ? (
+            <>
+              {renderRoutineGroupSelector(groupedVisibleExamRoutineExams, selectedExamRoutineExam?.key || "", setSelectedExamRoutineExamKey)}
+              {renderRoutineGroupSelector(selectedExamRoutineClassGroups, selectedExamGroup?.key || "", setSelectedExamGroupKey)}
+            </>
+          ) : null}
           {filtersOpen ? (
             <View style={[styles.filtersPanel, { backgroundColor: theme.cardMuted, borderColor: theme.border }]}>
               {renderFilterChips("Scope", scopeFilter, scopeOptions, (next) => {

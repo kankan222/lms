@@ -1,7 +1,5 @@
-import cron from "node-cron";
 import { queuePullCommandsForAllDevices } from "../modules/iclock/iclock.service.js";
-
-let running = false;
+import { startGuardedCronJob } from "./cronRunner.js";
 
 function isEnabled() {
   const raw = String(process.env.ICLOCK_PULL_ENABLED || "").trim().toLowerCase();
@@ -17,15 +15,13 @@ export function startIclockPullJob() {
   }
 
   const cronExpr = String(process.env.ICLOCK_PULL_CRON || "*/2 * * * *").trim();
-  if (!cron.validate(cronExpr)) {
-    console.error("ICLOCK PULL JOB ERROR: invalid cron expression:", cronExpr);
-    return;
-  }
 
-  const runPullCycle = async () => {
-    if (running) return;
-    running = true;
-    try {
+  const task = startGuardedCronJob({
+    name: "ICLOCK pull worker",
+    enabled: true,
+    cronExpr,
+    runOnStartDelayMs: 0,
+    run: async () => {
       const result = await queuePullCommandsForAllDevices();
       if (result.reason === "missing_template") {
         console.log("ICLOCK PULL JOB SKIPPED: set ICLOCK_PULL_COMMAND_TEMPLATE.");
@@ -35,17 +31,9 @@ export function startIclockPullJob() {
           skippedCount: result.skippedCount,
         });
       }
-    } catch (error) {
-      console.error("ICLOCK PULL JOB ERROR:", error?.message || error);
-    } finally {
-      running = false;
-    }
-  };
-
-  // Trigger one pull cycle immediately at startup,
-  // then continue on cron cadence.
-  runPullCycle();
-  cron.schedule(cronExpr, runPullCycle);
+    },
+  });
 
   console.log("ICLOCK PULL JOB STARTED:", { cron: cronExpr });
+  return task;
 }

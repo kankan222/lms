@@ -14,6 +14,21 @@ Update this file after every meaningful implementation change.
 
 ## Completed
 
+- Reworked exam routine navigation in software and mobile into a two-level
+  exam-first, class/section-second selector, with scoped previous/next controls
+  and full mobile exam routine detail loading instead of limiting results to the
+  first eight summaries.
+- Made the software class routine hover tooltip scrollable with a constrained
+  height so packed routine slots with many entries remain usable.
+- Split backend cron execution from the API process by adding a dedicated cron
+  worker entrypoint and `worker:cron` script, disabling cron inside the API
+  unless `RUN_CRON_IN_API=true`, and adding guarded cron scheduling with
+  overlap prevention and duration logging for announcement, messaging cleanup,
+  fee reminder, and iClock jobs.
+- Added a mobile app-level custom alert provider that intercepts existing
+  `Alert.alert` calls and renders them through an in-app modal instead of the
+  native system dialog, and strengthened global Inter font application for
+  React Native `Text` and `TextInput` at app startup.
 - Added exam-level marks entry access policy for mock-style exams: exams can now
   use subject-teacher-only marks entry or class/section-teacher marks entry;
   existing mock exams are migrated to class/section access, backend teacher

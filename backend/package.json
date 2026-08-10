@@ -14,6 +14,7 @@
     "sync:agent:mssql": "node scripts/run-mssql-attendance-sync-agent.js",
     "start:server": "node server.js",
     "start": "node server.js",
+    "worker:cron": "node jobs/cronWorker.js",
     "seed:admin": "node database/seeds/admin.seeds.js",
     "import:root-routines": "node scripts/import-root-routine-workbooks.js"
   },

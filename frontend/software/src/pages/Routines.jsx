@@ -321,7 +321,7 @@ function RoutineEntryBlock({ entry, showTeachers = true }) {
 
 function RoutineSlotTooltipContent({ entries = [], showTeachers = true }) {
   return (
-    <div className="max-w-80 space-y-2 text-left">
+    <div className="max-h-72 max-w-80 space-y-2 overflow-y-auto pr-1 text-left">
       {entries.map((entry, index) => {
         const subtitle = entrySubtitle(entry, showTeachers);
         return (
@@ -682,6 +682,7 @@ export default function Routines() {
   const [examRoutines, setExamRoutines] = useState([]);
   const [selectedClassRoutineId, setSelectedClassRoutineId] = useState("");
   const [selectedClassRoutine, setSelectedClassRoutine] = useState(null);
+  const [selectedExamRoutineExamKey, setSelectedExamRoutineExamKey] = useState("");
   const [selectedExamRoutineId, setSelectedExamRoutineId] = useState("");
   const [selectedExamRoutine, setSelectedExamRoutine] = useState(null);
   const [classViewMode, setClassViewMode] = useState("week");
@@ -876,9 +877,36 @@ export default function Routines() {
     [examRoutines]
   );
 
+  const examRoutineExamGroups = useMemo(() => {
+    const groups = new Map();
+    examRoutineNavigationItems.forEach((routine) => {
+      const key = String(routine.exam_id || routine.exam_name || "exam");
+      const current = groups.get(key) || {
+        key,
+        exam_id: routine.exam_id || null,
+        exam_name: routine.exam_name || "Exam",
+        session_name: routine.session_name || "",
+        routines: [],
+      };
+      current.routines.push(routine);
+      groups.set(key, current);
+    });
+    return [...groups.values()];
+  }, [examRoutineNavigationItems]);
+
+  const selectedExamRoutineExamGroup = useMemo(
+    () => examRoutineExamGroups.find((group) => group.key === selectedExamRoutineExamKey) || examRoutineExamGroups[0] || null,
+    [examRoutineExamGroups, selectedExamRoutineExamKey]
+  );
+
+  const selectedExamRoutineClassItems = useMemo(
+    () => selectedExamRoutineExamGroup?.routines || [],
+    [selectedExamRoutineExamGroup]
+  );
+
   const selectedExamRoutineNavigationIndex = useMemo(
-    () => examRoutineNavigationItems.findIndex((routine) => String(routine.id) === String(selectedExamRoutineId)),
-    [examRoutineNavigationItems, selectedExamRoutineId]
+    () => selectedExamRoutineClassItems.findIndex((routine) => String(routine.id) === String(selectedExamRoutineId)),
+    [selectedExamRoutineClassItems, selectedExamRoutineId]
   );
 
   const selectedExamRoutineSummary = useMemo(() => {
@@ -894,10 +922,9 @@ export default function Routines() {
     if (!selectedExamRoutine) return "";
     const firstEntry = Array.isArray(selectedExamRoutine.entries) ? selectedExamRoutine.entries[0] : null;
     return [
-      selectedExamRoutine.exam_name || "Exam Routine",
-      selectedExamRoutine.class_scope === "hs" ? "Higher Secondary" : "School",
       selectedExamRoutine.class_name || firstEntry?.class_name,
       selectedExamRoutine.section_name || firstEntry?.section_name,
+      selectedExamRoutine.medium || firstEntry?.medium,
       selectedExamRoutine.stream_name || firstEntry?.stream_name,
     ].filter(Boolean).join(" | ");
   }, [selectedExamRoutine]);
@@ -954,12 +981,6 @@ export default function Routines() {
     const nextExamRoutines = unwrap(examRoutineRes);
     setExamRoutines(nextExamRoutines);
     if (!nextExamRoutines.length) setSelectedExamRoutine(null);
-    setSelectedExamRoutineId((current) => {
-      if (!nextExamRoutines.length) return "";
-      if (current && nextExamRoutines.some((routine) => String(routine.id) === String(current))) return current;
-      const preferred = nextExamRoutines.find((routine) => routine.status === "published") || nextExamRoutines[0];
-      return preferred ? String(preferred.id) : "";
-    });
   }
 
   async function loadClassRoutineBoardData(nextFilters = filters, weekday = selectedClassDay) {
@@ -1009,6 +1030,33 @@ export default function Routines() {
   }, [classRoutines, selectedClassRoutineId]);
 
   useEffect(() => {
+    if (!examRoutineExamGroups.length) {
+      setSelectedExamRoutineExamKey("");
+      setSelectedExamRoutineId("");
+      return;
+    }
+    setSelectedExamRoutineExamKey((current) => {
+      if (current && examRoutineExamGroups.some((group) => group.key === current)) return current;
+      const groupWithPublished = examRoutineExamGroups.find((group) =>
+        group.routines.some((routine) => routine.status === "published")
+      );
+      return (groupWithPublished || examRoutineExamGroups[0])?.key || "";
+    });
+  }, [examRoutineExamGroups]);
+
+  useEffect(() => {
+    if (!selectedExamRoutineClassItems.length) {
+      setSelectedExamRoutineId("");
+      return;
+    }
+    setSelectedExamRoutineId((current) => {
+      if (current && selectedExamRoutineClassItems.some((routine) => String(routine.id) === String(current))) return current;
+      const preferred = selectedExamRoutineClassItems.find((routine) => routine.status === "published") || selectedExamRoutineClassItems[0];
+      return preferred ? String(preferred.id) : "";
+    });
+  }, [selectedExamRoutineClassItems]);
+
+  useEffect(() => {
     if (activeTab !== "class" || classViewMode !== "day") return undefined;
     let active = true;
     const timeoutId = window.setTimeout(() => {
@@ -1026,7 +1074,10 @@ export default function Routines() {
   }, [activeTab, classViewMode, selectedClassDay, filters]);
 
   useEffect(() => {
-    if (!selectedExamRoutineId) return;
+    if (!selectedExamRoutineId) {
+      setSelectedExamRoutine(null);
+      return;
+    }
     let active = true;
     getExamRoutine(selectedExamRoutineId)
       .then((response) => {
@@ -1331,10 +1382,10 @@ export default function Routines() {
   }
 
   function moveSelectedExamRoutine(direction) {
-    if (!examRoutineNavigationItems.length) return;
+    if (!selectedExamRoutineClassItems.length) return;
     const currentIndex = selectedExamRoutineNavigationIndex >= 0 ? selectedExamRoutineNavigationIndex : 0;
-    const nextIndex = (currentIndex + direction + examRoutineNavigationItems.length) % examRoutineNavigationItems.length;
-    setSelectedExamRoutineId(String(examRoutineNavigationItems[nextIndex].id));
+    const nextIndex = (currentIndex + direction + selectedExamRoutineClassItems.length) % selectedExamRoutineClassItems.length;
+    setSelectedExamRoutineId(String(selectedExamRoutineClassItems[nextIndex].id));
   }
 
   function moveSelectedClassRoutine(direction) {
@@ -2863,36 +2914,13 @@ export default function Routines() {
               <div className="space-y-3">
                 <div className="flex min-w-0 flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
                   <div className="min-w-0 text-left">
-                    <div className="flex min-w-0 items-center justify-start gap-3">
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="icon"
-                        onClick={() => moveSelectedExamRoutine(-1)}
-                        disabled={examRoutineNavigationItems.length <= 1}
-                        aria-label="Previous exam routine"
-                      >
-                        <ChevronLeft className="size-4" />
-                      </Button>
-                      <div className="min-w-0">
-                        {selectedExamRoutine ? (
-                          <p className="truncate text-lg font-semibold text-foreground">
-                            {selectedExamRoutineHeader || "Exam Routine"}
-                          </p>
-                        ) : (
-                          <p className="text-lg font-semibold text-muted-foreground">No exam routine selected</p>
-                        )}
-                      </div>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="icon"
-                        onClick={() => moveSelectedExamRoutine(1)}
-                        disabled={examRoutineNavigationItems.length <= 1}
-                        aria-label="Next exam routine"
-                      >
-                        <ChevronRight className="size-4" />
-                      </Button>
+                    <div className="min-w-0">
+                      <p className="truncate text-lg font-semibold text-foreground">
+                        {selectedExamRoutineExamGroup?.exam_name || "Exam Routine"}
+                      </p>
+                      <p className="mt-1 truncate text-sm text-muted-foreground">
+                        {selectedExamRoutine ? selectedExamRoutineHeader || "Selected routine" : "Select an exam and class routine"}
+                      </p>
                     </div>
                   </div>
                   <div className="flex max-w-full flex-wrap items-center justify-start gap-3 text-sm text-muted-foreground xl:justify-end">
@@ -2902,23 +2930,90 @@ export default function Routines() {
                     <span className="inline-flex items-center gap-1.5"><CheckCircle2 className="size-4" />{selectedExamRoutineSummary.invigilators} invigilators</span>
                   </div>
                 </div>
-                <div className="flex min-w-0 flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
-                  <div className="min-w-0 flex-1">
-                    <select
-                      className={`${selectClassName} h-9 w-full min-w-0 rounded-md px-3 py-1.5 text-sm lg:max-w-[520px]`}
-                      value={selectedExamRoutineId}
-                      onChange={(event) => setSelectedExamRoutineId(event.target.value)}
-                    >
-                      {examRoutineNavigationItems.map((routine) => (
-                        <option key={routine.id} value={routine.id}>
-                          {routine.exam_name || "Exam"} | {routine.class_name || "Class"}
-                          {routine.section_name ? ` | ${routine.section_name}` : ""}
-                          {routine.medium ? ` | ${routine.medium}` : ""}
-                          {routine.stream_name ? ` | ${routine.stream_name}` : ""}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
+                <div className="space-y-2">
+                  {examRoutineExamGroups.length ? (
+                    <div className="min-w-0 overflow-x-auto pb-1">
+                      <div className="flex min-w-max gap-2">
+                        {examRoutineExamGroups.map((group) => {
+                          const selected = group.key === selectedExamRoutineExamGroup?.key;
+                          return (
+                            <button
+                              key={group.key}
+                              type="button"
+                              className={`min-w-[180px] rounded-md border px-3 py-2 text-left text-sm transition ${
+                                selected
+                                  ? "border-primary bg-primary text-primary-foreground shadow-sm"
+                                  : "border-border bg-background text-foreground hover:border-primary/50 hover:bg-muted/40"
+                              }`}
+                              onClick={() => {
+                                setSelectedExamRoutineExamKey(group.key);
+                                const preferred = group.routines.find((routine) => routine.status === "published") || group.routines[0];
+                                setSelectedExamRoutineId(preferred ? String(preferred.id) : "");
+                              }}
+                            >
+                              <span className="block truncate font-medium">{group.exam_name || "Exam"}</span>
+                              <span className={`mt-0.5 block text-xs ${selected ? "text-primary-foreground/80" : "text-muted-foreground"}`}>
+                                {group.routines.length} class routine{group.routines.length === 1 ? "" : "s"}
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ) : null}
+                  {selectedExamRoutineClassItems.length ? (
+                    <div className="flex min-w-0 items-center gap-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="icon"
+                        onClick={() => moveSelectedExamRoutine(-1)}
+                        disabled={selectedExamRoutineClassItems.length <= 1}
+                        aria-label="Previous class exam routine"
+                      >
+                        <ChevronLeft className="size-4" />
+                      </Button>
+                      <div className="min-w-0 flex-1 overflow-x-auto pb-1">
+                        <div className="flex min-w-max gap-2">
+                          {selectedExamRoutineClassItems.map((routine) => {
+                            const selected = String(routine.id) === String(selectedExamRoutineId);
+                            const title = [routine.class_name || "Class", routine.section_name, routine.medium, routine.stream_name]
+                              .filter(Boolean)
+                              .join(" | ");
+                            return (
+                              <button
+                                key={routine.id}
+                                type="button"
+                                className={`rounded-md border px-3 py-2 text-left text-sm transition ${
+                                  selected
+                                    ? "border-primary bg-primary text-primary-foreground shadow-sm"
+                                    : "border-border bg-background text-foreground hover:border-primary/50 hover:bg-muted/40"
+                                }`}
+                                onClick={() => setSelectedExamRoutineId(String(routine.id))}
+                              >
+                                <span className="block max-w-[220px] truncate font-medium">{title || "Class Routine"}</span>
+                                <span className={`mt-0.5 block text-xs ${selected ? "text-primary-foreground/80" : "text-muted-foreground"}`}>
+                                  {routine.entry_count || 0} rows
+                                </span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="icon"
+                        onClick={() => moveSelectedExamRoutine(1)}
+                        disabled={selectedExamRoutineClassItems.length <= 1}
+                        aria-label="Next class exam routine"
+                      >
+                        <ChevronRight className="size-4" />
+                      </Button>
+                    </div>
+                  ) : null}
+                </div>
+                <div className="flex min-w-0 flex-col gap-2 lg:flex-row lg:items-center lg:justify-end">
                   <div className="flex min-w-0 flex-wrap items-center justify-start gap-2 lg:justify-end [&>*]:h-9">
                     {["draft", "published"].includes(selectedExamRoutine?.status) ? (
                       <>

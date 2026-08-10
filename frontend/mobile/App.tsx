@@ -1,4 +1,4 @@
-import { Component, type ErrorInfo, type ReactNode, useEffect } from "react";
+import React, { Component, type ErrorInfo, type ReactNode, useEffect } from "react";
 import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { NavigationContainer } from "@react-navigation/native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
@@ -15,6 +15,7 @@ import { StatusBar } from "expo-status-bar";
 import AppNavigator from "./src/navigation/AppNavigator";
 import { useAuthStore } from "./src/store/authStore";
 import { AppThemeProvider, useAppTheme } from "./src/theme/AppThemeProvider";
+import { AppAlertProvider } from "./src/components/feedback/AppAlertProvider";
 
 type ErrorBoundaryProps = {
   children: ReactNode;
@@ -32,8 +33,11 @@ type FontDefaultTarget<T> = T & {
 };
 
 const defaultInterTextStyle = { fontFamily: "Inter_400Regular" };
+let defaultFontInstalled = false;
 
 function applyDefaultFontFamily() {
+  if (defaultFontInstalled) return;
+  defaultFontInstalled = true;
   const textTarget = Text as unknown as FontDefaultTarget<typeof Text>;
   const inputTarget = TextInput as unknown as FontDefaultTarget<typeof TextInput>;
 
@@ -42,6 +46,29 @@ function applyDefaultFontFamily() {
 
   inputTarget.defaultProps = inputTarget.defaultProps || {};
   inputTarget.defaultProps.style = [inputTarget.defaultProps.style, defaultInterTextStyle];
+
+  const textRenderTarget = Text as unknown as { render?: (...args: unknown[]) => React.ReactElement };
+  const inputRenderTarget = TextInput as unknown as { render?: (...args: unknown[]) => React.ReactElement };
+
+  if (typeof textRenderTarget.render === "function") {
+    const originalRender = textRenderTarget.render;
+    textRenderTarget.render = function renderWithInter(...args: unknown[]) {
+      const origin = originalRender.apply(this, args) as React.ReactElement<{ style?: unknown }>;
+      return React.cloneElement(origin, {
+        style: [defaultInterTextStyle, origin.props.style],
+      });
+    };
+  }
+
+  if (typeof inputRenderTarget.render === "function") {
+    const originalRender = inputRenderTarget.render;
+    inputRenderTarget.render = function renderInputWithInter(...args: unknown[]) {
+      const origin = originalRender.apply(this, args) as React.ReactElement<{ style?: unknown }>;
+      return React.cloneElement(origin, {
+        style: [defaultInterTextStyle, origin.props.style],
+      });
+    };
+  }
 }
 
 applyDefaultFontFamily();
@@ -123,7 +150,9 @@ export default function App() {
   return (
     <RootErrorBoundary>
       <AppThemeProvider>
-        <AppContainer />
+        <AppAlertProvider>
+          <AppContainer />
+        </AppAlertProvider>
       </AppThemeProvider>
     </RootErrorBoundary>
   );
