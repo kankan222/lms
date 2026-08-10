@@ -1608,7 +1608,11 @@ export default function Routines() {
       ...current,
       subjectRows: (current.subjectRows || []).map((row) => {
         if (row.key !== rowKey) return row;
-        const teacherRows = row.teacherRows || [emptyTeacherSplitRow(1, row.teacher_id)];
+        const selectedDays = (current.weekdays || []).map(String).filter(Boolean);
+        const teacherRows = (row.teacherRows || [emptyTeacherSplitRow(1, row.teacher_id)]).map((teacherRow) => {
+          const days = (teacherRow.weekdays || []).map(String).filter(Boolean);
+          return selectedDays.length > 1 && !days.length ? { ...teacherRow, weekdays: selectedDays } : teacherRow;
+        });
         return { ...row, teacherRows: [...teacherRows, emptyTeacherSplitRow(teacherRows.length + 1)] };
       }),
     }));
@@ -1733,6 +1737,17 @@ export default function Routines() {
       showError("Every subject row needs a subject and at least one assigned teacher.");
       return;
     }
+    const selectedWeekdays = [...new Set((slotForm.weekdays || [slotContext.day.value]).map((value) => String(value)).filter(Boolean))];
+    const missingSplitDays = subjectRows.some((row) => {
+      const teacherRows = (row.teacherRows || [emptyTeacherSplitRow(1, row.teacher_id)]).filter((teacherRow) => teacherRow.teacher_id);
+      return selectedWeekdays.length > 1 &&
+        teacherRows.length > 1 &&
+        teacherRows.some((teacherRow) => !(teacherRow.weekdays || []).map(String).filter(Boolean).length);
+    });
+    if (slotForm.entry_type === "subject" && missingSplitDays) {
+      showError("Select days for every teacher split, or keep only one teacher for all selected days.");
+      return;
+    }
     if (slotForm.entry_type === "activity" && !slotForm.activity_id) {
       showError("Activity is required for activity slots.");
       return;
@@ -1744,7 +1759,6 @@ export default function Routines() {
     }
 
     const { day, period, slot, entry, entries: existingEntries = [] } = slotContext;
-    const selectedWeekdays = [...new Set((slotForm.weekdays || [day.value]).map((value) => String(value)).filter(Boolean))];
     if (!selectedWeekdays.length) {
       showError("Select at least one day for this slot.");
       return;
@@ -1769,7 +1783,8 @@ export default function Routines() {
               .filter((teacherRow) => teacherRow.teacher_id)
               .filter((teacherRow) => {
                 const days = (teacherRow.weekdays || []).map(String).filter(Boolean);
-                return !days.length || days.includes(String(weekday));
+                const allSubjectTeachers = (row.teacherRows || [emptyTeacherSplitRow(1, row.teacher_id)]).filter((item) => item.teacher_id);
+                return !days.length && allSubjectTeachers.length <= 1 ? true : days.includes(String(weekday));
               });
             if (!teacherRows.length) return null;
             return {
@@ -2788,7 +2803,9 @@ export default function Routines() {
                                                   );
                                                 })}
                                               </div>
-                                              <p className="mt-1 text-xs text-muted-foreground">No day selected means all selected days.</p>
+                                              <p className="mt-1 text-xs text-muted-foreground">
+                                                One teacher can cover all selected days. For teacher splits, select days for each teacher.
+                                              </p>
                                             </div>
                                           ) : null}
                                         </div>

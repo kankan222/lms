@@ -14,6 +14,9 @@ Update this file after every meaningful implementation change.
 
 ## Completed
 
+- Changed production auth so `super_admin` and `admin` users must complete OTP
+  on every password login, ignoring trusted-device OTP bypass for those
+  privileged sessions while preserving configured OTP bypass accounts.
 - Linked new message notifications to message ids and added cleanup when a
   message is deleted for self, deleted for everyone, or a conversation is hidden
   for the user; added a migration to clear stale message notifications for
@@ -1286,3 +1289,7 @@ Update this file after every meaningful implementation change.
 - Tightened class routine teacher conflict diagnostics: the validator now
   compares effective entry/template slot times and reports both the publishing
   class/period/time and the already-published conflicting class/period/time.
+- Fixed the software routine slot teacher-split save flow so multi-teacher,
+  multi-day slots require explicit days per teacher instead of treating blank
+  teacher day chips as all days, preventing accidental HS Friday/Saturday
+  teacher assignments during hybrid routine edits.

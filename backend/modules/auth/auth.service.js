@@ -35,6 +35,7 @@ const OTP_MAX_RESENDS_PER_DAY = 10;
 const SUSPICIOUS_FAILED_LOGIN_THRESHOLD = 3;
 const DEFAULT_USER_REFRESH_TOKEN_EXPIRY = "30d";
 const DEFAULT_ADMIN_REFRESH_TOKEN_EXPIRY = "1d";
+const OTP_EVERY_LOGIN_ROLES = new Set(["super_admin", "admin"]);
 
 function isProductionEnvironment() {
   return String(process.env.NODE_ENV || "").trim().toLowerCase() === "production";
@@ -111,6 +112,10 @@ function getRefreshSessionPolicy(roles = []) {
     refreshTokenExpiry,
     sessionMs: parseDurationMs(refreshTokenExpiry, fallbackMs)
   };
+}
+
+function requiresOtpEveryLogin(roles = []) {
+  return roles.some((role) => OTP_EVERY_LOGIN_ROLES.has(role));
 }
 
 function normalizeStoredIndianPhone(phone) {
@@ -216,6 +221,10 @@ async function resolveOtpRequirement(user, roles, meta) {
 
   if (canBypassOtp(user)) {
     return { required: false, reason: "otp_bypass_account" };
+  }
+
+  if (requiresOtpEveryLogin(roles)) {
+    return { required: true, reason: "privileged_session" };
   }
 
   if (!meta.deviceId) {
