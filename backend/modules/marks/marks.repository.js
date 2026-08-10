@@ -9,6 +9,7 @@ let subjectRegistrationTablesCache;
 let examSubjectComponentsTableCache;
 let reportPublicationsTableCache;
 let examFinalCalculationTypeCache;
+let examMarksEntryScopeCache;
 let studentParentGuardianColumnsCache;
 
 async function supportsScopesTable() {
@@ -214,6 +215,25 @@ async function supportsExamFinalCalculationTypeColumn() {
   return examFinalCalculationTypeCache;
 }
 
+async function supportsExamMarksEntryScopeColumn() {
+  if (typeof examMarksEntryScopeCache === "boolean") {
+    return examMarksEntryScopeCache;
+  }
+
+  const rows = await query(
+    `
+      SELECT COUNT(*) AS total
+      FROM information_schema.COLUMNS
+      WHERE TABLE_SCHEMA = DATABASE()
+        AND TABLE_NAME = 'exams'
+        AND COLUMN_NAME = 'marks_entry_scope'
+    `
+  );
+
+  examMarksEntryScopeCache = Number(rows[0]?.total || 0) > 0;
+  return examMarksEntryScopeCache;
+}
+
 async function supportsStudentParentGuardianColumns() {
   if (typeof studentParentGuardianColumnsCache === "boolean") {
     return studentParentGuardianColumnsCache;
@@ -323,7 +343,9 @@ export async function getStudentProfileByUser(userId) {
 
 export async function getExamById(examId) {
   const hasScopesTable = await supportsScopesTable();
+  const hasMarksEntryScope = await supportsExamMarksEntryScopeColumn();
   const classScopeExpr = buildClassScopeExpression(hasScopesTable);
+  const marksEntryScopeExpr = hasMarksEntryScope ? "e.marks_entry_scope" : "'subject_assignment'";
 
   const rows = await query(
     `SELECT
@@ -331,6 +353,7 @@ export async function getExamById(examId) {
       e.name,
       e.session_id,
       ses.name AS session_name,
+      ${marksEntryScopeExpr} AS marks_entry_scope,
       ${classScopeExpr} AS class_scope
      FROM exams e
      LEFT JOIN academic_sessions ses ON ses.id = e.session_id
@@ -475,7 +498,9 @@ export async function getClassSectionScope(classId, sectionId) {
 
 export async function getTeacherAccessibleExams(userId) {
   const hasScopesTable = await supportsScopesTable();
+  const hasMarksEntryScope = await supportsExamMarksEntryScopeColumn();
   const classScopeExpr = buildClassScopeExpression(hasScopesTable);
+  const marksEntryScopeExpr = hasMarksEntryScope ? "e.marks_entry_scope" : "'subject_assignment'";
 
   return query(
     `SELECT DISTINCT
@@ -483,6 +508,7 @@ export async function getTeacherAccessibleExams(userId) {
       e.name,
       e.session_id,
       ses.name AS session_name,
+      ${marksEntryScopeExpr} AS marks_entry_scope,
       COALESCE(
         NULLIF(GROUP_CONCAT(DISTINCT ${classScopeExpr} ORDER BY ${classScopeExpr} SEPARATOR ','), ''),
         'school'
@@ -500,7 +526,7 @@ export async function getTeacherAccessibleExams(userId) {
      ${hasScopesTable ? "LEFT JOIN scopes sc_ref ON sc_ref.id = c.scope_id" : ""}
      LEFT JOIN academic_sessions ses ON ses.id = e.session_id
      WHERE t.user_id = ?
-     GROUP BY e.id, e.name, e.session_id, ses.name
+     GROUP BY e.id, e.name, e.session_id, ses.name, ${marksEntryScopeExpr}
      ORDER BY e.id DESC`,
     [userId]
   );

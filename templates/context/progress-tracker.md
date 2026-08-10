@@ -14,6 +14,11 @@ Update this file after every meaningful implementation change.
 
 ## Completed
 
+- Added exam-level marks entry access policy for mock-style exams: exams can now
+  use subject-teacher-only marks entry or class/section-teacher marks entry;
+  existing mock exams are migrated to class/section access, backend teacher
+  authorization honors the selected policy, and software/mobile exam setup plus
+  marks subject filtering are wired to the new policy.
 - Added bordered row surfaces and a bordered shadowed tooltip shell to the
   software class routine hover list so packed routine entries no longer appear
   as loose labels.

@@ -202,6 +202,11 @@ const finalCalculationTypeLabels = {
   single_marksheet_only: "Single marksheet only",
 };
 
+const marksEntryScopeLabels = {
+  subject_assignment: "Subject teacher only",
+  class_section_assignment: "Any class/section teacher",
+};
+
 const FIELD_CLASSNAME =
   "w-full rounded-xl border border-input bg-background px-3 py-2 text-sm text-foreground shadow-xs outline-none transition-colors focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] dark:bg-input/30";
 
@@ -268,6 +273,7 @@ export default function Exams() {
   const [form, setForm] = useState({
     name: "",
     final_calculation_type: "display_only",
+    marks_entry_scope: "subject_assignment",
     scopes: [{ class_id: "", section_id: "" }],
     subjects: []
   });
@@ -423,6 +429,7 @@ export default function Exams() {
     setForm({
       name: "",
       final_calculation_type: "display_only",
+      marks_entry_scope: "subject_assignment",
       scopes: [{ class_id: "", section_id: "" }],
       subjects: []
     });
@@ -823,6 +830,7 @@ export default function Exams() {
     const payload = {
       name: cleanName,
       final_calculation_type: form.final_calculation_type || "display_only",
+      marks_entry_scope: form.marks_entry_scope || "subject_assignment",
       scopes: cleanScopes,
       subjects: cleanSubjects
     };
@@ -859,6 +867,7 @@ export default function Exams() {
       setForm({
         name: exam.name || "",
         final_calculation_type: exam.final_calculation_type || "display_only",
+        marks_entry_scope: exam.marks_entry_scope || "subject_assignment",
         scopes:
           (exam.scopes || []).map((scope) => ({
             class_id: String(scope.class_id),
@@ -927,6 +936,12 @@ export default function Exams() {
                 className="rounded-full border-cyan-200 bg-cyan-50 text-cyan-700 dark:border-cyan-500/30 dark:bg-cyan-500/15 dark:text-cyan-200"
               >
                 {finalCalculationTypeLabels[exam.final_calculation_type] || "Display only"}
+              </Badge>
+              <Badge
+                variant="outline"
+                className="rounded-full border-violet-200 bg-violet-50 text-violet-700 dark:border-violet-500/30 dark:bg-violet-500/15 dark:text-violet-200"
+              >
+                {marksEntryScopeLabels[exam.marks_entry_scope] || marksEntryScopeLabels.subject_assignment}
               </Badge>
               {exam.classScopes.map((scope) => (
                 <Badge key={scope} variant="outline" className={`rounded-full ${scopeBadgeClass(scope)}`}>
@@ -1066,6 +1081,10 @@ export default function Exams() {
                               setForm((prev) => ({
                                 ...prev,
                                 final_calculation_type: e.target.value,
+                                marks_entry_scope:
+                                  e.target.value === "mock" && prev.marks_entry_scope === "subject_assignment"
+                                    ? "class_section_assignment"
+                                    : prev.marks_entry_scope,
                               }))
                             }
                           >
@@ -1075,6 +1094,29 @@ export default function Exams() {
                               </option>
                             ))}
                           </select>
+                        </div>
+
+                        <div className="grid gap-2">
+                          <Label>Marks Entry Access</Label>
+                          <select
+                            className={FIELD_CLASSNAME}
+                            value={form.marks_entry_scope}
+                            onChange={(e) =>
+                              setForm((prev) => ({
+                                ...prev,
+                                marks_entry_scope: e.target.value,
+                              }))
+                            }
+                          >
+                            {Object.entries(marksEntryScopeLabels).map(([value, label]) => (
+                              <option key={value} value={value}>
+                                {label}
+                              </option>
+                            ))}
+                          </select>
+                          <p className="text-xs text-muted-foreground">
+                            Use class/section access for mock tests where any assigned class teacher can enter all configured subjects.
+                          </p>
                         </div>
 
                         <div className="space-y-3">

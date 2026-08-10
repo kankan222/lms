@@ -90,6 +90,7 @@ export type AccessibleExamItem = {
   session_id?: number | null;
   session_name?: string | null;
   exam_date?: string | null;
+  marks_entry_scope?: "subject_assignment" | "class_section_assignment" | string | null;
 };
 
 export type AccessibleExamSubject = {

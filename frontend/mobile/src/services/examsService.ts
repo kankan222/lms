@@ -15,6 +15,7 @@ export type ExamItem = {
   name: string;
   session_id?: number;
   session_name?: string;
+  marks_entry_scope?: "subject_assignment" | "class_section_assignment" | string;
 };
 
 export type ExamListFilters = {
@@ -85,6 +86,7 @@ export async function createExam(payload: {
   scopes: Array<{ class_id: number; section_id: number }>;
   subjects: Array<{ subject_id: number; max_marks: number }>;
   session_id?: number;
+  marks_entry_scope?: "subject_assignment" | "class_section_assignment" | string;
 }) {
   const response = await api.post("/exams", payload);
   return response.data;
@@ -97,6 +99,7 @@ export async function updateExam(
     scopes: Array<{ class_id: number; section_id: number }>;
     subjects: Array<{ subject_id: number; max_marks: number }>;
     session_id?: number;
+    marks_entry_scope?: "subject_assignment" | "class_section_assignment" | string;
   }
 ) {
   const response = await api.put(`/exams/${id}`, payload);

@@ -31,6 +31,20 @@ function normalizeFinalCalculationType(value) {
   throw new AppError("Invalid final marksheet calculation type", 400);
 }
 
+const MARKS_ENTRY_SCOPES = new Set(["subject_assignment", "class_section_assignment"]);
+
+function defaultMarksEntryScopeForFinalType(finalCalculationType) {
+  return String(finalCalculationType || "").trim().toLowerCase() === "mock"
+    ? "class_section_assignment"
+    : "subject_assignment";
+}
+
+function normalizeMarksEntryScope(value, finalCalculationType = "display_only") {
+  const normalized = String(value || defaultMarksEntryScopeForFinalType(finalCalculationType)).trim().toLowerCase();
+  if (MARKS_ENTRY_SCOPES.has(normalized)) return normalized;
+  throw new AppError("Invalid marks entry access scope", 400);
+}
+
 function normalizeSubjectComponents(components) {
   if (!Array.isArray(components)) return [];
 
@@ -408,12 +422,14 @@ export async function createExam(data, userId) {
     if (!sessionId) sessionId = await repo.getActiveSessionId(conn);
     if (!sessionId) throw new AppError("No active session found", 400);
 
+    const finalCalculationType = normalizeFinalCalculationType(data.final_calculation_type ?? data.finalCalculationType);
     const examId = await repo.createExam(conn, {
       name: data.name.trim(),
       session_id: sessionId,
       class_id: scopes[0].class_id,
       section_id: scopes[0].section_id,
-      final_calculation_type: normalizeFinalCalculationType(data.final_calculation_type ?? data.finalCalculationType),
+      final_calculation_type: finalCalculationType,
+      marks_entry_scope: normalizeMarksEntryScope(data.marks_entry_scope ?? data.marksEntryScope, finalCalculationType),
       created_by: userId
     });
 
@@ -446,14 +462,17 @@ export async function listExams(filters, userId) {
 
       return {
         ...exam,
-        subjects: isTeacher ? filterSubjectsByTeacherScopes(subjects, scopes) : subjects,
+        subjects: isTeacher ? filterSubjectsByTeacherScopes(subjects, scopes, exam.marks_entry_scope) : subjects,
         scopes,
       };
     })
   );
 }
 
-function filterSubjectsByTeacherScopes(subjects, scopes) {
+function filterSubjectsByTeacherScopes(subjects, scopes, marksEntryScope = "subject_assignment") {
+  if (String(marksEntryScope || "").trim().toLowerCase() === "class_section_assignment") {
+    return subjects || [];
+  }
   const allowedSubjectIds = new Set(
     (scopes || []).map((scope) => String(scope.subject_id || "")).filter(Boolean)
   );
@@ -476,7 +495,7 @@ export async function getExamById(id, userId) {
 
   const { isTeacher } = await getUserFlags(userId);
   const scopes = isTeacher ? await repo.getAllowedTeacherScopes(userId, examId) : allScopes;
-  const scopedSubjects = isTeacher ? filterSubjectsByTeacherScopes(subjects, scopes) : subjects;
+  const scopedSubjects = isTeacher ? filterSubjectsByTeacherScopes(subjects, scopes, exam.marks_entry_scope) : subjects;
 
   return { ...exam, subjects: scopedSubjects, scopes, student_subjects: studentSubjects };
 }
@@ -507,13 +526,18 @@ export async function updateExam(id, data) {
   const conn = await pool.getConnection();
   try {
     await conn.beginTransaction();
+    const finalCalculationType = normalizeFinalCalculationType(
+      data.final_calculation_type ?? data.finalCalculationType ?? existing.final_calculation_type
+    );
     await repo.updateExam(conn, examId, {
       name: (data.name || existing.name).trim(),
       session_id: Number(data.session_id || existing.session_id),
       class_id: scopes[0].class_id,
       section_id: scopes[0].section_id,
-      final_calculation_type: normalizeFinalCalculationType(
-        data.final_calculation_type ?? data.finalCalculationType ?? existing.final_calculation_type
+      final_calculation_type: finalCalculationType,
+      marks_entry_scope: normalizeMarksEntryScope(
+        data.marks_entry_scope ?? data.marksEntryScope ?? existing.marks_entry_scope,
+        finalCalculationType
       )
     });
     await repo.replaceExamScopes(conn, examId, scopes);

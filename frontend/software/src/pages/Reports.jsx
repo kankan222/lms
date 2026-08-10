@@ -536,6 +536,11 @@ export default function Reports() {
       return classMatches && sectionMatches;
     });
   }, [subjectOfferings, filters.class_id, filters.section_id]);
+  const selectedExam = useMemo(
+    () => exams.find((item) => String(item.id) === String(filters.exam_id)) || null,
+    [exams, filters.exam_id]
+  );
+  const usesClassSectionMarksEntry = String(selectedExam?.marks_entry_scope || "subject_assignment") === "class_section_assignment";
   const filteredSubjects = useMemo(() => {
     const examSubjectRows = examSubjects.length ? examSubjects : [];
     const examSubjectIds = new Set(examSubjectRows.map((item) => String(item.subject_id)));
@@ -558,7 +563,7 @@ export default function Reports() {
     return subjects.filter((subject) => {
       const subjectId = String(subject.id);
       if (examSubjectRows.length && !examSubjectIds.has(subjectId)) return false;
-      if (hasTeacherSubjectScope && !teacherScopeSubjectIds.has(subjectId)) return false;
+      if (!usesClassSectionMarksEntry && hasTeacherSubjectScope && !teacherScopeSubjectIds.has(subjectId)) return false;
       if (!hasScopedOfferings) return true;
 
       return examSubjectRows.some((examSubject) => {
@@ -567,11 +572,7 @@ export default function Reports() {
         return offeringId ? scopedOfferingIds.has(offeringId) : scopedSubjectIds.has(subjectId);
       });
     });
-  }, [examScopes, examSubjects, filters.class_id, filters.section_id, scopedSubjectOfferings, subjects]);
-  const selectedExam = useMemo(
-    () => exams.find((item) => String(item.id) === String(filters.exam_id)) || null,
-    [exams, filters.exam_id]
-  );
+  }, [examScopes, examSubjects, filters.class_id, filters.section_id, scopedSubjectOfferings, subjects, usesClassSectionMarksEntry]);
   const selectedSection = useMemo(
     () => availableSections.find((item) => String(item.id) === String(filters.section_id)) || null,
     [availableSections, filters.section_id]

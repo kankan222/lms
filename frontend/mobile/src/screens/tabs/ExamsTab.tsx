@@ -69,6 +69,7 @@ const DEFAULT_THEME = {
 type FormState = {
   name: string;
   session_id: string;
+  marks_entry_scope: "subject_assignment" | "class_section_assignment";
   scopes: ScopeRow[];
   subjects: SubjectRow[];
 };
@@ -76,9 +77,15 @@ type FormState = {
 const EMPTY_FORM: FormState = {
   name: "",
   session_id: "",
+  marks_entry_scope: "subject_assignment",
   scopes: [{ class_id: "", section_id: "" }],
   subjects: [],
 };
+
+const MARKS_ENTRY_SCOPE_OPTIONS: Array<{ label: string; value: FormState["marks_entry_scope"]; description: string }> = [
+  { label: "Subject Teacher", value: "subject_assignment", description: "Only assigned subject teachers can enter marks." },
+  { label: "Class / Section", value: "class_section_assignment", description: "Any teacher assigned to the class and section can enter marks." },
+];
 
 function toWholeNumber(value: string) {
   const digitsOnly = String(value || "").replace(/[^\d]/g, "");
@@ -341,6 +348,7 @@ export default function ExamsTab() {
       scopes: cleanScopes,
       subjects: cleanSubjects,
       session_id: form.session_id ? Number(form.session_id) : undefined,
+      marks_entry_scope: form.marks_entry_scope,
     };
 
     setSaving(true);
@@ -371,6 +379,7 @@ export default function ExamsTab() {
       setForm({
         name: exam.name || "",
         session_id: exam.session_id ? String(exam.session_id) : "",
+        marks_entry_scope: exam.marks_entry_scope === "class_section_assignment" ? "class_section_assignment" : "subject_assignment",
         scopes:
           (exam.scopes || []).map((s) => ({
             class_id: String(s.class_id),
@@ -647,6 +656,27 @@ export default function ExamsTab() {
                     </Text>
                   </Pressable>
                 ))}
+              </View>
+
+              <Text style={[styles.inputLabel, styles.spaceTop, { color: theme.subText }]}>Marks Entry Access</Text>
+              <View style={styles.subjectWrap}>
+                {MARKS_ENTRY_SCOPE_OPTIONS.map((option) => {
+                  const selected = form.marks_entry_scope === option.value;
+                  return (
+                    <Pressable
+                      key={option.value}
+                      style={[
+                        styles.accessChip,
+                        { borderColor: theme.border, backgroundColor: theme.card },
+                        selected && { borderColor: theme.primary, backgroundColor: theme.primary },
+                      ]}
+                      onPress={() => setForm((prev) => ({ ...prev, marks_entry_scope: option.value }))}
+                    >
+                      <Text style={[styles.chipText, { color: theme.text }, selected && { color: theme.primaryText }]}>{option.label}</Text>
+                      <Text style={[styles.accessChipDescription, { color: selected ? theme.primaryText : theme.subText }]}>{option.description}</Text>
+                    </Pressable>
+                  );
+                })}
               </View>
 
               <View style={[styles.sectionHeader, styles.spaceTop]}>
@@ -1256,6 +1286,21 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 8,
     backgroundColor: "#fff",
+  },
+  accessChip: {
+    width: "100%",
+    borderWidth: 1,
+    borderColor: "#cbd5e1",
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    backgroundColor: "#fff",
+    gap: 4,
+  },
+  accessChipDescription: {
+    fontSize: 11,
+    lineHeight: 15,
+    fontWeight: "500",
   },
   subjectChipActive: {
     borderColor: "#0f172a",

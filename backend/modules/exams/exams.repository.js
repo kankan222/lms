@@ -8,6 +8,7 @@ let studentExamSubjectsTableCache;
 let subjectRegistrationTablesCache;
 let examSubjectComponentsTableCache;
 let examFinalCalculationTypeCache;
+let examMarksEntryScopeCache;
 let studentParentGuardianColumnsCache;
 
 async function supportsScopesTable() {
@@ -218,6 +219,25 @@ export async function supportsExamFinalCalculationTypeColumn() {
   return examFinalCalculationTypeCache;
 }
 
+export async function supportsExamMarksEntryScopeColumn() {
+  if (typeof examMarksEntryScopeCache === "boolean") {
+    return examMarksEntryScopeCache;
+  }
+
+  const rows = await query(
+    `
+      SELECT COUNT(*) AS total
+      FROM information_schema.COLUMNS
+      WHERE TABLE_SCHEMA = DATABASE()
+        AND TABLE_NAME = 'exams'
+        AND COLUMN_NAME = 'marks_entry_scope'
+    `
+  );
+
+  examMarksEntryScopeCache = Number(rows[0]?.total || 0) > 0;
+  return examMarksEntryScopeCache;
+}
+
 async function supportsStudentParentGuardianColumns() {
   if (typeof studentParentGuardianColumnsCache === "boolean") {
     return studentParentGuardianColumnsCache;
@@ -284,16 +304,18 @@ export async function getActiveSessionId(conn) {
 
 export async function createExam(conn, data) {
   const hasFinalType = await supportsExamFinalCalculationTypeColumn();
+  const hasMarksEntryScope = await supportsExamMarksEntryScopeColumn();
   const [result] = await conn.execute(
     `INSERT INTO exams
-       (name, session_id, class_id, section_id, ${hasFinalType ? "final_calculation_type," : ""} created_by)
-     VALUES (?, ?, ?, ?, ${hasFinalType ? "?," : ""} ?)`,
+       (name, session_id, class_id, section_id, ${hasFinalType ? "final_calculation_type," : ""} ${hasMarksEntryScope ? "marks_entry_scope," : ""} created_by)
+     VALUES (?, ?, ?, ?, ${hasFinalType ? "?," : ""} ${hasMarksEntryScope ? "?," : ""} ?)`,
     [
       data.name,
       data.session_id,
       data.class_id ?? null,
       data.section_id ?? null,
       ...(hasFinalType ? [data.final_calculation_type || "display_only"] : []),
+      ...(hasMarksEntryScope ? [data.marks_entry_scope || "subject_assignment"] : []),
       data.created_by,
     ]
   );
@@ -302,10 +324,12 @@ export async function createExam(conn, data) {
 
 export async function updateExam(conn, id, data) {
   const hasFinalType = await supportsExamFinalCalculationTypeColumn();
+  const hasMarksEntryScope = await supportsExamMarksEntryScopeColumn();
   await conn.execute(
     `UPDATE exams
      SET name = ?, session_id = ?, class_id = ?, section_id = ?
          ${hasFinalType ? ", final_calculation_type = ?" : ""}
+         ${hasMarksEntryScope ? ", marks_entry_scope = ?" : ""}
      WHERE id = ?`,
     [
       data.name,
@@ -313,6 +337,7 @@ export async function updateExam(conn, id, data) {
       data.class_id ?? null,
       data.section_id ?? null,
       ...(hasFinalType ? [data.final_calculation_type || "display_only"] : []),
+      ...(hasMarksEntryScope ? [data.marks_entry_scope || "subject_assignment"] : []),
       id,
     ]
   );
@@ -361,8 +386,10 @@ export async function getExamScopes(examId) {
 export async function getExamById(id) {
   const hasScopesTable = await supportsScopesTable();
   const hasFinalType = await supportsExamFinalCalculationTypeColumn();
+  const hasMarksEntryScope = await supportsExamMarksEntryScopeColumn();
   const classScopeExpr = buildClassScopeExpression(hasScopesTable);
   const finalTypeExpr = hasFinalType ? "e.final_calculation_type" : "'display_only'";
+  const marksEntryScopeExpr = hasMarksEntryScope ? "e.marks_entry_scope" : "'subject_assignment'";
 
   const rows = await query(
     `SELECT
@@ -372,6 +399,7 @@ export async function getExamById(id) {
       e.class_id,
       e.section_id,
       ${finalTypeExpr} AS final_calculation_type,
+      ${marksEntryScopeExpr} AS marks_entry_scope,
       e.created_by,
       ses.name AS session_name,
       ${classScopeExpr} AS class_scope
@@ -389,8 +417,10 @@ export async function getExamById(id) {
 export async function listExams(filters, userId, isTeacher) {
   const hasScopesTable = await supportsScopesTable();
   const hasFinalType = await supportsExamFinalCalculationTypeColumn();
+  const hasMarksEntryScope = await supportsExamMarksEntryScopeColumn();
   const classScopeExpr = buildClassScopeExpression(hasScopesTable);
   const finalTypeExpr = hasFinalType ? "e.final_calculation_type" : "'display_only'";
+  const marksEntryScopeExpr = hasMarksEntryScope ? "e.marks_entry_scope" : "'subject_assignment'";
   const where = [];
   const params = [];
   let join = `
@@ -437,6 +467,7 @@ export async function listExams(filters, userId, isTeacher) {
       e.name,
       e.session_id,
       ${finalTypeExpr} AS final_calculation_type,
+      ${marksEntryScopeExpr} AS marks_entry_scope,
       ses.name AS session_name,
       COALESCE(
         NULLIF(GROUP_CONCAT(DISTINCT ${classScopeExpr} ORDER BY ${classScopeExpr} SEPARATOR ','), ''),
@@ -446,7 +477,7 @@ export async function listExams(filters, userId, isTeacher) {
      ${join}
      LEFT JOIN academic_sessions ses ON ses.id = e.session_id
      ${whereSql}
-     GROUP BY e.id, e.name, e.session_id, ${finalTypeExpr}, ses.name
+     GROUP BY e.id, e.name, e.session_id, ${finalTypeExpr}, ${marksEntryScopeExpr}, ses.name
      ORDER BY e.id DESC`,
     params
   );

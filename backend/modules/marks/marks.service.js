@@ -207,6 +207,20 @@ async function ensureTeacherScopeAccess(userId, examId, classId, sectionId, subj
   }
 }
 
+function isClassSectionMarksEntryScope(exam) {
+  return String(exam?.marks_entry_scope || "subject_assignment").trim().toLowerCase() === "class_section_assignment";
+}
+
+async function ensureTeacherMarksEntryAccess(userId, exam, classId, sectionId, subjectId) {
+  await ensureTeacherScopeAccess(
+    userId,
+    Number(exam.id),
+    classId,
+    sectionId,
+    isClassSectionMarksEntryScope(exam) ? null : subjectId
+  );
+}
+
 async function formatReport(rows, publication = null) {
   const total = rows.reduce((sum, row) => sum + Number(row.marks || 0), 0);
   const maxTotal = rows.reduce((sum, row) => sum + Number(row.max_marks || 0), 0);
@@ -637,7 +651,7 @@ async function getValidatedScope(payload, userId, { teacherOnly = false } = {}) 
   }
 
   if (userCtx.isTeacher) {
-    await ensureTeacherScopeAccess(userId, examId, classId, sectionId, subjectId);
+    await ensureTeacherMarksEntryAccess(userId, exam, classId, sectionId, subjectId);
   }
 
   return { examId, classId, sectionId, subjectId, medium, exam, examSubject, userCtx };
@@ -830,7 +844,10 @@ export async function getAccessibleExams(userId, query = {}) {
   return repo.getOwnedStudentAccessibleExams([]);
 }
 
-function filterSubjectsByTeacherScopes(subjects, scopes) {
+function filterSubjectsByTeacherScopes(subjects, scopes, marksEntryScope = "subject_assignment") {
+  if (String(marksEntryScope || "").trim().toLowerCase() === "class_section_assignment") {
+    return subjects || [];
+  }
   const allowedSubjectIds = new Set(
     (scopes || []).map((scope) => String(scope.subject_id || "")).filter(Boolean)
   );
@@ -874,7 +891,7 @@ export async function getAccessibleExamById(examIdValue, userId) {
   ]);
   return {
     ...exam,
-    subjects: userCtx.isTeacher ? filterSubjectsByTeacherScopes(subjects, scopes) : subjects,
+    subjects: userCtx.isTeacher ? filterSubjectsByTeacherScopes(subjects, scopes, exam.marks_entry_scope) : subjects,
     scopes,
   };
 }
