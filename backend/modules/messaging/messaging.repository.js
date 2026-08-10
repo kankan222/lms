@@ -6,6 +6,7 @@ let staffUserIdColumnPromise;
 let classClassScopeColumnPromise;
 let studentRollNumberColumnPromise;
 let studentParentRelationshipColumnPromise;
+let conversationReplyColumnsPromise;
 
 function hasTeacherClassScopeColumn() {
   if (!teacherClassScopeColumnPromise) {
@@ -105,6 +106,22 @@ async function hasStaffUserIdColumn() {
   return staffUserIdColumnPromise;
 }
 
+async function hasConversationReplyColumns() {
+  if (!conversationReplyColumnsPromise) {
+    conversationReplyColumnsPromise = query(
+      `
+        SELECT COUNT(*) AS count
+        FROM information_schema.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = 'conversations'
+          AND COLUMN_NAME IN ('allow_parent_reply', 'allow_teacher_reply')
+      `
+    ).then((rows) => Number(rows?.[0]?.count || 0) === 2);
+  }
+
+  return conversationReplyColumnsPromise;
+}
+
 export async function findMember(conversationId, userId) {
   const rows = await query(
     `SELECT 1
@@ -160,8 +177,17 @@ export async function getBroadcastConversation(name) {
 }
 
 export async function getConversationById(conversationId) {
+  const hasReplyColumns = await hasConversationReplyColumns();
   const rows = await query(
-    `SELECT id, type, name, class_id, section_id, created_by
+    `SELECT
+       id,
+       type,
+       name,
+       class_id,
+       section_id,
+       created_by,
+       ${hasReplyColumns ? "allow_parent_reply" : "0"} AS allow_parent_reply,
+       ${hasReplyColumns ? "allow_teacher_reply" : "0"} AS allow_teacher_reply
      FROM conversations
      WHERE id = ?
      LIMIT 1`,
@@ -183,19 +209,76 @@ export async function isSuperAdminUser(userId) {
   return rows.length > 0;
 }
 
-export async function createConversation(data) {
-  const result = await execute(
-    `INSERT INTO conversations
-     (type, name, class_id, section_id, created_by, created_at, last_message_at)
-     VALUES (?, ?, ?, ?, ?, NOW(), NOW())`,
-    [
-      data.type,
-      data.name ?? null,
-      data.class_id ?? null,
-      data.section_id ?? null,
-      data.created_by
-    ]
+export async function hasPrivilegedMessagingUser(userId) {
+  const rows = await query(
+    `SELECT 1
+     FROM user_roles ur
+     JOIN roles r ON r.id = ur.role_id
+     WHERE ur.user_id = ?
+       AND r.name IN ('super_admin', 'admin', 'staff', 'accounts')
+     LIMIT 1`,
+    [userId]
   );
+  return rows.length > 0;
+}
+
+export async function getAdminRecipientUser() {
+  const rows = await query(
+    `SELECT u.id AS user_id
+     FROM users u
+     JOIN user_roles ur ON ur.user_id = u.id
+     JOIN roles r ON r.id = ur.role_id
+     WHERE u.status = 'active'
+       AND r.name IN ('super_admin', 'admin')
+     ORDER BY CASE r.name WHEN 'super_admin' THEN 0 ELSE 1 END, u.id ASC
+     LIMIT 1`
+  );
+  return rows[0] || null;
+}
+
+export async function conversationHasPrivilegedMember(conversationId) {
+  const rows = await query(
+    `SELECT 1
+     FROM conversation_members cm
+     JOIN user_roles ur ON ur.user_id = cm.user_id
+     JOIN roles r ON r.id = ur.role_id
+     WHERE cm.conversation_id = ?
+       AND r.name IN ('super_admin', 'admin', 'staff', 'accounts')
+     LIMIT 1`,
+    [conversationId]
+  );
+  return rows.length > 0;
+}
+
+export async function createConversation(data) {
+  const hasReplyColumns = await hasConversationReplyColumns();
+  const result = hasReplyColumns
+    ? await execute(
+        `INSERT INTO conversations
+         (type, name, class_id, section_id, created_by, created_at, last_message_at, allow_parent_reply, allow_teacher_reply)
+         VALUES (?, ?, ?, ?, ?, NOW(), NOW(), ?, ?)`,
+        [
+          data.type,
+          data.name ?? null,
+          data.class_id ?? null,
+          data.section_id ?? null,
+          data.created_by,
+          data.allow_parent_reply ? 1 : 0,
+          data.allow_teacher_reply ? 1 : 0
+        ]
+      )
+    : await execute(
+        `INSERT INTO conversations
+         (type, name, class_id, section_id, created_by, created_at, last_message_at)
+         VALUES (?, ?, ?, ?, ?, NOW(), NOW())`,
+        [
+          data.type,
+          data.name ?? null,
+          data.class_id ?? null,
+          data.section_id ?? null,
+          data.created_by
+        ]
+      );
   return result.insertId;
 }
 
@@ -212,6 +295,19 @@ export async function addConversationMembers(conversationId, userIds) {
   for (const uid of userIds) {
     await addConversationMember(conversationId, uid);
   }
+}
+
+export async function removeTeacherMembersFromConversation(conversationId) {
+  await execute(
+    `DELETE cm
+     FROM conversation_members cm
+     JOIN conversations c ON c.id = cm.conversation_id
+     JOIN teachers t ON t.user_id = cm.user_id
+     WHERE cm.conversation_id = ?
+       AND c.type IN ('class', 'section', 'broadcast')
+       AND cm.user_id <> c.created_by`,
+    [conversationId]
+  );
 }
 
 export async function insertMessage(data) {
@@ -256,6 +352,24 @@ export async function updateConversationName(conversationId, name) {
      SET name = ?
      WHERE id = ?`,
     [name, conversationId]
+  );
+}
+
+export async function updateConversationSettings(conversationId, settings = {}) {
+  if (!(await hasConversationReplyColumns())) {
+    return;
+  }
+
+  await execute(
+    `UPDATE conversations
+     SET allow_parent_reply = ?,
+         allow_teacher_reply = ?
+     WHERE id = ?`,
+    [
+      settings.allow_parent_reply ? 1 : 0,
+      settings.allow_teacher_reply ? 1 : 0,
+      conversationId
+    ]
   );
 }
 
@@ -310,6 +424,7 @@ export async function getUserConversations(userId, filters = {}) {
   const limit = Math.min(100, Math.max(1, Number.isFinite(rawLimit) ? Math.trunc(rawLimit) : 25));
   const offset = (page - 1) * limit;
   const hasStaffUserId = await hasStaffUserIdColumn();
+  const hasReplyColumns = await hasConversationReplyColumns();
   const staffJoin = hasStaffUserId
     ? "LEFT JOIN staff st ON st.user_id = u.id"
     : "LEFT JOIN staff st ON 1 = 0";
@@ -366,6 +481,8 @@ export async function getUserConversations(userId, filters = {}) {
       END AS other_user_image_url,
       c.class_id,
       c.section_id,
+      ${hasReplyColumns ? "c.allow_parent_reply" : "0"} AS allow_parent_reply,
+      ${hasReplyColumns ? "c.allow_teacher_reply" : "0"} AS allow_teacher_reply,
       c.last_message_at,
       (
         SELECT CASE
@@ -581,16 +698,9 @@ export async function getClassRecipientUsers(classId) {
       JOIN student_parents sp ON sp.student_id = e.student_id
       JOIN parents p ON p.id = sp.parent_id
       WHERE e.class_id = ? AND e.status='active'
-
-      UNION
-
-      SELECT t.user_id AS recipient_user_id
-      FROM teacher_class_assignments tca
-      JOIN teachers t ON t.id = tca.teacher_id
-      WHERE tca.class_id = ?
     ) x
     WHERE recipient_user_id IS NOT NULL`,
-    [classId, classId]
+    [classId]
   );
 }
 
@@ -602,16 +712,9 @@ export async function getSectionRecipientUsers(sectionId) {
       JOIN student_parents sp ON sp.student_id = e.student_id
       JOIN parents p ON p.id = sp.parent_id
       WHERE e.section_id = ? AND e.status='active'
-
-      UNION
-
-      SELECT t.user_id AS recipient_user_id
-      FROM teacher_class_assignments tca
-      JOIN teachers t ON t.id = tca.teacher_id
-      WHERE tca.section_id = ?
     ) x
     WHERE recipient_user_id IS NOT NULL`,
-    [sectionId, sectionId]
+    [sectionId]
   );
 }
 
@@ -700,13 +803,6 @@ export async function getAllClassRecipientUsers() {
       JOIN parents p ON p.id = sp.parent_id
       WHERE e.status = 'active'
         AND e.class_id IS NOT NULL
-
-      UNION
-
-      SELECT t.user_id AS recipient_user_id
-      FROM teacher_class_assignments tca
-      JOIN teachers t ON t.id = tca.teacher_id
-      WHERE tca.class_id IS NOT NULL
     ) x
     WHERE recipient_user_id IS NOT NULL`
   );
@@ -721,13 +817,6 @@ export async function getAllSectionRecipientUsers() {
       JOIN parents p ON p.id = sp.parent_id
       WHERE e.status = 'active'
         AND e.section_id IS NOT NULL
-
-      UNION
-
-      SELECT t.user_id AS recipient_user_id
-      FROM teacher_class_assignments tca
-      JOIN teachers t ON t.id = tca.teacher_id
-      WHERE tca.section_id IS NOT NULL
     ) x
     WHERE recipient_user_id IS NOT NULL`
   );
@@ -789,26 +878,8 @@ export async function getTeacherVisibleConversationIds({ teacherId, classScope =
        FROM conversations c
        WHERE c.type = 'broadcast'
          AND c.name IN (${placeholders})
-
-       UNION
-
-       SELECT c.id AS conversation_id
-       FROM conversations c
-       JOIN teacher_class_assignments tca
-         ON tca.teacher_id = ?
-        AND c.type = 'class'
-        AND c.class_id = tca.class_id
-
-       UNION
-
-       SELECT c.id AS conversation_id
-       FROM conversations c
-       JOIN teacher_class_assignments tca
-         ON tca.teacher_id = ?
-        AND c.type = 'section'
-        AND c.section_id = tca.section_id
      ) visible`,
-    [teacherId, ...broadcastNames, teacherId, teacherId]
+    [teacherId, ...broadcastNames]
   );
 
   return rows.map((row) => Number(row.conversation_id)).filter(Boolean);

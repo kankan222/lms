@@ -3,6 +3,7 @@ import ChatList from "../components/Chats/ChatList";
 import ChatWindow from "../components/Chats/ChatWindow";
 import TopBar from "../components/TopBar";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -35,6 +36,7 @@ import {
   sendTyping,
   suspendMessagingUser,
   unsuspendMessagingUser,
+  updateConversation,
   updateModerationReport,
   uploadMessageAttachments,
 } from "../api/messaging.api";
@@ -79,7 +81,7 @@ export default function Messaging() {
   const { can, hasRole } = usePermissions();
   const isSuperAdmin = hasRole("super_admin");
   const isParentOrTeacher = !isSuperAdmin && (hasRole("parent") || hasRole("teacher"));
-  const canSendMessages = !isParentOrTeacher && (isSuperAdmin || can("messages.send"));
+  const canStartMessages = !isParentOrTeacher && (isSuperAdmin || can("messages.send"));
   const [conversations, setConversations] = useState([]);
   const [activeChatId, setActiveChatId] = useState(null);
   const [messages, setMessages] = useState([]);
@@ -118,6 +120,10 @@ export default function Messaging() {
   const [moderationReports, setModerationReports] = useState([]);
   const [moderationAudit, setModerationAudit] = useState([]);
   const [conversationMembers, setConversationMembers] = useState([]);
+  const [conversationSettings, setConversationSettings] = useState({
+    allow_parent_reply: false,
+    allow_teacher_reply: false
+  });
   const isRecipientTarget = ["direct", "parent", "teacher"].includes(compose.target_type);
   const broadcastTargetOptions = useMemo(() => {
     if ((targets.broadcast_targets || []).length > 0) {
@@ -159,6 +165,15 @@ export default function Messaging() {
         }
       : null
   );
+  const canReplyMessages = canStartMessages || (
+    isParentOrTeacher &&
+    activeChat &&
+    (
+      activeChat.type === "direct" ||
+      (hasRole("parent") && Number(activeChat.allow_parent_reply) === 1) ||
+      (hasRole("teacher") && Number(activeChat.allow_teacher_reply) === 1)
+    )
+  ) || (!activeChatId && pendingConversationTarget?.target_type === "admin");
 
   const currentUser = useMemo(() => {
     try {
@@ -433,7 +448,7 @@ export default function Messaging() {
 
   const loadInitialMessaging = useEffectEvent(() => {
     fetchConversations();
-    if (canSendMessages) {
+    if (canStartMessages) {
       fetchTargets();
     }
   });
@@ -481,7 +496,7 @@ export default function Messaging() {
   });
 
   async function handleSendMessage(payload) {
-    if (!canSendMessages) return;
+    if (!canReplyMessages) return;
     if (!activeChatId && !pendingConversationTarget) return;
     let attachmentIds = [];
     if (payload.files?.length) {
@@ -507,7 +522,7 @@ export default function Messaging() {
   }
 
   async function handleEditMessage(message) {
-    if (!canSendMessages) return;
+    if (!canStartMessages) return;
     const next = window.prompt("Edit message", message.message || "");
     if (next === null || !next.trim()) return;
     await editMessage(message.id, next.trim());
@@ -542,7 +557,7 @@ export default function Messaging() {
   }
 
   async function handleForwardMessage(message) {
-    if (!canSendMessages) return;
+    if (!canStartMessages) return;
     const options = conversations
       .filter((item) => Number(item.id) !== Number(message.conversation_id))
       .map((item) => `${item.id}: ${item.name}`)
@@ -568,9 +583,16 @@ export default function Messaging() {
   }
 
   function handleTyping(isTyping) {
-    if (!canSendMessages) return;
+    if (!canReplyMessages) return;
     if (!activeChatId || activeChat?.type !== "direct") return;
     sendTyping(activeChatId, isTyping).catch(() => {});
+  }
+
+  function handleMessageAdmin() {
+    setPendingConversationTarget({ target_type: "admin" });
+    setPendingConversationLabel("Admin");
+    setActiveChatId(null);
+    setMessages([]);
   }
 
   async function loadModeration() {
@@ -584,6 +606,34 @@ export default function Messaging() {
     setModerationReports(reportsResponse?.data || []);
     setModerationAudit(auditResponse?.data || []);
     setConversationMembers(membersResponse?.data || []);
+    if (activeChat) {
+      setConversationSettings({
+        allow_parent_reply: Number(activeChat.allow_parent_reply) === 1,
+        allow_teacher_reply: Number(activeChat.allow_teacher_reply) === 1
+      });
+    }
+  }
+
+  async function handleSaveConversationSettings() {
+    if (!activeChatId || !activeChat) return;
+    const response = await updateConversation(activeChatId, {
+      name: activeChat.name || activeChat.type,
+      allow_parent_reply: conversationSettings.allow_parent_reply,
+      allow_teacher_reply: conversationSettings.allow_teacher_reply
+    });
+    const updated = response?.data || {};
+    setConversations((prev) =>
+      prev.map((item) =>
+        Number(item.id) === Number(activeChatId)
+          ? {
+              ...item,
+              allow_parent_reply: Number(updated.allow_parent_reply) || 0,
+              allow_teacher_reply: Number(updated.allow_teacher_reply) || 0,
+            }
+          : item
+      )
+    );
+    window.alert("Conversation settings saved.");
   }
 
   async function handleResolveReport(reportId, status) {
@@ -1186,6 +1236,45 @@ export default function Messaging() {
                           </Button>
                         ) : null}
                       </div>
+                      {activeChat.type !== "direct" ? (
+                        <div className="space-y-3 rounded-lg border p-3">
+                          <div>
+                            <p className="text-sm font-medium">Reply Permissions</p>
+                            <p className="text-xs text-muted-foreground">
+                              Controls whether parents or teachers can reply in this selected group.
+                            </p>
+                          </div>
+                          <label className="flex items-center gap-2 text-sm">
+                            <Checkbox
+                              checked={conversationSettings.allow_parent_reply}
+                              disabled={activeChat.type === "broadcast"}
+                              onCheckedChange={(checked) =>
+                                setConversationSettings((prev) => ({
+                                  ...prev,
+                                  allow_parent_reply: Boolean(checked)
+                                }))
+                              }
+                            />
+                            Allow parent replies
+                          </label>
+                          <label className="flex items-center gap-2 text-sm">
+                            <Checkbox
+                              checked={conversationSettings.allow_teacher_reply}
+                              disabled={activeChat.type === "broadcast"}
+                              onCheckedChange={(checked) =>
+                                setConversationSettings((prev) => ({
+                                  ...prev,
+                                  allow_teacher_reply: Boolean(checked)
+                                }))
+                              }
+                            />
+                            Allow teacher replies
+                          </label>
+                          <Button size="sm" onClick={handleSaveConversationSettings}>
+                            Save Settings
+                          </Button>
+                        </div>
+                      ) : null}
                       <div className="max-h-48 space-y-2 overflow-y-auto">
                         {conversationMembers.map((member) => (
                           <div key={member.user_id} className="flex items-center justify-between rounded-lg border p-2 text-sm">
@@ -1231,7 +1320,8 @@ export default function Messaging() {
             setPendingConversationLabel("Conversation");
             setActiveChatId(conversationId);
           }}
-          onNewChat={isSuperAdmin ? () => setOpenCompose(true) : null}
+          onNewChat={isSuperAdmin ? () => setOpenCompose(true) : isParentOrTeacher ? handleMessageAdmin : null}
+          newChatLabel={isParentOrTeacher ? "Admin" : "New"}
           onDeleteChat={handleDeleteConversation}
         />
 
@@ -1249,7 +1339,7 @@ export default function Messaging() {
           onSearch={handleSearch}
           onTyping={handleTyping}
           canModerate={isSuperAdmin}
-          canSendMessages={canSendMessages}
+          canSendMessages={Boolean(canReplyMessages)}
           onRemoveAttachment={handleRemoveAttachment}
         />
       </div>

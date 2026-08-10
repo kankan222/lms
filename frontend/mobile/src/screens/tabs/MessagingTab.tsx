@@ -83,7 +83,7 @@ type Notice = { title: string; message: string; tone: "success" | "error" } | nu
 type Screen = "list" | "chat";
 type ConversationFilter = "all" | "unread" | "direct" | "parents" | "teachers" | "class" | "section" | "broadcast";
 type Compose = {
-  target_type: "direct" | "parent" | "teacher" | "class" | "section" | "broadcast" | "all_classes" | "all_sections" | "all_parents" | "all_teachers";
+  target_type: "direct" | "parent" | "teacher" | "class" | "section" | "broadcast" | "all_classes" | "all_sections" | "all_parents" | "all_teachers" | "admin";
   recipient_user_id: string;
   class_id: string;
   section_id: string;
@@ -412,7 +412,7 @@ export default function MessagingTab({
   const permissions = Array.isArray(user?.permissions) ? user.permissions : [];
   const isSuperAdmin = roles.includes("super_admin");
   const isParentOrTeacher = !isSuperAdmin && (roles.includes("parent") || roles.includes("teacher"));
-  const canSendMessages = !isParentOrTeacher && (isSuperAdmin || permissions.includes("messages.send"));
+  const canStartMessages = !isParentOrTeacher && (isSuperAdmin || permissions.includes("messages.send"));
 
   const [screen, setScreen] = useState<Screen>("list");
   const [conversations, setConversations] = useState<ConversationItem[]>([]);
@@ -467,6 +467,19 @@ export default function MessagingTab({
   const activeConversation = useMemo(
     () => conversations.find((item) => Number(item.id) === Number(activeConversationId)) ?? null,
     [conversations, activeConversationId],
+  );
+  const canReplyMessages = Boolean(
+    canStartMessages ||
+    (
+      isParentOrTeacher &&
+      activeConversation &&
+      (
+        activeConversation.type === "direct" ||
+        (roles.includes("parent") && Number(activeConversation.allow_parent_reply) === 1) ||
+        (roles.includes("teacher") && Number(activeConversation.allow_teacher_reply) === 1)
+      )
+    ) ||
+    (!activeConversationId && pendingConversationTarget?.target_type === "admin")
   );
   const recipientOptions = useMemo(() => {
     const grouped = new Map<
@@ -888,7 +901,7 @@ export default function MessagingTab({
   async function loadBootstrap() {
     await Promise.all([
       loadConversations(),
-      canSendMessages ? loadTargets() : Promise.resolve(),
+      canStartMessages ? loadTargets() : Promise.resolve(),
     ]);
   }
 
@@ -1050,7 +1063,7 @@ export default function MessagingTab({
     try {
       await Promise.all([
         loadConversations(true),
-        canSendMessages ? loadTargets() : Promise.resolve(),
+        canStartMessages ? loadTargets() : Promise.resolve(),
       ]);
       if (screen === "chat" && activeConversationId) {
         await loadMessagesForConversation(activeConversationId, true, { scrollToLatest: true, mode: "poll" });
@@ -1322,20 +1335,22 @@ export default function MessagingTab({
   function openMessageActions(message: MessageItem) {
     const mine = Number(message.sender_id) === Number(user?.id);
     const buttons = [
-      ...(canSendMessages
+      ...(canReplyMessages
         ? [
           { text: "Reply", onPress: () => setReplyTo(message) },
-          {
-            text: "Forward",
-            onPress: () => {
-              setForwardingMessage(message);
-              clearConversationSelection();
-              setScreen("list");
-            },
-          },
+          ...(canStartMessages
+            ? [{
+              text: "Forward",
+              onPress: () => {
+                setForwardingMessage(message);
+                clearConversationSelection();
+                setScreen("list");
+              },
+            }]
+            : []),
         ]
         : []),
-      ...(canSendMessages && mine && message.message
+      ...(canStartMessages && mine && message.message
         ? [{ text: "Edit", onPress: () => {
           setEditingMessageId(message.id);
           setReply(message.message || "");
@@ -1349,7 +1364,7 @@ export default function MessagingTab({
           if (activeConversationId) await loadMessagesForConversation(activeConversationId, true, { mode: "poll" });
         },
       },
-      ...(canSendMessages && (mine || isSuperAdmin)
+      ...(canStartMessages && (mine || isSuperAdmin)
         ? [{
           text: "Delete for everyone",
           style: "destructive" as const,
@@ -1374,8 +1389,8 @@ export default function MessagingTab({
   }
 
   async function sendReply() {
-    if (!canSendMessages) {
-      Alert.alert("View only", "Parents and teachers can only view super admin messages.");
+    if (!canReplyMessages) {
+      Alert.alert("View only", "Replies are not enabled for this conversation.");
       return;
     }
     const trimmed = reply.trim();
@@ -1888,7 +1903,7 @@ export default function MessagingTab({
                         <Pressable style={[styles.listIconBtn, { backgroundColor: theme.cardMuted, borderColor: theme.border }]} onPress={() => void onRefresh()}>
                           <Ionicons name="refresh-outline" size={19} color={theme.icon} />
                         </Pressable>
-                        {isSuperAdmin ? (
+                        {canStartMessages ? (
                           <Pressable
                             style={[
                               styles.newMessageBtn,
@@ -1901,6 +1916,26 @@ export default function MessagingTab({
                           >
                             <Ionicons name="chatbubble-ellipses-outline" size={16} color={theme.primaryText} />
                             <Text style={[styles.newMessageBtnText, { color: theme.primaryText }]}>New Message</Text>
+                          </Pressable>
+                        ) : isParentOrTeacher ? (
+                          <Pressable
+                            style={[
+                              styles.newMessageBtn,
+                              {
+                                backgroundColor: theme.primary,
+                                shadowColor: theme.primary,
+                              },
+                            ]}
+                            onPress={() => {
+                              setPendingConversationTarget({ target_type: "admin" });
+                              setPendingConversationLabel("Admin");
+                              setActiveConversationId(null);
+                              setMessages([]);
+                              setScreen("chat");
+                            }}
+                          >
+                            <Ionicons name="shield-checkmark-outline" size={16} color={theme.primaryText} />
+                            <Text style={[styles.newMessageBtnText, { color: theme.primaryText }]}>Admin</Text>
                           </Pressable>
                         ) : null}
                       </View>
@@ -2154,7 +2189,7 @@ export default function MessagingTab({
                     <Ionicons name="chatbox-outline" size={24} color={theme.icon} />
                       <Text style={[styles.emptyTitle, { color: theme.text }]}>No messages yet</Text>
                       <Text style={[styles.emptyText, { color: theme.subText }]}>
-                        {canSendMessages ? "Start the conversation with a reply below." : "Super admin messages will appear here."}
+                        {canReplyMessages ? "Start the conversation with a reply below." : "Replies are not enabled for this conversation."}
                       </Text>
                     </View>
                   )
@@ -2176,7 +2211,7 @@ export default function MessagingTab({
                   return (
                     <Pressable
                       style={[styles.messageRow, mine ? styles.mine : styles.other]}
-                      onLongPress={canSendMessages ? () => openMessageActions(message) : undefined}
+                      onLongPress={canReplyMessages ? () => openMessageActions(message) : undefined}
                     >
                       {!mine ? <Avatar label={message.sender_name || message.username} imageUrl={message.sender_image_url} /> : null}
                       <View style={[
@@ -2188,7 +2223,7 @@ export default function MessagingTab({
                       ]}>
                         <View style={[styles.bubbleTopRow, hasMediaAttachment ? styles.mediaBubbleInset : null]}>
                           {!mine ? <Text style={[styles.senderName, { color: bubbleMetaColor }]} numberOfLines={1}>{message.sender_name || message.username}</Text> : <View style={styles.senderNameSpacer} />}
-                          {canSendMessages ? (
+                          {canReplyMessages ? (
                             <Pressable style={styles.messageActionBtn} onPress={() => openMessageActions(message)}>
                               <Ionicons name="ellipsis-horizontal" size={16} color={bubbleIconColor} />
                             </Pressable>
@@ -2253,7 +2288,7 @@ export default function MessagingTab({
               },
             ]}
           >
-            {canSendMessages ? (
+            {canReplyMessages ? (
               <>
                 {replyTo || editingMessageId ? (
                   <View style={[styles.composerContext, { borderColor: theme.border, backgroundColor: theme.card }]}>

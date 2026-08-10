@@ -60,6 +60,13 @@ export function deleteConversation(conversationId) {
   });
 }
 
+export function updateConversation(conversationId, data) {
+  return apiRequest(`/messages/conversations/${conversationId}`, {
+    method: "PATCH",
+    body: JSON.stringify(data)
+  });
+}
+
 export function reportMessage(messageId, reason, details = "") {
   return apiRequest(`/messages/messages/${messageId}/report`, {
     method: "POST",

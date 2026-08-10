@@ -1046,7 +1046,7 @@ export async function publishClassRoutine(id, userId) {
   const result = await repo.publishClassRoutineVersion(targetRoutineId, userId);
   if (!result) throw new AppError("Class routine not found", 404);
   if (targetRoutineId !== routineId && routine.status === "draft") {
-    await repo.deleteClassRoutineDraft(routineId);
+    await repo.deleteClassRoutineVersion(routineId);
   }
   return result;
 }
@@ -1084,8 +1084,8 @@ function formatRoutineClock(value) {
 }
 
 export async function deleteClassRoutineDraft(id) {
-  const result = await repo.deleteClassRoutineDraft(intValue(id, "routine id"));
-  if (!result.affectedRows) throw new AppError("Only draft class routines can be deleted", 400);
+  const result = await repo.deleteClassRoutineVersion(intValue(id, "routine id"));
+  if (!result.affectedRows) throw new AppError("Only draft or published class routines can be deleted", 400);
   return { deleted: true };
 }
 

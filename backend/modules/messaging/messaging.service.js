@@ -70,6 +70,21 @@ function assertCanSendMessages(actor) {
   }
 }
 
+function assertCanManageMessages(actor) {
+  if (actor.roles.includes("super_admin")) return;
+  if (!isParentOrTeacher(actor) && hasPrivilegedMessagingRole(actor)) return;
+  throw new AppError("You are not allowed to manage messages", 403);
+}
+
+function actorCanReplyInConversation(actor, conversation) {
+  if (!requiresScopedConversationVisibility(actor)) return true;
+  if (conversation.type === "direct") return true;
+  if (conversation.type === "broadcast") return false;
+  if (actor.roles.includes("parent") && Number(conversation.allow_parent_reply) === 1) return true;
+  if (actor.roles.includes("teacher") && Number(conversation.allow_teacher_reply) === 1) return true;
+  return false;
+}
+
 export async function getScopedVisibleConversationIdSet(actorInput) {
   const actor = normalizeActor(actorInput);
   const ids = new Set();
@@ -157,6 +172,15 @@ async function getOrCreateBroadcastConversation(senderId, name) {
   return conversationId;
 }
 
+async function getOrCreateAdminConversation(senderId) {
+  const admin = await repo.getAdminRecipientUser();
+  if (!admin?.user_id) {
+    throw new AppError("No admin recipient is available", 404);
+  }
+
+  return getOrCreateDirectConversation(senderId, Number(admin.user_id));
+}
+
 function uniqueUserIds(rows) {
   return [...new Set((rows || []).map((row) => Number(row.user_id)).filter(Boolean))];
 }
@@ -184,7 +208,6 @@ export async function sendMessage(data, actorInput, options = {}) {
     throw new AppError("Sender is required", 400);
   }
 
-  assertCanSendMessages(actor);
   await repo.assertMessagingUserActive(senderUserId);
 
   const messageText = String(data?.message || "").trim();
@@ -203,18 +226,22 @@ export async function sendMessage(data, actorInput, options = {}) {
   let conversationId = data.conversation_id ? Number(data.conversation_id) : null;
 
   if (!conversationId) {
-    const allowInitiation = await canInitiateConversation(actor);
+    const targetType = data.target_type;
+    const isAdminTarget = targetType === "admin";
+    const allowInitiation = isAdminTarget
+      ? isParentOrTeacher(actor) || hasPrivilegedMessagingRole(actor)
+      : await canInitiateConversation(actor);
     if (!allowInitiation) {
       throw new AppError("Only super admin can start new conversations", 403);
     }
-
-    const targetType = data.target_type;
 
     if (!targetType) {
       throw new AppError("target_type is required for new conversation", 400);
     }
 
-    if (["direct", "parent", "teacher"].includes(targetType)) {
+    if (targetType === "admin") {
+      conversationId = await getOrCreateAdminConversation(senderUserId);
+    } else if (["direct", "parent", "teacher"].includes(targetType)) {
       const recipientUserId = Number(data.recipient_user_id);
       if (!recipientUserId) throw new AppError("recipient_user_id is required", 400);
       conversationId = await getOrCreateDirectConversation(senderUserId, recipientUserId);
@@ -235,6 +262,7 @@ export async function sendMessage(data, actorInput, options = {}) {
         conversationId,
         recipients.map((r) => r.user_id)
       );
+      await repo.removeTeacherMembersFromConversation(conversationId);
     } else if (targetType === "section") {
       const sectionId = Number(data.section_id);
       if (!sectionId) throw new AppError("section_id is required", 400);
@@ -252,6 +280,7 @@ export async function sendMessage(data, actorInput, options = {}) {
         conversationId,
         recipients.map((r) => r.user_id)
       );
+      await repo.removeTeacherMembersFromConversation(conversationId);
     } else if (targetType === "broadcast") {
       conversationId = await getOrCreateBroadcastConversation(
         senderUserId,
@@ -268,6 +297,7 @@ export async function sendMessage(data, actorInput, options = {}) {
 
       const recipients = await repo.getAllClassRecipientUsers();
       await repo.addConversationMembers(conversationId, uniqueUserIds(recipients));
+      await repo.removeTeacherMembersFromConversation(conversationId);
     } else if (targetType === "all_sections") {
       conversationId = await getOrCreateBroadcastConversation(
         senderUserId,
@@ -276,6 +306,7 @@ export async function sendMessage(data, actorInput, options = {}) {
 
       const recipients = await repo.getAllSectionRecipientUsers();
       await repo.addConversationMembers(conversationId, uniqueUserIds(recipients));
+      await repo.removeTeacherMembersFromConversation(conversationId);
     } else if (targetType === "all_parents") {
       conversationId = await getOrCreateBroadcastConversation(
         senderUserId,
@@ -315,14 +346,14 @@ export async function sendMessage(data, actorInput, options = {}) {
     throw new AppError("Conversation not found", 404);
   }
 
-  const allowInitiation = await canInitiateConversation(actor);
-  if (!allowInitiation) {
-    const adminOwned = await repo.isSuperAdminUser(conversation.created_by);
-    if (!adminOwned) {
-      throw new AppError("You can only reply to conversations started by super admin", 403);
-    }
-    if (conversation.type === "broadcast") {
-      throw new AppError("Broadcast conversations are announcement-only", 403);
+  if (!actorCanReplyInConversation(actor, conversation)) {
+    throw new AppError("Replies are not enabled for this conversation", 403);
+  }
+
+  if (requiresScopedConversationVisibility(actor) && conversation.type === "direct") {
+    const hasPrivilegedMember = await repo.conversationHasPrivilegedMember(conversationId);
+    if (!hasPrivilegedMember) {
+      throw new AppError("Parents and teachers can only message admin", 403);
     }
   }
 
@@ -567,7 +598,7 @@ export async function deleteConversationForMe(conversationId, actorInput) {
 
 export async function updateConversation(conversationId, body, actorInput) {
   const actor = normalizeActor(actorInput);
-  assertCanSendMessages(actor);
+  assertCanManageMessages(actor);
   await assertCanViewConversation(actor, conversationId);
 
   const conversation = await repo.getConversationById(conversationId);
@@ -586,15 +617,35 @@ export async function updateConversation(conversationId, body, actorInput) {
     throw new AppError("Conversation name must be 120 characters or less", 400);
   }
 
+  const allowParentReply = body?.allow_parent_reply === undefined
+    ? Number(conversation.allow_parent_reply) === 1
+    : body?.allow_parent_reply === true || body?.allow_parent_reply === 1 || body?.allow_parent_reply === "1";
+  const allowTeacherReply = body?.allow_teacher_reply === undefined
+    ? Number(conversation.allow_teacher_reply) === 1
+    : body?.allow_teacher_reply === true || body?.allow_teacher_reply === 1 || body?.allow_teacher_reply === "1";
+
   await repo.updateConversationName(conversationId, name);
+  await repo.updateConversationSettings(conversationId, {
+    allow_parent_reply: conversation.type === "broadcast" ? false : allowParentReply,
+    allow_teacher_reply: conversation.type === "broadcast" ? false : allowTeacherReply,
+  });
   await repo.createMessagingAudit({
     actorUserId: actor.userId,
     action: "conversation.updated",
     conversationId,
-    metadata: { name },
+    metadata: {
+      name,
+      allow_parent_reply: conversation.type === "broadcast" ? false : allowParentReply,
+      allow_teacher_reply: conversation.type === "broadcast" ? false : allowTeacherReply,
+    },
   });
 
-  return { ...conversation, name };
+  return {
+    ...conversation,
+    name,
+    allow_parent_reply: conversation.type === "broadcast" ? 0 : allowParentReply ? 1 : 0,
+    allow_teacher_reply: conversation.type === "broadcast" ? 0 : allowTeacherReply ? 1 : 0,
+  };
 }
 
 export async function unreadCounts(actorInput) {
@@ -730,12 +781,20 @@ export async function searchMessages(conversationId, search, actorInput, limit) 
 
 export async function publishTyping(conversationId, isTyping, actorInput) {
   const actor = normalizeActor(actorInput);
-  assertCanSendMessages(actor);
   const conversation = await repo.getConversationById(conversationId);
   if (!conversation || conversation.type !== "direct") {
     throw new AppError("Typing indicators are only available in direct conversations", 400);
   }
   await assertCanViewConversation(actor, conversationId);
+  if (!actorCanReplyInConversation(actor, conversation)) {
+    throw new AppError("Replies are not enabled for this conversation", 403);
+  }
+  if (requiresScopedConversationVisibility(actor)) {
+    const hasPrivilegedMember = await repo.conversationHasPrivilegedMember(conversationId);
+    if (!hasPrivilegedMember) {
+      throw new AppError("Parents and teachers can only message admin", 403);
+    }
+  }
   const members = await repo.getConversationMemberUserIds(conversationId);
   setConversationTyping(conversationId, actor.userId, Boolean(isTyping));
   publishMessagingEvent(

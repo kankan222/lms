@@ -26,7 +26,7 @@ router.get(
 );
 router.post(
   "/attachments",
-  requirePermission("messages.send"),
+  requirePermission("messages.view"),
   uploadMessageFiles,
   controller.uploadAttachments
 );
@@ -107,7 +107,7 @@ router.patch(
 );
 router.post(
   "/conversations/:conversationId/typing",
-  requirePermission("messages.send"),
+  requirePermission("messages.view"),
   controller.typing
 );
 router.get(
@@ -132,7 +132,7 @@ router.post(
 );
 router.post(
   "/",
-  requirePermission("messages.send"),
+  requirePermission("messages.view"),
   controller.sendMessage
 );
 router.post(

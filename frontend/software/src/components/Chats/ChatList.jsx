@@ -37,7 +37,8 @@ export default function ChatList({
   activeChatId,
   onSelect,
   onNewChat,
-  onDeleteChat
+  onDeleteChat,
+  newChatLabel = "New"
 }) {
   function statusMeta(conversation) {
     if (conversation?.type !== "direct") return null;
@@ -62,7 +63,7 @@ export default function ChatList({
             onClick={onNewChat}
             className="rounded-lg bg-primary px-3 py-1 text-sm text-primary-foreground transition-colors hover:bg-primary/90"
           >
-            New
+            {newChatLabel}
           </button>
         ) : null}
       </div>

@@ -818,8 +818,8 @@ export async function publishClassRoutineVersion(id, userId) {
   }
 }
 
-export function deleteClassRoutineDraft(id) {
-  return query("DELETE FROM class_routine_versions WHERE id = ? AND status = 'draft'", [id]);
+export function deleteClassRoutineVersion(id) {
+  return query("DELETE FROM class_routine_versions WHERE id = ? AND status IN ('draft', 'published')", [id]);
 }
 
 export function findClassRoutineTeacherConflicts(versionId) {

@@ -13,6 +13,7 @@ import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import type { RootStackParamList } from "../navigation/AppNavigator";
 import { useAuthStore } from "../store/authStore";
+import { useNotificationsStore } from "../store/notificationsStore";
 import { DashboardSummary, getDashboardSummary } from "../services/dashboardService";
 import { getUnreadMessageTotal } from "../services/messagingService";
 import { getMyNotifications } from "../services/notificationsService";
@@ -281,6 +282,8 @@ function resolveDefaultTab(roles: string[], permissions: string[], visibleTabs: 
 
 export default function AppShellScreen({ navigation, route }: Props) {
   const user = useAuthStore((state) => state.user);
+  const notificationUnread = useNotificationsStore((state) => state.unread);
+  const setNotificationUnread = useNotificationsStore((state) => state.setUnread);
   const insets = useSafeAreaInsets();
   const { theme, isDark, toggleTheme } = useAppTheme();
   const roles = Array.isArray(user?.roles) ? user.roles : [];
@@ -306,7 +309,6 @@ export default function AppShellScreen({ navigation, route }: Props) {
   const [parentConversationIntent, setParentConversationIntent] = useState<ParentConversationIntent | null>(null);
   const [messagingComposeTarget, setMessagingComposeTarget] = useState<MessagingComposeResult | null>(null);
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
-  const [notificationUnread, setNotificationUnread] = useState(0);
   const [messageUnread, setMessageUnread] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);

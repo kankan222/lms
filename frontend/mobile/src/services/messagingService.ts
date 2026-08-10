@@ -27,6 +27,8 @@ export type ConversationItem = {
   last_message_at: string | null;
   last_message: string | null;
   unread: number;
+  allow_parent_reply?: number | boolean | null;
+  allow_teacher_reply?: number | boolean | null;
   online?: boolean;
   last_seen_at?: string | null;
 };
@@ -156,7 +158,8 @@ export type SendMessagePayload = {
     | "all_classes"
     | "all_sections"
     | "all_parents"
-    | "all_teachers";
+    | "all_teachers"
+    | "admin";
   recipient_user_id?: number;
   class_id?: number;
   section_id?: number;

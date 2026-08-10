@@ -14,6 +14,39 @@ Update this file after every meaningful implementation change.
 
 ## Completed
 
+- Added bordered row surfaces and a bordered shadowed tooltip shell to the
+  software class routine hover list so packed routine entries no longer appear
+  as loose labels.
+- Fixed the software class routine slot editor layout by widening the dialog,
+  moving scroll behavior into the form body instead of the whole dialog, keeping
+  the footer actions in normal fixed dialog flow, and showing colored delete
+  icons on subject/custom rows so added rows can be removed or the lone row can
+  be cleared.
+- Added a mobile Announcements create flow for super admin/announcement
+  managers, including a New Announcement action, audience selection, custom or
+  registered DLT message mode, category/template selection, publish now/draft/
+  schedule options, notification visibility toggles, and backend create/publish
+  wiring.
+- Reworked the mobile Announcements create UI to match the Messaging compose
+  flow: audience cards first, then a second step for message and delivery with
+  a selected-audience summary and Change Audience action.
+- Enabled deleting selected class routines from the software Class Routine
+  section, with backend support for deleting draft or published class routine
+  versions and a destructive trash-icon action in the routine header.
+- Replaced native browser confirmations in the software Routines page with the
+  shared custom AlertDialog for time slot template, class routine, and exam
+  routine deletion.
+- Changed messaging class/section targets so teachers are no longer included
+  through class assignments; teacher message visibility now comes from direct
+  conversations and teacher/staff broadcast targets instead of assigned class
+  or section groups.
+- Added manually controlled messaging reply permissions for class/section
+  conversations, including backend conversation flags, software group settings,
+  and parent/teacher reply handling; parent and teacher users can now start a
+  controlled direct message to admin from mobile/software messaging.
+- Fixed the mobile notification unread badge so marking one or all
+  notifications as read updates the shared badge count immediately without
+  reopening the app.
 - Fixed a software Routine runtime error from the teacher split UI by using the
   existing `weekdays` constant instead of an undefined `WEEKDAYS` reference.
 - Added routine display titles for real subject rows so entries like Botany or

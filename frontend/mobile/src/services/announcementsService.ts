@@ -65,8 +65,15 @@ export type AnnouncementSmsTemplate = {
   header?: string | null;
   communication_type?: string | null;
   template_content?: string | null;
+  placeholder_schema_json?: string | null;
   status?: string | null;
   provider?: string | null;
+};
+
+export type AnnouncementCategory = {
+  id: number;
+  name: string;
+  slug?: string | null;
 };
 
 export type AnnouncementSmsJob = {
@@ -105,6 +112,16 @@ export async function getAnnouncement(id: number | string) {
 export async function publishAnnouncement(id: number | string) {
   const response = await api.post<ApiEnvelope<{ announcement?: MobileAnnouncement }>>(`/announcements/${id}/publish`, {});
   return response.data.data;
+}
+
+export async function createAnnouncement(payload: Record<string, unknown>) {
+  const response = await api.post<ApiEnvelope<MobileAnnouncement>>("/announcements", payload);
+  return response.data.data;
+}
+
+export async function getAnnouncementCategories() {
+  const response = await api.get<ApiEnvelope<AnnouncementCategory[]>>("/announcements/categories");
+  return response.data.data ?? [];
 }
 
 export async function getAnnouncementSmsTemplates(params: { status?: string; limit?: number } = {}) {

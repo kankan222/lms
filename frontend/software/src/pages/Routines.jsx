@@ -21,6 +21,16 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -50,6 +60,7 @@ import {
   createClassRoutine,
   createExamRoutine,
   createTimeSlotTemplate,
+  deleteClassRoutine,
   deleteExamRoutine,
   deleteTimeSlotTemplate,
   downloadClassRoutinePdf,
@@ -310,11 +321,14 @@ function RoutineEntryBlock({ entry, showTeachers = true }) {
 
 function RoutineSlotTooltipContent({ entries = [], showTeachers = true }) {
   return (
-    <div className="max-w-72 space-y-2 text-left">
+    <div className="max-w-80 space-y-2 text-left">
       {entries.map((entry, index) => {
         const subtitle = entrySubtitle(entry, showTeachers);
         return (
-          <div key={entry.id || entry.entry_id || `${entry.entry_type}-${entry.subject_id || entry.title || index}`} className="space-y-0.5">
+          <div
+            key={entry.id || entry.entry_id || `${entry.entry_type}-${entry.subject_id || entry.title || index}`}
+            className="rounded-md border border-border bg-background px-2.5 py-2 shadow-xs"
+          >
             <p className="text-xs font-semibold leading-tight">{entryTitle(entry)}</p>
             {subtitle ? <p className="text-[11px] leading-tight opacity-80">{subtitle}</p> : null}
             {entry.room ? <p className="text-[11px] leading-tight opacity-80">{entry.room}</p> : null}
@@ -345,7 +359,12 @@ function RoutineSlotBlock({ entries = [], fallbackEntry = null, showTeachers = t
   return (
     <Tooltip>
       <TooltipTrigger asChild>{entryBlock}</TooltipTrigger>
-      <TooltipContent side="top" align="start" className="bg-popover text-popover-foreground">
+      <TooltipContent
+        side="top"
+        align="start"
+        sideOffset={6}
+        className="border border-border bg-popover px-2 py-2 text-popover-foreground shadow-lg"
+      >
         <RoutineSlotTooltipContent entries={visibleEntries} showTeachers={showTeachers} />
       </TooltipContent>
     </Tooltip>
@@ -670,6 +689,7 @@ export default function Routines() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState(null);
+  const [deleteTarget, setDeleteTarget] = useState(null);
 
   const [templateOpen, setTemplateOpen] = useState(false);
   const [editingTemplateId, setEditingTemplateId] = useState(null);
@@ -1871,10 +1891,19 @@ export default function Routines() {
   }
 
   async function handleDeleteTemplate(template) {
-    if (!window.confirm(`Delete time slot template "${template.name}"? This is allowed only when no class routine is using it.`)) return;
+    setDeleteTarget({
+      type: "template",
+      id: template.id,
+      title: "Delete time slot template?",
+      description: `Delete "${template.name}"? This is allowed only when no class routine is using it.`,
+      actionLabel: "Delete Template",
+    });
+  }
+
+  async function confirmDeleteTemplate(templateId) {
     setError("");
     try {
-      await deleteTimeSlotTemplate(template.id);
+      await deleteTimeSlotTemplate(templateId);
       showNotice("Time slot template deleted.");
       await loadRoutineData();
     } catch (err) {
@@ -1942,6 +1971,31 @@ export default function Routines() {
     }
   }
 
+  async function handleDeleteClassRoutine() {
+    if (!selectedClassRoutine?.id) return;
+    const label = selectedClassRoutineHeader || classRoutineHeaderLabel || "selected class routine";
+    setDeleteTarget({
+      type: "class",
+      id: selectedClassRoutine.id,
+      title: "Delete class routine?",
+      description: `Delete this ${selectedClassRoutine.status || "selected"} class routine "${label}"?`,
+      actionLabel: "Delete Routine",
+    });
+  }
+
+  async function confirmDeleteClassRoutine(routineId) {
+    setError("");
+    try {
+      await deleteClassRoutine(routineId);
+      setSelectedClassRoutine(null);
+      setSelectedClassRoutineId("");
+      showNotice("Class routine deleted.");
+      await loadRoutineData();
+    } catch (err) {
+      showError(err.message || "Failed to delete class routine");
+    }
+  }
+
   function buildExamRoutinePayload() {
     return {
       class_scope: examForm.class_scope,
@@ -1987,10 +2041,19 @@ export default function Routines() {
 
   async function handleDeleteExamRoutine() {
     if (!selectedExamRoutine?.id) return;
-    if (!window.confirm(`Delete this ${selectedExamRoutine.status || "selected"} exam routine?`)) return;
+    setDeleteTarget({
+      type: "exam",
+      id: selectedExamRoutine.id,
+      title: "Delete exam routine?",
+      description: `Delete this ${selectedExamRoutine.status || "selected"} exam routine?`,
+      actionLabel: "Delete Routine",
+    });
+  }
+
+  async function confirmDeleteExamRoutine(routineId) {
     setError("");
     try {
-      await deleteExamRoutine(selectedExamRoutine.id);
+      await deleteExamRoutine(routineId);
       setSelectedExamRoutine(null);
       setSelectedExamRoutineId("");
       showNotice("Exam routine deleted.");
@@ -2032,6 +2095,19 @@ export default function Routines() {
     }
   }
 
+  async function handleConfirmDelete() {
+    if (!deleteTarget) return;
+    const target = deleteTarget;
+    setDeleteTarget(null);
+    if (target.type === "template") {
+      await confirmDeleteTemplate(target.id);
+    } else if (target.type === "class") {
+      await confirmDeleteClassRoutine(target.id);
+    } else if (target.type === "exam") {
+      await confirmDeleteExamRoutine(target.id);
+    }
+  }
+
   async function downloadPdf(downloadFn, id, fileName) {
     setError("");
     try {
@@ -2068,6 +2144,23 @@ export default function Routines() {
           ) : null}
         </div>
       </div>
+
+      <AlertDialog open={Boolean(deleteTarget)} onOpenChange={(open) => !open && setDeleteTarget(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{deleteTarget?.title || "Delete item?"}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {deleteTarget?.description || "This action cannot be undone."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction variant="destructive" onClick={handleConfirmDelete}>
+              {deleteTarget?.actionLabel || "Delete"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <TopBar
         title={activeTab === "class" ? "Class Routine" : activeTab === "exam" ? "Exam Routine" : "Time Slots"}
@@ -2373,6 +2466,23 @@ export default function Routines() {
                         Download PDF
                       </Button>
                     ) : null}
+                    {selectedClassRoutine?.id ? (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            type="button"
+                            size="icon"
+                            variant="ghost"
+                            className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+                            onClick={handleDeleteClassRoutine}
+                            aria-label="Delete class routine"
+                          >
+                            <Trash2 className="size-4" />
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>Delete class routine</TooltipContent>
+                      </Tooltip>
+                    ) : null}
                   </div>
                 </div>
               </div>
@@ -2399,96 +2509,97 @@ export default function Routines() {
                   </div>
 
                   <Dialog open={slotEditorOpen} onOpenChange={setSlotEditorOpen}>
-                    <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-[520px]">
+                    <DialogContent className="flex max-h-[88vh] w-[min(96vw,760px)] max-w-none flex-col overflow-hidden sm:max-w-[760px]">
                       <DialogHeader>
                         <DialogTitle>Edit Routine Slot</DialogTitle>
                         <DialogDescription>
                           {slotContext ? `${slotContext.day.label}, Period ${slotContext.period}` : "Select slot details."}
                         </DialogDescription>
                       </DialogHeader>
-                      <form className="space-y-4" onSubmit={handleSaveSlot}>
-                        <Field label="Apply To Days">
-                          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-                            {weekdayColumns.map((day) => {
-                              const selected = (slotForm.weekdays || []).map(String).includes(String(day.value));
-                              return (
-                                <button
-                                  key={day.value}
-                                  type="button"
-                                  className={`rounded-md border px-3 py-2 text-sm font-medium transition ${
-                                    selected
-                                      ? "border-primary bg-primary text-primary-foreground"
-                                      : "border-border bg-background text-foreground hover:bg-muted"
-                                  }`}
-                                  onClick={() => toggleSlotWeekday(day.value)}
-                                >
-                                  {day.label}
-                                </button>
-                              );
-                            })}
-                          </div>
-                          <p className="mt-2 text-xs text-muted-foreground">
-                            Save the same period and subject rows across the selected days.
-                          </p>
-                        </Field>
-                        {isPackedSelectedRoutine ? (
-                          <Field label="Save Mode">
-                            <div className="grid gap-2 sm:grid-cols-2">
-                              {[
-                                {
-                                  value: "replace",
-                                  label: "Replace slot",
-                                  description: "Clear this period for selected days, then save these rows.",
-                                },
-                                {
-                                  value: "add",
-                                  label: "Add to slot",
-                                  description: "Keep existing rows and add these subject or custom rows to selected days.",
-                                },
-                              ].map((option) => {
-                                const selected = slotForm.save_mode === option.value;
+                      <form className="flex min-h-0 flex-1 flex-col" onSubmit={handleSaveSlot}>
+                        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto pr-1">
+                          <Field label="Apply To Days">
+                            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                              {weekdayColumns.map((day) => {
+                                const selected = (slotForm.weekdays || []).map(String).includes(String(day.value));
                                 return (
                                   <button
-                                    key={option.value}
+                                    key={day.value}
                                     type="button"
-                                    className={`rounded-md border p-3 text-left transition ${
+                                    className={`rounded-md border px-3 py-2 text-sm font-medium transition ${
                                       selected
-                                        ? "border-primary bg-primary/10 text-foreground"
+                                        ? "border-primary bg-primary text-primary-foreground"
                                         : "border-border bg-background text-foreground hover:bg-muted"
                                     }`}
-                                    onClick={() => setSlotForm((current) => ({ ...current, save_mode: option.value }))}
+                                    onClick={() => toggleSlotWeekday(day.value)}
                                   >
-                                    <span className="block text-sm font-semibold">{option.label}</span>
-                                    <span className="mt-1 block text-xs text-muted-foreground">{option.description}</span>
+                                    {day.label}
                                   </button>
                                 );
                               })}
                             </div>
+                            <p className="mt-2 text-xs text-muted-foreground">
+                              Save the same period and subject rows across the selected days.
+                            </p>
                           </Field>
-                        ) : null}
-                        <Field label="Type">
-                          <select
-                            className={selectClassName}
-                            value={slotForm.entry_type}
-                            onChange={(event) => setSlotForm((current) => ({
-                              ...current,
-                              entry_type: event.target.value,
-                              save_mode: ["subject", "custom"].includes(event.target.value) ? current.save_mode : "replace",
-                              subjectRows: event.target.value === "subject" ? current.subjectRows : [emptySubjectSlotRow(1)],
-                              activity_id: event.target.value === "activity" ? current.activity_id : "",
-                              custom_title: event.target.value === "custom" ? current.custom_title : "",
-                              custom_teacher_id: event.target.value === "custom" ? current.custom_teacher_id : "",
-                              customRows: event.target.value === "custom" ? current.customRows || [emptyCustomSlotRow(1)] : [emptyCustomSlotRow(1)],
-                            }))}
-                          >
-                            <option value="subject">Subject</option>
-                            <option value="custom">Custom / Routine-only</option>
-                            <option value="break">Break</option>
-                            <option value="activity">Activity</option>
-                            <option value="free">Free</option>
-                          </select>
-                        </Field>
-                        {slotForm.entry_type === "subject" ? (
+                          {isPackedSelectedRoutine ? (
+                            <Field label="Save Mode">
+                              <div className="grid gap-2 sm:grid-cols-2">
+                                {[
+                                  {
+                                    value: "replace",
+                                    label: "Replace slot",
+                                    description: "Clear this period for selected days, then save these rows.",
+                                  },
+                                  {
+                                    value: "add",
+                                    label: "Add to slot",
+                                    description: "Keep existing rows and add these subject or custom rows to selected days.",
+                                  },
+                                ].map((option) => {
+                                  const selected = slotForm.save_mode === option.value;
+                                  return (
+                                    <button
+                                      key={option.value}
+                                      type="button"
+                                      className={`rounded-md border p-3 text-left transition ${
+                                        selected
+                                          ? "border-primary bg-primary/10 text-foreground"
+                                          : "border-border bg-background text-foreground hover:bg-muted"
+                                      }`}
+                                      onClick={() => setSlotForm((current) => ({ ...current, save_mode: option.value }))}
+                                    >
+                                      <span className="block text-sm font-semibold">{option.label}</span>
+                                      <span className="mt-1 block text-xs text-muted-foreground">{option.description}</span>
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </Field>
+                          ) : null}
+                          <Field label="Type">
+                            <select
+                              className={selectClassName}
+                              value={slotForm.entry_type}
+                              onChange={(event) => setSlotForm((current) => ({
+                                ...current,
+                                entry_type: event.target.value,
+                                save_mode: ["subject", "custom"].includes(event.target.value) ? current.save_mode : "replace",
+                                subjectRows: event.target.value === "subject" ? current.subjectRows : [emptySubjectSlotRow(1)],
+                                activity_id: event.target.value === "activity" ? current.activity_id : "",
+                                custom_title: event.target.value === "custom" ? current.custom_title : "",
+                                custom_teacher_id: event.target.value === "custom" ? current.custom_teacher_id : "",
+                                customRows: event.target.value === "custom" ? current.customRows || [emptyCustomSlotRow(1)] : [emptyCustomSlotRow(1)],
+                              }))}
+                            >
+                              <option value="subject">Subject</option>
+                              <option value="custom">Custom / Routine-only</option>
+                              <option value="break">Break</option>
+                              <option value="activity">Activity</option>
+                              <option value="free">Free</option>
+                            </select>
+                          </Field>
+                          {slotForm.entry_type === "subject" ? (
                           <div className="space-y-3">
                             {(slotForm.subjectRows || []).map((row, index) => {
                               const teacherOptions = row.subject_id ? slotTeacherOptions[String(row.subject_id)] || [] : [];
@@ -2502,18 +2613,16 @@ export default function Routines() {
                                         <p className="text-xs capitalize text-muted-foreground">{selectedSubject.subject_group}</p>
                                       ) : null}
                                     </div>
-                                    {(slotForm.subjectRows || []).length > 1 ? (
-                                      <Button
-                                        type="button"
-                                        variant="outline"
-                                        size="icon"
-                                        className="text-destructive hover:bg-destructive/10 hover:text-destructive"
-                                        onClick={() => removeSlotSubjectRow(row.key)}
-                                        aria-label={`Delete subject ${index + 1}`}
-                                      >
-                                        <Trash2 className="size-4" />
-                                      </Button>
-                                    ) : null}
+                                    <Button
+                                      type="button"
+                                      variant="outline"
+                                      size="icon"
+                                      className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+                                      onClick={() => removeSlotSubjectRow(row.key)}
+                                      aria-label={`${(slotForm.subjectRows || []).length > 1 ? "Delete" : "Clear"} subject ${index + 1}`}
+                                    >
+                                      <Trash2 className="size-4" />
+                                    </Button>
                                   </div>
                                   <div className="grid gap-3 sm:grid-cols-2">
                                     <Field label="Subject">
@@ -2667,25 +2776,23 @@ export default function Routines() {
                               Add Subject
                             </Button>
                           </div>
-                        ) : null}
-                        {slotForm.entry_type === "custom" ? (
+                          ) : null}
+                          {slotForm.entry_type === "custom" ? (
                           <div className="space-y-3">
                             {(slotForm.customRows || []).map((row, index) => (
                               <div key={row.key} className="rounded-md border border-border bg-muted/20 p-3">
                                 <div className="mb-2 flex items-center justify-between gap-2">
                                   <p className="text-sm font-medium text-foreground">Custom Subject {index + 1}</p>
-                                  {(slotForm.customRows || []).length > 1 ? (
-                                    <Button
-                                      type="button"
-                                      variant="outline"
-                                      size="icon"
-                                      className="text-destructive hover:bg-destructive/10 hover:text-destructive"
-                                      onClick={() => removeSlotCustomRow(row.key)}
-                                      aria-label={`Delete custom subject ${index + 1}`}
-                                    >
-                                      <Trash2 className="size-4" />
-                                    </Button>
-                                  ) : null}
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="icon"
+                                    className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+                                    onClick={() => removeSlotCustomRow(row.key)}
+                                    aria-label={`${(slotForm.customRows || []).length > 1 ? "Delete" : "Clear"} custom subject ${index + 1}`}
+                                  >
+                                    <Trash2 className="size-4" />
+                                  </Button>
                                 </div>
                                 <div className="grid gap-3 sm:grid-cols-2">
                                   <Field label="Routine Title">
@@ -2713,21 +2820,22 @@ export default function Routines() {
                               Add Custom Subject
                             </Button>
                           </div>
-                        ) : null}
-                        {slotForm.entry_type === "activity" ? (
-                          <Field label="Activity">
-                            <select
-                              required
-                              className={selectClassName}
-                              value={slotForm.activity_id}
-                              onChange={(event) => setSlotForm((current) => ({ ...current, activity_id: event.target.value }))}
-                            >
-                              <option value="">Select activity</option>
-                              {activities.map((activity) => <option key={activity.id} value={activity.id}>{activity.name}</option>)}
-                            </select>
-                          </Field>
-                        ) : null}
-                        <div className="sticky bottom-0 -mx-1 flex justify-end gap-2 border-t border-border bg-background px-1 pt-3">
+                          ) : null}
+                          {slotForm.entry_type === "activity" ? (
+                            <Field label="Activity">
+                              <select
+                                required
+                                className={selectClassName}
+                                value={slotForm.activity_id}
+                                onChange={(event) => setSlotForm((current) => ({ ...current, activity_id: event.target.value }))}
+                              >
+                                <option value="">Select activity</option>
+                                {activities.map((activity) => <option key={activity.id} value={activity.id}>{activity.name}</option>)}
+                              </select>
+                            </Field>
+                          ) : null}
+                        </div>
+                        <div className="mt-4 flex shrink-0 justify-end gap-2 border-t border-border bg-background pt-4">
                           <Button type="button" variant="outline" onClick={() => setSlotEditorOpen(false)}>Cancel</Button>
                           <Button type="submit">Save Slot</Button>
                         </div>

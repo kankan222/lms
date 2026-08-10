@@ -10,6 +10,7 @@ import {
   markNotificationRead,
   type NotificationItem,
 } from "../services/notificationsService";
+import { useNotificationsStore } from "../store/notificationsStore";
 import { useAppTheme } from "../theme/AppThemeProvider";
 import { formatDateLabel, formatTimeLabel } from "../utils/format";
 
@@ -36,6 +37,7 @@ function isUnread(item: NotificationItem) {
 export default function NotificationsScreen({ navigation }: Props) {
   const insets = useSafeAreaInsets();
   const { theme } = useAppTheme();
+  const setNotificationUnread = useNotificationsStore((state) => state.setUnread);
   const [items, setItems] = useState<NotificationItem[]>([]);
   const [filter, setFilter] = useState("all");
   const [loading, setLoading] = useState(true);
@@ -47,6 +49,7 @@ export default function NotificationsScreen({ navigation }: Props) {
     try {
       const data = await getMyNotifications({ limit: 100 });
       setItems(Array.isArray(data.list) ? data.list : []);
+      setNotificationUnread(Number(data.unread || 0));
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -66,12 +69,17 @@ export default function NotificationsScreen({ navigation }: Props) {
   async function markRead(item: NotificationItem) {
     if (!isUnread(item)) return;
     await markNotificationRead(Number(item.id));
-    setItems((prev) => prev.map((row) => Number(row.id) === Number(item.id) ? { ...row, is_read: true, read_at: new Date().toISOString() } : row));
+    setItems((prev) => {
+      const next = prev.map((row) => Number(row.id) === Number(item.id) ? { ...row, is_read: true, read_at: new Date().toISOString() } : row);
+      setNotificationUnread(next.filter(isUnread).length);
+      return next;
+    });
   }
 
   async function markAllRead() {
     await markAllNotificationsRead();
     setItems((prev) => prev.map((item) => ({ ...item, is_read: true, read_at: item.read_at || new Date().toISOString() })));
+    setNotificationUnread(0);
   }
 
   return (
