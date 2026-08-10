@@ -2580,7 +2580,7 @@ export default function Routines() {
                                               <div className="flex flex-wrap gap-1.5">
                                                 {(slotForm.weekdays || []).map((weekday) => {
                                                   const selected = (teacherRow.weekdays || []).map(String).includes(String(weekday));
-                                                  const dayName = WEEKDAYS.find((day) => String(day.value) === String(weekday))?.label || weekday;
+                                                  const dayName = weekdays.find((day) => String(day.value) === String(weekday))?.label || weekday;
                                                   const dayLabel = String(dayName).slice(0, 3);
                                                   return (
                                                     <button

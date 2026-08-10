@@ -14,6 +14,8 @@ Update this file after every meaningful implementation change.
 
 ## Completed
 
+- Fixed a software Routine runtime error from the teacher split UI by using the
+  existing `weekdays` constant instead of an undefined `WEEKDAYS` reference.
 - Added routine display titles for real subject rows so entries like Botany or
   Zoology can be saved under the Biology subject for student filtering and marks
   while displaying the split class name in software, mobile, and routine PDFs;
