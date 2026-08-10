@@ -14,6 +14,10 @@ Update this file after every meaningful implementation change.
 
 ## Completed
 
+- Reworked HS class routine Excel exports into a multi-sheet workbook: a master
+  matrix with day/period/time rows and section/stream audience columns, plus
+  separate filtered HS audience sheets, while leaving standard school routine
+  exports unchanged.
 - Changed production auth so `super_admin` and `admin` users must complete OTP
   on every password login, ignoring trusted-device OTP bypass for those
   privileged sessions while preserving configured OTP bypass accounts.

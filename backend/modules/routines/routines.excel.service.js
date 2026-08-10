@@ -138,6 +138,11 @@ function timeLabel(start, end) {
   return [clean(start), clean(end)].filter(Boolean).join("\n");
 }
 
+function timeRangeLabel(start, end) {
+  const clean = (value) => String(value || "").slice(0, 5);
+  return [clean(start), clean(end)].filter(Boolean).join(" - ");
+}
+
 function displayEntryTitle(entry) {
   if (entry.entry_type === "break") return entry.title || entry.slot_label || "Break";
   return entry.title || entry.subject_name || entry.activity_name || entry.slot_label || "";
@@ -151,6 +156,13 @@ function entryText(entry) {
     entry.teacher_names || "",
   ].filter(Boolean);
   return parts.join("\n");
+}
+
+function conciseEntryText(entry) {
+  return [
+    displayEntryTitle(entry),
+    entry.teacher_names || "",
+  ].filter(Boolean).join("\n");
 }
 
 function periodSort(a, b) {
@@ -190,6 +202,19 @@ function sheetName(value) {
   return String(value || "Routine").replace(/[\\/?*:[\]]/g, " ").slice(0, 31) || "Routine";
 }
 
+function uniqueSheetName(value, usedNames) {
+  const base = sheetName(value);
+  let name = base;
+  let counter = 2;
+  while (usedNames.has(name.toLowerCase())) {
+    const suffix = ` ${counter}`;
+    name = `${base.slice(0, 31 - suffix.length)}${suffix}`;
+    counter += 1;
+  }
+  usedNames.add(name.toLowerCase());
+  return name;
+}
+
 function fileSafe(value) {
   return String(value || "routine")
     .replace(/[^a-z0-9]+/gi, "-")
@@ -218,6 +243,9 @@ function createSheetBuilder() {
     },
     build(name) {
       return buildWorkbook({ name, cells, merges, rowHeights, colWidths });
+    },
+    data(name) {
+      return { name, cells, merges, rowHeights, colWidths };
     },
   };
 }
@@ -299,15 +327,25 @@ function stylesXml() {
 </styleSheet>`;
 }
 
-function buildWorkbook({ name, cells, merges, rowHeights, colWidths }) {
+function buildWorkbookSheets(rawSheets) {
+  const usedNames = new Set();
+  const sheets = rawSheets.map((sheet, index) => ({
+    ...sheet,
+    name: uniqueSheetName(sheet.name || `Sheet ${index + 1}`, usedNames),
+    sheetId: index + 1,
+    relId: `rId${index + 1}`,
+    path: `xl/worksheets/sheet${index + 1}.xml`,
+    target: `worksheets/sheet${index + 1}.xml`,
+  }));
+
   const workbookXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
-  <sheets><sheet name="${escapeXml(sheetName(name))}" sheetId="1" r:id="rId1"/></sheets>
+  <sheets>${sheets.map((sheet) => `<sheet name="${escapeXml(sheet.name)}" sheetId="${sheet.sheetId}" r:id="${sheet.relId}"/>`).join("")}</sheets>
 </workbook>`;
   const workbookRels = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
-  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
-  <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
+  ${sheets.map((sheet) => `<Relationship Id="${sheet.relId}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="${sheet.target}"/>`).join("")}
+  <Relationship Id="rId${sheets.length + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
 </Relationships>`;
   const rels = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
@@ -318,7 +356,7 @@ function buildWorkbook({ name, cells, merges, rowHeights, colWidths }) {
   <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
   <Default Extension="xml" ContentType="application/xml"/>
   <Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>
-  <Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
+  ${sheets.map((sheet) => `<Override PartName="/${sheet.path}" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`).join("")}
   <Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>
 </Types>`;
 
@@ -328,8 +366,20 @@ function buildWorkbook({ name, cells, merges, rowHeights, colWidths }) {
     { name: "xl/workbook.xml", data: workbookXml },
     { name: "xl/_rels/workbook.xml.rels", data: workbookRels },
     { name: "xl/styles.xml", data: stylesXml() },
-    { name: "xl/worksheets/sheet1.xml", data: buildWorksheet({ cells, merges, rowHeights, colWidths }) },
+    ...sheets.map((sheet) => ({
+      name: sheet.path,
+      data: buildWorksheet({
+        cells: sheet.cells,
+        merges: sheet.merges,
+        rowHeights: sheet.rowHeights,
+        colWidths: sheet.colWidths,
+      }),
+    })),
   ]);
+}
+
+function buildWorkbook({ name, cells, merges, rowHeights, colWidths }) {
+  return buildWorkbookSheets([{ name, cells, merges, rowHeights, colWidths }]);
 }
 
 function buildStandardRoutineWorkbook(routine, entries) {
@@ -384,40 +434,150 @@ function buildStandardRoutineWorkbook(routine, entries) {
   return sheet.build("Class Routine");
 }
 
-function buildPackedHsRoutineWorkbook(routine, entries) {
+function splitCsv(value) {
+  return String(value || "")
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function audienceSort(a, b) {
+  const rank = (value) => {
+    const label = String(value || "").trim().toUpperCase();
+    const sectionMatch = label.match(/^A(\d+)$/);
+    if (sectionMatch) return Number(sectionMatch[1]);
+    if (label === "SCIENCE") return 100;
+    if (label === "COMMERCE") return 101;
+    return 200;
+  };
+  return rank(a) - rank(b) || String(a).localeCompare(String(b), undefined, { numeric: true, sensitivity: "base" });
+}
+
+function hsAudienceLabels(entries) {
+  const labels = new Set();
+  entries.forEach((entry) => {
+    splitCsv(entry.applies_section_names).forEach((label) => labels.add(label));
+  });
+  return [...labels].sort(audienceSort);
+}
+
+function entryMatchesHsAudience(entry, audienceLabel) {
+  if (entry.entry_type === "break") return true;
+  const labels = splitCsv(entry.applies_section_names);
+  if (!labels.length) return true;
+  return labels.some((label) => label.toLowerCase() === String(audienceLabel || "").toLowerCase());
+}
+
+function entriesForHsAudience(entries, audienceLabel) {
+  return entries.filter((entry) => entryMatchesHsAudience(entry, audienceLabel));
+}
+
+function buildHsMasterSheet(routine, entries, audienceLabels) {
   const sheet = createSheetBuilder();
   const periods = uniquePeriods(entries);
-  const maxCol = periods.length + 1;
+  const maxCol = Math.max(audienceLabels.length + 3, 4);
   const classLabel = routineClassLabel(routine) || "Higher Secondary Routine";
   let row = 1;
 
-  sheet.colWidth(1, 16);
-  periods.forEach((period, index) => sheet.colWidth(index + 2, period.period_number === 0 ? 14 : 26));
+  sheet.colWidth(1, 15);
+  sheet.colWidth(2, 12);
+  sheet.colWidth(3, 16);
+  audienceLabels.forEach((_, index) => sheet.colWidth(index + 4, 22));
 
-  sheet.cell(row, 1, classLabel, 1);
+  sheet.cell(row, 1, `${classLabel} - Master`, 1);
   sheet.merge(row, 1, row, maxCol);
   sheet.rowHeight(row, 26);
   row += 1;
 
-  sheet.cell(row, 1, "Day", 3);
-  periods.forEach((period, index) => sheet.cell(row, index + 2, timeLabel(period.start_time, period.end_time), 3));
-  sheet.rowHeight(row, 36);
+  ["Day", "Period", "Time", ...audienceLabels].forEach((heading, index) => {
+    sheet.cell(row, index + 1, heading, 3);
+  });
+  sheet.rowHeight(row, 28);
   row += 1;
 
   Object.entries(WEEKDAYS).forEach(([weekday, label]) => {
     const dayEntries = entries.filter((entry) => Number(entry.weekday) === Number(weekday));
     if (!dayEntries.length) return;
+
+    periods.forEach((period, periodIndex) => {
+      const periodEntries = entriesFor(dayEntries, weekday, period);
+      if (!periodEntries.length) return;
+
+      sheet.cell(row, 1, periodIndex === 0 ? label : "", 4);
+      sheet.cell(row, 2, displayEntryTitle(periodEntries.find((entry) => entry.entry_type === "break") || { title: `Period ${period.period_number}` }), 4);
+      sheet.cell(row, 3, timeRangeLabel(period.start_time, period.end_time), 4);
+
+      audienceLabels.forEach((audience, index) => {
+        const audienceEntries = periodEntries.filter((entry) => entryMatchesHsAudience(entry, audience));
+        const isBreak = audienceEntries.some((entry) => entry.entry_type === "break");
+        const value = audienceEntries.map(conciseEntryText).filter(Boolean).join("\n\n");
+        sheet.cell(row, index + 4, value, isBreak ? 6 : 5);
+      });
+
+      const maxItems = Math.max(
+        1,
+        ...audienceLabels.map((audience) => periodEntries.filter((entry) => entryMatchesHsAudience(entry, audience)).length)
+      );
+      sheet.rowHeight(row, Math.min(120, 28 + maxItems * 28));
+      row += 1;
+    });
+  });
+
+  return sheet.data("HS Master");
+}
+
+function buildHsAudienceSheet(routine, entries, audienceLabel) {
+  const sheet = createSheetBuilder();
+  const audienceEntries = entriesForHsAudience(entries, audienceLabel);
+  const periods = uniquePeriods(audienceEntries);
+  const maxCol = periods.length + 1;
+  const classLabel = routineClassLabel(routine) || "Higher Secondary Routine";
+  let row = 1;
+
+  sheet.colWidth(1, 16);
+  periods.forEach((period, index) => sheet.colWidth(index + 2, period.period_number === 0 ? 14 : 24));
+
+  sheet.cell(row, 1, `${classLabel} - ${audienceLabel}`, 1);
+  sheet.merge(row, 1, row, maxCol);
+  sheet.rowHeight(row, 26);
+  row += 1;
+
+  sheet.cell(row, 1, "Day", 3);
+  periods.forEach((period, index) => {
+    const periodLabel = period.period_number === 0 ? "Break" : `Period ${period.period_number}`;
+    sheet.cell(row, index + 2, `${periodLabel}\n${timeLabel(period.start_time, period.end_time)}`, 3);
+  });
+  sheet.rowHeight(row, 42);
+  row += 1;
+
+  Object.entries(WEEKDAYS).forEach(([weekday, label]) => {
+    const dayEntries = audienceEntries.filter((entry) => Number(entry.weekday) === Number(weekday));
+    if (!dayEntries.length) return;
+
     sheet.cell(row, 1, label, 4);
     periods.forEach((period, index) => {
       const cellEntries = entriesFor(dayEntries, weekday, period);
-      const value = cellEntries.map(entryText).filter(Boolean).join("\n\n");
+      const value = cellEntries.map(conciseEntryText).filter(Boolean).join("\n\n");
       sheet.cell(row, index + 2, value, cellEntries.some((entry) => entry.entry_type === "break") ? 6 : 5);
     });
-    sheet.rowHeight(row, 95);
+    const maxItems = Math.max(1, ...periods.map((period) => entriesFor(dayEntries, weekday, period).length));
+    sheet.rowHeight(row, Math.min(110, 32 + maxItems * 28));
     row += 1;
   });
 
-  return sheet.build("HS Routine");
+  return sheet.data(`HS ${audienceLabel}`);
+}
+
+function buildPackedHsRoutineWorkbook(routine, entries) {
+  const audienceLabels = hsAudienceLabels(entries);
+  if (!audienceLabels.length) {
+    return buildStandardRoutineWorkbook(routine, entries);
+  }
+
+  return buildWorkbookSheets([
+    buildHsMasterSheet(routine, entries, audienceLabels),
+    ...audienceLabels.map((audience) => buildHsAudienceSheet(routine, entries, audience)),
+  ]);
 }
 
 export function buildClassRoutineXlsx(routine) {
