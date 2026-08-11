@@ -99,9 +99,12 @@ export default function ProfileTab() {
   const { theme, isDark } = useAppTheme();
   const user = useAuthStore((state) => state.user);
   const logout = useAuthStore((state) => state.logout);
-  const isSuperAdmin = Array.isArray(user?.roles) && user.roles.includes("super_admin");
-  const canReceivePush =
-    isSuperAdmin || (Array.isArray(user?.permissions) && user.permissions.includes("notifications.push.receive"));
+  const roles = Array.isArray(user?.roles) ? user.roles : [];
+  const isSuperAdmin = roles.some((role) => {
+    const normalized = String(role || "").trim().toLowerCase().replace(/[\s-]+/g, "_");
+    return normalized === "super_admin" || normalized === "superadmin";
+  });
+  const canReceivePush = Boolean(user?.id);
 
   const [account, setAccount] = useState<AccountProfile | null>(null);
   const [loading, setLoading] = useState(true);
@@ -723,6 +726,8 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 22,
     borderWidth: 1,
     padding: 16,
+    paddingBottom: 32,
+    marginBottom: 12,
     gap: 12,
   },
   modalTitle: {

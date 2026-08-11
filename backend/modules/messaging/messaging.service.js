@@ -17,6 +17,11 @@ function normalizeTeacherScope(value) {
   return "all";
 }
 
+function normalizeRoleName(role) {
+  const normalized = String(role || "").trim().toLowerCase().replace(/[\s-]+/g, "_");
+  return normalized === "superadmin" ? "super_admin" : normalized;
+}
+
 function normalizeStaffType(value) {
   return value === "non_teaching" ? "non_teaching" : value === "teaching" ? "teaching" : "all";
 }
@@ -30,13 +35,16 @@ function teacherBroadcastName({ teacher_scope, teacher_type, staff_type } = {}) 
 }
 
 function normalizeActor(actor) {
+  const roles = Array.isArray(actor?.roles)
+    ? actor.roles.map(normalizeRoleName)
+    : [];
   if (typeof actor === "number") {
     return { userId: actor, roles: [], permissions: [] };
   }
 
   return {
     userId: Number(actor?.userId || actor?.id),
-    roles: Array.isArray(actor?.roles) ? actor.roles : [],
+    roles,
     permissions: Array.isArray(actor?.permissions) ? actor.permissions : [],
   };
 }
@@ -610,7 +618,6 @@ export async function deleteConversationForMe(conversationId, actorInput) {
 export async function updateConversation(conversationId, body, actorInput) {
   const actor = normalizeActor(actorInput);
   assertCanManageMessages(actor);
-  await assertCanViewConversation(actor, conversationId);
 
   const conversation = await repo.getConversationById(conversationId);
   if (!conversation?.id) {

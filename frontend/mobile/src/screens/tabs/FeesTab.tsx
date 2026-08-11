@@ -1186,7 +1186,7 @@ return StyleSheet.create({
   emptyText: { color: theme.subText, lineHeight: 20 },
   modalOverlay: { flex: 1, justifyContent: "flex-end" },
   modalBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: theme.overlay },
-  modalCard: { maxHeight: "88%", backgroundColor: theme.card, borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingHorizontal: 16, paddingTop: 16, paddingBottom: 18, gap: 10 },
+  modalCard: { maxHeight: "86%", backgroundColor: theme.card, borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingHorizontal: 16, paddingTop: 16, paddingBottom: 32, marginBottom: 12, gap: 10 },
   modalTitle: { color: theme.text, fontWeight: "800", fontSize: 18 },
   modalBody: { maxHeight: 500 },
   modalFooter: { marginTop: 14, flexDirection: "row", gap: 10 },

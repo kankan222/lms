@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAppTheme } from "../../theme/AppThemeProvider";
 
 type Props = {
@@ -41,6 +42,7 @@ export default function DateField({
 }: Props) {
   const [open, setOpen] = useState(false);
   const { theme } = useAppTheme();
+  const insets = useSafeAreaInsets();
 
   const normalized = normalizeDate(value);
   const now = new Date();
@@ -82,7 +84,7 @@ export default function DateField({
       <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
         <View style={styles.overlay}>
           <Pressable style={[styles.backdrop, { backgroundColor: theme.overlay }]} onPress={() => setOpen(false)} />
-          <View style={[styles.modalCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+          <View style={[styles.modalCard, { backgroundColor: theme.card, borderColor: theme.border, marginBottom: Math.max(insets.bottom, 12), paddingBottom: Math.max(insets.bottom + 14, 26) }]}>
             <View style={styles.modalHeader}>
               <Text style={[styles.modalTitle, { color: theme.text }]}>{label || placeholder}</Text>
               <View style={styles.headerActions}>

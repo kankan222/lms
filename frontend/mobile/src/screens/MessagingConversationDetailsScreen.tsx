@@ -18,6 +18,13 @@ function getErrorMessage(err: unknown, fallback: string) {
   return fallback;
 }
 
+function hasSuperAdminRole(roles: string[]) {
+  return roles.some((role) => {
+    const normalized = String(role || "").trim().toLowerCase().replace(/[\s-]+/g, "_");
+    return normalized === "super_admin" || normalized === "superadmin";
+  });
+}
+
 export default function MessagingConversationDetailsScreen({ navigation, route }: Props) {
   const { conversationId, name, type } = route.params;
   const { theme, isDark } = useAppTheme();
@@ -26,7 +33,7 @@ export default function MessagingConversationDetailsScreen({ navigation, route }
   const user = useAuthStore((state) => state.user);
   const roles = Array.isArray(user?.roles) ? user.roles : [];
   const permissions = Array.isArray(user?.permissions) ? user.permissions : [];
-  const isSuperAdmin = roles.includes("super_admin");
+  const isSuperAdmin = hasSuperAdminRole(roles);
   const isParentOrTeacher = !isSuperAdmin && (roles.includes("parent") || roles.includes("teacher"));
   const canManageConversation = !isParentOrTeacher && (isSuperAdmin || permissions.includes("messages.send"));
   const [conversationName, setConversationName] = useState(name || "");

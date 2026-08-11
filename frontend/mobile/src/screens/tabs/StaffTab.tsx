@@ -572,7 +572,7 @@ const styles = StyleSheet.create({
   profileName: { color: "#0f172a", fontWeight: "800", fontSize: 20, textAlign: "center" },
   modalOverlay: { flex: 1, justifyContent: "flex-end" },
   modalBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(15, 23, 42, 0.35)" },
-  modalCard: { maxHeight: "86%", backgroundColor: "#ffffff", borderTopLeftRadius: 22, borderTopRightRadius: 22, padding: 16, gap: 12 },
+  modalCard: { maxHeight: "84%", backgroundColor: "#ffffff", borderTopLeftRadius: 22, borderTopRightRadius: 22, padding: 16, paddingBottom: 32, marginBottom: 12, gap: 12 },
   modalTitle: { color: "#0f172a", fontWeight: "800", fontSize: 18 },
   modalBody: { maxHeight: 500 },
   confirmCard: { marginHorizontal: 16, marginBottom: 24, borderRadius: 22, backgroundColor: "#ffffff", padding: 16, gap: 12 },

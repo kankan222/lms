@@ -116,8 +116,14 @@ function hasAny(permissions: string[], list: string[]) {
   return list.some((permission) => permissions.includes(permission));
 }
 
+function normalizeRole(value?: string | null) {
+  const normalized = String(value || "").trim().toLowerCase().replace(/[\s-]+/g, "_");
+  return normalized === "superadmin" ? "super_admin" : normalized;
+}
+
 function hasRole(roles: string[], role: string) {
-  return roles.some((value) => String(value).toLowerCase() === role);
+  const expected = normalizeRole(role);
+  return roles.some((value) => normalizeRole(value) === expected);
 }
 
 function canViewTab(tabKey: TabKey, roles: string[], permissions: string[]) {
@@ -170,7 +176,7 @@ function canViewTab(tabKey: TabKey, roles: string[], permissions: string[]) {
     case "announcements":
       return isParent || isTeacher || isSuperAdmin || hasAny(permissions, ["announcements.view", "announcements.manage"]);
     case "messaging":
-      return hasAny(permissions, ["messages.view", "messages.send"]);
+      return isSuperAdmin || hasAny(permissions, ["messages.view", "messages.send"]);
     case "exams":
       if (isTeacher) return false;
       return hasAny(permissions, ["exams.view", "exams.create", "exams.update", "exams.delete"]);
@@ -586,9 +592,9 @@ export default function AppShellScreen({ navigation, route }: Props) {
         ]}
       >
         <View style={styles.headerLeft}>
-          <View>
-            <Text style={[styles.brandText, { color: theme.text }]}>{headerBrand}</Text>
-            <Text style={[styles.subtitle, { color: theme.subText }]}>{headerSubtitle}</Text>
+          <View style={styles.headerCopy}>
+            <Text style={[styles.brandText, { color: theme.text }]} numberOfLines={1}>{headerBrand}</Text>
+            <Text style={[styles.subtitle, { color: theme.subText }]} numberOfLines={1}>{headerSubtitle}</Text>
           </View>
         </View>
 
@@ -762,6 +768,11 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
+    flexShrink: 0,
+  },
+  headerCopy: {
+    flex: 1,
+    minWidth: 0,
   },
   brandText: {
     fontSize: 16,

@@ -151,8 +151,14 @@ function ClassSectionBlock({ className, section }: { className?: string | number
 export default function StudentsTab({ onStartParentMessage }: Props) {
   const { theme, isDark } = useAppTheme();
   const user = useAuthStore((state) => state.user);
-  const isParent = Array.isArray(user?.roles) && user.roles.includes("parent");
-  const canSendMessages = Array.isArray(user?.permissions) && user.permissions.includes("messages.send");
+  const roles = Array.isArray(user?.roles) ? user.roles : [];
+  const permissions = Array.isArray(user?.permissions) ? user.permissions : [];
+  const isSuperAdmin = roles.some((role) => {
+    const normalized = String(role || "").trim().toLowerCase().replace(/[\s-]+/g, "_");
+    return normalized === "super_admin" || normalized === "superadmin";
+  });
+  const isParent = roles.some((role) => String(role || "").trim().toLowerCase().replace(/[\s-]+/g, "_") === "parent");
+  const canSendMessages = isSuperAdmin || permissions.includes("messages.send");
   const [students, setStudents] = useState<Student[]>([]);
   const [studentsPage, setStudentsPage] = useState(1);
   const [studentsTotal, setStudentsTotal] = useState<number | null>(null);
@@ -956,7 +962,7 @@ const styles = StyleSheet.create({
   popoverBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: "transparent" },
   filterPopover: { borderWidth: 1, borderRadius: 18, padding: 14, gap: 12, marginLeft: "auto", width: "82%" },
   resetText: { color: "#15803d", fontWeight: "700" },
-  modalCard: { maxHeight: "90%", backgroundColor: "#fff", borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingHorizontal: 16, paddingTop: 16, paddingBottom: 18, gap: 10 },
+  modalCard: { maxHeight: "88%", backgroundColor: "#fff", borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingHorizontal: 16, paddingTop: 16, paddingBottom: 32, marginBottom: 12, gap: 10 },
   modalTitle: { fontSize: 18, fontWeight: "800", color: "#0f172a" },
   modalBody: { maxHeight: 620 },
   sheetHeaderCopy: { flex: 1, gap: 4 },

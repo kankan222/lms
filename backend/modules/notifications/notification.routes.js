@@ -30,7 +30,6 @@ router.patch(
 
 router.post(
   "/devices",
-  requirePermission("notifications.push.receive"),
   controller.registerDevice
 );
 

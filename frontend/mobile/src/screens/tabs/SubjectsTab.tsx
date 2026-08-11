@@ -747,7 +747,7 @@ const styles = StyleSheet.create({
   assignmentSubjects: { color: "#334155", lineHeight: 20, fontWeight: "600" },
   modalOverlay: { flex: 1, justifyContent: "flex-end" },
   modalBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(15, 23, 42, 0.28)" },
-  modalCard: { maxHeight: "88%", backgroundColor: "#fff", borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingHorizontal: 16, paddingTop: 16, paddingBottom: 18, gap: 10 },
+  modalCard: { maxHeight: "86%", backgroundColor: "#fff", borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingHorizontal: 16, paddingTop: 16, paddingBottom: 32, marginBottom: 12, gap: 10 },
   modalTitle: { fontSize: 18, fontWeight: "800", color: "#0f172a" },
   modalBody: { maxHeight: 500 },
   inputLabel: { color: "#334155", fontWeight: "700", marginBottom: 6 },

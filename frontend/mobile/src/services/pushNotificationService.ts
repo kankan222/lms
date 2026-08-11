@@ -10,9 +10,7 @@ const PUSH_TOKEN_KEY = "lms.push.token";
 const EXPO_PROJECT_ID = "fba1d24e-70b5-462a-9cc2-aa3b038ad327";
 
 function canReceivePush(user?: AuthUser | null) {
-  const roles = Array.isArray(user?.roles) ? user.roles : [];
-  const permissions = Array.isArray(user?.permissions) ? user.permissions : [];
-  return roles.includes("super_admin") || permissions.includes("notifications.push.receive");
+  return Boolean(user?.id);
 }
 
 export async function getPushPreference() {

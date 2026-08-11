@@ -1383,3 +1383,25 @@ Update this file after every meaningful implementation change.
   assignment errors now include teacher, subject, class/section/medium, weekday,
   period, and time, and the software alert can render multiple missing
   assignments as a list.
+- Fixed mobile messaging group setup/settings gating: super admin role checks
+  now tolerate role formatting variants, and dynamic backend broadcast target
+  keys are treated as group targets so the conversation name field appears.
+- Fixed mobile messaging and announcement portal issues: chat bubbles now wrap
+  long text without Samsung Fold clipping, shared header text is constrained
+  beside action icons, super admin role checks are normalized across mobile
+  shell/messaging/announcements and backend RBAC, student users can receive
+  class/section/scope mobile announcements, and common bottom sheets have extra
+  bottom clearance for Android navigation-button mode.
+- Fixed mobile messaging group rename for super admin/admin managers by removing
+  the extra conversation-membership visibility check from the backend rename
+  service after the manage permission check.
+- Completed super admin messaging permission normalization across mobile and
+  backend checks by treating both `super_admin` and `superadmin` as the same
+  role in RBAC, messaging services, messaging SQL role lookups, announcement
+  management gates, shell navigation, student/teacher message entry points, and
+  push registration.
+- Fixed announcement mobile inbox and push delivery: removed the invalid
+  `students.user_id` announcement audience branch because students are resolved
+  through parent-linked enrollments in this schema, removed the
+  `notifications.push.receive` gate from device registration and push dispatch,
+  and allowed authenticated mobile users to register for push notifications.

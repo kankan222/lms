@@ -76,8 +76,14 @@ function hasAny(permissions: string[], list: string[]) {
   return list.some((permission) => permissions.includes(permission));
 }
 
+function normalizeRole(value?: string | null) {
+  const normalized = String(value || "").trim().toLowerCase().replace(/[\s-]+/g, "_");
+  return normalized === "superadmin" ? "super_admin" : normalized;
+}
+
 function hasRole(roles: string[], role: string) {
-  return roles.some((value) => String(value).toLowerCase() === role);
+  const expected = normalizeRole(role);
+  return roles.some((value) => normalizeRole(value) === expected);
 }
 
 function canViewModule(moduleKey: ModuleKey, roles: string[], permissions: string[]) {
@@ -130,7 +136,7 @@ function canViewModule(moduleKey: ModuleKey, roles: string[], permissions: strin
     case "announcements":
       return isParent || isTeacher || hasRole(roles, "super_admin") || hasAny(permissions, ["announcements.view", "announcements.manage"]);
     case "messaging":
-      return hasAny(permissions, ["messages.view", "messages.send"]);
+      return hasRole(roles, "super_admin") || hasAny(permissions, ["messages.view", "messages.send"]);
     case "exams":
       if (isTeacher) return false;
       return hasAny(permissions, ["exams.view", "exams.create", "exams.update", "exams.delete"]);

@@ -451,7 +451,7 @@ const styles = StyleSheet.create({
   emptyText: { lineHeight: 20 },
   modalOverlay: { flex: 1, justifyContent: "flex-end" },
   modalBackdrop: { ...StyleSheet.absoluteFillObject },
-  modalCard: { maxHeight: "88%", borderTopLeftRadius: 24, borderTopRightRadius: 24, borderWidth: 1, paddingHorizontal: 16, paddingTop: 16, paddingBottom: 18, gap: 10 },
+  modalCard: { maxHeight: "86%", borderTopLeftRadius: 24, borderTopRightRadius: 24, borderWidth: 1, paddingHorizontal: 16, paddingTop: 16, paddingBottom: 32, marginBottom: 12, gap: 10 },
   modalTitle: { fontSize: 18, fontWeight: "800" },
   modalBody: { maxHeight: 540 },
   modalFooter: { flexDirection: "row", gap: 10, marginTop: 10 },

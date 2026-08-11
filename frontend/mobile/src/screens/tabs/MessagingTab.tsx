@@ -184,7 +184,16 @@ function conversationMatchesFilter(
   return true;
 }
 
-function isGroupTargetType(value: Compose["target_type"]) {
+function isSuperAdminRole(value?: string | null) {
+  const normalized = String(value || "").trim().toLowerCase().replace(/[\s-]+/g, "_");
+  return normalized === "super_admin" || normalized === "superadmin";
+}
+
+function hasSuperAdminRole(roles: string[]) {
+  return roles.some(isSuperAdminRole);
+}
+
+function isGroupTargetType(value: string) {
   return (GROUP_TARGET_TYPES as readonly string[]).includes(value);
 }
 
@@ -410,7 +419,7 @@ export default function MessagingTab({
   const user = useAuthStore((state) => state.user);
   const roles = Array.isArray(user?.roles) ? user.roles : [];
   const permissions = Array.isArray(user?.permissions) ? user.permissions : [];
-  const isSuperAdmin = roles.includes("super_admin");
+  const isSuperAdmin = hasSuperAdminRole(roles);
   const isParentOrTeacher = !isSuperAdmin && (roles.includes("parent") || roles.includes("teacher"));
   const canStartMessages = !isParentOrTeacher && (isSuperAdmin || permissions.includes("messages.send"));
 
@@ -646,6 +655,14 @@ export default function MessagingTab({
     ],
     [targets.broadcast_targets],
   );
+  const groupTargetValues = useMemo(
+    () => new Set<string>([
+      ...GROUP_TARGET_TYPES,
+      ...targets.broadcast_targets.map((item) => String(item.key)).filter(Boolean),
+    ]),
+    [targets.broadcast_targets],
+  );
+  const isComposeGroupTarget = groupTargetValues.has(String(compose.target_type));
   const classOptions = useMemo(
     () =>
       targets.classes.map((item) => ({
@@ -726,9 +743,9 @@ export default function MessagingTab({
     if (["direct", "parent", "teacher"].includes(compose.target_type)) return Boolean(compose.recipient_user_id);
     if (compose.target_type === "class") return Boolean(compose.class_id);
     if (compose.target_type === "section") return Boolean(compose.section_id);
-    if (isGroupTargetType(compose.target_type)) return Boolean(effectiveConversationName);
+    if (isComposeGroupTarget) return Boolean(effectiveConversationName);
     return true;
-  }, [compose, effectiveConversationName]);
+  }, [compose, effectiveConversationName, isComposeGroupTarget]);
   const parentConversationUserIds = useMemo(
     () => new Set(targets.parents.map((item) => Number(item.user_id)).filter(Boolean)),
     [targets.parents],
@@ -1602,7 +1619,7 @@ export default function MessagingTab({
         <View style={styles.audienceCopy}>
           <Text style={[styles.audienceTitle, { color: theme.text }]}>{option.label}</Text>
           <Text style={[styles.audienceDesc, { color: theme.subText }]}>
-            {option.description || (isGroupTargetType(value) ? "Choose a group and name the conversation" : "Pick one recipient")}
+            {option.description || (groupTargetValues.has(String(value)) ? "Choose a group and name the conversation" : "Pick one recipient")}
           </Text>
         </View>
         <Ionicons name="chevron-forward" size={18} color={theme.icon} />
@@ -1611,7 +1628,7 @@ export default function MessagingTab({
   }
 
   function renderGroupNameInput() {
-    if (!isGroupTargetType(compose.target_type)) return null;
+    if (!isComposeGroupTarget) return null;
     return (
       <View style={styles.composeSection}>
         <Text style={[styles.inputLabel, { color: theme.text }]}>Conversation Name</Text>
@@ -2249,7 +2266,6 @@ export default function MessagingTab({
                             {message.message ? (
                               <Text
                                 style={[styles.messageText, hasMediaAttachment ? styles.mediaBubbleInset : null, { color: bubbleTextColor }]}
-                                selectable
                               >
                                 {message.message}
                               </Text>
@@ -2499,7 +2515,7 @@ return StyleSheet.create({
   messageRow: { flexDirection: "row", gap: 8, paddingHorizontal: 2, minWidth: 0 },
   mine: { justifyContent: "flex-end", alignItems: "flex-end" },
   other: { justifyContent: "flex-start", alignItems: "flex-start" },
-  bubble: { maxWidth: "82%", minWidth: 0, flexShrink: 1, alignSelf: "flex-start", borderRadius: 18, paddingHorizontal: 12, paddingVertical: 8 },
+  bubble: { maxWidth: "88%", minWidth: 120, flexShrink: 1, alignSelf: "flex-start", borderRadius: 18, paddingHorizontal: 12, paddingVertical: 9 },
   mediaBubble: { paddingHorizontal: 0, paddingVertical: 0, overflow: "hidden" },
   mediaBubbleInset: { marginHorizontal: 10, marginTop: 8 },
   mediaBubbleMeta: { paddingHorizontal: 10, paddingBottom: 7 },
@@ -2508,9 +2524,9 @@ return StyleSheet.create({
   senderName: { flex: 1, fontSize: 11, fontWeight: "700" },
   senderNameSpacer: { flex: 1 },
   messageActionBtn: { width: 24, height: 20, alignItems: "center", justifyContent: "center", borderRadius: 10 },
-  messageText: { minWidth: 0, flexShrink: 1, flexWrap: "wrap", fontSize: 14, lineHeight: 20, fontWeight: "600" },
+  messageText: { width: "100%", minWidth: 0, flexShrink: 1, flexWrap: "wrap", fontSize: 14, lineHeight: 21, fontWeight: "600", includeFontPadding: true },
   bubbleTime: { fontSize: 11 },
-  messageMetaRow: { marginTop: 6, flexDirection: "row", flexWrap: "wrap", justifyContent: "flex-end", gap: 6 },
+  messageMetaRow: { marginTop: 7, flexDirection: "row", flexWrap: "wrap", justifyContent: "flex-end", gap: 6 },
   deliveryIconWrap: { width: 16, height: 14, alignItems: "center", justifyContent: "center" },
   replyQuote: { borderLeftWidth: 3, paddingLeft: 8, paddingVertical: 4, marginBottom: 6 },
   forwardedLabel: { fontSize: 11, fontStyle: "italic", marginBottom: 4 },

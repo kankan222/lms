@@ -1,4 +1,4 @@
-import { loadPermissions }
+import { loadPermissions, loadRoles }
 from "./rbac.service.js";
 export async function attachPermissions(
   req,
@@ -12,9 +12,13 @@ export async function attachPermissions(
       });
     }
 
-    const permissions =
-      await loadPermissions(req.user.userId);
+    const [permissions, roles] =
+      await Promise.all([
+        loadPermissions(req.user.userId),
+        loadRoles(req.user.userId)
+      ]);
       req.user.permissions = permissions;
+      req.user.roles = roles;
       next();
 
       
@@ -32,10 +36,13 @@ export async function attachPermissions(
         });
       }
 
-    if (
-      !req.user.permissions ||
-      !req.user.permissions.includes(permission)
-    ) {
+    const roles = Array.isArray(req.user.roles) ? req.user.roles : [];
+    const isSuperAdmin = roles.some((role) => {
+      const normalized = String(role || "").trim().toLowerCase().replace(/[\s-]+/g, "_");
+      return normalized === "super_admin" || normalized === "superadmin";
+    });
+
+    if (!isSuperAdmin && (!req.user.permissions || !req.user.permissions.includes(permission))) {
       return res.status(403).json({
         message: "Forbidden"
       });

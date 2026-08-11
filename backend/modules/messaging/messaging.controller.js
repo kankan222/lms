@@ -88,7 +88,12 @@ export async function getTargets(req, res, next) {
 }
 
 export function streamMessages(req, res) {
-  if (!req.user?.permissions?.includes("messages.view")) {
+  const roles = Array.isArray(req.user?.roles) ? req.user.roles : [];
+  const isSuperAdmin = roles.some((role) => {
+    const normalized = String(role || "").trim().toLowerCase().replace(/[\s-]+/g, "_");
+    return normalized === "super_admin" || normalized === "superadmin";
+  });
+  if (!isSuperAdmin && !req.user?.permissions?.includes("messages.view")) {
     return res.status(403).json({ success: false, error: "Forbidden" });
   }
 

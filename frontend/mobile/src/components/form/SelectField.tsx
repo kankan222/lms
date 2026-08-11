@@ -1,5 +1,6 @@
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useMemo, useState } from "react";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAppTheme } from "../../theme/AppThemeProvider";
 
 type Option = {
@@ -31,6 +32,7 @@ export default function SelectField({
 }: Props) {
   const [open, setOpen] = useState(false);
   const { theme } = useAppTheme();
+  const insets = useSafeAreaInsets();
 
   const selected = useMemo(
     () => options.find((option) => String(option.value) === String(value ?? "")) ?? null,
@@ -53,7 +55,7 @@ export default function SelectField({
       <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
         <View style={styles.overlay}>
           <Pressable style={[styles.backdrop, { backgroundColor: theme.overlay }]} onPress={() => setOpen(false)} />
-          <View style={[styles.modalCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+          <View style={[styles.modalCard, { backgroundColor: theme.card, borderColor: theme.border, marginBottom: Math.max(insets.bottom, 12), paddingBottom: Math.max(insets.bottom + 14, 26) }]}>
             <View style={styles.modalHeader}>
               <Text style={[styles.modalTitle, { color: theme.text }]}>{label || placeholder}</Text>
               <Pressable onPress={() => setOpen(false)} style={[styles.headerBtn, { borderColor: theme.border, backgroundColor: theme.inputBg }]}>

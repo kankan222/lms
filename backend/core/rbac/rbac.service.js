@@ -2,6 +2,7 @@ import { getPermissionsByUserId, getRolesByUserId }
 from "./rbac.repository.js";
 
 const permissionCache = new Map();
+const roleCache = new Map();
 const CACHE_TTL = 10 * 60 * 1000; // 10 minutes
 const rolePermissionFallbacks = {
   teacher: [
@@ -54,6 +55,25 @@ export async function loadPermissions(userId) {
   return permissions;
 }
 
+export async function loadRoles(userId) {
+  const cached = roleCache.get(userId);
+
+  if (cached && cached.expiry > Date.now()) {
+    return cached.roles;
+  }
+
+  const roleRows = await getRolesByUserId(userId);
+  const roles = roleRows.map((row) => row.name);
+
+  roleCache.set(userId, {
+    roles,
+    expiry: Date.now() + CACHE_TTL
+  });
+
+  return roles;
+}
+
 export function clearPermissionCache(userId) {
   permissionCache.delete(userId);
+  roleCache.delete(userId);
 }

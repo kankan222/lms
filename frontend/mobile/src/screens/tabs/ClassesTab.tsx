@@ -1154,13 +1154,14 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(15, 23, 42, 0.28)",
   },
   modalCard: {
-    maxHeight: "88%",
+    maxHeight: "86%",
     backgroundColor: "#ffffff",
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     paddingHorizontal: 16,
     paddingTop: 16,
-    paddingBottom: 18,
+    paddingBottom: 32,
+    marginBottom: 12,
     gap: 10,
   },
   modalTitle: {

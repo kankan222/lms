@@ -161,9 +161,14 @@ export default function TeachersTab({ onStartTeacherMessage }: Props) {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const user = useAuthStore((state) => state.user);
   const permissions = user?.permissions || [];
+  const roles = Array.isArray(user?.roles) ? user.roles : [];
+  const isSuperAdmin = roles.some((role) => {
+    const normalized = String(role || "").trim().toLowerCase().replace(/[\s-]+/g, "_");
+    return normalized === "super_admin" || normalized === "superadmin";
+  });
   const canManageTeachers = permissions.includes("teacher.update");
   const canManageDeviceMappings = permissions.includes("teacher.assign");
-  const canSendMessages = permissions.includes("messages.send");
+  const canSendMessages = isSuperAdmin || permissions.includes("messages.send");
   const [teachers, setTeachers] = useState<TeacherItem[]>([]);
   const [teachersPage, setTeachersPage] = useState(1);
   const [teachersTotal, setTeachersTotal] = useState<number | null>(null);
@@ -941,7 +946,7 @@ const styles = StyleSheet.create({
   successBtnText: { color: "#fff", fontWeight: "700" },
   modalOverlay: { flex: 1, justifyContent: "flex-end" },
   modalBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(15, 23, 42, 0.28)" },
-  modalCard: { maxHeight: "90%", backgroundColor: "#fff", borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingHorizontal: 16, paddingTop: 16, paddingBottom: 18, gap: 10 },
+  modalCard: { maxHeight: "88%", backgroundColor: "#fff", borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingHorizontal: 16, paddingTop: 16, paddingBottom: 32, marginBottom: 12, gap: 10 },
   modalTitle: { fontSize: 18, fontWeight: "800", color: "#0f172a" },
   modalBody: { maxHeight: 620 },
   sheetHeaderCopy: { flex: 1, gap: 4 },

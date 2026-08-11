@@ -202,7 +202,7 @@ export async function isSuperAdminUser(userId) {
      FROM user_roles ur
      JOIN roles r ON r.id = ur.role_id
      WHERE ur.user_id = ?
-       AND r.name = 'super_admin'
+       AND r.name IN ('super_admin', 'superadmin')
      LIMIT 1`,
     [userId]
   );
@@ -215,7 +215,7 @@ export async function hasPrivilegedMessagingUser(userId) {
      FROM user_roles ur
      JOIN roles r ON r.id = ur.role_id
      WHERE ur.user_id = ?
-       AND r.name IN ('super_admin', 'admin', 'staff', 'accounts')
+       AND r.name IN ('super_admin', 'superadmin', 'admin', 'staff', 'accounts')
      LIMIT 1`,
     [userId]
   );
@@ -229,8 +229,8 @@ export async function getAdminRecipientUser() {
      JOIN user_roles ur ON ur.user_id = u.id
      JOIN roles r ON r.id = ur.role_id
      WHERE u.status = 'active'
-       AND r.name IN ('super_admin', 'admin')
-     ORDER BY CASE r.name WHEN 'super_admin' THEN 0 ELSE 1 END, u.id ASC
+       AND r.name IN ('super_admin', 'superadmin', 'admin')
+     ORDER BY CASE WHEN r.name IN ('super_admin', 'superadmin') THEN 0 ELSE 1 END, u.id ASC
      LIMIT 1`
   );
   return rows[0] || null;
@@ -243,7 +243,7 @@ export async function conversationHasPrivilegedMember(conversationId) {
      JOIN user_roles ur ON ur.user_id = cm.user_id
      JOIN roles r ON r.id = ur.role_id
      WHERE cm.conversation_id = ?
-       AND r.name IN ('super_admin', 'admin', 'staff', 'accounts')
+       AND r.name IN ('super_admin', 'superadmin', 'admin', 'staff', 'accounts')
      LIMIT 1`,
     [conversationId]
   );

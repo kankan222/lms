@@ -1243,7 +1243,7 @@ const styles = StyleSheet.create({
   popoverBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: "transparent" },
   filterPopover: { borderWidth: 1, borderRadius: 18, padding: 14, gap: 12, marginLeft: "auto", width: "82%" },
   resetText: { fontWeight: "700" },
-  modalCard: { maxHeight: "88%", backgroundColor: "#ffffff", borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingHorizontal: 16, paddingTop: 16, paddingBottom: 18, gap: 10 },
+  modalCard: { maxHeight: "86%", backgroundColor: "#ffffff", borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingHorizontal: 16, paddingTop: 16, paddingBottom: 32, marginBottom: 12, gap: 10 },
   modalTitle: { color: "#0f172a", fontWeight: "800", fontSize: 18 },
   modalBody: { maxHeight: 500 },
   modalFooter: { marginTop: 14, flexDirection: "row", gap: 10 },

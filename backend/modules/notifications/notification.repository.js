@@ -240,23 +240,6 @@ export async function listActivePushDevices(conn, userIds = []) {
       WHERE nd.user_id IN (${placeholders})
         AND nd.is_active = TRUE
         AND nd.push_token IS NOT NULL
-        AND (
-          EXISTS (
-            SELECT 1
-            FROM user_permissions up
-            JOIN permissions p ON p.id = up.permission_id
-            WHERE up.user_id = nd.user_id
-              AND p.name = 'notifications.push.receive'
-          )
-          OR EXISTS (
-            SELECT 1
-            FROM user_roles ur
-            JOIN role_permissions rp ON rp.role_id = ur.role_id
-            JOIN permissions p ON p.id = rp.permission_id
-            WHERE ur.user_id = nd.user_id
-              AND p.name = 'notifications.push.receive'
-          )
-        )
     `,
     userIds
   );

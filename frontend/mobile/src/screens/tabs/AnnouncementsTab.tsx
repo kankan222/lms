@@ -67,8 +67,14 @@ const DELIVERY_LABELS: Record<string, string> = {
   both: "Online + SMS",
 };
 
+function normalizeRole(value?: string | null) {
+  const normalized = String(value || "").trim().toLowerCase().replace(/[\s-]+/g, "_");
+  return normalized === "superadmin" ? "super_admin" : normalized;
+}
+
 function hasRole(roles: string[], role: string) {
-  return roles.some((value) => String(value).toLowerCase() === role);
+  const expected = normalizeRole(role);
+  return roles.some((value) => normalizeRole(value) === expected);
 }
 
 function hasAny(permissions: string[], list: string[]) {
