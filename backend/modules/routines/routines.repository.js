@@ -455,6 +455,7 @@ export async function listClassRoutineBoardRowsImpl(filters = {}) {
         GROUP_CONCAT(DISTINCT t.id ORDER BY t.name SEPARATOR ',') AS teacher_ids,
         GROUP_CONCAT(DISTINCT t.user_id ORDER BY t.name SEPARATOR ',') AS teacher_user_ids,
         GROUP_CONCAT(DISTINCT t.name ORDER BY t.name SEPARATOR ', ') AS teacher_names
+        , GROUP_CONCAT(CONCAT(t.id, ':', COALESCE(et.teacher_role, 'primary')) ORDER BY et.id SEPARATOR ',') AS teacher_assignments
         ${hasApplicability ? ", GROUP_CONCAT(DISTINCT es.section_id ORDER BY sec_app.name SEPARATOR ',') AS applies_section_ids" : ", NULL AS applies_section_ids"}
         ${hasApplicability ? ", GROUP_CONCAT(DISTINCT sec_app.name ORDER BY sec_app.name SEPARATOR ', ') AS applies_section_names" : ", NULL AS applies_section_names"}
       FROM class_routine_versions v
@@ -589,6 +590,7 @@ export async function getClassRoutineEntries(versionId) {
         GROUP_CONCAT(DISTINCT t.id ORDER BY t.name SEPARATOR ',') AS teacher_ids,
         GROUP_CONCAT(DISTINCT t.user_id ORDER BY t.name SEPARATOR ',') AS teacher_user_ids,
         GROUP_CONCAT(DISTINCT t.name ORDER BY t.name SEPARATOR ', ') AS teacher_names
+        , GROUP_CONCAT(CONCAT(t.id, ':', COALESCE(et.teacher_role, 'primary')) ORDER BY et.id SEPARATOR ',') AS teacher_assignments
         ${hasApplicability ? ", GROUP_CONCAT(DISTINCT es.section_id ORDER BY sec_app.name SEPARATOR ',') AS applies_section_ids" : ", NULL AS applies_section_ids"}
         ${hasApplicability ? ", GROUP_CONCAT(DISTINCT sec_app.name ORDER BY sec_app.name SEPARATOR ', ') AS applies_section_names" : ", NULL AS applies_section_names"}
       FROM class_routine_entries e
@@ -626,6 +628,15 @@ export async function getClassRoutineEntries(versionId) {
       ? String(row.teacher_user_ids).split(",").map((id) => Number(id)).filter(Boolean)
       : [],
     teacher_names: row.teacher_names || "",
+    teacher_assignments: row.teacher_assignments
+      ? String(row.teacher_assignments).split(",").map((item) => {
+          const [teacherId, teacherRole] = String(item || "").split(":");
+          return {
+            teacher_id: Number(teacherId),
+            teacher_role: teacherRole || "primary",
+          };
+        }).filter((item) => item.teacher_id)
+      : [],
     applies_section_ids: row.applies_section_ids
       ? String(row.applies_section_ids).split(",").map((id) => Number(id)).filter(Boolean)
       : [],

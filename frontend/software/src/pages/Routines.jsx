@@ -270,6 +270,23 @@ function uniqueCount(values) {
   return new Set(values.filter(Boolean).map((value) => String(value))).size;
 }
 
+function teacherNameById(teachers, teacherId) {
+  return teachers.find((teacher) => String(teacher.id) === String(teacherId))?.name || "";
+}
+
+function mergeSelectedTeacherOptions(options = [], teacherRows = [], teachers = []) {
+  const byId = new Map((options || []).map((teacher) => [String(teacher.id), teacher]));
+  (teacherRows || []).forEach((teacherRow) => {
+    const teacherId = String(teacherRow.teacher_id || "");
+    if (!teacherId || byId.has(teacherId)) return;
+    byId.set(teacherId, {
+      id: teacherId,
+      name: teacherNameById(teachers, teacherId) || `Teacher #${teacherId}`,
+    });
+  });
+  return [...byId.values()];
+}
+
 function saveBlob(blob, fileName) {
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
@@ -1372,11 +1389,8 @@ export default function Routines() {
           ...current,
           subjectRows: (current.subjectRows || []).map((row) => {
             if (!row.subject_id) return row;
-            const options = optionsBySubject[String(row.subject_id)] || [];
             const teacherRows = (row.teacherRows || [emptyTeacherSplitRow(1, row.teacher_id)]).map((teacherRow) => {
-              if (!teacherRow.teacher_id) return teacherRow;
-              const teacherExists = options.some((teacher) => String(teacher.id) === String(teacherRow.teacher_id));
-              return teacherExists ? teacherRow : { ...teacherRow, teacher_id: "" };
+              return teacherRow;
             });
             return { ...row, teacherRows, teacher_id: teacherRows[0]?.teacher_id || "" };
           }),
@@ -2874,7 +2888,8 @@ export default function Routines() {
                           {slotForm.entry_type === "subject" ? (
                           <div className="space-y-3">
                             {(slotForm.subjectRows || []).map((row, index) => {
-                              const teacherOptions = row.subject_id ? slotTeacherOptions[String(row.subject_id)] || [] : [];
+                              const baseTeacherOptions = row.subject_id ? slotTeacherOptions[String(row.subject_id)] || [] : [];
+                              const teacherOptions = mergeSelectedTeacherOptions(baseTeacherOptions, row.teacherRows || [], teachers);
                               const selectedSubject = slotSubjects.find((subject) => String(subject.id) === String(row.subject_id));
                               return (
                                 <div key={row.key} className="rounded-md border border-border bg-muted/20 p-3">

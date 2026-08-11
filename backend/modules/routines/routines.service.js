@@ -473,13 +473,7 @@ function normalizeClassRoutineEntries(entries = []) {
 
 function prepareClassRoutineEntriesForLayout(entries = [], layoutMode = "standard") {
   const packed = layoutMode === "packed_hs";
-  const seenSlots = new Set();
   return entries.map((entry) => {
-    const slotKey = `${entry.weekday}-${entry.period_number}`;
-    if (!packed && seenSlots.has(slotKey)) {
-      throw new AppError("Standard routines allow only one entry per day and period", 400);
-    }
-    seenSlots.add(slotKey);
     if (packed) return entry;
     return {
       ...entry,
@@ -506,6 +500,12 @@ async function normalizeClassRoutinePayloadForCreate(body, userId) {
 }
 
 function classRoutineEntryToPayload(entry) {
+  const teacherAssignments = Array.isArray(entry.teacher_assignments) && entry.teacher_assignments.length
+    ? entry.teacher_assignments
+    : (entry.teacher_ids || []).map((teacherId, index) => ({
+        teacher_id: teacherId,
+        teacher_role: index === 0 ? "primary" : "co_teacher",
+      }));
   return {
     time_slot_id: entry.time_slot_id,
     weekday: entry.weekday,
@@ -521,10 +521,7 @@ function classRoutineEntryToPayload(entry) {
     sort_order: entry.sort_order,
     applies_medium: entry.applies_medium,
     section_ids: entry.applies_section_ids || entry.section_ids || [],
-    teachers: (entry.teacher_ids || []).map((teacherId, index) => ({
-      teacher_id: teacherId,
-      teacher_role: index === 0 ? "primary" : "co_teacher",
-    })),
+    teachers: teacherAssignments,
   };
 }
 
@@ -1050,7 +1047,7 @@ export async function duplicateClassRoutine(id, body = {}, userId) {
     layout_mode: body.layout_mode ?? source.layout_mode ?? "standard",
     time_slot_template_id: body.time_slot_template_id ?? source.time_slot_template_id,
     title: body.title ?? source.title,
-    source: "duplicate",
+    source: "manual",
     parent_version_id: source.id,
   }, userId);
 
@@ -1073,7 +1070,7 @@ export async function duplicateClassRoutine(id, body = {}, userId) {
     {
       ...payload,
       title: payload.title || `${source.class_name || "Class"} Routine Copy`,
-      source: "duplicate",
+      source: "manual",
       parent_version_id: source.id,
     },
     entries

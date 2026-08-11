@@ -14,6 +14,17 @@ Update this file after every meaningful implementation change.
 
 ## Completed
 
+- Allowed standard class routines to save multiple subject/custom entries in
+  the same day-period slot while still stripping HS-only applicability fields
+  from standard entries; packed HS remains the layout for section/stream
+  targeted parallel subjects.
+- Fixed class routine duplicate draft creation to use the existing `manual`
+  source enum with `parent_version_id` instead of inserting unsupported
+  `source='duplicate'`, resolving MySQL data truncation on duplicate copy.
+- Fixed class routine duplicate teacher rendering by copying ordered teacher
+  assignment metadata from the source routine and preserving copied teacher ids
+  in the software slot editor even when the target class assignment lookup does
+  not return that teacher.
 - Added class routine duplication: admins can copy a selected routine into a
   separate draft for a target session/class/section/medium/stream without
   modifying the published source, with backend draft-only creation, duplicate
