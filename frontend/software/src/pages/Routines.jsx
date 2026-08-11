@@ -316,6 +316,49 @@ function Field({ label, children }) {
   );
 }
 
+function formatRoutineError(message = "") {
+  const text = String(message || "").trim();
+  if (!text.includes(" has a scheduling conflict ")) {
+    return { intro: "", items: [], outro: text };
+  }
+
+  const [introPart, restPart = ""] = text.split(/:\s+/, 2);
+  const normalized = restPart || text;
+  const withoutResolution = normalized.replace(/\s*Resolve conflicts before publishing\.?\s*$/i, "");
+  const items = withoutResolution
+    .replace(/\. (?=[A-Z][A-Za-z .'-]+ has a scheduling conflict)/g, ".|SPLIT|")
+    .split("|SPLIT|")
+    .map((item) => item.trim())
+    .filter(Boolean);
+
+  return {
+    intro: restPart ? `${introPart}:` : "",
+    items,
+    outro: /Resolve conflicts before publishing/i.test(text) ? "Resolve conflicts before publishing." : "",
+  };
+}
+
+function RoutineErrorDescription({ message }) {
+  const formatted = formatRoutineError(message);
+  if (!formatted.items.length) return <AlertDescription>{message}</AlertDescription>;
+
+  return (
+    <AlertDescription asChild>
+      <div className="space-y-2">
+        {formatted.intro ? <p>{formatted.intro}</p> : null}
+        <ul className="list-disc space-y-1 pl-5">
+          {formatted.items.map((item, index) => (
+            <li key={`${index}-${item.slice(0, 24)}`} className="leading-relaxed">
+              {item}
+            </li>
+          ))}
+        </ul>
+        {formatted.outro ? <p>{formatted.outro}</p> : null}
+      </div>
+    </AlertDescription>
+  );
+}
+
 function EmptyState({ title, description }) {
   return (
     <div className="flex min-h-40 flex-col items-center justify-center rounded-md border border-dashed border-border bg-muted/20 px-4 py-8 text-center">
@@ -2541,7 +2584,7 @@ export default function Routines() {
           {error ? (
             <Alert variant="destructive" className="pointer-events-auto overflow-hidden border shadow-xl">
               <AlertTitle>Routine Error</AlertTitle>
-              <AlertDescription>{error}</AlertDescription>
+              <RoutineErrorDescription message={error} />
             </Alert>
           ) : notice ? (
             <Alert
@@ -2849,52 +2892,54 @@ export default function Routines() {
         <TabsContent value="class" className="mt-4">
           <RoutineCard>
             <CardHeader>
-              <div className="flex min-w-0 flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                <div className="min-w-0 text-left lg:max-w-[46%]">
-                  <div className="flex items-center justify-start gap-3">
-                    {classViewMode === "week" ? (
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="icon"
-                        onClick={() => moveSelectedClassRoutine(-1)}
-                        disabled={routineNavigationItems.length <= 1}
-                        aria-label="Previous class routine"
-                      >
-                        <ChevronLeft className="size-4" />
-                      </Button>
-                    ) : null}
-                    <div className="min-w-0">
-                      {selectedClassRoutine || classViewMode === "day" ? (
-                        <p className="whitespace-normal break-words text-lg font-semibold leading-snug text-foreground">
-                          {classRoutineHeaderLabel}
-                        </p>
-                      ) : (
-                        <p className="text-lg font-semibold text-muted-foreground">No class routine selected</p>
-                      )}
+              <div className="space-y-3">
+                <div className="flex min-w-0 flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                  <div className="min-w-0 text-left lg:max-w-[46%]">
+                    <div className="flex items-center justify-start gap-3">
+                      {classViewMode === "week" ? (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="icon"
+                          onClick={() => moveSelectedClassRoutine(-1)}
+                          disabled={routineNavigationItems.length <= 1}
+                          aria-label="Previous class routine"
+                        >
+                          <ChevronLeft className="size-4" />
+                        </Button>
+                      ) : null}
+                      <div className="min-w-0">
+                        {selectedClassRoutine || classViewMode === "day" ? (
+                          <p className="whitespace-normal break-words text-lg font-semibold leading-snug text-foreground">
+                            {classRoutineHeaderLabel}
+                          </p>
+                        ) : (
+                          <p className="text-lg font-semibold text-muted-foreground">No class routine selected</p>
+                        )}
+                      </div>
+                      {classViewMode === "week" ? (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="icon"
+                          onClick={() => moveSelectedClassRoutine(1)}
+                          disabled={routineNavigationItems.length <= 1}
+                          aria-label="Next class routine"
+                        >
+                          <ChevronRight className="size-4" />
+                        </Button>
+                      ) : null}
                     </div>
-                    {classViewMode === "week" ? (
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="icon"
-                        onClick={() => moveSelectedClassRoutine(1)}
-                        disabled={routineNavigationItems.length <= 1}
-                        aria-label="Next class routine"
-                      >
-                        <ChevronRight className="size-4" />
-                      </Button>
-                    ) : null}
                   </div>
-                </div>
-                <div className="flex min-w-0 flex-col items-start gap-3 overflow-hidden lg:items-end">
                   <div className="flex max-w-full flex-wrap items-center justify-start gap-3 text-sm text-muted-foreground lg:justify-end">
                     {classViewMode === "week" && selectedClassRoutine?.status ? <StatusBadge status={selectedClassRoutine.status} /> : null}
                     <span className="inline-flex items-center gap-1.5"><CalendarDays className="size-4" />{visibleClassRoutineSummary.totalPeriods} periods</span>
                     <span className="inline-flex items-center gap-1.5"><CheckCircle2 className="size-4" />{visibleClassRoutineSummary.assignedPeriods} assigned</span>
                     <span className="inline-flex items-center gap-1.5"><Plus className="size-4" />{visibleClassRoutineSummary.freePeriods} free</span>
                   </div>
-                  <div className="flex max-w-full flex-nowrap items-center justify-start gap-2 overflow-x-auto lg:justify-end [&>*]:h-9 [&>*]:shrink-0">
+                </div>
+                <div className="flex min-w-0 justify-end overflow-hidden">
+                  <div className="flex max-w-full flex-nowrap items-center justify-end gap-2 overflow-x-auto [&>*]:h-9 [&>*]:shrink-0">
                     <div className="flex h-9 items-center rounded-md border border-input bg-background p-0.5">
                       <Button
                         type="button"

@@ -1373,3 +1373,9 @@ Update this file after every meaningful implementation change.
 - Fixed software routine edit slot reopening for teacher splits by inferring
   saved teacher/day selections from matching routine entries in the same period,
   so split weekday chips reappear instead of being reset to blank.
+- Changed the software class routine header to match the exam routine two-row
+  layout: title and summary on the first row, with view selector, routine/day
+  dropdowns, import, duplicate, download, and delete controls on the second row.
+- Improved software routine conflict alert readability by rendering multiple
+  teacher scheduling conflicts as a bulleted list while leaving single routine
+  errors as normal text.
