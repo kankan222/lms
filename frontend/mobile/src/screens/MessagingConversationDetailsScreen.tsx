@@ -5,6 +5,7 @@ import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import type { RootStackParamList } from "../navigation/AppNavigator";
 import { updateConversation } from "../services/messagingService";
+import { useAuthStore } from "../store/authStore";
 import { useAppTheme } from "../theme/AppThemeProvider";
 
 type Props = NativeStackScreenProps<RootStackParamList, "MessagingConversationDetails">;
@@ -22,6 +23,12 @@ export default function MessagingConversationDetailsScreen({ navigation, route }
   const { theme, isDark } = useAppTheme();
   const insets = useSafeAreaInsets();
   const styles = useMemo(() => createStyles(theme), [theme]);
+  const user = useAuthStore((state) => state.user);
+  const roles = Array.isArray(user?.roles) ? user.roles : [];
+  const permissions = Array.isArray(user?.permissions) ? user.permissions : [];
+  const isSuperAdmin = roles.includes("super_admin");
+  const isParentOrTeacher = !isSuperAdmin && (roles.includes("parent") || roles.includes("teacher"));
+  const canManageConversation = !isParentOrTeacher && (isSuperAdmin || permissions.includes("messages.send"));
   const [conversationName, setConversationName] = useState(name || "");
   const [saving, setSaving] = useState(false);
 
@@ -39,6 +46,36 @@ export default function MessagingConversationDetailsScreen({ navigation, route }
     } finally {
       setSaving(false);
     }
+  }
+
+  if (!canManageConversation) {
+    return (
+      <SafeAreaView edges={["top", "left", "right", "bottom"]} style={[styles.safeArea, { backgroundColor: theme.bg }]}>
+        <View style={styles.screen}>
+          <View style={[styles.header, { borderBottomColor: theme.border, paddingTop: Math.max(insets.top, 6) }]}>
+            <Pressable style={[styles.iconBtn, { backgroundColor: theme.cardMuted, borderColor: theme.border }]} onPress={() => navigation.goBack()}>
+              <Ionicons name="arrow-back-outline" size={20} color={theme.icon} />
+            </Pressable>
+            <View style={styles.headerCopy}>
+              <Text style={[styles.eyebrow, { color: theme.subText }]}>Conversation</Text>
+              <Text style={[styles.title, { color: theme.text }]} numberOfLines={1}>Details</Text>
+            </View>
+          </View>
+
+          <View style={styles.content}>
+            <View style={[styles.card, { borderColor: theme.border, backgroundColor: theme.card }]}>
+              <View style={[styles.avatar, { backgroundColor: isDark ? theme.cardMuted : "#fef2f2" }]}>
+                <Ionicons name="lock-closed-outline" size={22} color={theme.danger} />
+              </View>
+              <View style={styles.cardCopy}>
+                <Text style={[styles.label, { color: theme.subText }]}>Access Restricted</Text>
+                <Text style={[styles.currentName, { color: theme.text }]}>Group settings are not available for this account.</Text>
+              </View>
+            </View>
+          </View>
+        </View>
+      </SafeAreaView>
+    );
   }
 
   return (

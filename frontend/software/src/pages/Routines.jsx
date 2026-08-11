@@ -65,6 +65,7 @@ import {
   deleteExamRoutine,
   deleteTimeSlotTemplate,
   duplicateClassRoutine,
+  duplicateExamRoutine,
   downloadClassRoutineXlsx,
   downloadExamRoutinePdf,
   getClassRoutine,
@@ -746,6 +747,7 @@ export default function Routines() {
   const [classOpen, setClassOpen] = useState(false);
   const [duplicateClassOpen, setDuplicateClassOpen] = useState(false);
   const [examOpen, setExamOpen] = useState(false);
+  const [duplicateExamOpen, setDuplicateExamOpen] = useState(false);
   const [editingExamRoutineId, setEditingExamRoutineId] = useState(null);
   const [classImportOpen, setClassImportOpen] = useState(false);
   const [examImportOpen, setExamImportOpen] = useState(false);
@@ -759,6 +761,7 @@ export default function Routines() {
   const [slotForm, setSlotForm] = useState({
     entry_type: "subject",
     activity_id: "",
+    combined_group_key: "",
     custom_title: "",
     custom_teacher_id: "",
     customRows: [{ key: "custom-1", title: "", teacher_id: "" }],
@@ -816,6 +819,15 @@ export default function Routines() {
   });
 
   const [examForm, setExamForm] = useState(createInitialExamForm);
+  const [duplicateExamForm, setDuplicateExamForm] = useState({
+    class_scope: "school",
+    exam_id: "",
+    class_id: "",
+    section_id: "",
+    medium: "",
+    stream_id: "",
+    title: "",
+  });
 
   const selectedClass = useMemo(
     () => classes.find((item) => String(item.id) === String(classForm.class_id)),
@@ -830,6 +842,10 @@ export default function Routines() {
     () => classes.find((item) => String(item.id) === String(examForm.class_id)),
     [classes, examForm.class_id]
   );
+  const selectedDuplicateExamClass = useMemo(
+    () => classes.find((item) => String(item.id) === String(duplicateExamForm.class_id)),
+    [classes, duplicateExamForm.class_id]
+  );
   const selectedRoutineClass = useMemo(
     () => classes.find((item) => String(item.id) === String(selectedClassRoutine?.class_id)),
     [classes, selectedClassRoutine?.class_id]
@@ -842,10 +858,18 @@ export default function Routines() {
     () => classes.filter((item) => String(item.class_scope || "school") === String(examForm.class_scope || "school")),
     [classes, examForm.class_scope]
   );
+  const duplicateExamScopeClasses = useMemo(
+    () => classes.filter((item) => String(item.class_scope || "school") === String(duplicateExamForm.class_scope || "school")),
+    [classes, duplicateExamForm.class_scope]
+  );
 
   const scopedExams = useMemo(
     () => exams.filter((exam) => examMatchesClassScope(exam, examForm.class_scope)),
     [exams, examForm.class_scope]
+  );
+  const duplicateScopedExams = useMemo(
+    () => exams.filter((exam) => examMatchesClassScope(exam, duplicateExamForm.class_scope)),
+    [exams, duplicateExamForm.class_scope]
   );
 
   const filterClass = useMemo(
@@ -1187,6 +1211,33 @@ export default function Routines() {
   }, [examOpen, examForm.class_scope]);
 
   useEffect(() => {
+    if (!duplicateExamOpen) return undefined;
+    let active = true;
+    const timeoutId = window.setTimeout(() => {
+      if (!active) return;
+      loadExamsForScope(duplicateExamForm.class_scope)
+        .then((nextExams) => {
+          if (!active) return;
+          setDuplicateExamForm((current) => {
+            if (!current.exam_id) return current;
+            const selectedExam = nextExams.find((exam) => String(exam.id) === String(current.exam_id));
+            return selectedExam && examMatchesClassScope(selectedExam, current.class_scope)
+              ? current
+              : { ...current, exam_id: "" };
+          });
+        })
+        .catch((err) => {
+          if (active) showError(err.message || "Failed to load exams for scope");
+        });
+    }, 0);
+    return () => {
+      active = false;
+      window.clearTimeout(timeoutId);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [duplicateExamOpen, duplicateExamForm.class_scope]);
+
+  useEffect(() => {
     if (!examOpen || !examForm.exam_id || !examForm.class_id) {
       const timeoutId = window.setTimeout(() => setExamSubjectOptions([]), 0);
       return () => window.clearTimeout(timeoutId);
@@ -1497,6 +1548,21 @@ export default function Routines() {
     setExamOpen(true);
   }
 
+  function openDuplicateExamRoutine() {
+    if (!selectedExamRoutine) return;
+    setError("");
+    setDuplicateExamForm({
+      class_scope: selectedExamRoutine.class_scope || "school",
+      exam_id: selectedExamRoutine.exam_id ? String(selectedExamRoutine.exam_id) : "",
+      class_id: selectedExamRoutine.class_id ? String(selectedExamRoutine.class_id) : "",
+      section_id: selectedExamRoutine.section_id ? String(selectedExamRoutine.section_id) : "",
+      medium: selectedExamRoutine.medium || "",
+      stream_id: selectedExamRoutine.stream_id ? String(selectedExamRoutine.stream_id) : "",
+      title: selectedExamRoutine.title ? `${selectedExamRoutine.title} Copy` : "",
+    });
+    setDuplicateExamOpen(true);
+  }
+
   function updateClassForm(key, value) {
     setClassForm((current) => {
       const next = { ...current, [key]: value };
@@ -1576,6 +1642,62 @@ export default function Routines() {
     return { key: `custom-${Date.now()}-${index}`, title: "", teacher_id: "" };
   }
 
+  function normalizedEntrySectionIds(entry) {
+    return (entry?.applies_section_ids || entry?.section_ids || []).map(String).filter(Boolean).sort().join(",");
+  }
+
+  function sameSubjectRoutineEntry(left, right) {
+    if (!left || !right) return false;
+    return (
+      String(left.entry_type || "") === "subject" &&
+      String(right.entry_type || "") === "subject" &&
+      String(left.subject_id || "") === String(right.subject_id || "") &&
+      String(left.title || "").trim().toLowerCase() === String(right.title || "").trim().toLowerCase() &&
+      String(left.applies_medium || "") === String(right.applies_medium || "") &&
+      String(left.combined_group_key || "").trim().toLowerCase() === String(right.combined_group_key || "").trim().toLowerCase() &&
+      normalizedEntrySectionIds(left) === normalizedEntrySectionIds(right)
+    );
+  }
+
+  function inferSubjectTeacherRows(entry, period) {
+    const routineEntries = Array.isArray(selectedClassRoutine?.entries) ? selectedClassRoutine.entries : [];
+    const relatedEntries = routineEntries.filter((item) =>
+      Number(item.period_number) === Number(period) && sameSubjectRoutineEntry(item, entry)
+    );
+    const entries = relatedEntries.length ? relatedEntries : [entry];
+    const relatedWeekdays = [...new Set(entries.map((item) => String(item.weekday || "")).filter(Boolean))];
+    const spansMultipleDays = relatedWeekdays.length > 1;
+    const teacherDayMap = new Map();
+
+    entries.forEach((item) => {
+      const weekday = String(item.weekday || "");
+      (item.teacher_ids || []).map(String).filter(Boolean).forEach((teacherId) => {
+        const currentDays = teacherDayMap.get(teacherId) || [];
+        if (spansMultipleDays && weekday && !currentDays.includes(weekday)) currentDays.push(weekday);
+        teacherDayMap.set(teacherId, currentDays);
+      });
+    });
+
+    const teacherIds = [
+      ...new Set(
+        entries
+          .flatMap((item) => item.teacher_ids || [])
+          .map(String)
+          .filter(Boolean)
+      ),
+    ];
+
+    return {
+      weekdays: relatedWeekdays,
+      teacherRows: teacherIds.length
+        ? teacherIds.map((teacherId, teacherIndex) => ({
+            ...emptyTeacherSplitRow(teacherIndex + 1, teacherId),
+            weekdays: (teacherDayMap.get(teacherId) || []).sort((a, b) => Number(a) - Number(b)),
+          }))
+        : [emptyTeacherSplitRow(1)],
+    };
+  }
+
   function openSlotEditor(context) {
     setError("");
     const existingEntries = context.entries?.length ? context.entries : context.entry ? [context.entry] : [];
@@ -1583,10 +1705,21 @@ export default function Routines() {
     const customEntries = existingEntries.filter((entry) => entry.entry_type === "custom");
     const primaryEntry = subjectEntries[0] || existingEntries[0] || null;
     const entryType = subjectEntries.length ? "subject" : customEntries.length ? "custom" : primaryEntry?.entry_type || context.slot?.default_entry_type || "subject";
+    const inferredWeekdays = subjectEntries.length
+      ? [
+          ...new Set(
+            subjectEntries
+              .flatMap((entry) => inferSubjectTeacherRows(entry, context.period).weekdays)
+              .map(String)
+              .filter(Boolean)
+          ),
+        ].sort((a, b) => Number(a) - Number(b))
+      : [];
     setSlotContext(context);
     setSlotForm({
       entry_type: entryType,
       activity_id: primaryEntry?.activity_id ? String(primaryEntry.activity_id) : "",
+      combined_group_key: primaryEntry?.combined_group_key || "",
       custom_title: entryType === "custom" ? primaryEntry?.title || "" : "",
       custom_teacher_id: entryType === "custom" && primaryEntry?.teacher_ids?.[0] ? String(primaryEntry.teacher_ids[0]) : "",
       customRows: customEntries.length
@@ -1601,19 +1734,20 @@ export default function Routines() {
             teacher_id: entryType === "custom" && primaryEntry?.teacher_ids?.[0] ? String(primaryEntry.teacher_ids[0]) : "",
           }],
       save_mode: "replace",
-      weekdays: [String(context.day.value)],
+      weekdays: inferredWeekdays.length ? inferredWeekdays : [String(context.day.value)],
       subjectRows: subjectEntries.length
-        ? subjectEntries.map((entry, index) => ({
-            key: `subject-${entry.id || entry.entry_id || index}`,
-            subject_id: entry.subject_id ? String(entry.subject_id) : "",
-            display_title: entry.title || "",
-            teacher_id: entry.teacher_ids?.[0] ? String(entry.teacher_ids[0]) : "",
-            teacherRows: (entry.teacher_ids || []).length
-              ? entry.teacher_ids.map((teacherId, teacherIndex) => emptyTeacherSplitRow(teacherIndex + 1, String(teacherId)))
-              : [emptyTeacherSplitRow(1)],
-            applies_medium: isPackedSelectedRoutine ? entry.applies_medium || "" : "",
-            section_ids: isPackedSelectedRoutine ? (entry.applies_section_ids || []).map((sectionId) => String(sectionId)) : [],
-          }))
+        ? subjectEntries.map((entry, index) => {
+            const inferredTeacherRows = inferSubjectTeacherRows(entry, context.period).teacherRows;
+            return {
+              key: `subject-${entry.id || entry.entry_id || index}`,
+              subject_id: entry.subject_id ? String(entry.subject_id) : "",
+              display_title: entry.title || "",
+              teacher_id: inferredTeacherRows[0]?.teacher_id || "",
+              teacherRows: inferredTeacherRows,
+              applies_medium: isPackedSelectedRoutine ? entry.applies_medium || "" : "",
+              section_ids: isPackedSelectedRoutine ? (entry.applies_section_ids || []).map((sectionId) => String(sectionId)) : [],
+            };
+          })
         : [emptySubjectSlotRow(1)],
     });
     setSlotEditorOpen(true);
@@ -1757,6 +1891,7 @@ export default function Routines() {
       subject_id: entry.subject_id ? Number(entry.subject_id) : null,
       activity_id: entry.activity_id ? Number(entry.activity_id) : null,
       title: entry.title || "",
+      combined_group_key: entry.combined_group_key || baseSlotPayload.combined_group_key || "",
       applies_medium: isPackedSelectedRoutine ? entry.applies_medium || null : null,
       section_ids: isPackedSelectedRoutine ? (entry.applies_section_ids || entry.section_ids || []).map(Number).filter(Boolean) : [],
       room: entry.room || baseSlotPayload.room || "",
@@ -1775,6 +1910,7 @@ export default function Routines() {
       entry.subject_id || "",
       entry.activity_id || "",
       String(entry.title || "").trim().toLowerCase(),
+      String(entry.combined_group_key || "").trim().toLowerCase(),
       isPackedSelectedRoutine ? entry.applies_medium || "" : "",
       isPackedSelectedRoutine ? (entry.section_ids || []).map(Number).filter(Boolean).sort((a, b) => a - b).join(",") : "",
       (entry.teachers || []).map((teacher) => Number(teacher.teacher_id)).filter(Boolean).sort((a, b) => a - b).join(","),
@@ -1843,6 +1979,7 @@ export default function Routines() {
       end_time: timeInputValue(primaryEntry?.end_time || slot?.end_time, fallbackTime.end_time),
       room: primaryEntry?.room || "",
       notes: primaryEntry?.notes || "",
+      combined_group_key: String(slotForm.combined_group_key || "").trim(),
     });
     const buildSlotPayloadEntries = (weekday) => {
       const baseSlotPayload = buildBaseSlotPayload(weekday);
@@ -1960,6 +2097,32 @@ export default function Routines() {
       }
       if (["class_scope", "exam_id", "class_id", "section_id", "medium", "stream_id"].includes(key)) {
         next.entries = (next.entries || []).map((entry) => ({ ...entry, subject_id: "", exam_subject_id: "" }));
+      }
+      return next;
+    });
+  }
+
+  function updateDuplicateExamForm(key, value) {
+    setDuplicateExamForm((current) => {
+      const next = { ...current, [key]: value };
+      const nextClass = key === "class_id"
+        ? classes.find((item) => String(item.id) === String(value))
+        : classes.find((item) => String(item.id) === String(next.class_id));
+      if (key === "class_scope") {
+        next.exam_id = "";
+        next.class_id = "";
+        next.section_id = "";
+        next.medium = "";
+        next.stream_id = "";
+      }
+      if (key === "class_id") {
+        next.section_id = "";
+        next.medium = "";
+        next.stream_id = "";
+      }
+      if (key === "section_id") {
+        const section = (nextClass?.sections || []).find((item) => String(item.id) === String(value));
+        next.medium = section?.medium || "";
       }
       return next;
     });
@@ -2247,6 +2410,42 @@ export default function Routines() {
       await loadRoutineData();
     } catch (err) {
       showError(err.message || "Failed to save exam routine");
+    }
+  }
+
+  async function handleDuplicateExamRoutine(event) {
+    event.preventDefault();
+    setError("");
+    if (!selectedExamRoutine?.id) {
+      showError("Select an exam routine to duplicate.");
+      return;
+    }
+    if (!duplicateExamForm.exam_id || !duplicateExamForm.class_id) {
+      showError("Select a target exam and class first.");
+      return;
+    }
+    const selectedSection = (selectedDuplicateExamClass?.sections || []).find((section) => String(section.id) === String(duplicateExamForm.section_id));
+    const medium = selectedSection?.medium || duplicateExamForm.medium || "";
+    try {
+      const response = await duplicateExamRoutine(selectedExamRoutine.id, {
+        ...duplicateExamForm,
+        class_id: Number(duplicateExamForm.class_id),
+        section_id: toNumberOrNull(duplicateExamForm.section_id),
+        medium,
+        stream_id: toNumberOrNull(duplicateExamForm.stream_id),
+      });
+      setDuplicateExamOpen(false);
+      showNotice("Exam routine duplicated as a draft.");
+      const nextFilters = { ...filters, status: "draft" };
+      setFilters(nextFilters);
+      await loadRoutineData(nextFilters);
+      if (response.data?.id) {
+        setSelectedExamRoutineExamKey(String(response.data.exam_id || duplicateExamForm.exam_id || ""));
+        setSelectedExamRoutineId(String(response.data.id));
+        setSelectedExamRoutine(response.data);
+      }
+    } catch (err) {
+      showError(err.message || "Failed to duplicate exam routine");
     }
   }
 
@@ -2665,9 +2864,9 @@ export default function Routines() {
                         <ChevronLeft className="size-4" />
                       </Button>
                     ) : null}
-                    <div className="min-w-0 max-w-[min(72vw,560px)]">
+                    <div className="min-w-0">
                       {selectedClassRoutine || classViewMode === "day" ? (
-                        <p className="truncate text-lg font-semibold text-foreground">
+                        <p className="whitespace-normal break-words text-lg font-semibold leading-snug text-foreground">
                           {classRoutineHeaderLabel}
                         </p>
                       ) : (
@@ -2688,7 +2887,7 @@ export default function Routines() {
                     ) : null}
                   </div>
                 </div>
-                <div className="flex min-w-0 flex-1 flex-col items-start gap-3 overflow-hidden lg:items-end">
+                <div className="flex min-w-0 flex-col items-start gap-3 overflow-hidden lg:items-end">
                   <div className="flex max-w-full flex-wrap items-center justify-start gap-3 text-sm text-muted-foreground lg:justify-end">
                     {classViewMode === "week" && selectedClassRoutine?.status ? <StatusBadge status={selectedClassRoutine.status} /> : null}
                     <span className="inline-flex items-center gap-1.5"><CalendarDays className="size-4" />{visibleClassRoutineSummary.totalPeriods} periods</span>
@@ -2735,8 +2934,8 @@ export default function Routines() {
                         onChange={(event) => setSelectedClassDay(event.target.value)}
                       >
                         {weekdayColumns.map((day) => <option key={day.value} value={day.value}>{day.label}</option>)}
-                      </select>
-                    ) : null}
+                        </select>
+                      ) : null}
                     <Button variant="outline" size="sm" onClick={() => setClassImportOpen(true)}>
                       <Upload className="mr-2 size-4" />
                       Import
@@ -2758,8 +2957,8 @@ export default function Routines() {
                           <Button
                             type="button"
                             size="icon"
-                            variant="ghost"
-                            className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+                            variant="outline"
+                            className="border-destructive/30 bg-destructive/5 text-destructive hover:bg-destructive/10 hover:text-destructive"
                             onClick={handleDeleteClassRoutine}
                             aria-label="Delete class routine"
                           >
@@ -2796,115 +2995,134 @@ export default function Routines() {
 
                   <Dialog open={slotEditorOpen} onOpenChange={setSlotEditorOpen}>
                     <DialogContent className="flex max-h-[88vh] w-[min(96vw,760px)] max-w-none flex-col overflow-hidden sm:max-w-[760px]">
-                      <DialogHeader>
-                        <DialogTitle>Edit Routine Slot</DialogTitle>
-                        <DialogDescription>
-                          {slotContext ? `${slotContext.day.label}, ${slotContext.displayPeriodLabel || `Period ${slotContext.period}`}` : "Select slot details."}
+                      <DialogHeader className="border-b border-border/60 pb-4">
+                        <DialogTitle className="text-xl">Edit Routine Slot</DialogTitle>
+                        <DialogDescription className="text-sm">
+                          {slotContext ? `${slotContext.day.label} - ${slotContext.displayPeriodLabel || `Period ${slotContext.period}`}` : "Select slot details."}
                         </DialogDescription>
                       </DialogHeader>
                       <form className="flex min-h-0 flex-1 flex-col" onSubmit={handleSaveSlot}>
-                        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto pr-1">
-                          <Field label="Apply To Days">
-                            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-                              {weekdayColumns.map((day) => {
-                                const selected = (slotForm.weekdays || []).map(String).includes(String(day.value));
-                                return (
-                                  <button
-                                    key={day.value}
-                                    type="button"
-                                    className={`rounded-md border px-3 py-2 text-sm font-medium transition ${
-                                      selected
-                                        ? "border-primary bg-primary text-primary-foreground"
-                                        : "border-border bg-background text-foreground hover:bg-muted"
-                                    }`}
-                                    onClick={() => toggleSlotWeekday(day.value)}
-                                  >
-                                    {day.label}
-                                  </button>
-                                );
-                              })}
+                        <div className="min-h-0 flex-1 space-y-5 overflow-y-auto pr-1 pt-4">
+                          <div className="space-y-3 rounded-md bg-muted/25 p-3">
+                            <div>
+                              <p className="text-sm font-semibold text-foreground">Slot Settings</p>
+                              <p className="text-xs text-muted-foreground">Choose where this change applies and what kind of row to save.</p>
                             </div>
-                            <p className="mt-2 text-xs text-muted-foreground">
-                              Save the same period and subject rows across the selected days.
-                            </p>
-                          </Field>
-                          {isPackedSelectedRoutine ? (
-                            <Field label="Save Mode">
-                              <div className="grid gap-2 sm:grid-cols-2">
-                                {[
-                                  {
-                                    value: "replace",
-                                    label: "Replace slot",
-                                    description: "Clear this period for selected days, then save these rows.",
-                                  },
-                                  {
-                                    value: "add",
-                                    label: "Add to slot",
-                                    description: "Keep existing rows and add these subject or custom rows to selected days.",
-                                  },
-                                ].map((option) => {
-                                  const selected = slotForm.save_mode === option.value;
+                            <div className="grid gap-3 sm:grid-cols-2">
+                              <Field label="Type">
+                                <select
+                                  className={selectClassName}
+                                  value={slotForm.entry_type}
+                                  onChange={(event) => setSlotForm((current) => ({
+                                    ...current,
+                                    entry_type: event.target.value,
+                                    save_mode: ["subject", "custom"].includes(event.target.value) ? current.save_mode : "replace",
+                                    subjectRows: event.target.value === "subject" ? current.subjectRows : [emptySubjectSlotRow(1)],
+                                    activity_id: event.target.value === "activity" ? current.activity_id : "",
+                                    custom_title: event.target.value === "custom" ? current.custom_title : "",
+                                    custom_teacher_id: event.target.value === "custom" ? current.custom_teacher_id : "",
+                                    customRows: event.target.value === "custom" ? current.customRows || [emptyCustomSlotRow(1)] : [emptyCustomSlotRow(1)],
+                                  }))}
+                                >
+                                  <option value="subject">Subject</option>
+                                  <option value="custom">Custom / Routine-only</option>
+                                  <option value="break">Break</option>
+                                  <option value="activity">Activity</option>
+                                  <option value="free">Free</option>
+                                </select>
+                              </Field>
+                              <Field label="Combined Class Group">
+                                <Input
+                                  value={slotForm.combined_group_key || ""}
+                                  onChange={(event) => setSlotForm((current) => ({ ...current, combined_group_key: event.target.value }))}
+                                  placeholder="Optional shared key"
+                                />
+                              </Field>
+                            </div>
+                            <Field label="Apply To Days">
+                              <div className="flex flex-wrap gap-2">
+                                {weekdayColumns.map((day) => {
+                                  const selected = (slotForm.weekdays || []).map(String).includes(String(day.value));
                                   return (
                                     <button
-                                      key={option.value}
+                                      key={day.value}
                                       type="button"
-                                      className={`rounded-md border p-3 text-left transition ${
+                                      className={`rounded-md px-3 py-2 text-sm font-medium transition ${
                                         selected
-                                          ? "border-primary bg-primary/10 text-foreground"
-                                          : "border-border bg-background text-foreground hover:bg-muted"
+                                          ? "bg-primary text-primary-foreground shadow-sm"
+                                          : "bg-background text-muted-foreground ring-1 ring-border hover:text-foreground"
                                       }`}
-                                      onClick={() => setSlotForm((current) => ({ ...current, save_mode: option.value }))}
+                                      onClick={() => toggleSlotWeekday(day.value)}
                                     >
-                                      <span className="block text-sm font-semibold">{option.label}</span>
-                                      <span className="mt-1 block text-xs text-muted-foreground">{option.description}</span>
+                                      {day.label}
                                     </button>
                                   );
                                 })}
                               </div>
+                              <p className="mt-2 text-xs text-muted-foreground">
+                                Save this period across the selected days. Use the same combined group key only for real combined classes.
+                              </p>
                             </Field>
-                          ) : null}
-                          <Field label="Type">
-                            <select
-                              className={selectClassName}
-                              value={slotForm.entry_type}
-                              onChange={(event) => setSlotForm((current) => ({
-                                ...current,
-                                entry_type: event.target.value,
-                                save_mode: ["subject", "custom"].includes(event.target.value) ? current.save_mode : "replace",
-                                subjectRows: event.target.value === "subject" ? current.subjectRows : [emptySubjectSlotRow(1)],
-                                activity_id: event.target.value === "activity" ? current.activity_id : "",
-                                custom_title: event.target.value === "custom" ? current.custom_title : "",
-                                custom_teacher_id: event.target.value === "custom" ? current.custom_teacher_id : "",
-                                customRows: event.target.value === "custom" ? current.customRows || [emptyCustomSlotRow(1)] : [emptyCustomSlotRow(1)],
-                              }))}
-                            >
-                              <option value="subject">Subject</option>
-                              <option value="custom">Custom / Routine-only</option>
-                              <option value="break">Break</option>
-                              <option value="activity">Activity</option>
-                              <option value="free">Free</option>
-                            </select>
-                          </Field>
+                            {isPackedSelectedRoutine ? (
+                              <Field label="Save Mode">
+                                <div className="grid gap-2 sm:grid-cols-2">
+                                  {[
+                                    {
+                                      value: "replace",
+                                      label: "Replace slot",
+                                      description: "Clear this period for selected days, then save these rows.",
+                                    },
+                                    {
+                                      value: "add",
+                                      label: "Add to slot",
+                                      description: "Keep existing rows and add these subject or custom rows to selected days.",
+                                    },
+                                  ].map((option) => {
+                                    const selected = slotForm.save_mode === option.value;
+                                    return (
+                                      <button
+                                        key={option.value}
+                                        type="button"
+                                        className={`rounded-md p-3 text-left transition ${
+                                          selected
+                                            ? "bg-primary/10 text-foreground ring-1 ring-primary/40"
+                                            : "bg-background text-foreground ring-1 ring-border hover:bg-muted/60"
+                                        }`}
+                                        onClick={() => setSlotForm((current) => ({ ...current, save_mode: option.value }))}
+                                      >
+                                        <span className="block text-sm font-semibold">{option.label}</span>
+                                        <span className="mt-1 block text-xs text-muted-foreground">{option.description}</span>
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              </Field>
+                            ) : null}
+                          </div>
                           {slotForm.entry_type === "subject" ? (
                           <div className="space-y-3">
+                            <div>
+                              <p className="text-sm font-semibold text-foreground">Subjects</p>
+                              <p className="text-xs text-muted-foreground">Add one or more subjects for this period.</p>
+                            </div>
                             {(slotForm.subjectRows || []).map((row, index) => {
                               const baseTeacherOptions = row.subject_id ? slotTeacherOptions[String(row.subject_id)] || [] : [];
                               const teacherOptions = mergeSelectedTeacherOptions(baseTeacherOptions, row.teacherRows || [], teachers);
                               const selectedSubject = slotSubjects.find((subject) => String(subject.id) === String(row.subject_id));
                               return (
-                                <div key={row.key} className="rounded-md border border-border bg-muted/20 p-3">
-                                  <div className="mb-2 flex items-center justify-between gap-2">
+                                <div key={row.key} className="rounded-md border border-border bg-background p-3 shadow-sm">
+                                  <div className="mb-3 flex items-start justify-between gap-2 border-b border-border/50 pb-2">
                                     <div>
-                                      <p className="text-sm font-medium text-foreground">Subject {index + 1}</p>
+                                      <p className="text-sm font-semibold text-foreground">Subject {index + 1}</p>
                                       {selectedSubject?.subject_group ? (
-                                        <p className="text-xs capitalize text-muted-foreground">{selectedSubject.subject_group}</p>
+                                        <p className="mt-0.5 text-xs capitalize text-primary">{selectedSubject.subject_group}</p>
                                       ) : null}
                                     </div>
                                     <Button
                                       type="button"
                                       variant="outline"
                                       size="icon"
-                                      className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+                                      className="border-destructive/30 bg-destructive/5 text-destructive hover:bg-destructive/10 hover:text-destructive"
                                       onClick={() => removeSlotSubjectRow(row.key)}
                                       aria-label={`${(slotForm.subjectRows || []).length > 1 ? "Delete" : "Clear"} subject ${index + 1}`}
                                     >
@@ -2943,10 +3161,10 @@ export default function Routines() {
                                     </Field>
                                   </div>
                                   <div className="mt-3">
-                                    <Label className="text-xs font-medium text-muted-foreground">Teachers</Label>
+                                    <Label className="text-xs font-semibold text-foreground">Teachers</Label>
                                     <div className="mt-2 space-y-2">
                                       {(row.teacherRows || [emptyTeacherSplitRow(1, row.teacher_id)]).map((teacherRow, teacherIndex) => (
-                                        <div key={teacherRow.key} className="rounded-md border border-border bg-background p-2">
+                                        <div key={teacherRow.key} className="rounded-md border border-border/70 bg-muted/30 p-2">
                                           <div className="flex items-center gap-2">
                                             <select
                                               required
@@ -2962,7 +3180,7 @@ export default function Routines() {
                                                 type="button"
                                                 variant="outline"
                                                 size="icon"
-                                                className="shrink-0 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                                                className="shrink-0 border-destructive/30 bg-destructive/5 text-destructive hover:bg-destructive/10 hover:text-destructive"
                                                 onClick={() => removeSlotSubjectTeacherRow(row.key, teacherRow.key)}
                                                 aria-label={`Delete teacher split ${teacherIndex + 1}`}
                                               >
@@ -2982,10 +3200,10 @@ export default function Routines() {
                                                     <button
                                                       key={`${teacherRow.key}-${weekday}`}
                                                       type="button"
-                                                      className={`rounded-md border px-2 py-1 text-xs font-medium transition ${
+                                                      className={`rounded-md px-2 py-1 text-xs font-medium transition ${
                                                         selected
-                                                          ? "border-primary bg-primary text-primary-foreground"
-                                                          : "border-border bg-muted/30 text-foreground hover:bg-muted"
+                                                          ? "bg-primary text-primary-foreground"
+                                                          : "bg-background text-muted-foreground ring-1 ring-border hover:text-foreground"
                                                       }`}
                                                       onClick={() => toggleSlotSubjectTeacherWeekday(row.key, teacherRow.key, weekday)}
                                                     >
@@ -3028,7 +3246,7 @@ export default function Routines() {
                                         </select>
                                       </Field>
                                       <Field label="Sections Applies To">
-                                        <div className="rounded-md border border-border bg-background p-2">
+                                        <div className="rounded-md border border-border/70 bg-muted/30 p-2">
                                           <div className="flex flex-wrap gap-2">
                                             {(selectedRoutineClass?.sections || [])
                                               .filter((section) => !row.applies_medium || section.medium === row.applies_medium)
@@ -3038,10 +3256,10 @@ export default function Routines() {
                                                   <button
                                                     key={`${row.key}-${section.id}`}
                                                     type="button"
-                                                    className={`rounded-md border px-2 py-1 text-xs font-medium transition ${
+                                                    className={`rounded-md px-2 py-1 text-xs font-medium transition ${
                                                       selected
-                                                        ? "border-primary bg-primary text-primary-foreground"
-                                                        : "border-border bg-muted/30 text-foreground hover:bg-muted"
+                                                        ? "bg-primary text-primary-foreground"
+                                                        : "bg-background text-muted-foreground ring-1 ring-border hover:text-foreground"
                                                     }`}
                                                     onClick={() => toggleSlotSubjectSection(row.key, section.id)}
                                                   >
@@ -3068,15 +3286,19 @@ export default function Routines() {
                           ) : null}
                           {slotForm.entry_type === "custom" ? (
                           <div className="space-y-3">
+                            <div>
+                              <p className="text-sm font-semibold text-foreground">Custom Subjects</p>
+                              <p className="text-xs text-muted-foreground">Use routine-only titles that do not affect marks subjects.</p>
+                            </div>
                             {(slotForm.customRows || []).map((row, index) => (
-                              <div key={row.key} className="rounded-md border border-border bg-muted/20 p-3">
-                                <div className="mb-2 flex items-center justify-between gap-2">
-                                  <p className="text-sm font-medium text-foreground">Custom Subject {index + 1}</p>
+                              <div key={row.key} className="rounded-md border border-border bg-background p-3 shadow-sm">
+                                <div className="mb-3 flex items-center justify-between gap-2 border-b border-border/50 pb-2">
+                                  <p className="text-sm font-semibold text-foreground">Custom Subject {index + 1}</p>
                                   <Button
                                     type="button"
                                     variant="outline"
                                     size="icon"
-                                    className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+                                    className="border-destructive/30 bg-destructive/5 text-destructive hover:bg-destructive/10 hover:text-destructive"
                                     onClick={() => removeSlotCustomRow(row.key)}
                                     aria-label={`${(slotForm.customRows || []).length > 1 ? "Delete" : "Clear"} custom subject ${index + 1}`}
                                   >
@@ -3150,57 +3372,9 @@ export default function Routines() {
           <RoutineCard>
             <CardHeader>
               <div className="space-y-3">
-                <div className="flex min-w-0 flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
-                  <div className="min-w-0 text-left">
-                    <div className="min-w-0">
-                      <p className="truncate text-lg font-semibold text-foreground">
-                        {selectedExamRoutineExamGroup?.exam_name || "Exam Routine"}
-                      </p>
-                      <p className="mt-1 truncate text-sm text-muted-foreground">
-                        {selectedExamRoutine ? selectedExamRoutineHeader || "Selected routine" : "Select an exam and class routine"}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="flex max-w-full flex-wrap items-center justify-start gap-3 text-sm text-muted-foreground xl:justify-end">
-                    {selectedExamRoutine?.status ? <StatusBadge status={selectedExamRoutine.status} /> : null}
-                    <span className="inline-flex items-center gap-1.5"><CalendarDays className="size-4" />{selectedExamRoutineSummary.rows} rows</span>
-                    <span className="inline-flex items-center gap-1.5"><BookOpen className="size-4" />{selectedExamRoutineSummary.subjects} subjects</span>
-                    <span className="inline-flex items-center gap-1.5"><CheckCircle2 className="size-4" />{selectedExamRoutineSummary.invigilators} invigilators</span>
-                  </div>
-                </div>
-                <div className="space-y-2">
-                  {examRoutineExamGroups.length ? (
-                    <div className="min-w-0 overflow-x-auto pb-1">
-                      <div className="flex min-w-max gap-2">
-                        {examRoutineExamGroups.map((group) => {
-                          const selected = group.key === selectedExamRoutineExamGroup?.key;
-                          return (
-                            <button
-                              key={group.key}
-                              type="button"
-                              className={`min-w-[180px] rounded-md border px-3 py-2 text-left text-sm transition ${
-                                selected
-                                  ? "border-primary bg-primary text-primary-foreground shadow-sm"
-                                  : "border-border bg-background text-foreground hover:border-primary/50 hover:bg-muted/40"
-                              }`}
-                              onClick={() => {
-                                setSelectedExamRoutineExamKey(group.key);
-                                const preferred = group.routines.find((routine) => routine.status === "published") || group.routines[0];
-                                setSelectedExamRoutineId(preferred ? String(preferred.id) : "");
-                              }}
-                            >
-                              <span className="block truncate font-medium">{group.exam_name || "Exam"}</span>
-                              <span className={`mt-0.5 block text-xs ${selected ? "text-primary-foreground/80" : "text-muted-foreground"}`}>
-                                {group.routines.length} class routine{group.routines.length === 1 ? "" : "s"}
-                              </span>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  ) : null}
-                  {selectedExamRoutineClassItems.length ? (
-                    <div className="flex min-w-0 items-center gap-2">
+                <div className="flex min-w-0 flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                  <div className="min-w-0 text-left lg:max-w-[46%]">
+                    <div className="flex items-center justify-start gap-3">
                       <Button
                         type="button"
                         variant="outline"
@@ -3211,32 +3385,13 @@ export default function Routines() {
                       >
                         <ChevronLeft className="size-4" />
                       </Button>
-                      <div className="min-w-0 flex-1 overflow-x-auto pb-1">
-                        <div className="flex min-w-max gap-2">
-                          {selectedExamRoutineClassItems.map((routine) => {
-                            const selected = String(routine.id) === String(selectedExamRoutineId);
-                            const title = [routine.class_name || "Class", routine.section_name, routine.medium, routine.stream_name]
-                              .filter(Boolean)
-                              .join(" | ");
-                            return (
-                              <button
-                                key={routine.id}
-                                type="button"
-                                className={`rounded-md border px-3 py-2 text-left text-sm transition ${
-                                  selected
-                                    ? "border-primary bg-primary text-primary-foreground shadow-sm"
-                                    : "border-border bg-background text-foreground hover:border-primary/50 hover:bg-muted/40"
-                                }`}
-                                onClick={() => setSelectedExamRoutineId(String(routine.id))}
-                              >
-                                <span className="block max-w-[220px] truncate font-medium">{title || "Class Routine"}</span>
-                                <span className={`mt-0.5 block text-xs ${selected ? "text-primary-foreground/80" : "text-muted-foreground"}`}>
-                                  {routine.entry_count || 0} rows
-                                </span>
-                              </button>
-                            );
-                          })}
-                        </div>
+                      <div className="min-w-0">
+                        <p className="whitespace-normal break-words text-lg font-semibold leading-snug text-foreground">
+                          {selectedExamRoutineExamGroup?.exam_name || "Exam Routine"}
+                        </p>
+                        <p className="mt-1 whitespace-normal break-words text-sm text-muted-foreground">
+                          {selectedExamRoutine ? selectedExamRoutineHeader || "Selected routine" : "Select an exam and class routine"}
+                        </p>
                       </div>
                       <Button
                         type="button"
@@ -3249,19 +3404,61 @@ export default function Routines() {
                         <ChevronRight className="size-4" />
                       </Button>
                     </div>
-                  ) : null}
+                  </div>
+                  <div className="flex max-w-full flex-wrap items-center justify-start gap-3 text-sm text-muted-foreground lg:justify-end">
+                    {selectedExamRoutine?.status ? <StatusBadge status={selectedExamRoutine.status} /> : null}
+                    <span className="inline-flex items-center gap-1.5"><CalendarDays className="size-4" />{selectedExamRoutineSummary.rows} rows</span>
+                    <span className="inline-flex items-center gap-1.5"><BookOpen className="size-4" />{selectedExamRoutineSummary.subjects} subjects</span>
+                    <span className="inline-flex items-center gap-1.5"><CheckCircle2 className="size-4" />{selectedExamRoutineSummary.invigilators} invigilators</span>
+                  </div>
                 </div>
-                <div className="flex min-w-0 flex-col gap-2 lg:flex-row lg:items-center lg:justify-end">
-                  <div className="flex min-w-0 flex-wrap items-center justify-start gap-2 lg:justify-end [&>*]:h-9">
+                <div className="flex min-w-0 justify-end overflow-hidden">
+                  <div className="flex max-w-full flex-nowrap items-center justify-end gap-2 overflow-x-auto [&>*]:h-9 [&>*]:shrink-0">
+                    {examRoutineExamGroups.length ? (
+                      <select
+                        className={`${selectClassName} h-9 !w-[min(62vw,300px)] !min-w-[180px] rounded-md px-3 py-1.5 text-sm`}
+                        value={selectedExamRoutineExamGroup?.key || ""}
+                        onChange={(event) => {
+                          const nextGroup = examRoutineExamGroups.find((group) => group.key === event.target.value);
+                          setSelectedExamRoutineExamKey(event.target.value);
+                          const preferred = nextGroup?.routines.find((routine) => routine.status === "published") || nextGroup?.routines[0];
+                          setSelectedExamRoutineId(preferred ? String(preferred.id) : "");
+                        }}
+                      >
+                        {examRoutineExamGroups.map((group) => (
+                          <option key={group.key} value={group.key}>
+                            {group.exam_name || "Exam"} ({group.routines.length})
+                          </option>
+                        ))}
+                      </select>
+                    ) : null}
+                    {selectedExamRoutineClassItems.length ? (
+                      <select
+                        className={`${selectClassName} h-9 !w-[min(62vw,320px)] !min-w-[220px] rounded-md px-3 py-1.5 text-sm`}
+                        value={selectedExamRoutineId}
+                        onChange={(event) => setSelectedExamRoutineId(event.target.value)}
+                      >
+                        {selectedExamRoutineClassItems.map((routine) => {
+                          const title = [routine.class_name || "Class", routine.section_name, routine.medium, routine.stream_name]
+                            .filter(Boolean)
+                            .join(" | ");
+                          return (
+                            <option key={routine.id} value={routine.id}>
+                              {title || "Class Routine"}
+                            </option>
+                          );
+                        })}
+                      </select>
+                    ) : null}
                     {["draft", "published"].includes(selectedExamRoutine?.status) ? (
                       <>
                         <Button type="button" size="sm" variant="outline" onClick={openEditExamRoutine}>
                           <Pencil className="mr-2 size-4" />
                           Edit
                         </Button>
-                        <Button type="button" size="sm" variant="outline" onClick={handleDeleteExamRoutine}>
-                          <Trash2 className="mr-2 size-4 text-destructive" />
-                          Delete
+                        <Button type="button" size="sm" variant="outline" onClick={openDuplicateExamRoutine}>
+                          <Copy className="mr-2 size-4" />
+                          Duplicate
                         </Button>
                       </>
                     ) : null}
@@ -3291,11 +3488,89 @@ export default function Routines() {
                         Download PDF
                       </Button>
                     ) : null}
+                    {["draft", "published"].includes(selectedExamRoutine?.status) ? (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            type="button"
+                            size="icon"
+                            variant="outline"
+                            className="border-destructive/30 bg-destructive/5 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                            onClick={handleDeleteExamRoutine}
+                            aria-label="Delete exam routine"
+                          >
+                            <Trash2 className="size-4" />
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>Delete exam routine</TooltipContent>
+                      </Tooltip>
+                    ) : null}
                   </div>
                 </div>
               </div>
             </CardHeader>
             <CardContent className="space-y-4">
+              <Dialog open={duplicateExamOpen} onOpenChange={setDuplicateExamOpen}>
+                <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-[720px]">
+                  <DialogHeader>
+                    <DialogTitle>Duplicate Exam Routine</DialogTitle>
+                    <DialogDescription>Copy the selected exam routine into a new draft for another exam or class. Published routines are not changed.</DialogDescription>
+                  </DialogHeader>
+                  <form className="space-y-4" onSubmit={handleDuplicateExamRoutine}>
+                    <div className="rounded-md border border-border bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
+                      Source: {selectedExamRoutineExamGroup?.exam_name || "Exam"}{selectedExamRoutineHeader ? ` / ${selectedExamRoutineHeader}` : ""}
+                    </div>
+                    <div className="grid gap-3 md:grid-cols-2">
+                      <Field label="Scope">
+                        <select required className={selectClassName} value={duplicateExamForm.class_scope} onChange={(event) => updateDuplicateExamForm("class_scope", event.target.value)}>
+                          <option value="school">School</option>
+                          <option value="hs">Higher Secondary</option>
+                        </select>
+                      </Field>
+                      <Field label="Exam">
+                        <select required className={selectClassName} value={duplicateExamForm.exam_id} onChange={(event) => updateDuplicateExamForm("exam_id", event.target.value)}>
+                          <option value="">Select exam</option>
+                          {duplicateScopedExams.map((exam) => <option key={exam.id} value={exam.id}>{exam.name}</option>)}
+                        </select>
+                      </Field>
+                      <Field label="Class">
+                        <select required className={selectClassName} value={duplicateExamForm.class_id} onChange={(event) => updateDuplicateExamForm("class_id", event.target.value)}>
+                          <option value="">Select class</option>
+                          {duplicateExamScopeClasses.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+                        </select>
+                      </Field>
+                      <Field label="Section">
+                        <select className={selectClassName} value={duplicateExamForm.section_id} onChange={(event) => updateDuplicateExamForm("section_id", event.target.value)}>
+                          <option value="">All sections</option>
+                          {(selectedDuplicateExamClass?.sections || []).map((section) => <option key={`${section.id}-${section.medium}`} value={section.id}>{section.name} - {section.medium}</option>)}
+                        </select>
+                      </Field>
+                      <Field label="Medium">
+                        <select className={selectClassName} value={duplicateExamForm.medium} disabled={Boolean(duplicateExamForm.section_id)} onChange={(event) => updateDuplicateExamForm("medium", event.target.value)}>
+                          <option value="">All mediums</option>
+                          {(selectedDuplicateExamClass?.mediums || []).map((medium) => <option key={medium} value={medium}>{medium}</option>)}
+                        </select>
+                      </Field>
+                      {selectedDuplicateExamClass?.class_scope === "hs" ? (
+                        <Field label="Stream">
+                          <select className={selectClassName} value={duplicateExamForm.stream_id} onChange={(event) => updateDuplicateExamForm("stream_id", event.target.value)}>
+                            <option value="">No stream</option>
+                            {streams.map((stream) => <option key={stream.id} value={stream.id}>{stream.name}</option>)}
+                          </select>
+                        </Field>
+                      ) : null}
+                      <Field label="Title">
+                        <Input value={duplicateExamForm.title} onChange={(event) => updateDuplicateExamForm("title", event.target.value)} placeholder="Optional title" />
+                      </Field>
+                    </div>
+                    <div className="flex justify-end gap-2 border-t border-border pt-4">
+                      <Button type="button" variant="outline" onClick={() => setDuplicateExamOpen(false)}>Cancel</Button>
+                      <Button type="submit">Create Draft Copy</Button>
+                    </div>
+                  </form>
+                </DialogContent>
+              </Dialog>
+
               <Dialog
                 open={examOpen}
                 onOpenChange={(open) => {
@@ -3363,7 +3638,7 @@ export default function Routines() {
                                 type="button"
                                 variant="outline"
                                 size="icon"
-                                className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+                                className="border-destructive/30 bg-destructive/5 text-destructive hover:bg-destructive/10 hover:text-destructive"
                                 onClick={() => removeExamEntry(index)}
                                 aria-label={`Delete exam row ${index + 1}`}
                               >
@@ -3497,7 +3772,7 @@ export default function Routines() {
                               type="button"
                               variant="outline"
                               size="icon"
-                              className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+                              className="border-destructive/30 bg-destructive/5 text-destructive hover:bg-destructive/10 hover:text-destructive"
                               onClick={() => removeTemplateSlot(index)}
                               aria-label={`Delete slot ${index + 1}`}
                             >

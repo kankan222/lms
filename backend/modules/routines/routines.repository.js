@@ -3,6 +3,7 @@ import { pool } from "../../database/pool.js";
 
 const STREAM_DEDUPE_SQL = "COALESCE(?, 0)";
 let classRoutineApplicabilityPromise;
+let classRoutineCombinedGroupPromise;
 
 function hasValue(value) {
   return value !== undefined && value !== null && value !== "";
@@ -169,6 +170,21 @@ export async function updateTimeSlotTemplate(id, data, slots) {
   }
 }
 
+async function hasClassRoutineCombinedGroupSchema() {
+  if (!classRoutineCombinedGroupPromise) {
+    classRoutineCombinedGroupPromise = query(
+      `
+        SELECT COUNT(*) AS count
+        FROM information_schema.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = 'class_routine_entries'
+          AND COLUMN_NAME = 'combined_group_key'
+      `
+    ).then((rows) => Number(rows[0]?.count || 0) > 0);
+  }
+  return classRoutineCombinedGroupPromise;
+}
+
 export function countClassRoutinesUsingTemplate(id) {
   return query(
     `
@@ -223,7 +239,7 @@ export async function getTimeSlotTemplateWithSlots(id) {
   return { ...template, slots };
 }
 
-export function listBreakTimeSlotsForTemplateIds(templateIds = []) {
+export function listRoutineTimeSlotsForTemplateIds(templateIds = []) {
   const ids = [...new Set(templateIds.map((id) => Number(id)).filter(Boolean))];
   if (!ids.length) return Promise.resolve([]);
   const placeholders = ids.map(() => "?").join(",");
@@ -242,12 +258,13 @@ export function listBreakTimeSlotsForTemplateIds(templateIds = []) {
         sort_order
       FROM routine_time_slots
       WHERE template_id IN (${placeholders})
-        AND (default_entry_type = 'break' OR is_break = 1)
       ORDER BY template_id, COALESCE(weekday, 0), sort_order, period_number, start_time
     `,
     ids
   );
 }
+
+export const listBreakTimeSlotsForTemplateIds = listRoutineTimeSlotsForTemplateIds;
 
 export function getClassById(id) {
   return query(
@@ -354,6 +371,7 @@ export async function listClassRoutineBoardRowsImpl(filters = {}) {
   const where = [];
   const params = [];
   const hasApplicability = await hasClassRoutineApplicabilitySchema();
+  const hasCombinedGroup = await hasClassRoutineCombinedGroupSchema();
   const hasRoutineVersionFilter = hasValue(filters.routine_version_id);
   appendFilter(where, params, "v.id", filters.routine_version_id);
   if (!hasRoutineVersionFilter) {
@@ -445,6 +463,7 @@ export async function listClassRoutineBoardRowsImpl(filters = {}) {
         sub.name AS subject_name,
         e.activity_id,
         act.name AS activity_name,
+        ${hasCombinedGroup ? "e.combined_group_key" : "NULL"} AS combined_group_key,
         ${hasApplicability ? "e.applies_medium" : "NULL"} AS applies_medium,
         e.title AS entry_title,
         e.room,
@@ -576,12 +595,14 @@ export async function getDraftClassRoutineForScope(scope) {
 
 export async function getClassRoutineEntries(versionId) {
   const hasApplicability = await hasClassRoutineApplicabilitySchema();
+  const hasCombinedGroup = await hasClassRoutineCombinedGroupSchema();
   const rows = await query(
     `
       SELECT
         e.*,
         COALESCE(e.start_time, MAX(COALESCE(ts_exact.start_time, ts_day.start_time, ts_all.start_time))) AS start_time,
         COALESCE(e.end_time, MAX(COALESCE(ts_exact.end_time, ts_day.end_time, ts_all.end_time))) AS end_time,
+        ${hasCombinedGroup ? "e.combined_group_key" : "NULL"} AS combined_group_key,
         ${hasApplicability ? "e.applies_medium" : "NULL"} AS applies_medium,
         sub.name AS subject_name,
         act.name AS activity_name,
@@ -752,12 +773,13 @@ async function replaceClassRoutineEntries(conn, versionId, entries = []) {
 
 async function insertClassRoutineEntry(conn, versionId, entry) {
   const hasApplicability = await hasClassRoutineApplicabilitySchema();
+  const hasCombinedGroup = await hasClassRoutineCombinedGroupSchema();
   const [result] = await conn.execute(
     `
       INSERT INTO class_routine_entries
       (routine_version_id, time_slot_id, weekday, period_number, start_time, end_time,
-       entry_type, subject_id, activity_id, title, room, notes, sort_order${hasApplicability ? ", applies_medium" : ""})
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?${hasApplicability ? ", ?" : ""})
+       entry_type, subject_id, activity_id, title, room, notes, sort_order${hasCombinedGroup ? ", combined_group_key" : ""}${hasApplicability ? ", applies_medium" : ""})
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?${hasCombinedGroup ? ", ?" : ""}${hasApplicability ? ", ?" : ""})
     `,
     [
       versionId,
@@ -773,6 +795,7 @@ async function insertClassRoutineEntry(conn, versionId, entry) {
       entry.room,
       entry.notes,
       entry.sort_order,
+      ...(hasCombinedGroup ? [entry.combined_group_key || null] : []),
       ...(hasApplicability ? [entry.applies_medium || null] : []),
     ]
   );
@@ -899,7 +922,8 @@ export function deleteClassRoutineVersion(id) {
   return query("DELETE FROM class_routine_versions WHERE id = ? AND status IN ('draft', 'published')", [id]);
 }
 
-export function findClassRoutineTeacherConflicts(versionId) {
+export async function findClassRoutineTeacherConflicts(versionId) {
+  const hasCombinedGroup = await hasClassRoutineCombinedGroupSchema();
   return query(
     `
       SELECT
@@ -909,9 +933,11 @@ export function findClassRoutineTeacherConflicts(versionId) {
         ne.period_number,
         COALESCE(ne.start_time, MAX(COALESCE(nts_exact.start_time, nts_day.start_time, nts_all.start_time))) AS start_time,
         COALESCE(ne.end_time, MAX(COALESCE(nts_exact.end_time, nts_day.end_time, nts_all.end_time))) AS end_time,
+        ${hasCombinedGroup ? "ne.combined_group_key" : "NULL"} AS combined_group_key,
         ce.period_number AS conflicting_period_number,
         COALESCE(ce.start_time, MAX(COALESCE(cts_exact.start_time, cts_day.start_time, cts_all.start_time))) AS conflicting_start_time,
         COALESCE(ce.end_time, MAX(COALESCE(cts_exact.end_time, cts_day.end_time, cts_all.end_time))) AS conflicting_end_time,
+        ${hasCombinedGroup ? "ce.combined_group_key" : "NULL"} AS conflicting_combined_group_key,
         ne.id AS entry_id,
         ce.id AS conflicting_entry_id,
         nv.class_id,
@@ -976,6 +1002,11 @@ export function findClassRoutineTeacherConflicts(versionId) {
       GROUP BY ne.id, ce.id, nt.teacher_id
       HAVING start_time < conflicting_end_time
          AND end_time > conflicting_start_time
+         AND NOT (
+           combined_group_key IS NOT NULL
+           AND combined_group_key <> ''
+           AND combined_group_key = conflicting_combined_group_key
+         )
       ORDER BY ne.weekday, ne.start_time, t.name
     `,
     [versionId]
@@ -1117,10 +1148,12 @@ export function getTeacherClassRoutine(userId, filters = {}) {
         ses.name AS session_name,
         v.class_id,
         c.name AS class_name,
+        COALESCE(c.class_scope, 'school') AS class_scope,
         v.section_id,
         sec.name AS section_name,
         v.medium,
         v.stream_id,
+        v.layout_mode,
         st.name AS stream_name,
         e.id AS entry_id,
         e.weekday,
@@ -1131,14 +1164,16 @@ export function getTeacherClassRoutine(userId, filters = {}) {
         e.title,
         e.room,
         e.subject_id,
-        sub.name AS subject_name
+        sub.name AS subject_name,
+        t.name AS teacher_names,
+        t.user_id AS teacher_user_ids
       FROM class_routine_entry_teachers et
       JOIN teachers t ON t.id = et.teacher_id
       JOIN class_routine_entries e ON e.id = et.routine_entry_id
       JOIN class_routine_versions v ON v.id = e.routine_version_id
       JOIN academic_sessions ses ON ses.id = v.session_id
       JOIN classes c ON c.id = v.class_id
-      JOIN sections sec ON sec.id = v.section_id
+      LEFT JOIN sections sec ON sec.id = v.section_id
       LEFT JOIN streams st ON st.id = v.stream_id
       LEFT JOIN subjects sub ON sub.id = e.subject_id
       WHERE ${where.join(" AND ")}
@@ -1259,6 +1294,28 @@ export async function getCanonicalExamRoutineForScope(scope) {
         CASE status WHEN 'published' THEN 1 WHEN 'draft' THEN 2 ELSE 3 END,
         updated_at DESC,
         id DESC
+      LIMIT 1
+    `,
+    [scope.exam_id, scope.session_id, scope.class_scope, scope.class_id, scope.section_id, scope.medium, scope.stream_id]
+  );
+  const routine = rows[0] || null;
+  return routine ? getExamRoutineWithEntries(routine.id) : null;
+}
+
+export async function getDraftExamRoutineForScope(scope) {
+  const rows = await query(
+    `
+      SELECT id
+      FROM exam_routine_versions
+      WHERE exam_id = ?
+        AND session_id = ?
+        AND COALESCE(class_scope, '') = COALESCE(?, '')
+        AND COALESCE(class_id, 0) = COALESCE(?, 0)
+        AND COALESCE(section_id, 0) = COALESCE(?, 0)
+        AND COALESCE(medium, '') = COALESCE(?, '')
+        AND COALESCE(stream_id, 0) = COALESCE(?, 0)
+        AND status = 'draft'
+      ORDER BY updated_at DESC, id DESC
       LIMIT 1
     `,
     [scope.exam_id, scope.session_id, scope.class_scope, scope.class_id, scope.section_id, scope.medium, scope.stream_id]

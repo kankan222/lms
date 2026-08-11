@@ -115,12 +115,14 @@ CREATE TABLE IF NOT EXISTS class_routine_entries (
   room VARCHAR(120) NULL,
   notes TEXT NULL,
   sort_order INT NOT NULL DEFAULT 0,
+  combined_group_key VARCHAR(120) NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   KEY idx_class_routine_entry_period (routine_version_id, weekday, period_number),
   KEY idx_class_routine_entries_subject (subject_id),
   KEY idx_class_routine_entries_activity (activity_id),
   KEY idx_class_routine_entries_day_time (weekday, start_time, end_time),
+  KEY idx_class_routine_entries_combined_group (combined_group_key),
   CONSTRAINT fk_class_routine_entries_version
     FOREIGN KEY (routine_version_id) REFERENCES class_routine_versions(id)
     ON DELETE CASCADE,

@@ -180,6 +180,13 @@ export function createExamRoutine(data) {
   });
 }
 
+export function duplicateExamRoutine(id, data) {
+  return apiRequest(`/routines/exam-routines/${id}/duplicate`, {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
 export function updateExamRoutine(id, data) {
   return apiRequest(`/routines/exam-routines/${id}`, {
     method: "PUT",

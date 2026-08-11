@@ -2096,9 +2096,9 @@ export default function MessagingTab({
                 </Pressable>
                 <Pressable
                   style={styles.chatHeaderIdentity}
-                  disabled={!activeConversation || activeConversation.type === "direct"}
+                  disabled={!activeConversation || activeConversation.type === "direct" || !canStartMessages}
                   onPress={() => {
-                    if (!activeConversation || activeConversation.type === "direct") return;
+                    if (!activeConversation || activeConversation.type === "direct" || !canStartMessages) return;
                     navigation.navigate("MessagingConversationDetails", {
                       conversationId: Number(activeConversation.id),
                       name: activeConversation.name || "Conversation",

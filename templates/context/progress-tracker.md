@@ -14,6 +14,11 @@ Update this file after every meaningful implementation change.
 
 ## Completed
 
+- Added synthetic Free routine rows from time-slot templates anywhere an empty
+  non-break slot exists, so student/teacher/admin routine views can show Free
+  periods alongside Break rows; restored mobile teacher routine switching
+  between My Periods and assigned Class Routines, with teacher-owned entries
+  loaded from the teacher-specific endpoint.
 - Allowed standard class routines to save multiple subject/custom entries in
   the same day-period slot while still stripping HS-only applicability fields
   from standard entries; packed HS remains the layout for section/stream
@@ -1313,3 +1318,58 @@ Update this file after every meaningful implementation change.
   multi-day slots require explicit days per teacher instead of treating blank
   teacher day chips as all days, preventing accidental HS Friday/Saturday
   teacher assignments during hybrid routine edits.
+- Restricted mobile messaging group details/settings access: parent and teacher
+  users can no longer open the group settings page from the chat header, and the
+  details screen now shows an access-restricted state if reached from stale
+  navigation.
+- Fixed mobile routine entry badges so only true empty slots display Free;
+  activity rows now display Activity and custom subject rows are not muted as
+  free periods.
+- Added exam routine duplication: software now exposes a Duplicate action for
+  selected draft/published exam routines, and the backend creates a separate
+  draft copy for the selected target exam/class scope without changing the
+  source routine.
+- Updated the software class routine header so long selected routine names can
+  wrap normally and the controls/actions sit on a dedicated second row.
+- Added combined-class grouping for class routine slots: class routine entries
+  now support an optional `combined_group_key`, the software slot editor can set
+  it, duplication preserves it, and teacher conflict validation ignores
+  same-teacher overlaps only when both entries share the same non-empty group
+  key. Added migration `20260811_class_routine_combined_group.sql`.
+- Refined the software class routine header again so the title/summary is a
+  normal full-width text block and the navigation/actions row is aligned to the
+  right.
+- Applied the same software header pattern to exam routines: wrapping
+  title/subtitle and summary first, with exam/class navigation and actions
+  right-aligned below.
+- Restored the software routine header flex layout while keeping the header text
+  wrappers free of `flex-1`, so actions remain on the right without forcing the
+  title block to flex-grow.
+- Updated routine software icon-only delete controls to use a visible bordered
+  destructive background treatment across routine, slot, teacher split, exam
+  row, and time slot dialogs.
+- Changed the software exam routine header to match the class routine header
+  pattern, using exam/class dropdown selectors with right-aligned actions
+  instead of scrollable pill selectors.
+- Split the software exam routine header into two rows: title/summary on the
+  first row and routine navigation, dropdown selectors, and actions on the
+  second row.
+- Removed the forced filled background from the mobile shared header
+  notification and dark-mode icon buttons while keeping the profile active
+  state unchanged.
+- Reordered the mobile teacher portal footer to Teacher Info, Marksheet,
+  Messages, Routines, Announcements, and More, and allowed teacher-role users
+  to see their Teacher Info tab without requiring the broader teacher view
+  permission.
+- Moved the software exam routine previous/next sliding arrows from the second
+  controls row back into the top header title row to match the class routine
+  header pattern.
+- Simplified the software class routine edit slot dialog styling: grouped slot
+  settings into one soft panel, reduced repeated borders on subject/custom
+  rows, and added clearer section headings and selected-state color hierarchy.
+- Restored important separation borders in the software routine edit dialog for
+  subject/custom row cards, teacher split blocks, and packed HS section
+  selection panels while keeping the rest of the dialog lighter.
+- Fixed software routine edit slot reopening for teacher splits by inferring
+  saved teacher/day selections from matching routine entries in the same period,
+  so split weekday chips reappear instead of being reset to blank.

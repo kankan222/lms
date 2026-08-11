@@ -143,7 +143,7 @@ function canViewTab(tabKey: TabKey, roles: string[], permissions: string[]) {
       if (isTeacher) return false;
       return permissions.includes("student.view");
     case "teachers":
-      return permissions.includes("teacher.view");
+      return isTeacher || permissions.includes("teacher.view");
     case "attendance":
       if (isParent) return false;
       return hasAny(permissions, [
@@ -203,7 +203,8 @@ function buildPrimaryTabs(roles: string[], permissions: string[]): NavTab[] {
 
   if (isTeacher) {
     return [
-      { key: "attendance", label: "Student Att.", icon: "calendar-outline" },
+      { key: "teachers", label: "Teacher Info", icon: "person-outline" },
+      { key: "reports", label: "Marksheet", icon: "bar-chart-outline" },
       { key: "messaging", label: "Messages", icon: "chatbubble-ellipses-outline" },
       { key: "routine", label: "Routines", icon: "time-outline" },
       { key: "announcements", label: "Announcements", icon: "megaphone-outline" },
@@ -266,7 +267,7 @@ function resolveDefaultTab(roles: string[], permissions: string[], visibleTabs: 
   const preferredOrder = hasRole(roles, "super_admin")
     ? (["dashboard", "routine", "announcements", "messaging", "students", "reports", "users"] as TabKey[])
     : hasRole(roles, "teacher")
-      ? (["attendance", "messaging", "routine", "announcements", "teacherAttendance", "reports", "teachers", "students", "users"] as TabKey[])
+      ? (["teachers", "reports", "messaging", "routine", "announcements", "attendance", "teacherAttendance", "students", "users"] as TabKey[])
       : hasRole(roles, "parent")
         ? (["students", "messaging", "routine", "announcements", "users"] as TabKey[])
         : hasRole(roles, "staff")
@@ -597,7 +598,7 @@ export default function AppShellScreen({ navigation, route }: Props) {
               style={[
                 styles.iconButton,
                 {
-                  backgroundColor: isDark ? theme.card : "#ffffff",
+                  backgroundColor: "transparent",
                   borderColor: theme.border,
                 },
               ]}
@@ -615,7 +616,7 @@ export default function AppShellScreen({ navigation, route }: Props) {
             style={[
               styles.iconButton,
               {
-                backgroundColor: isDark ? theme.card : "#ffffff",
+                backgroundColor: "transparent",
                 borderColor: theme.border,
               },
             ]}

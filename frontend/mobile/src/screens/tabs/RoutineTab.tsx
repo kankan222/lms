@@ -16,6 +16,7 @@ import {
   getExamRoutines,
   getMyTeacherClassRoutineBoard,
   getMyTeacherExamRoutines,
+  getMyTeacherRoutine,
   getStudentRoutine,
   type ExamRoutineEntry,
   type RoutineEntry,
@@ -24,6 +25,7 @@ import { useAuthStore } from "../../store/authStore";
 import { useAppTheme } from "../../theme/AppThemeProvider";
 
 type RoutineMode = "day" | "exam";
+type TeacherRoutineView = "mine" | "classes";
 type DayItem = { key: number; short: string; label: string };
 type RoutineGroup = { key: string; title: string; subtitle: string; entries: RoutineEntry[] };
 type RoutineSlotGroup = { key: string; entry: RoutineEntry; entries: RoutineEntry[]; displayLabel?: string };
@@ -274,7 +276,9 @@ export default function RoutineTab() {
   const [selectedStudentId, setSelectedStudentId] = useState<number | null>(null);
   const [students, setStudents] = useState<Student[]>([]);
   const [entries, setEntries] = useState<RoutineEntry[]>([]);
+  const [teacherEntries, setTeacherEntries] = useState<RoutineEntry[]>([]);
   const [examEntries, setExamEntries] = useState<ExamRoutineEntry[]>([]);
+  const [teacherRoutineView, setTeacherRoutineView] = useState<TeacherRoutineView>("mine");
   const [scopeFilter, setScopeFilter] = useState("all");
   const [classFilter, setClassFilter] = useState("all");
   const [sectionFilter, setSectionFilter] = useState("all");
@@ -296,9 +300,14 @@ export default function RoutineTab() {
     () => sortedEntries.filter((entry) => getEntryWeekday(entry) === selectedDay),
     [selectedDay, sortedEntries],
   );
+  const teacherDayEntries = useMemo(
+    () => [...teacherEntries].sort(sortRoutine).filter((entry) => getEntryWeekday(entry) === selectedDay),
+    [selectedDay, teacherEntries],
+  );
   const classSwitchingRoutineView = (isAdmin || isTeacher) && !isParent;
-  const classSwitchingClassRoutineView = classSwitchingRoutineView && mode !== "exam";
+  const classSwitchingClassRoutineView = classSwitchingRoutineView && mode !== "exam" && (!isTeacher || teacherRoutineView === "classes");
   const classSwitchingExamRoutineView = classSwitchingRoutineView && mode === "exam";
+  const showRoutineFilters = isAdmin || classSwitchingClassRoutineView || classSwitchingExamRoutineView;
   const filterSourceEntries = useMemo(
     () => mode === "exam" ? examEntries : sortedEntries,
     [examEntries, mode, sortedEntries],
@@ -478,6 +487,7 @@ export default function RoutineTab() {
 
     try {
       if (isParent) {
+        setTeacherEntries([]);
         const studentResult = await getStudents({ page: 1, limit: 20 });
         const parentStudents = Array.isArray(studentResult.data) ? studentResult.data : [];
         setStudents(parentStudents);
@@ -494,13 +504,19 @@ export default function RoutineTab() {
         return;
       }
 
-      const [boardEntries] = await Promise.all([
+      const [boardEntries, myTeacherEntries] = await Promise.all([
         canViewRoutines ? loadClassRoutineBoardEntries() : Promise.resolve([]),
+        isTeacher ? getMyTeacherRoutine() : Promise.resolve([]),
         loadExamRoutineEntries(null),
       ]);
       setEntries(boardEntries);
+      setTeacherEntries(myTeacherEntries.map((entry) => ({
+        ...entry,
+        class_scope_label: entry.class_scope_label || (entry.class_scope === "hs" ? "Higher Secondary" : entry.class_scope === "school" ? "School" : entry.class_scope),
+      })));
     } catch {
       setEntries([]);
+      setTeacherEntries([]);
       setError("Could not load routine right now.");
     } finally {
       if (loadMode === "refresh") setRefreshing(false);
@@ -536,7 +552,9 @@ export default function RoutineTab() {
   function renderRoutineSlotGroup(slot: RoutineSlotGroup, index: number) {
     const entry = slot.entry;
     const isBreak = isBreakEntry(entry);
-    const isFree = ["free", "custom"].includes(String(entry.entry_type || "").toLowerCase());
+    const entryType = String(entry.entry_type || "").toLowerCase();
+    const isFree = entryType === "free";
+    const isActivity = entryType === "activity";
     const muted = isBreak || isFree;
     const assignedToTeacher = slot.entries.some(entryBelongsToCurrentTeacher);
     const label = slot.displayLabel || entryPeriodLabel(entry);
@@ -639,7 +657,7 @@ export default function RoutineTab() {
                 styles.entryTypeText,
                 { color: assignedToTeacher ? theme.infoText : theme.primary },
               ]}>
-                {assignedToTeacher ? "Yours" : isBreak ? "Break" : isFree ? "Free" : "Class"}
+                {assignedToTeacher ? "Yours" : isBreak ? "Break" : isFree ? "Free" : isActivity ? "Activity" : "Class"}
               </Text>
             </View>
           </View>
@@ -825,10 +843,10 @@ export default function RoutineTab() {
         <View>
           <Text style={[styles.kicker, { color: theme.primary }]}>Routine</Text>
           <Text style={[styles.title, { color: theme.text }]}>
-            {mode === "exam" ? "Exam Routine" : isParent ? selectedStudent?.name || "Student Routine" : isTeacher ? "Class Routine" : "Routine"}
+            {mode === "exam" ? "Exam Routine" : isParent ? selectedStudent?.name || "Student Routine" : isTeacher && teacherRoutineView === "mine" ? "My Periods" : isTeacher ? "Class Routine" : "Routine"}
           </Text>
           <Text style={[styles.subtitle, { color: theme.subText }]} numberOfLines={2}>
-            {mode === "exam" ? `${visibleExamEntries.length} published paper${visibleExamEntries.length === 1 ? "" : "s"}` : isParent ? classLabel(selectedStudent) : isTeacher ? "Assigned class routines" : "Create and publish routines from the software portal."}
+            {mode === "exam" ? `${visibleExamEntries.length} published paper${visibleExamEntries.length === 1 ? "" : "s"}` : isParent ? classLabel(selectedStudent) : isTeacher && teacherRoutineView === "mine" ? "Periods assigned to you" : isTeacher ? "Assigned class routines" : "Create and publish routines from the software portal."}
           </Text>
         </View>
       </View>
@@ -901,7 +919,29 @@ export default function RoutineTab() {
         </ScrollView>
       ) : null}
 
-      {classSwitchingRoutineView ? (
+      {isTeacher && mode !== "exam" ? (
+        <View style={[styles.segmented, { backgroundColor: theme.card, borderColor: theme.border }]}>
+          {([
+            ["mine", "My Periods"],
+            ["classes", "Class Routines"],
+          ] as Array<[TeacherRoutineView, string]>).map(([key, label]) => {
+            const selected = teacherRoutineView === key;
+            return (
+              <Pressable
+                key={key}
+                style={[styles.segmentButton, { backgroundColor: selected ? theme.primary : "transparent" }]}
+                onPress={() => setTeacherRoutineView(key)}
+              >
+                <Text style={[styles.segmentText, { color: selected ? theme.primaryText : theme.subText }]} numberOfLines={1}>
+                  {label}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+      ) : null}
+
+      {showRoutineFilters ? (
         <View style={styles.compactFilterArea}>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.compactFilterRow}>
             <Pressable
@@ -981,6 +1021,8 @@ export default function RoutineTab() {
         <View style={styles.groupList}>{renderAdminExamRoutineGroup(selectedExamGroup)}</View>
       ) : mode === "exam" && visibleExamEntries.length ? (
         <View style={styles.timelineList}>{visibleExamEntries.map(renderExamEntry)}</View>
+      ) : isTeacher && mode !== "exam" && teacherRoutineView === "mine" && teacherDayEntries.length ? (
+        <View style={styles.timelineList}>{groupRoutineSlots(teacherDayEntries).map(renderRoutineSlotGroup)}</View>
       ) : classSwitchingClassRoutineView && selectedRoutineGroup ? (
         <View style={styles.groupList}>{renderAdminRoutineGroup(selectedRoutineGroup)}</View>
       ) : mode !== "exam" && visibleEntries.length ? (
@@ -996,6 +1038,8 @@ export default function RoutineTab() {
               ? "Mobile is ready for viewing once a routine is published."
               : mode === "exam"
                 ? "Published exam papers will appear here."
+                : isTeacher && teacherRoutineView === "mine"
+                  ? "Assigned periods will appear here."
                 : "Published classes and breaks will appear here."}
           </Text>
         </View>

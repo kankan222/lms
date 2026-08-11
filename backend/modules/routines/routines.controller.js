@@ -205,6 +205,14 @@ export async function createExamRoutine(req, res, next) {
   }
 }
 
+export async function duplicateExamRoutine(req, res, next) {
+  try {
+    res.status(201).json({ success: true, data: await service.duplicateExamRoutine(req.params.id, req.body, req.user.userId) });
+  } catch (err) {
+    next(err);
+  }
+}
+
 export async function importExamRoutine(req, res, next) {
   try {
     res.json({ success: true, data: await service.importExamRoutine(req.file, req.body, req.user.userId) });

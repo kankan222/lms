@@ -40,6 +40,7 @@ router.post(
 );
 router.get("/exam-routines/:id", requirePermission("routines.view"), controller.getExamRoutine);
 router.post("/exam-routines", requirePermission("exam_routines.manage"), controller.createExamRoutine);
+router.post("/exam-routines/:id/duplicate", requirePermission("exam_routines.manage"), controller.duplicateExamRoutine);
 router.put("/exam-routines/:id", requirePermission("exam_routines.manage"), controller.updateExamRoutine);
 router.post("/exam-routines/:id/draft", requirePermission("exam_routines.manage"), controller.draftExamRoutine);
 router.delete("/exam-routines/:id", requirePermission("exam_routines.manage"), controller.deleteExamRoutine);

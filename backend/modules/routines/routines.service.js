@@ -45,6 +45,14 @@ function optionalString(value) {
   return normalized || null;
 }
 
+function optionalLimitedString(value, fieldName, maxLength) {
+  const normalized = optionalString(value);
+  if (normalized && normalized.length > maxLength) {
+    throw new AppError(`${fieldName} must be ${maxLength} characters or less`, 400);
+  }
+  return normalized;
+}
+
 function normalizeClassScope(value, { required = false } = {}) {
   const raw = optionalString(value);
   if (!raw) {
@@ -464,6 +472,7 @@ function normalizeClassRoutineEntries(entries = []) {
       room: optionalString(entry.room),
       notes: optionalString(entry.notes),
       sort_order: Number.isInteger(Number(entry.sort_order)) ? Number(entry.sort_order) : index,
+      combined_group_key: optionalLimitedString(entry.combined_group_key, "entry.combined_group_key", 120),
       applies_medium: optionalString(entry.applies_medium),
       section_ids: sectionIds,
       teachers,
@@ -519,6 +528,7 @@ function classRoutineEntryToPayload(entry) {
     room: entry.room,
     notes: entry.notes,
     sort_order: entry.sort_order,
+    combined_group_key: entry.combined_group_key,
     applies_medium: entry.applies_medium,
     section_ids: entry.applies_section_ids || entry.section_ids || [],
     teachers: teacherAssignments,
@@ -663,6 +673,7 @@ function mapRoutineBoardEntry(row) {
     subject_name: row.subject_name,
     activity_id: row.activity_id ? Number(row.activity_id) : null,
     activity_name: row.activity_name,
+    combined_group_key: row.combined_group_key,
     applies_medium: packed ? row.applies_medium : null,
     applies_section_ids: packed && row.applies_section_ids
       ? String(row.applies_section_ids).split(",").map((id) => Number(id)).filter(Boolean)
@@ -746,7 +757,7 @@ function sortRoutineEntryLike(a, b) {
     String(a.start_time || "").localeCompare(String(b.start_time || ""));
 }
 
-function missingBreakSlotKey(weekday, slot) {
+function missingTemplateSlotKey(weekday, slot) {
   return [
     Number(weekday || 0),
     Number(slot.period_number || 0),
@@ -755,8 +766,14 @@ function missingBreakSlotKey(weekday, slot) {
   ].join("|");
 }
 
-function syntheticBreakRowFromBoardRow(row, slot, weekday) {
+function isBreakTemplateSlot(slot) {
+  return slot?.default_entry_type === "break" || Boolean(slot?.is_break);
+}
+
+function syntheticTemplateRowFromBoardRow(row, slot, weekday) {
   const syntheticId = -1 * (Number(slot.time_slot_id || 0) * 10 + Number(weekday || 0));
+  const entryType = isBreakTemplateSlot(slot) ? "break" : "free";
+  const title = entryType === "break" ? slot.label || "Break" : "Free";
   return {
     ...row,
     entry_id: syntheticId,
@@ -764,17 +781,18 @@ function syntheticBreakRowFromBoardRow(row, slot, weekday) {
     period_number: Number(slot.period_number),
     start_time: slot.start_time,
     end_time: slot.end_time,
-    entry_type: "break",
+    entry_type: entryType,
     subject_id: null,
     subject_name: null,
     activity_id: null,
     activity_name: null,
-    entry_title: slot.label || "Break",
+    entry_title: title,
     room: null,
     notes: null,
     sort_order: Number(slot.sort_order || slot.period_number || 0),
-    slot_label: slot.label || "Break",
-    slot_default_entry_type: "break",
+    combined_group_key: null,
+    slot_label: slot.label || title,
+    slot_default_entry_type: entryType,
     teacher_ids: null,
     teacher_user_ids: null,
     teacher_names: null,
@@ -786,10 +804,10 @@ function syntheticBreakRowFromBoardRow(row, slot, weekday) {
 async function includeMissingBreakRows(rows = []) {
   const templateIds = rows.map((row) => row.time_slot_template_id).filter(Boolean);
   if (!templateIds.length) return rows;
-  const breakSlots = await repo.listBreakTimeSlotsForTemplateIds(templateIds);
-  if (!breakSlots.length) return rows;
+  const templateSlots = await repo.listRoutineTimeSlotsForTemplateIds(templateIds);
+  if (!templateSlots.length) return rows;
   const slotsByTemplate = new Map();
-  for (const slot of breakSlots) {
+  for (const slot of templateSlots) {
     const key = Number(slot.template_id);
     if (!slotsByTemplate.has(key)) slotsByTemplate.set(key, []);
     slotsByTemplate.get(key).push(slot);
@@ -812,17 +830,19 @@ async function includeMissingBreakRows(rows = []) {
     const slots = slotsByTemplate.get(Number(sampleRow.time_slot_template_id || 0)) || [];
     for (const slot of slots) {
       if (!breakSlotAppliesToWeekday(slot, weekday)) continue;
-      const slotKey = `${sampleRow.routine_version_id}|${missingBreakSlotKey(weekday, slot)}`;
+      const slotKey = `${sampleRow.routine_version_id}|${missingTemplateSlotKey(weekday, slot)}`;
       if (existingKeys.has(slotKey)) continue;
       existingKeys.add(slotKey);
-      syntheticRows.push(syntheticBreakRowFromBoardRow(sampleRow, slot, weekday));
+      syntheticRows.push(syntheticTemplateRowFromBoardRow(sampleRow, slot, weekday));
     }
   }
   return [...rows, ...syntheticRows];
 }
 
-function syntheticBreakEntryFromRoutine(routine, slot, weekday) {
+function syntheticTemplateEntryFromRoutine(routine, slot, weekday) {
   const syntheticId = -1 * (Number(slot.time_slot_id || 0) * 10 + Number(weekday || 0));
+  const entryType = isBreakTemplateSlot(slot) ? "break" : "free";
+  const title = entryType === "break" ? slot.label || "Break" : "Free";
   return {
     id: syntheticId,
     routine_version_id: Number(routine.id),
@@ -831,17 +851,18 @@ function syntheticBreakEntryFromRoutine(routine, slot, weekday) {
     period_number: Number(slot.period_number),
     start_time: slot.start_time,
     end_time: slot.end_time,
-    entry_type: "break",
+    entry_type: entryType,
     subject_id: null,
     subject_name: null,
     activity_id: null,
     activity_name: null,
-    title: slot.label || "Break",
+    title,
     room: null,
     notes: null,
     sort_order: Number(slot.sort_order || slot.period_number || 0),
-    slot_label: slot.label || "Break",
-    slot_default_entry_type: "break",
+    combined_group_key: null,
+    slot_label: slot.label || title,
+    slot_default_entry_type: entryType,
     teacher_ids: [],
     teacher_user_ids: [],
     teacher_names: "",
@@ -853,19 +874,19 @@ function syntheticBreakEntryFromRoutine(routine, slot, weekday) {
 
 async function includeMissingBreakEntries(routine) {
   if (!routine?.time_slot_template_id || !Array.isArray(routine.entries)) return routine;
-  const breakSlots = await repo.listBreakTimeSlotsForTemplateIds([routine.time_slot_template_id]);
-  if (!breakSlots.length) return routine;
+  const templateSlots = await repo.listRoutineTimeSlotsForTemplateIds([routine.time_slot_template_id]);
+  if (!templateSlots.length) return routine;
   const weekdays = [...new Set((routine.entries || []).map((entry) => Number(entry.weekday)).filter(Boolean))];
   if (!weekdays.length) return routine;
   const existingKeys = new Set(routine.entries.map(routineEntrySlotKey));
   const syntheticEntries = [];
   for (const weekday of weekdays) {
-    for (const slot of breakSlots) {
+    for (const slot of templateSlots) {
       if (!breakSlotAppliesToWeekday(slot, weekday)) continue;
-      const key = missingBreakSlotKey(weekday, slot);
+      const key = missingTemplateSlotKey(weekday, slot);
       if (existingKeys.has(key)) continue;
       existingKeys.add(key);
-      syntheticEntries.push(syntheticBreakEntryFromRoutine(routine, slot, weekday));
+      syntheticEntries.push(syntheticTemplateEntryFromRoutine(routine, slot, weekday));
     }
   }
   return {
@@ -1499,6 +1520,50 @@ export async function createExamRoutine(body, userId) {
   const entries = normalizeExamRoutineEntries(applyExamRoutineScopeToEntries(body.entries, payload));
   await ensureExamRoutineSubjectsAllowed(exam.id, payload, entries);
   return repo.upsertExamRoutineForScope(payload, entries);
+}
+
+export async function duplicateExamRoutine(id, body = {}, userId) {
+  const source = await repo.getExamRoutineWithEntries(intValue(id, "exam routine id"));
+  if (!source) throw new AppError("Exam routine not found", 404);
+
+  const exam = await repo.getExamById(intValue(body.exam_id ?? source.exam_id, "exam_id"));
+  if (!exam) throw new AppError("Exam not found", 404);
+
+  const payload = normalizeExamRoutinePayload({
+    exam_id: exam.id,
+    class_scope: body.class_scope ?? source.class_scope,
+    class_id: body.class_id ?? source.class_id,
+    section_id: body.section_id !== undefined ? body.section_id : source.section_id,
+    medium: body.medium !== undefined ? body.medium : source.medium,
+    stream_id: body.stream_id ?? source.stream_id,
+    title: body.title ?? source.title,
+    source: "manual",
+    parent_version_id: source.id,
+    publish_announcement_requested: false,
+  }, exam, userId);
+
+  const existingDraft = await repo.getDraftExamRoutineForScope(payload);
+  if (existingDraft) {
+    throw new AppError("A draft exam routine already exists for the selected exam and target class/section. Edit that draft or delete it before duplicating.", 400);
+  }
+
+  const copiedEntries = (source.entries || []).map((entry) => ({
+    ...examRoutineEntryToPayload(entry),
+    exam_subject_id: null,
+  }));
+  const entries = normalizeExamRoutineEntries(applyExamRoutineScopeToEntries(copiedEntries, payload));
+  await ensureExamRoutineSubjectsAllowed(exam.id, payload, entries);
+
+  return repo.createExamRoutineVersion(
+    {
+      ...payload,
+      title: payload.title || `${source.exam_name || "Exam"} Routine Copy`,
+      source: "manual",
+      parent_version_id: source.id,
+      publish_announcement_requested: 0,
+    },
+    entries
+  );
 }
 
 export async function importExamRoutine(file, body = {}, userId) {
