@@ -1287,7 +1287,8 @@ export async function publishClassRoutine(id, userId) {
   const targetRoutineId = Number(targetRoutine.id);
   const invalidAssignments = await repo.findInvalidClassRoutineTeacherAssignments(targetRoutineId);
   if (invalidAssignments.length) {
-    throw new AppError("One or more teachers are not assigned to the selected class/section/subject", 400);
+    const details = summarizeInvalidClassRoutineTeacherAssignments(invalidAssignments);
+    throw new AppError(`Teacher assignment missing${details ? `: ${details}` : ""}. Assign the teacher to the class/section/subject before publishing.`, 400);
   }
   const conflicts = await repo.findClassRoutineTeacherConflicts(targetRoutineId);
   if (conflicts.length) {
@@ -1300,6 +1301,26 @@ export async function publishClassRoutine(id, userId) {
     await repo.deleteClassRoutineVersion(routineId);
   }
   return result;
+}
+
+function summarizeInvalidClassRoutineTeacherAssignments(assignments = []) {
+  return assignments
+    .slice(0, 5)
+    .map((item) => {
+      const teacher = item.teacher_name || `Teacher #${item.teacher_id}`;
+      const day = WEEKDAY_LABELS[Number(item.weekday)] || `Day ${item.weekday || ""}`.trim() || "selected day";
+      const period = item.period_number ? `Period ${item.period_number}` : "selected period";
+      const time = formatRoutineTimeRange(item.start_time, item.end_time);
+      const classScope = [item.class_name, item.section_name, item.medium].filter(Boolean).join(" ");
+      const subject = item.subject_name || item.title || `Subject #${item.subject_id}`;
+      const appliesTo = [
+        item.applies_medium ? `medium ${item.applies_medium}` : "",
+        item.applies_section_names ? `sections ${item.applies_section_names}` : "",
+      ].filter(Boolean).join(", ");
+      const scope = appliesTo ? `${classScope || "selected class"} (${appliesTo})` : classScope || "selected class";
+      return `${teacher} is not assigned for ${subject} in ${scope} on ${day} ${period}${time ? ` ${time}` : ""}.`;
+    })
+    .join(" ");
 }
 
 function summarizeClassRoutineTeacherConflicts(conflicts = []) {

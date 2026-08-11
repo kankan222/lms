@@ -1018,15 +1018,30 @@ export function findInvalidClassRoutineTeacherAssignments(versionId) {
     `
       SELECT
         e.id AS entry_id,
+        e.weekday,
+        e.period_number,
+        e.start_time,
+        e.end_time,
         e.subject_id,
+        e.title,
+        e.applies_medium,
+        v.layout_mode,
+        c.name AS class_name,
+        sec.name AS section_name,
+        v.medium,
         sub.name AS subject_name,
         t.id AS teacher_id,
-        t.name AS teacher_name
+        t.name AS teacher_name,
+        GROUP_CONCAT(DISTINCT sec_app.name ORDER BY sec_app.name SEPARATOR ', ') AS applies_section_names
       FROM class_routine_versions v
       JOIN class_routine_entries e ON e.routine_version_id = v.id
       JOIN class_routine_entry_teachers et ON et.routine_entry_id = e.id
       JOIN teachers t ON t.id = et.teacher_id
+      JOIN classes c ON c.id = v.class_id
+      LEFT JOIN sections sec ON sec.id = v.section_id
       LEFT JOIN subjects sub ON sub.id = e.subject_id
+      LEFT JOIN class_routine_entry_sections es ON es.routine_entry_id = e.id
+      LEFT JOIN sections sec_app ON sec_app.id = es.section_id
       LEFT JOIN teacher_class_assignments ta
         ON ta.teacher_id = et.teacher_id
        AND ta.session_id = v.session_id
@@ -1036,6 +1051,22 @@ export function findInvalidClassRoutineTeacherAssignments(versionId) {
       WHERE v.id = ?
         AND e.entry_type = 'subject'
         AND ta.id IS NULL
+      GROUP BY
+        e.id,
+        e.weekday,
+        e.period_number,
+        e.start_time,
+        e.end_time,
+        e.subject_id,
+        e.title,
+        e.applies_medium,
+        v.layout_mode,
+        c.name,
+        sec.name,
+        v.medium,
+        sub.name,
+        t.id,
+        t.name
     `,
     [versionId]
   );

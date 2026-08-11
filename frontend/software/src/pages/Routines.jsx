@@ -318,15 +318,25 @@ function Field({ label, children }) {
 
 function formatRoutineError(message = "") {
   const text = String(message || "").trim();
-  if (!text.includes(" has a scheduling conflict ")) {
+  const isConflict = text.includes(" has a scheduling conflict ");
+  const isMissingAssignment = text.includes(" is not assigned for ");
+  if (!isConflict && !isMissingAssignment) {
     return { intro: "", items: [], outro: text };
   }
 
   const [introPart, restPart = ""] = text.split(/:\s+/, 2);
   const normalized = restPart || text;
-  const withoutResolution = normalized.replace(/\s*Resolve conflicts before publishing\.?\s*$/i, "");
+  const outroPattern = isConflict
+    ? /\s*Resolve conflicts before publishing\.?\s*$/i
+    : /\s*Assign the teacher to the class\/section\/subject before publishing\.?\s*$/i;
+  const withoutResolution = normalized.replace(outroPattern, "");
   const items = withoutResolution
-    .replace(/\. (?=[A-Z][A-Za-z .'-]+ has a scheduling conflict)/g, ".|SPLIT|")
+    .replace(
+      isConflict
+        ? /\. (?=[A-Z][A-Za-z .'-]+ has a scheduling conflict)/g
+        : /\. (?=[A-Z][A-Za-z .'-]+ is not assigned for)/g,
+      ".|SPLIT|"
+    )
     .split("|SPLIT|")
     .map((item) => item.trim())
     .filter(Boolean);
@@ -334,7 +344,11 @@ function formatRoutineError(message = "") {
   return {
     intro: restPart ? `${introPart}:` : "",
     items,
-    outro: /Resolve conflicts before publishing/i.test(text) ? "Resolve conflicts before publishing." : "",
+    outro: isConflict && /Resolve conflicts before publishing/i.test(text)
+      ? "Resolve conflicts before publishing."
+      : isMissingAssignment && /Assign the teacher to the class\/section\/subject before publishing/i.test(text)
+        ? "Assign the teacher to the class/section/subject before publishing."
+        : "",
   };
 }
 

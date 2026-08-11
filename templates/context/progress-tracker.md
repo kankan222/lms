@@ -1379,3 +1379,7 @@ Update this file after every meaningful implementation change.
 - Improved software routine conflict alert readability by rendering multiple
   teacher scheduling conflicts as a bulleted list while leaving single routine
   errors as normal text.
+- Made class routine publish assignment validation specific: missing teacher
+  assignment errors now include teacher, subject, class/section/medium, weekday,
+  period, and time, and the software alert can render multiple missing
+  assignments as a list.
