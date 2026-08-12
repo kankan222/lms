@@ -14,6 +14,44 @@ Update this file after every meaningful implementation change.
 
 ## Completed
 
+- Added class/section/scope context to the mobile teacher routine `My Periods`
+  cards so teacher login can see which class each assigned period belongs to,
+  including packed multi-subject routine rows.
+- Removed the shared mobile shell subtitle line and the decorative `Overview`
+  eyebrow labels from mobile tab hero headers so each screen starts with the
+  main header text; added a compact `Marksheet` header to the marksheet entry
+  flow with a short subheader without restoring the long explanatory hero.
+- Applied the mobile compact workflow UI rule to Teacher Details by replacing
+  the tall profile summary with a compact teacher overview, small stat pills,
+  icon section tabs, and collapsed attendance filters while preserving teacher
+  profile, assignment, attendance, pagination, and password reset logic.
+- Reworked the mobile student attendance entry screen to follow the compact
+  workflow UI rules used in marksheet: collapsed filters with Apply/Reset,
+  a compact overview/status card, a three-action toolbar, and denser student
+  roster cards with segmented attendance controls while preserving the existing
+  roster, bulk mark, lock, and submit logic.
+- Aligned software announcement success/failure feedback with the existing
+  software UI pattern by replacing inline page banners with the shared
+  top-right alert notice treatment, while keeping contextual form alerts inside
+  the announcement dialog.
+- Simplified the software announcement create/edit dialog without changing the
+  backend workflow: targeting remains a first step, the message step now shows
+  only title, urgency, message type, body/template variables, and preview by
+  default, while publish/delivery settings and visibility/date controls are
+  tucked into compact advanced panels.
+- Added reusable announcement holiday names as a separate master list from
+  dated `holiday_calendar` records, with backend list/upsert endpoints,
+  migration seed values, and software/mobile DLT holiday-variable pickers that
+  can select existing names or add a newly typed name for future use.
+- Aligned mobile announcement DLT variable handling with software without
+  changing the compose flow: mobile now derives fields from each template's
+  placeholder schema or placeholder count/content fallback, supports both
+  `{#alp#}` and `{#var#}` tokens in previews, and sends explicit variable order
+  while the backend dispatcher also resolves named variables by template schema.
+- Replaced the shared mobile date selector with a calendar-style picker with
+  month navigation, year controls, selected/today states, and safe-area aware
+  actions so critical DLT announcement variables and all other mobile date
+  fields can be selected without manual date entry.
 - Added synthetic Free routine rows from time-slot templates anywhere an empty
   non-break slot exists, so student/teacher/admin routine views can show Free
   periods alongside Break rows; restored mobile teacher routine switching
@@ -1405,3 +1443,50 @@ Update this file after every meaningful implementation change.
   through parent-linked enrollments in this schema, removed the
   `notifications.push.receive` gate from device registration and push dispatch,
   and allowed authenticated mobile users to register for push notifications.
+- Upgraded the mobile announcement composer DLT flow to match the software
+  module more closely: registered templates now show template content, typed
+  variable fields, date pickers for date variables, holiday suggestion chips for
+  holiday variables, rendered preview, SMS send time, and optional event/end/
+  reopen date fields.
+- Added `provider_template_id` to announcement SMS templates for Fast2SMS
+  Message IDs, wired template create/update/import/list flows in backend,
+  software, and mobile, and changed Fast2SMS DLT dispatch to send the provider
+  Message ID while preserving the official DLT Template ID.
+- Redesigned the mobile Teacher Portal marksheet entry screen around a compact
+  workflow: collapsed filters behind a filter button, kept bulk actions to
+  Filters/Select All/Submit All, replaced large summary cards with a compact
+  overview, and moved save/submit into each student card while preserving the
+  existing marks, attendance, selection, and submit APIs.
+- Promoted the mobile compact workflow layout into the shared UI rules:
+  repeated-work mobile screens should use the existing shell header,
+  compact overview, compact toolbar, collapsible filters, dense record
+  cards with local actions, and the existing bottom navigation.
+- Kept the mobile shared header notification and dark-mode buttons on the
+  bordered icon-button treatment after review, preserving the profile icon
+  styling and active state.
+- Changed the mobile teacher portal navigation so the footer shows Teacher
+  Info, Marksheet, Messages, Routines, and More, with Announcements moved to a
+  teacher-only header shortcut after the notification bell.
+- Simplified mobile announcement viewer cards/details for teacher and parent
+  portals by hiding registered DLT, delivery, template, version, and online/SMS
+  metadata outside admin queue views, and aligned the normal announcement icon
+  tone with the primary color.
+- Removed the visible refresh icon buttons from the mobile Announcements and
+  Messaging list headers while keeping pull-to-refresh behavior available.
+- Fixed the mobile Notifications screen React warning by moving the shared
+  unread-count store update out of the `setItems` state updater when marking a
+  notification read.
+- Applied the compact mobile workflow rule to the Student Details module by
+  replacing the large student hero/tabs area with a compact overview card,
+  small status pills, and a horizontal detail-section toolbar while preserving
+  the existing student, parent, subject, attendance, fee, transportation, and
+  marksheet logic.
+- Reworked mobile messaging bubble/list text layout for foldable and narrow
+  Android widths by using `useWindowDimensions` for numeric adaptive bubble
+  max width and removing fixed `Text` width constraints that could clip message
+  content on Galaxy Z Fold layouts.
+- Replaced generic browser alert/confirm/prompt usage in the software
+  Messaging page with project UI patterns: top-right `Alert` notices,
+  `AlertDialog` confirmations, and a reusable shadcn input dialog for edit,
+  delete mode, report, forward, moderation note, suspension reason, and member
+  add flows.

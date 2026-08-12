@@ -33,6 +33,38 @@ export function getCategoryBySlug(slug) {
   return query("SELECT * FROM announcement_categories WHERE slug = ? LIMIT 1", [slug]).then((rows) => rows[0] || null);
 }
 
+export function listHolidayNames(filters = {}) {
+  const where = ["is_active = 1"];
+  const params = [];
+  appendFilter(where, params, "category", filters.category);
+  if (filters.q) {
+    where.push("name LIKE ?");
+    params.push(`%${String(filters.q).trim()}%`);
+  }
+  const limit = Math.max(1, Math.min(250, Number(filters.limit) || 100));
+  return query(
+    `SELECT id, name, category, is_active, created_at, updated_at
+     FROM announcement_holiday_names
+     WHERE ${where.join(" AND ")}
+     ORDER BY category, name
+     LIMIT ${limit}`,
+    params
+  );
+}
+
+export async function upsertHolidayName(data) {
+  await execute(
+    `INSERT INTO announcement_holiday_names (name, category, is_active, created_by)
+     VALUES (?, ?, 1, ?)
+     ON DUPLICATE KEY UPDATE
+       category = VALUES(category),
+       is_active = 1,
+       updated_at = CURRENT_TIMESTAMP`,
+    [data.name, data.category || "holiday", data.user_id || null]
+  );
+  return query("SELECT * FROM announcement_holiday_names WHERE name = ? LIMIT 1", [data.name]).then((rows) => rows[0] || null);
+}
+
 export function listSmsTemplates(filters = {}) {
   const where = [];
   const params = [];
@@ -50,12 +82,13 @@ export function listSmsTemplates(filters = {}) {
 export async function createSmsTemplate(data) {
   const result = await execute(
     `INSERT INTO announcement_sms_templates
-     (template_name, dlt_template_id, header, communication_type, template_content, brand_dlt_id,
+     (template_name, dlt_template_id, provider_template_id, header, communication_type, template_content, brand_dlt_id,
       placeholder_style, placeholder_count, placeholder_schema_json, status, provider, creator, registered_on, created_by)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       data.template_name,
       data.dlt_template_id,
+      data.provider_template_id || null,
       data.header,
       data.communication_type || null,
       data.template_content,
@@ -80,13 +113,14 @@ export function getSmsTemplateById(id) {
 export async function updateSmsTemplate(id, data) {
   await execute(
     `UPDATE announcement_sms_templates
-     SET template_name = ?, dlt_template_id = ?, header = ?, communication_type = ?,
+     SET template_name = ?, dlt_template_id = ?, provider_template_id = ?, header = ?, communication_type = ?,
          template_content = ?, brand_dlt_id = ?, placeholder_style = ?, placeholder_count = ?,
          placeholder_schema_json = ?, status = ?, provider = ?, creator = ?, registered_on = ?
      WHERE id = ?`,
     [
       data.template_name,
       data.dlt_template_id,
+      data.provider_template_id || null,
       data.header,
       data.communication_type || null,
       data.template_content,
@@ -107,11 +141,12 @@ export async function updateSmsTemplate(id, data) {
 export async function upsertSmsTemplate(data) {
   await execute(
     `INSERT INTO announcement_sms_templates
-     (template_name, dlt_template_id, header, communication_type, template_content, brand_dlt_id,
+     (template_name, dlt_template_id, provider_template_id, header, communication_type, template_content, brand_dlt_id,
       placeholder_style, placeholder_count, placeholder_schema_json, status, provider, creator, registered_on, created_by)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON DUPLICATE KEY UPDATE
        template_name = VALUES(template_name),
+       provider_template_id = VALUES(provider_template_id),
        header = VALUES(header),
        communication_type = VALUES(communication_type),
        template_content = VALUES(template_content),
@@ -127,6 +162,7 @@ export async function upsertSmsTemplate(data) {
     [
       data.template_name,
       data.dlt_template_id,
+      data.provider_template_id || null,
       data.header,
       data.communication_type || null,
       data.template_content,
@@ -709,7 +745,7 @@ export function getSmsJobById(id) {
 export async function getSmsJobForDispatch(id) {
   const rows = await query(
     `SELECT j.*, a.title, a.body, a.sms_variables_json, a.event_start_date, a.event_end_date, a.reopen_date,
-            st.template_name, st.dlt_template_id, st.header, st.brand_dlt_id, st.template_content,
+            st.template_name, st.dlt_template_id, st.provider_template_id, st.header, st.brand_dlt_id, st.template_content,
             st.placeholder_count, st.placeholder_schema_json, st.provider AS template_provider
      FROM announcement_sms_jobs j
      JOIN announcements a ON a.id = j.announcement_id

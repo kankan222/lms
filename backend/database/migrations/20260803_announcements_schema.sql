@@ -28,6 +28,7 @@ CREATE TABLE IF NOT EXISTS announcement_sms_templates (
   id BIGINT PRIMARY KEY AUTO_INCREMENT,
   template_name VARCHAR(160) NOT NULL,
   dlt_template_id VARCHAR(80) NOT NULL,
+  provider_template_id VARCHAR(80) NULL,
   header VARCHAR(40) NOT NULL,
   communication_type VARCHAR(80) NULL,
   template_content TEXT NOT NULL,
@@ -271,6 +272,30 @@ CREATE TABLE IF NOT EXISTS holiday_calendar (
   CONSTRAINT chk_holiday_calendar_dates
     CHECK (starts_on <= ends_on)
 );
+
+CREATE TABLE IF NOT EXISTS announcement_holiday_names (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  name VARCHAR(160) NOT NULL,
+  category ENUM('holiday','festival','vacation','event','other') NOT NULL DEFAULT 'holiday',
+  is_active TINYINT(1) NOT NULL DEFAULT 1,
+  created_by BIGINT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_announcement_holiday_names_name (name),
+  KEY idx_announcement_holiday_names_active (is_active, category, name),
+  CONSTRAINT fk_announcement_holiday_names_created_by
+    FOREIGN KEY (created_by) REFERENCES users(id)
+    ON DELETE SET NULL
+);
+
+INSERT IGNORE INTO announcement_holiday_names (name, category, is_active)
+VALUES
+  ('Saraswati Puja', 'festival', 1),
+  ('Bihu', 'festival', 1),
+  ('Independence Day', 'holiday', 1),
+  ('Republic Day', 'holiday', 1),
+  ('Summer Vacation', 'vacation', 1),
+  ('Winter Vacation', 'vacation', 1);
 
 INSERT IGNORE INTO permissions(name) VALUES
 ('announcements.view'),

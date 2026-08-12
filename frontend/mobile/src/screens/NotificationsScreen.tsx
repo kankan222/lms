@@ -69,11 +69,9 @@ export default function NotificationsScreen({ navigation }: Props) {
   async function markRead(item: NotificationItem) {
     if (!isUnread(item)) return;
     await markNotificationRead(Number(item.id));
-    setItems((prev) => {
-      const next = prev.map((row) => Number(row.id) === Number(item.id) ? { ...row, is_read: true, read_at: new Date().toISOString() } : row);
-      setNotificationUnread(next.filter(isUnread).length);
-      return next;
-    });
+    const next = items.map((row) => Number(row.id) === Number(item.id) ? { ...row, is_read: true, read_at: new Date().toISOString() } : row);
+    setItems(next);
+    setNotificationUnread(next.filter(isUnread).length);
   }
 
   async function markAllRead() {

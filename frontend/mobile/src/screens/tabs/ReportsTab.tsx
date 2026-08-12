@@ -13,6 +13,7 @@ import {
   TextInput,
   View,
 } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 import { getClassStructure } from "../../services/classesService";
 import { useAppTheme } from "../../theme/AppThemeProvider";
 import SelectField from "../../components/form/SelectField";
@@ -259,6 +260,30 @@ function SummaryCard({
   );
 }
 
+function CompactStat({
+  label,
+  value,
+  tone = "default",
+}: {
+  label: string;
+  value: string | number;
+  tone?: "default" | "green" | "amber";
+}) {
+  const color =
+    tone === "green"
+      ? currentTheme.success
+      : tone === "amber"
+        ? currentTheme.isDark ? "#fcd34d" : "#d97706"
+        : currentTheme.text;
+
+  return (
+    <View style={[styles.compactStatPill, { borderColor: currentTheme.border, backgroundColor: currentTheme.cardMuted }]}>
+      <Text style={[styles.compactStatValue, { color }]}>{value}</Text>
+      <Text style={[styles.compactStatLabel, { color: currentTheme.subText }]}>{label}</Text>
+    </View>
+  );
+}
+
 function TabChip({
   label,
   active,
@@ -395,6 +420,8 @@ export default function ReportsTab() {
   const [pendingQueue, setPendingQueue] = useState<PendingApprovalQueue>({ total_pending: 0, groups: [] });
   const [approvalSummary, setApprovalSummary] = useState<MarksApprovalSummary>({ pending: 0, draft: 0, approved: 0 });
   const [reviewQueueSnapshot, setReviewQueueSnapshot] = useState<PendingApprovalQueue | null>(null);
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [bulkActionsOpen, setBulkActionsOpen] = useState(false);
   const scrollRef = useRef<ScrollView | null>(null);
   const scrollOffsetYRef = useRef(0);
   const focusedStudentIdRef = useRef<number | null>(null);
@@ -898,7 +925,7 @@ export default function ReportsTab() {
   async function handleLoadGrid() {
     if (!filters.exam_id || !filters.class_id || !filters.section_id || !filters.subject_id) {
       setError("Validation", "Exam, class, section, and subject are required.");
-      return;
+      return false;
     }
 
     setGridLoading(true);
@@ -906,6 +933,7 @@ export default function ReportsTab() {
       const data = await getMarksGrid(filters);
       resetGridState(data);
       setNotice(null);
+      return true;
     } catch (err: unknown) {
       resetGridState({
         exam_id: Number(filters.exam_id || 0),
@@ -920,6 +948,7 @@ export default function ReportsTab() {
         rows: [],
       });
       setError("Load failed", getErrorMessage(err, "Failed to load marks grid."));
+      return false;
     } finally {
       setGridLoading(false);
     }
@@ -1023,6 +1052,27 @@ export default function ReportsTab() {
       });
       return next;
     });
+  }
+
+  function resetFilters() {
+    setFilters(EMPTY_FILTERS);
+    resetGridState({
+      exam_id: 0,
+      class_id: 0,
+      section_id: 0,
+      subject: {
+        id: 0,
+        name: "Subject",
+        max_marks: 0,
+        pass_marks: 0,
+      },
+      rows: [],
+    });
+  }
+
+  async function applyFiltersAndCollapse() {
+    const loaded = await handleLoadGrid();
+    if (loaded) setFiltersOpen(false);
   }
 
   function loadMoreGridRows() {
@@ -1130,6 +1180,38 @@ export default function ReportsTab() {
     }
   }
 
+  async function handleSaveStudent(row: MarksGridRow) {
+    if (!canEditRowInCurrentTab(row)) {
+      setError("Validation", "Submitted marks are locked until an admin rejects them.");
+      return;
+    }
+
+    const studentId = Number(row.student_id);
+    const draft = editedMarks[studentId] || {
+      marks: row.marks !== null && row.marks !== undefined ? String(row.marks) : "",
+      mark_status: normalizeMarkStatus(row.mark_status || "present"),
+    };
+
+    setGridLoading(true);
+    try {
+      await saveMarks({
+        ...buildMutationPayload(),
+        marks: [
+          {
+            student_id: row.student_id,
+            marks: draft.marks,
+            mark_status: draft.mark_status,
+          },
+        ],
+      });
+      await handleLoadGrid();
+      setSuccess("Saved", `${row.student_name}'s marks saved.`);
+    } catch (err: unknown) {
+      setError("Save failed", getErrorMessage(err, "Failed to save marks."));
+      setGridLoading(false);
+    }
+  }
+
   async function handleSubmitMarks(applyAll: boolean) {
     setGridLoading(true);
     try {
@@ -1145,6 +1227,22 @@ export default function ReportsTab() {
         "Submitted",
         applyAll ? "All draft marks submitted." : "Selected draft marks submitted.",
       );
+    } catch (err: unknown) {
+      setError("Submit failed", getErrorMessage(err, "Failed to submit marks."));
+      setGridLoading(false);
+    }
+  }
+
+  async function handleSubmitStudent(row: MarksGridRow) {
+    setGridLoading(true);
+    try {
+      const result = await submitMarksForApproval(buildMutationPayload({ student_ids: [Number(row.student_id)] }));
+      const affected = Number((result as { data?: { affected?: number } })?.data?.affected || 0);
+      if (!affected) {
+        throw new Error("No draft marks are available to submit. Submitted marks are locked until an admin rejects them.");
+      }
+      await handleLoadGrid();
+      setSuccess("Submitted", `${row.student_name}'s marks submitted.`);
     } catch (err: unknown) {
       setError("Submit failed", getErrorMessage(err, "Failed to submit marks."));
       setGridLoading(false);
@@ -1257,69 +1355,79 @@ export default function ReportsTab() {
     );
   }
 
-  function renderFilterPanel() {
+  function renderFilterFields({ compact = false }: { compact?: boolean } = {}) {
+    const fieldStyle = compact ? styles.compactFilterField : undefined;
+    const fullFieldStyle = compact ? styles.compactFilterFieldFull : undefined;
     return (
-      <SectionCard title="Filters" hint="Choose scope and load a grid">
-        <SelectField
-          label="Exam"
-          placeholder="Select exam"
-          value={filters.exam_id}
-          options={examOptions}
-          onChange={(value) =>
-            setFilters((prev) => ({
-              ...prev,
-              exam_id: value,
-              class_id: "",
-              section_id: "",
-              medium: "",
-              subject_id: "",
-            }))
-          }
-          allowClear
-          clearLabel="Clear exam"
-        />
+      <View style={compact ? styles.compactFilterGrid : styles.filterFieldStack}>
+        <View style={fieldStyle}>
+          <SelectField
+            label="Exam"
+            placeholder="Select exam"
+            value={filters.exam_id}
+            options={examOptions}
+            onChange={(value) =>
+              setFilters((prev) => ({
+                ...prev,
+                exam_id: value,
+                class_id: "",
+                section_id: "",
+                medium: "",
+                subject_id: "",
+              }))
+            }
+            allowClear
+            clearLabel="Clear exam"
+          />
+        </View>
 
-        <SelectField
-          label="Class"
-          placeholder="Select class"
-          value={filters.class_id}
-          options={classOptions}
-          onChange={(value) =>
-            setFilters((prev) => ({
-              ...prev,
-              class_id: value,
-              section_id: "",
-              medium: "",
-            }))
-          }
-          allowClear
-          clearLabel="Clear class"
-        />
+        <View style={fieldStyle}>
+          <SelectField
+            label="Class"
+            placeholder="Select class"
+            value={filters.class_id}
+            options={classOptions}
+            onChange={(value) =>
+              setFilters((prev) => ({
+                ...prev,
+                class_id: value,
+                section_id: "",
+                medium: "",
+              }))
+            }
+            allowClear
+            clearLabel="Clear class"
+          />
+        </View>
 
-        <SelectField
-          label="Section"
-          placeholder="Select section"
-          value={filters.section_id}
-          options={sectionOptions}
-          onChange={(value) => setFilters((prev) => ({ ...prev, section_id: value }))}
-          allowClear
-          clearLabel="Clear section"
-          disabled={!filters.class_id}
-        />
+        <View style={fieldStyle}>
+          <SelectField
+            label="Section"
+            placeholder="Select section"
+            value={filters.section_id}
+            options={sectionOptions}
+            onChange={(value) => setFilters((prev) => ({ ...prev, section_id: value }))}
+            allowClear
+            clearLabel="Clear section"
+            disabled={!filters.class_id}
+          />
+        </View>
 
-        <SelectField
-          label="Subject"
-          placeholder="Select subject"
-          value={filters.subject_id}
-          options={subjectOptions}
-          onChange={(value) => setFilters((prev) => ({ ...prev, subject_id: value }))}
-          allowClear
-          clearLabel="Clear subject"
-          disabled={!filters.exam_id}
-        />
+        <View style={fieldStyle}>
+          <SelectField
+            label="Subject"
+            placeholder="Select subject"
+            value={filters.subject_id}
+            options={subjectOptions}
+            onChange={(value) => setFilters((prev) => ({ ...prev, subject_id: value }))}
+            allowClear
+            clearLabel="Clear subject"
+            disabled={!filters.exam_id}
+          />
+        </View>
 
         {mediums.length ? (
-          <>
+          <View style={fullFieldStyle}>
             <Text style={styles.inputLabel}>Medium</Text>
             <View style={styles.filterWrap}>
               <FilterChip
@@ -1336,11 +1444,11 @@ export default function ReportsTab() {
                 />
               ))}
             </View>
-          </>
+          </View>
         ) : null}
 
         {isAdmin ? (
-          <>
+          <View style={fullFieldStyle}>
             <Text style={styles.inputLabel}>Status</Text>
             <View style={styles.filterWrap}>
               <FilterChip
@@ -1357,24 +1465,124 @@ export default function ReportsTab() {
                 />
               ))}
             </View>
-          </>
+          </View>
         ) : null}
 
-        <Text style={styles.inputLabel}>Student Search</Text>
-        <TextInput
-          style={styles.input}
-          placeholder="Search student name"
-          placeholderTextColor={theme.mutedText}
-          value={filters.name}
-          onChangeText={(value) => setFilters((prev) => ({ ...prev, name: value }))}
-        />
+        <View style={fieldStyle}>
+          <Text style={styles.inputLabel}>Student Search</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="Search student name"
+            placeholderTextColor={theme.mutedText}
+            value={filters.name}
+            onChangeText={(value) => setFilters((prev) => ({ ...prev, name: value }))}
+          />
+        </View>
+      </View>
+    );
+  }
 
+  function renderFilterPanel() {
+    return (
+      <SectionCard title="Filters" hint="Choose scope and load a grid">
+        {renderFilterFields()}
         <View style={styles.actionRow}>
           <Pressable style={styles.primaryBtn} onPress={handleLoadGrid} disabled={gridLoading}>
             <Text style={styles.primaryBtnText}>{gridLoading ? "Loading..." : "Load Students"}</Text>
           </Pressable>
         </View>
       </SectionCard>
+    );
+  }
+
+  function renderCompactToolbar() {
+    return (
+      <View style={styles.compactToolbar}>
+        <Pressable
+          style={[styles.toolbarBtn, { borderColor: theme.border, backgroundColor: theme.card }]}
+          onPress={() => setFiltersOpen((prev) => !prev)}
+        >
+          <Ionicons name="filter-outline" size={16} color={theme.icon} />
+          <Text style={[styles.toolbarBtnText, { color: theme.text }]}>Filters</Text>
+        </Pressable>
+        <Pressable
+          style={[styles.toolbarBtn, { borderColor: theme.border, backgroundColor: theme.card }, (!selectableVisibleRows.length || gridLoading) && styles.disabledBtn]}
+          onPress={toggleAllRows}
+          disabled={!selectableVisibleRows.length || gridLoading}
+        >
+          <Text style={[styles.toolbarBtnText, { color: theme.text }]}>{allVisibleSelected ? "Clear All" : "Select All"}</Text>
+        </Pressable>
+        <Pressable
+          style={[styles.toolbarPrimaryBtn, { backgroundColor: theme.danger }, (!selectableGridRows.length || gridLoading) && styles.disabledBtn]}
+          onPress={() => handleSubmitMarks(true)}
+          disabled={!selectableGridRows.length || gridLoading}
+        >
+          <Text style={[styles.toolbarPrimaryText, { color: theme.primaryText }]}>Submit All</Text>
+        </Pressable>
+      </View>
+    );
+  }
+
+  function renderCompactFilters() {
+    if (!filtersOpen) return null;
+    return (
+      <View style={[styles.compactFilterCard, { borderColor: theme.border, backgroundColor: theme.card }]}>
+        <View style={styles.compactPanelHeader}>
+          <Text style={[styles.compactPanelTitle, { color: theme.text }]}>Filters</Text>
+          <View style={styles.compactHeaderActions}>
+            <Pressable onPress={resetFilters} hitSlop={8}>
+              <Text style={[styles.resetText, { color: theme.subText }]}>Reset</Text>
+            </Pressable>
+            <Pressable onPress={() => setFiltersOpen(false)} hitSlop={8}>
+              <Ionicons name="chevron-up-outline" size={18} color={theme.icon} />
+            </Pressable>
+          </View>
+        </View>
+        {renderFilterFields({ compact: true })}
+        <Pressable style={[styles.compactApplyBtn, { backgroundColor: theme.danger }]} onPress={applyFiltersAndCollapse} disabled={gridLoading}>
+          <Text style={[styles.primaryBtnText, { color: theme.primaryText }]}>{gridLoading ? "Loading..." : "Apply Filters"}</Text>
+        </Pressable>
+      </View>
+    );
+  }
+
+  function renderCompactOverview() {
+    return (
+      <View style={[styles.compactOverviewCard, { borderColor: theme.border, backgroundColor: theme.card }]}>
+        <View style={styles.compactOverviewHeader}>
+          <Text style={[styles.compactSubjectTitle, { color: theme.text }]} numberOfLines={1}>
+            {grid?.subject?.name || selectedSubject?.name || "Marks Grid"}
+          </Text>
+          <View style={styles.compactOverviewRight}>
+            <Text style={[styles.compactStudentsText, { color: theme.subText }]}>{gridStatusCounts.total} students</Text>
+            <Pressable
+              style={[styles.iconOnlyBtn, { borderColor: theme.border, backgroundColor: theme.cardMuted }]}
+              onPress={() => setBulkActionsOpen((prev) => !prev)}
+              disabled={!selectableGridRows.length}
+            >
+              <Ionicons name="ellipsis-vertical" size={16} color={theme.icon} />
+            </Pressable>
+          </View>
+        </View>
+        {bulkActionsOpen ? (
+          <Pressable
+            style={[styles.secondaryUtilityBtn, { borderColor: theme.border, backgroundColor: theme.cardMuted }, (!selectableGridRows.length || gridLoading) && styles.disabledBtn]}
+            onPress={() => {
+              markBlankRowsAbsent();
+              setBulkActionsOpen(false);
+            }}
+            disabled={!selectableGridRows.length || gridLoading}
+          >
+            <Text style={[styles.secondaryUtilityText, { color: theme.text }]}>Mark Blank Absent</Text>
+          </Pressable>
+        ) : null}
+        <View style={styles.compactStatsRow}>
+          <CompactStat label="Students" value={gridStatusCounts.total} />
+          <CompactStat label="Selected" value={selectedStudentIds.length} />
+          <CompactStat label="Pending" value={gridStatusCounts.pending} tone="amber" />
+          <CompactStat label="Approved" value={gridStatusCounts.approved} tone="green" />
+        </View>
+      </View>
     );
   }
 
@@ -1391,6 +1599,171 @@ export default function ReportsTab() {
       : isPublishedMode
         ? "Load approved records to download marksheets."
         : "Select the filters above and load a marks grid.";
+
+    if (showEntryActions && activeTab === "entry") {
+      return (
+        <View style={styles.compactMarksheetStack}>
+          {renderCompactOverview()}
+          {renderCompactToolbar()}
+          {renderCompactFilters()}
+
+          {gridLoading ? <ActivityIndicator size="small" color={theme.primary} /> : null}
+
+          {visibleGridRows.length ? (
+            <View style={styles.compactStudentList}>
+              {visibleGridRows.map((row) => {
+                const studentId = Number(row.student_id);
+                const draft = editedMarks[studentId] || {
+                  marks: row.marks !== null && row.marks !== undefined ? String(row.marks) : "",
+                  mark_status: normalizeMarkStatus(row.mark_status || "present"),
+                };
+                const rowMarkStatus = normalizeMarkStatus(draft.mark_status);
+                const marksDisabled = rowMarkStatus !== "present";
+                const rowCanSelect = canSelectRows && canSelectRowInCurrentTab(row);
+                const rowCanEdit = canEditMarks && canEditRowInCurrentTab(row) && row.approval_status !== "approved";
+                const classLabel = selectedClass?.name || "-";
+                const sectionLabel = selectedSection
+                  ? `${selectedSection.name}${selectedSection.medium ? ` (${selectedSection.medium})` : row.medium ? ` (${row.medium})` : ""}`
+                  : row.medium
+                    ? row.medium
+                    : "-";
+                const subjectLabel = selectedSubject?.name || grid?.subject?.name || "-";
+                const isSelected = selectedStudentIds.includes(studentId);
+
+                return (
+                  <View
+                    key={row.student_id}
+                    style={[
+                      styles.compactStudentCard,
+                      { borderColor: isSelected ? theme.primary : theme.border, backgroundColor: theme.card },
+                    ]}
+                  >
+                    <View style={styles.compactStudentHeader}>
+                      <View style={styles.compactStudentCopy}>
+                        <Text style={[styles.compactStudentName, { color: theme.text }]} numberOfLines={2}>
+                          {row.student_name}
+                        </Text>
+                        <Text style={[styles.compactStudentMeta, { color: theme.subText }]} numberOfLines={1}>
+                          {classLabel} | Roll No - {row.roll_number || "-"}
+                        </Text>
+                        <Text style={[styles.compactStudentMeta, { color: theme.text }]} numberOfLines={2}>
+                          {sectionLabel}
+                        </Text>
+                        <Text style={[styles.compactStudentMeta, { color: theme.text }]} numberOfLines={2}>
+                          {subjectLabel}
+                        </Text>
+                      </View>
+                      <Pressable
+                        style={[
+                          styles.squareCheckbox,
+                          { borderColor: isSelected ? theme.primary : theme.border, backgroundColor: isSelected ? theme.primary : theme.card },
+                          !rowCanSelect && styles.disabledBtn,
+                        ]}
+                        onPress={() => toggleRow(studentId)}
+                        disabled={!rowCanSelect}
+                      >
+                        {isSelected ? <Ionicons name="checkmark" size={14} color={theme.primaryText} /> : null}
+                      </Pressable>
+                    </View>
+
+                    <View style={styles.compactFieldBlock}>
+                      <Text style={[styles.compactTinyLabel, { color: theme.subText }]}>Attendance</Text>
+                      <View style={styles.compactAttendanceRow}>
+                        {(["present", "absent", "pending"] as MarkStatus[]).map((status) => {
+                          const palette = markStatusTone(status);
+                          const active = rowMarkStatus === status;
+                          return (
+                            <Pressable
+                              key={`${row.student_id}-${status}`}
+                              style={[
+                                styles.compactAttendanceChip,
+                                {
+                                  borderColor: active ? palette.borderColor : theme.border,
+                                  backgroundColor: active ? palette.backgroundColor : theme.card,
+                                },
+                                !rowCanEdit && styles.disabledBtn,
+                              ]}
+                              onPress={() => updateMarkStatus(studentId, status)}
+                              disabled={!rowCanEdit}
+                            >
+                              <Text style={[styles.compactAttendanceText, { color: active ? palette.color : theme.subText }]}>
+                                {status === "absent" ? "Absent" : status === "pending" ? "Pending" : "Present"}
+                              </Text>
+                            </Pressable>
+                          );
+                        })}
+                      </View>
+                    </View>
+
+                    <View style={styles.compactMarksRow}>
+                      <View style={styles.compactStatusColumn}>
+                        <Text style={[styles.compactTinyLabel, { color: theme.subText }]}>Mark Status</Text>
+                        <StatusBadge status={row.approval_status} />
+                      </View>
+                      <View style={styles.compactMarksBox}>
+                        <Text style={[styles.compactTinyLabel, { color: theme.subText }]}>Marks</Text>
+                        <View style={[styles.compactMarksInputShell, { borderColor: theme.border, backgroundColor: theme.cardMuted }]}>
+                          {rowCanEdit ? (
+                            <TextInput
+                              style={[styles.compactMarksInput, { color: theme.text }, marksDisabled && styles.disabledInput]}
+                              keyboardType="numeric"
+                              value={draft.marks}
+                              onChangeText={(value) => updateMarksValue(studentId, value)}
+                              editable={!marksDisabled}
+                              onFocus={() => focusMarksInput(studentId)}
+                              onBlur={() => {
+                                if (focusedStudentIdRef.current === studentId) {
+                                  focusedStudentIdRef.current = null;
+                                }
+                              }}
+                              placeholder={`0-${grid?.subject?.max_marks ?? ""}`}
+                              placeholderTextColor={theme.mutedText}
+                            />
+                          ) : (
+                            <Text style={[styles.compactMarksValue, { color: rowMarkStatus === "absent" ? theme.danger : theme.text }]}>
+                              {displayMarkValue(row.marks, rowMarkStatus)}
+                            </Text>
+                          )}
+                        </View>
+                      </View>
+                    </View>
+
+                    <View style={styles.compactCardActions}>
+                      <Pressable
+                        style={[styles.compactSaveBtn, { borderColor: theme.border, backgroundColor: theme.card }, (!rowCanEdit || gridLoading) && styles.disabledBtn]}
+                        onPress={() => handleSaveStudent(row)}
+                        disabled={!rowCanEdit || gridLoading}
+                      >
+                        <Text style={[styles.compactSaveText, { color: theme.text }]}>Save</Text>
+                      </Pressable>
+                      <Pressable
+                        style={[styles.compactSubmitBtn, { backgroundColor: theme.danger }, (!rowCanSelect || gridLoading) && styles.disabledBtn]}
+                        onPress={() => handleSubmitStudent(row)}
+                        disabled={!rowCanSelect || gridLoading}
+                      >
+                        <Text style={[styles.compactSubmitText, { color: theme.primaryText }]}>Submit</Text>
+                      </Pressable>
+                    </View>
+                  </View>
+                );
+              })}
+              {hasMoreGridRows ? (
+                <Pressable
+                  style={[styles.loadMoreBtn, { borderColor: theme.border, backgroundColor: theme.cardMuted }]}
+                  onPress={loadMoreGridRows}
+                >
+                  <Text style={[styles.loadMoreBtnText, { color: theme.text }]}>
+                    Load More ({visibleGridRows.length}/{grid?.rows?.length || 0})
+                  </Text>
+                </Pressable>
+              ) : null}
+            </View>
+          ) : (
+            <Text style={[styles.emptyText, { color: theme.subText }]}>{emptyMessage}</Text>
+          )}
+        </View>
+      );
+    }
 
     return (
       <SectionCard
@@ -1699,6 +2072,8 @@ export default function ReportsTab() {
     );
   }
 
+  const useCompactEntryScreen = !selfViewOnly && activeTab === "entry" && canUseEntryFlow;
+
   return (
     <View style={styles.screen}>
       <TopNotice notice={notice} style={styles.topNoticeOverlay} />
@@ -1717,19 +2092,29 @@ export default function ReportsTab() {
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refreshCurrentTab} />}
       >
         <View style={styles.innerContent}>
-          <View style={styles.heroCard}>
-            <View style={styles.heroCopy}>
-              <Text style={styles.heroEyebrow}>Overview</Text>
-              <Text style={styles.title}>Marksheet</Text>
-              <Text style={styles.subtitle}>
-                {selfViewOnly
-                  ? "View approved marks and download marksheets."
-                  : isAdmin
-                    ? "Review, update, approve, and publish marks."
-                    : "Load marks grids, save draft marks, and submit them for approval."}
+          {!useCompactEntryScreen ? (
+            <View style={styles.heroCard}>
+              <View style={styles.heroCopy}>
+                <Text style={styles.title}>Marksheet</Text>
+                <Text style={styles.subtitle}>
+                  {selfViewOnly
+                    ? "View approved marks and download marksheets."
+                    : isAdmin
+                      ? "Review, update, approve, and publish marks."
+                      : "Load marks grids, save draft marks, and submit them for approval."}
+                </Text>
+              </View>
+            </View>
+          ) : null}
+
+          {useCompactEntryScreen ? (
+            <View style={styles.compactSectionHeader}>
+              <Text style={[styles.compactSectionTitle, { color: theme.text }]}>Marksheet</Text>
+              <Text style={[styles.compactSectionSubtitle, { color: theme.subText }]}>
+                Enter marks, save drafts, and submit selected students.
               </Text>
             </View>
-          </View>
+          ) : null}
 
           {renderTabRow()}
 
@@ -1737,8 +2122,8 @@ export default function ReportsTab() {
             renderSelfView()
           ) : (
             <>
-              {renderAdminSummary()}
-              {renderFilterPanel()}
+              {!useCompactEntryScreen ? renderAdminSummary() : null}
+              {!useCompactEntryScreen ? renderFilterPanel() : null}
               {renderGridPanel()}
             </>
           )}
@@ -1756,6 +2141,304 @@ return StyleSheet.create({
   root: { flex: 1 },
   content: { paddingHorizontal: 14, paddingTop: 10, paddingBottom: 120 },
   innerContent: { gap: 14 },
+  compactSectionHeader: {
+    paddingTop: 2,
+    gap: 2,
+  },
+  compactSectionTitle: {
+    fontSize: 20,
+    lineHeight: 25,
+    fontWeight: "900",
+  },
+  compactSectionSubtitle: {
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: "700",
+  },
+  compactMarksheetStack: { gap: 12 },
+  compactToolbar: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  toolbarBtn: {
+    flex: 1,
+    minHeight: 44,
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingHorizontal: 8,
+    paddingVertical: 8,
+    alignItems: "center",
+    justifyContent: "center",
+    flexDirection: "row",
+    gap: 6,
+  },
+  toolbarPrimaryBtn: {
+    flex: 1,
+    minHeight: 44,
+    borderRadius: 10,
+    paddingHorizontal: 8,
+    paddingVertical: 8,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  toolbarBtnText: {
+    fontSize: 13,
+    fontWeight: "800",
+  },
+  toolbarPrimaryText: {
+    fontSize: 13,
+    fontWeight: "900",
+  },
+  compactFilterCard: {
+    borderWidth: 1,
+    borderRadius: 18,
+    padding: 14,
+    gap: 12,
+  },
+  compactPanelHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10,
+  },
+  compactPanelTitle: {
+    fontSize: 18,
+    fontWeight: "900",
+  },
+  compactHeaderActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 14,
+  },
+  resetText: {
+    fontSize: 12,
+    fontWeight: "800",
+    textDecorationLine: "underline",
+  },
+  compactFilterGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    columnGap: 10,
+    rowGap: 12,
+  },
+  compactFilterField: {
+    width: "48%",
+    minWidth: 0,
+  },
+  compactFilterFieldFull: {
+    width: "100%",
+    gap: 8,
+  },
+  filterFieldStack: {
+    gap: 12,
+  },
+  compactApplyBtn: {
+    minHeight: 46,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  compactOverviewCard: {
+    borderWidth: 1,
+    borderRadius: 18,
+    padding: 14,
+    gap: 12,
+  },
+  compactOverviewHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10,
+  },
+  compactSubjectTitle: {
+    flex: 1,
+    fontSize: 16,
+    fontWeight: "900",
+    minWidth: 0,
+  },
+  compactOverviewRight: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  compactStudentsText: {
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  iconOnlyBtn: {
+    width: 32,
+    height: 32,
+    borderWidth: 1,
+    borderRadius: 9,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  secondaryUtilityBtn: {
+    alignSelf: "flex-start",
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
+  secondaryUtilityText: {
+    fontSize: 12,
+    fontWeight: "800",
+  },
+  compactStatsRow: {
+    flexDirection: "row",
+    gap: 8,
+  },
+  compactStatPill: {
+    flex: 1,
+    minHeight: 58,
+    borderWidth: 1,
+    borderRadius: 14,
+    paddingHorizontal: 10,
+    paddingVertical: 9,
+    justifyContent: "space-between",
+  },
+  compactStatValue: {
+    fontSize: 20,
+    fontWeight: "900",
+    fontVariant: ["tabular-nums"],
+  },
+  compactStatLabel: {
+    fontSize: 10,
+    fontWeight: "800",
+  },
+  compactStudentList: {
+    gap: 12,
+  },
+  compactStudentCard: {
+    borderWidth: 1,
+    borderRadius: 18,
+    paddingHorizontal: 14,
+    paddingVertical: 13,
+    gap: 13,
+  },
+  compactStudentHeader: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 12,
+  },
+  compactStudentCopy: {
+    flex: 1,
+    minWidth: 0,
+    gap: 5,
+  },
+  compactStudentName: {
+    fontSize: 17,
+    lineHeight: 22,
+    fontWeight: "900",
+  },
+  compactStudentMeta: {
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: "700",
+  },
+  squareCheckbox: {
+    width: 24,
+    height: 24,
+    borderWidth: 1.5,
+    borderRadius: 5,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  compactFieldBlock: {
+    gap: 7,
+  },
+  compactTinyLabel: {
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: "800",
+  },
+  compactAttendanceRow: {
+    flexDirection: "row",
+    gap: 8,
+  },
+  compactAttendanceChip: {
+    flex: 1,
+    minHeight: 36,
+    borderWidth: 1,
+    borderRadius: 9,
+    paddingHorizontal: 6,
+    paddingVertical: 8,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  compactAttendanceText: {
+    fontSize: 11,
+    fontWeight: "900",
+  },
+  compactMarksRow: {
+    flexDirection: "row",
+    alignItems: "flex-end",
+    justifyContent: "space-between",
+    gap: 12,
+  },
+  compactStatusColumn: {
+    flex: 1,
+    minWidth: 0,
+    gap: 6,
+    alignItems: "flex-start",
+  },
+  compactMarksBox: {
+    width: 112,
+    gap: 6,
+  },
+  compactMarksInputShell: {
+    minHeight: 44,
+    borderWidth: 1,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 8,
+  },
+  compactMarksInput: {
+    width: "100%",
+    paddingVertical: 0,
+    textAlign: "center",
+    fontSize: 18,
+    fontWeight: "900",
+    fontVariant: ["tabular-nums"],
+  },
+  compactMarksValue: {
+    fontSize: 18,
+    fontWeight: "900",
+    fontVariant: ["tabular-nums"],
+  },
+  compactCardActions: {
+    flexDirection: "row",
+    gap: 10,
+  },
+  compactSaveBtn: {
+    flex: 1,
+    minHeight: 42,
+    borderWidth: 1,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 10,
+  },
+  compactSubmitBtn: {
+    flex: 1,
+    minHeight: 42,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 10,
+  },
+  compactSaveText: {
+    fontSize: 13,
+    fontWeight: "800",
+  },
+  compactSubmitText: {
+    fontSize: 13,
+    fontWeight: "900",
+  },
   topNoticeOverlay: {
     position: "absolute",
     top: 10,

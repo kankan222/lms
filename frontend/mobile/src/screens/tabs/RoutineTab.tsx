@@ -560,6 +560,7 @@ export default function RoutineTab() {
     const label = slot.displayLabel || entryPeriodLabel(entry);
     const periodMeta = entryPeriodMeta(entry);
     const multipleEntries = slot.entries.length > 1;
+    const showTeacherScope = isTeacher && teacherRoutineView === "mine" && !isParent;
 
     return (
       <View key={`${slot.key}-${index}`} style={styles.timelineRow}>
@@ -616,6 +617,9 @@ export default function RoutineTab() {
                       >
                         <View style={styles.entryTextBlock}>
                           <Text style={[styles.slotSubjectTitle, { color: theme.text }]} numberOfLines={1}>{entryTitle(item)}</Text>
+                          {showTeacherScope ? (
+                            <Text style={[styles.entryClassText, { color: theme.infoText }]} numberOfLines={1}>{scopeText(item)}</Text>
+                          ) : null}
                           {itemTeacherText ? (
                             <Text style={[styles.entryMetaText, { color: theme.subText }]} numberOfLines={1}>{itemTeacherText}</Text>
                           ) : null}
@@ -631,6 +635,12 @@ export default function RoutineTab() {
                 </View>
               ) : (
                 <View style={styles.entryMetaRow}>
+                  {showTeacherScope ? (
+                    <View style={styles.entryMetaItem}>
+                      <Ionicons name="school-outline" size={14} color={theme.infoText} />
+                      <Text style={[styles.entryClassText, { color: theme.infoText }]} numberOfLines={1}>{scopeText(entry)}</Text>
+                    </View>
+                  ) : null}
                   {entryTeachers(entry) ? (
                     <View style={styles.entryMetaItem}>
                       <Ionicons name="person-outline" size={14} color={theme.subText} />
@@ -1379,6 +1389,11 @@ const styles = StyleSheet.create({
   entryMetaText: {
     fontSize: 12,
     fontWeight: "700",
+  },
+  entryClassText: {
+    flexShrink: 1,
+    fontSize: 12,
+    fontWeight: "800",
   },
   slotSubjectList: {
     gap: 8,

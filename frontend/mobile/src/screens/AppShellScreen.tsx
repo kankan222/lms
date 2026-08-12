@@ -213,7 +213,6 @@ function buildPrimaryTabs(roles: string[], permissions: string[]): NavTab[] {
       { key: "reports", label: "Marksheet", icon: "bar-chart-outline" },
       { key: "messaging", label: "Messages", icon: "chatbubble-ellipses-outline" },
       { key: "routine", label: "Routines", icon: "time-outline" },
-      { key: "announcements", label: "Announcements", icon: "megaphone-outline" },
       { key: "more", label: "More", icon: "apps-outline" },
     ];
   }
@@ -300,6 +299,7 @@ export default function AppShellScreen({ navigation, route }: Props) {
     () => TABS.filter((tab) => canViewTab(tab.key, roles, permissions)).map((tab) => tab.key),
     [permissions, roles],
   );
+  const showHeaderAnnouncements = hasRole(roles, "teacher") && visibleTabs.includes("announcements");
   const primaryTabs = useMemo(() => {
     const baseTabs = buildPrimaryTabs(roles, permissions);
     const filtered = baseTabs.filter((tab) => tab.key === "more" || visibleTabs.includes(tab.key as TabKey));
@@ -451,10 +451,6 @@ export default function AppShellScreen({ navigation, route }: Props) {
     };
   }, [permissions, roles]);
 
-  const title = useMemo(() => {
-    const current = TABS.find((tab) => tab.key === activeTab);
-    return current?.label ?? "Profile";
-  }, [activeTab]);
   const headerBrand = hasRole(roles, "parent")
     ? "Parent Portal"
     : hasRole(roles, "teacher")
@@ -462,13 +458,6 @@ export default function AppShellScreen({ navigation, route }: Props) {
     : hasRole(roles, "accounts")
       ? "Accounts Portal"
       : "KKV";
-  const headerSubtitle = hasRole(roles, "parent")
-    ? "Student Access"
-    : hasRole(roles, "teacher")
-      ? title
-    : hasRole(roles, "accounts")
-      ? "Finance Access"
-      : title;
 
   function selectTab(next: TabKey) {
     setActiveTab(next);
@@ -594,7 +583,6 @@ export default function AppShellScreen({ navigation, route }: Props) {
         <View style={styles.headerLeft}>
           <View style={styles.headerCopy}>
             <Text style={[styles.brandText, { color: theme.text }]} numberOfLines={1}>{headerBrand}</Text>
-            <Text style={[styles.subtitle, { color: theme.subText }]} numberOfLines={1}>{headerSubtitle}</Text>
           </View>
         </View>
 
@@ -616,6 +604,24 @@ export default function AppShellScreen({ navigation, route }: Props) {
                   <Text style={styles.headerBadgeText}>{notificationUnread > 99 ? "99+" : notificationUnread}</Text>
                 </View>
               ) : null}
+            </Pressable>
+          ) : null}
+          {showHeaderAnnouncements ? (
+            <Pressable
+              style={[
+                styles.iconButton,
+                {
+                  backgroundColor: activeTab === "announcements" ? theme.primary : "transparent",
+                  borderColor: activeTab === "announcements" ? theme.primary : theme.border,
+                },
+              ]}
+              onPress={() => selectTab("announcements")}
+            >
+              <Ionicons
+                name="megaphone-outline"
+                size={18}
+                color={activeTab === "announcements" ? theme.primaryText : theme.icon}
+              />
             </Pressable>
           ) : null}
           <Pressable
@@ -778,10 +784,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "800",
     letterSpacing: 0.4,
-  },
-  subtitle: {
-    fontSize: 12,
-    marginTop: 1,
   },
   iconButton: {
     width: 38,

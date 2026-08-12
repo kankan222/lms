@@ -81,6 +81,10 @@ provider. Do not try to share Tailwind web components with mobile.
   floating bottom nav, and More sheet for secondary modules.
 - Mobile modules: tab content should stay independently renderable and
   avoid changing global navigation structure unnecessarily.
+- Mobile repeated-work modules should follow the compact workflow
+  pattern in `templates/design.md`: existing header, compact overview,
+  compact toolbar, collapsible filters, dense record cards with local
+  actions, and existing bottom navigation.
 
 ## Icons
 

@@ -25,6 +25,17 @@ export function createAnnouncementCategory(data) {
   });
 }
 
+export function getAnnouncementHolidayNames(params = {}) {
+  return apiRequest(`/announcements/holiday-names${buildQuery(params)}`);
+}
+
+export function createAnnouncementHolidayName(data) {
+  return apiRequest("/announcements/holiday-names", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
 export function getAnnouncementSmsTemplates(params = {}) {
   return apiRequest(`/announcements/sms-templates${buildQuery(params)}`);
 }

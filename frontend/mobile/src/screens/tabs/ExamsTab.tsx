@@ -438,7 +438,6 @@ export default function ExamsTab() {
       <View style={styles.innerContent}>
       <View style={styles.heroCard}>
         <View style={styles.heroText}>
-          <Text style={[styles.heroEyebrow, { color: theme.subText }]}>Overview</Text>
           <Text style={[styles.title, { color: theme.text, fontWeight: "800", fontSize: 22 }]}>Exams</Text>
           <Text style={[styles.subtitle, { color: theme.subText, lineHeight: 20 }]}>
             Manage exam setup, scopes, and subject marks

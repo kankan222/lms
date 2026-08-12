@@ -11,10 +11,22 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import {
   addConversationMember,
   deleteConversation,
@@ -120,6 +132,9 @@ export default function Messaging() {
   const [moderationReports, setModerationReports] = useState([]);
   const [moderationAudit, setModerationAudit] = useState([]);
   const [conversationMembers, setConversationMembers] = useState([]);
+  const [notice, setNotice] = useState(null);
+  const [confirmAction, setConfirmAction] = useState(null);
+  const [inputAction, setInputAction] = useState(null);
   const [conversationSettings, setConversationSettings] = useState({
     allow_parent_reply: false,
     allow_teacher_reply: false
@@ -174,6 +189,12 @@ export default function Messaging() {
       (hasRole("teacher") && Number(activeChat.allow_teacher_reply) === 1)
     )
   ) || (!activeChatId && pendingConversationTarget?.target_type === "admin");
+
+  useEffect(() => {
+    if (!notice) return undefined;
+    const timer = window.setTimeout(() => setNotice(null), 3500);
+    return () => window.clearTimeout(timer);
+  }, [notice]);
 
   const currentUser = useMemo(() => {
     try {
@@ -523,37 +544,73 @@ export default function Messaging() {
 
   async function handleEditMessage(message) {
     if (!canStartMessages) return;
-    const next = window.prompt("Edit message", message.message || "");
-    if (next === null || !next.trim()) return;
-    await editMessage(message.id, next.trim());
-    await fetchMessages(activeChatId);
+    setInputAction({
+      title: "Edit Message",
+      description: "Update the message text and save the change.",
+      label: "Message",
+      defaultValue: message.message || "",
+      confirmLabel: "Save",
+      onConfirm: async (value) => {
+        if (!value.trim()) return;
+        await editMessage(message.id, value.trim());
+        await fetchMessages(activeChatId);
+        setNotice({ title: "Message Updated", message: "The message was edited.", tone: "success" });
+      },
+    });
   }
 
   async function handleDeleteMessage(message) {
-    const mode = window.prompt("Type 'self' or 'everyone'", "self");
-    if (!["self", "everyone"].includes(mode)) return;
-    await deleteMessage(message.id, mode);
-    await fetchMessages(activeChatId);
-    await fetchConversations();
+    setInputAction({
+      title: "Delete Message",
+      description: "Type self to delete only for you, or everyone to delete for all participants.",
+      label: "Delete mode",
+      defaultValue: "self",
+      confirmLabel: "Delete",
+      variant: "destructive",
+      onConfirm: async (value) => {
+        const mode = value.trim().toLowerCase();
+        if (!["self", "everyone"].includes(mode)) {
+          throw new Error("Enter self or everyone.");
+        }
+        await deleteMessage(message.id, mode);
+        await fetchMessages(activeChatId);
+        await fetchConversations();
+        setNotice({ title: "Message Deleted", message: mode === "everyone" ? "The message was deleted for everyone." : "The message was deleted from your view.", tone: "success" });
+      },
+    });
   }
 
   async function handleDeleteConversation(conversation) {
     if (!conversation?.id) return;
-    const confirmed = window.confirm("Delete this chat from your list only? Other people will still see it.");
-    if (!confirmed) return;
-    await deleteConversation(conversation.id);
-    setConversations((prev) => prev.filter((item) => Number(item.id) !== Number(conversation.id)));
-    if (Number(activeChatId) === Number(conversation.id)) {
-      setActiveChatId(null);
-      setMessages([]);
-    }
+    setConfirmAction({
+      title: "Delete chat?",
+      description: "This removes the chat from your list only. Other people will still see it.",
+      confirmLabel: "Delete",
+      variant: "destructive",
+      onConfirm: async () => {
+        await deleteConversation(conversation.id);
+        setConversations((prev) => prev.filter((item) => Number(item.id) !== Number(conversation.id)));
+        if (Number(activeChatId) === Number(conversation.id)) {
+          setActiveChatId(null);
+          setMessages([]);
+        }
+        setNotice({ title: "Chat Deleted", message: "The chat was removed from your list.", tone: "success" });
+      },
+    });
   }
 
   async function handleReportMessage(message) {
-    const reason = window.prompt("Reason for reporting this message");
-    if (!reason?.trim()) return;
-    await reportMessage(message.id, reason.trim());
-    window.alert("Message reported.");
+    setInputAction({
+      title: "Report Message",
+      description: "Add a short reason for moderation review.",
+      label: "Reason",
+      confirmLabel: "Report",
+      onConfirm: async (value) => {
+        if (!value.trim()) return;
+        await reportMessage(message.id, value.trim());
+        setNotice({ title: "Message Reported", message: "The report has been submitted for moderation.", tone: "success" });
+      },
+    });
   }
 
   async function handleForwardMessage(message) {
@@ -562,14 +619,23 @@ export default function Messaging() {
       .filter((item) => Number(item.id) !== Number(message.conversation_id))
       .map((item) => `${item.id}: ${item.name}`)
       .join("\n");
-    const targetId = Number(window.prompt(`Forward to conversation ID:\n${options}`));
-    if (!targetId) return;
-    await sendMessage({
-      conversation_id: targetId,
-      message: "",
-      forwarded_from_message_id: message.id,
+    setInputAction({
+      title: "Forward Message",
+      description: options ? `Enter one conversation ID:\n${options}` : "No other conversations are available.",
+      label: "Conversation ID",
+      confirmLabel: "Forward",
+      onConfirm: async (value) => {
+        const targetId = Number(value);
+        if (!targetId) return;
+        await sendMessage({
+          conversation_id: targetId,
+          message: "",
+          forwarded_from_message_id: message.id,
+        });
+        await fetchConversations();
+        setNotice({ title: "Message Forwarded", message: "The message was forwarded to the selected conversation.", tone: "success" });
+      },
     });
-    await fetchConversations();
   }
 
   async function handleSearch(query) {
@@ -633,30 +699,56 @@ export default function Messaging() {
           : item
       )
     );
-    window.alert("Conversation settings saved.");
+    setNotice({ title: "Settings Saved", message: "Conversation reply permissions were updated.", tone: "success" });
   }
 
   async function handleResolveReport(reportId, status) {
-    const note = window.prompt("Moderation note", "") || "";
-    await updateModerationReport(reportId, status, note);
-    await loadModeration();
+    setInputAction({
+      title: status === "resolved" ? "Resolve Report" : "Dismiss Report",
+      description: "Add an optional moderation note.",
+      label: "Note",
+      confirmLabel: status === "resolved" ? "Resolve" : "Dismiss",
+      onConfirm: async (value) => {
+        await updateModerationReport(reportId, status, value.trim());
+        await loadModeration();
+        setNotice({ title: "Report Updated", message: `The report was ${status}.`, tone: "success" });
+      },
+    });
   }
 
   async function handleSuspendActiveUser() {
     const userId = activeChat?.other_user_id;
     if (!userId) return;
-    const reason = window.prompt("Suspension reason");
-    if (!reason?.trim()) return;
-    await suspendMessagingUser(userId, reason.trim());
-    await loadModeration();
+    setInputAction({
+      title: "Suspend User",
+      description: "Enter the reason for suspending this user's messaging access.",
+      label: "Reason",
+      confirmLabel: "Suspend",
+      variant: "destructive",
+      onConfirm: async (value) => {
+        if (!value.trim()) return;
+        await suspendMessagingUser(userId, value.trim());
+        await loadModeration();
+        setNotice({ title: "User Suspended", message: "Messaging access was suspended.", tone: "success" });
+      },
+    });
   }
 
   async function handleAddMember() {
     if (!activeChatId) return;
-    const userId = Number(window.prompt("User ID to add"));
-    if (!userId) return;
-    const response = await addConversationMember(activeChatId, userId);
-    setConversationMembers(response?.data || []);
+    setInputAction({
+      title: "Add Member",
+      description: "Enter the user ID to add to this conversation.",
+      label: "User ID",
+      confirmLabel: "Add",
+      onConfirm: async (value) => {
+        const userId = Number(value);
+        if (!userId) return;
+        const response = await addConversationMember(activeChatId, userId);
+        setConversationMembers(response?.data || []);
+        setNotice({ title: "Member Added", message: "The user was added to the conversation.", tone: "success" });
+      },
+    });
   }
 
   async function handleRemoveMember(userId) {
@@ -680,9 +772,17 @@ export default function Messaging() {
   }
 
   async function handleRemoveAttachment(attachment) {
-    if (!window.confirm(`Remove ${attachment.original_name}?`)) return;
-    await removeMessageAttachment(attachment.id);
-    await fetchMessages(activeChatId);
+    setConfirmAction({
+      title: "Remove attachment?",
+      description: `Remove ${attachment.original_name || "this attachment"} from the message?`,
+      confirmLabel: "Remove",
+      variant: "destructive",
+      onConfirm: async () => {
+        await removeMessageAttachment(attachment.id);
+        await fetchMessages(activeChatId);
+        setNotice({ title: "Attachment Removed", message: "The attachment was removed from the message.", tone: "success" });
+      },
+    });
   }
 
   function resetComposeState() {
@@ -891,6 +991,23 @@ export default function Messaging() {
 
   return (
     <>
+      <div className="pointer-events-none fixed top-6 right-6 z-50 w-full max-w-sm">
+        <div
+          className={`transition-all duration-500 ease-out ${
+            notice ? "translate-x-0 scale-100 opacity-100" : "translate-x-12 scale-95 opacity-0"
+          }`}
+        >
+          {notice ? (
+            <Alert
+              variant={notice.tone === "error" ? "destructive" : "success"}
+              className="pointer-events-auto overflow-hidden border shadow-xl"
+            >
+              <AlertTitle>{notice.title}</AlertTitle>
+              <AlertDescription>{notice.message}</AlertDescription>
+            </Alert>
+          ) : null}
+        </div>
+      </div>
       <TopBar
         title="Messaging"
         subTitle="One-to-one and group messaging"
@@ -1168,7 +1285,11 @@ export default function Messaging() {
             open={moderationOpen}
             onOpenChange={(open) => {
               setModerationOpen(open);
-              if (open) loadModeration().catch((err) => window.alert(err.message));
+              if (open) {
+                loadModeration().catch((err) =>
+                  setNotice({ title: "Moderation Load Failed", message: err.message || "Could not load moderation data.", tone: "error" })
+                );
+              }
             }}
           >
             <DialogTrigger asChild>
@@ -1343,6 +1464,83 @@ export default function Messaging() {
           onRemoveAttachment={handleRemoveAttachment}
         />
       </div>
+
+      <AlertDialog open={Boolean(confirmAction)} onOpenChange={(open) => !open && setConfirmAction(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{confirmAction?.title || "Confirm action?"}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {confirmAction?.description || "This action needs confirmation before continuing."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              variant={confirmAction?.variant || "default"}
+              onClick={async (event) => {
+                event.preventDefault();
+                const action = confirmAction;
+                setConfirmAction(null);
+                try {
+                  await action?.onConfirm?.();
+                } catch (err) {
+                  setNotice({
+                    title: "Action Failed",
+                    message: err?.message || "The requested action could not be completed.",
+                    tone: "error",
+                  });
+                }
+              }}
+            >
+              {confirmAction?.confirmLabel || "Confirm"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <Dialog open={Boolean(inputAction)} onOpenChange={(open) => !open && setInputAction(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{inputAction?.title || "Enter Details"}</DialogTitle>
+            <DialogDescription className="whitespace-pre-line">
+              {inputAction?.description || "Provide the required value to continue."}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-2">
+            <Label>{inputAction?.label || "Value"}</Label>
+            <Input
+              value={inputAction?.value ?? inputAction?.defaultValue ?? ""}
+              onChange={(event) => setInputAction((prev) => prev ? { ...prev, value: event.target.value } : prev)}
+              autoFocus
+            />
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setInputAction(null)}>
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant={inputAction?.variant || "default"}
+              onClick={async () => {
+                const action = inputAction;
+                const value = String(action?.value ?? action?.defaultValue ?? "");
+                setInputAction(null);
+                try {
+                  await action?.onConfirm?.(value);
+                } catch (err) {
+                  setNotice({
+                    title: "Action Failed",
+                    message: err?.message || "The requested action could not be completed.",
+                    tone: "error",
+                  });
+                }
+              }}
+            >
+              {inputAction?.confirmLabel || "Continue"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }

@@ -16,6 +16,22 @@ export async function createCategory(req, res, next) {
   }
 }
 
+export async function listHolidayNames(req, res, next) {
+  try {
+    res.json({ success: true, data: await service.listHolidayNames(req.query) });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function createHolidayName(req, res, next) {
+  try {
+    res.status(201).json({ success: true, data: await service.createHolidayName(req.body, req.user.userId) });
+  } catch (err) {
+    next(err);
+  }
+}
+
 export async function listSmsTemplates(req, res, next) {
   try {
     res.json({ success: true, data: await service.listSmsTemplates(req.query) });

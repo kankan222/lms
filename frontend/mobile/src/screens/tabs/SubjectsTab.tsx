@@ -371,7 +371,6 @@ export default function SubjectsTab() {
         <View style={styles.innerContent}>
           <View style={styles.heroCard}>
             <View style={styles.heroCopy}>
-              <Text style={[styles.heroEyebrow, { color: theme.subText }]}>Overview</Text>
               <Text style={[styles.title, { color: theme.text }]}>Subjects</Text>
               <Text style={[styles.subtitle, { color: theme.subText }]}>Create subjects, review class coverage, and assign them</Text>
             </View>

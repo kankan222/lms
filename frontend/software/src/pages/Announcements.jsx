@@ -42,11 +42,13 @@ import { getClassStructure, getSessions } from "../api/academic.api";
 import {
   createAnnouncement,
   createAnnouncementCategory,
+  createAnnouncementHolidayName,
   createAnnouncementSmsTemplate,
   dispatchAnnouncementSmsJob,
   dispatchAnnouncementSmsJobs,
   getAnnouncement,
   getAnnouncementCategories,
+  getAnnouncementHolidayNames,
   getAnnouncementSmsJobs,
   getAnnouncementSmsTemplates,
   getAnnouncements,
@@ -128,6 +130,7 @@ const emptyAnnouncementForm = {
 const emptyTemplateForm = {
   template_name: "",
   dlt_template_id: "",
+  provider_template_id: "",
   header: "",
   communication_type: "",
   template_content: "",
@@ -340,6 +343,18 @@ function FormSection({ title, description, children }) {
   );
 }
 
+function CompactPanel({ title, description, children, defaultOpen = false }) {
+  return (
+    <details className="rounded-lg border border-border bg-card" open={defaultOpen}>
+      <summary className="cursor-pointer list-none px-4 py-3">
+        <p className="text-sm font-semibold text-foreground">{title}</p>
+        {description ? <p className="mt-0.5 text-xs text-muted-foreground">{description}</p> : null}
+      </summary>
+      <div className="grid gap-3 border-t border-border p-4">{children}</div>
+    </details>
+  );
+}
+
 function FilePicker({ file, onChange, accept = ".xlsx,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv" }) {
   const inputRef = useRef(null);
   return (
@@ -424,6 +439,7 @@ export default function Announcements() {
   const [announcements, setAnnouncements] = useState([]);
   const [smsJobs, setSmsJobs] = useState([]);
   const [holidays, setHolidays] = useState([]);
+  const [holidayNames, setHolidayNames] = useState([]);
   const [sessions, setSessions] = useState([]);
   const [classes, setClasses] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -525,7 +541,7 @@ export default function Announcements() {
     setLoading(true);
     setError("");
     try {
-      const [categoryRes, templateRes, announcementRes, sessionsRes, classesRes, jobsRes, holidayRes] = await Promise.all([
+      const [categoryRes, templateRes, announcementRes, sessionsRes, classesRes, jobsRes, holidayRes, holidayNameRes] = await Promise.all([
         getAnnouncementCategories(),
         getAnnouncementSmsTemplates(),
         getAnnouncements(),
@@ -533,6 +549,7 @@ export default function Announcements() {
         getClassStructure(),
         getAnnouncementSmsJobs().catch(() => ({ data: [] })),
         getHolidays().catch(() => ({ data: [] })),
+        getAnnouncementHolidayNames().catch(() => ({ data: [] })),
       ]);
       setCategories(unwrap(categoryRes));
       setTemplates(unwrap(templateRes));
@@ -541,6 +558,7 @@ export default function Announcements() {
       setClasses(unwrap(classesRes));
       setSmsJobs(unwrap(jobsRes));
       setHolidays(unwrap(holidayRes));
+      setHolidayNames(unwrap(holidayNameRes));
     } catch (err) {
       setError(err?.message || "Could not load announcements.");
     } finally {
@@ -555,6 +573,12 @@ export default function Announcements() {
   useEffect(() => {
     void Promise.resolve().then(loadAnnouncements);
   }, [loadAnnouncements]);
+
+  useEffect(() => {
+    if (!notice) return undefined;
+    const timeoutId = window.setTimeout(() => setNotice(null), 3500);
+    return () => window.clearTimeout(timeoutId);
+  }, [notice]);
 
   function clearFeedback() {
     setError("");
@@ -797,6 +821,30 @@ export default function Announcements() {
     }
   }
 
+  async function saveHolidayName(name) {
+    const value = String(name || "").trim();
+    if (!value) {
+      showError("Holiday Save Failed", "Enter a holiday name first.");
+      return;
+    }
+    setSaving(true);
+    clearFeedback();
+    try {
+      const response = await createAnnouncementHolidayName({ name: value, category: "holiday" });
+      setHolidayNames((prev) => {
+        const next = response.data;
+        if (!next) return prev;
+        const exists = prev.some((item) => String(item.id) === String(next.id) || String(item.name).toLowerCase() === String(next.name).toLowerCase());
+        return exists ? prev.map((item) => (String(item.id) === String(next.id) ? next : item)) : [...prev, next].sort((a, b) => String(a.name).localeCompare(String(b.name)));
+      });
+      showSuccess("Holiday Saved", `${value} is available for future DLT announcements.`);
+    } catch (err) {
+      showError("Holiday Save Failed", err?.message || "Could not save holiday name.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   function updateAnnouncementField(field, value) {
     setAnnouncementForm((prev) => ({
       ...prev,
@@ -939,6 +987,7 @@ export default function Announcements() {
                   <div className="grid gap-3 md:grid-cols-2">
                     <Field label="Template Name"><Input value={templateForm.template_name} onChange={(event) => setTemplateForm((prev) => ({ ...prev, template_name: event.target.value }))} /></Field>
                     <Field label="DLT Template ID"><Input value={templateForm.dlt_template_id} onChange={(event) => setTemplateForm((prev) => ({ ...prev, dlt_template_id: event.target.value }))} /></Field>
+                    <Field label="Fast2SMS Message ID"><Input value={templateForm.provider_template_id} onChange={(event) => setTemplateForm((prev) => ({ ...prev, provider_template_id: event.target.value }))} /></Field>
                     <Field label="Header"><Input value={templateForm.header} onChange={(event) => setTemplateForm((prev) => ({ ...prev, header: event.target.value }))} /></Field>
                     <Field label="Communication Type"><Input value={templateForm.communication_type} onChange={(event) => setTemplateForm((prev) => ({ ...prev, communication_type: event.target.value }))} /></Field>
                     <Field label="Brand DLT ID"><Input value={templateForm.brand_dlt_id} onChange={(event) => setTemplateForm((prev) => ({ ...prev, brand_dlt_id: event.target.value }))} /></Field>
@@ -1004,7 +1053,7 @@ export default function Announcements() {
               <div className="space-y-3">
                 <FilePicker file={importFile} onChange={setImportFile} />
                 <div className="rounded-md border border-border bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
-                  Supported headers: Template Name, DLT Template ID, Header, Template Content, Communication Type, Status.
+                  Supported headers: Template Name, DLT Template ID, Fast2SMS Message ID, Header, Template Content, Communication Type, Status.
                 </div>
                 <div className="flex justify-end gap-2">
                   <Button variant="outline" onClick={() => setImportOpen(false)}>Cancel</Button>
@@ -1137,12 +1186,6 @@ export default function Announcements() {
                               </Field>
                             </div>
                           ) : null}
-                          <div className="grid gap-2 md:grid-cols-2">
-                            <ToggleField label="Show in software" checked={announcementForm.show_in_software} onChange={(value) => updateAnnouncementField("show_in_software", value)} />
-                            <ToggleField label="Show in mobile" checked={announcementForm.show_in_mobile} onChange={(value) => updateAnnouncementField("show_in_mobile", value)} />
-                            <ToggleField label="Create online notification" checked={announcementForm.create_notification} onChange={(value) => updateAnnouncementField("create_notification", value)} />
-                            <ToggleField label="Send push notification" checked={announcementForm.send_push} onChange={(value) => updateAnnouncementField("send_push", value)} />
-                          </div>
                         </div>
                       </>
                     ) : (
@@ -1151,119 +1194,133 @@ export default function Announcements() {
                           <p className="text-xs font-semibold uppercase tracking-wide text-primary">Sending To</p>
                           <p className="mt-1 text-sm font-semibold text-foreground">{targetSummary}</p>
                         </div>
-                  <FormSection title="Details" description="Content and category for the announcement feed.">
-                    <Field label="Title"><Input value={announcementForm.title} onChange={(event) => updateAnnouncementField("title", event.target.value)} /></Field>
-                    <div className="grid gap-2 md:grid-cols-2">
-                      {[
-                        { value: "custom", title: "Custom Message", description: "App/software notice only. SMS is not allowed." },
-                        { value: "registered_dlt", title: "Registered DLT Message", description: "Uses approved template variables and may send SMS." },
-                      ].map((option) => (
-                        <button
-                          key={option.value}
-                          type="button"
-                          className={`rounded-xl border px-4 py-3 text-left transition ${
-                            announcementForm.message_type === option.value ? "border-primary bg-primary/5" : "border-border bg-background hover:bg-muted/50"
-                          }`}
-                          onClick={() => updateAnnouncementField("message_type", option.value)}
-                        >
-                          <span className="block text-sm font-semibold text-foreground">{option.title}</span>
-                          <span className="mt-1 block text-xs text-muted-foreground">{option.description}</span>
-                        </button>
-                      ))}
-                    </div>
-                    {announcementForm.message_type === "custom" ? (
-                      <Field label="Body"><Textarea className="min-h-32" value={announcementForm.body} onChange={(event) => updateAnnouncementField("body", event.target.value)} /></Field>
-                    ) : (
-                      <div className="space-y-3 rounded-md border border-border bg-muted/20 p-3">
-                        <div className="grid gap-3 md:grid-cols-2">
-                          <Field label="DLT Template">
-                            <select className={selectClassName} value={announcementForm.sms_template_id} onChange={(event) => updateAnnouncementField("sms_template_id", event.target.value)}>
-                              <option value="">Select registered template</option>
-                              {templates.filter((item) => item.status === "registered").map((item) => <option key={item.id} value={item.id}>{item.template_name}</option>)}
-                            </select>
-                          </Field>
-                          <Field label="SMS Send At"><Input type="datetime-local" value={announcementForm.sms_send_at} onChange={(event) => updateAnnouncementField("sms_send_at", event.target.value)} /></Field>
-                        </div>
-                        {selectedTemplate ? (
-                          <>
-                            <div className="rounded-md border border-border bg-background p-3 text-xs text-muted-foreground">
-                              {selectedTemplate.template_content}
-                            </div>
-                            <div className="grid gap-3 md:grid-cols-2">
-                              {selectedTemplateSchema.map((item) => (
-                                <Field key={item.key} label={item.label}>
-                                  {item.type === "date" ? (
-                                    <Input required={item.required !== false} type="date" value={announcementForm.sms_variables?.[item.key] || ""} onChange={(event) => updateSmsVariable(item.key, event.target.value)} />
-                                  ) : item.type === "holiday" ? (
-                                    <Input required={item.required !== false} list="announcement-holiday-options" value={announcementForm.sms_variables?.[item.key] || ""} onChange={(event) => updateSmsVariable(item.key, event.target.value)} placeholder="Select or type holiday" />
-                                  ) : (
-                                    <Input required={item.required !== false} type={item.type === "number" ? "number" : "text"} value={announcementForm.sms_variables?.[item.key] || ""} onChange={(event) => updateSmsVariable(item.key, event.target.value)} />
-                                  )}
+                        <div className="rounded-lg border border-border bg-card p-4">
+                          <div className="grid gap-3 md:grid-cols-[1fr_auto]">
+                            <Field label="Title"><Input value={announcementForm.title} onChange={(event) => updateAnnouncementField("title", event.target.value)} /></Field>
+                            <ToggleField label="Urgent" checked={announcementForm.priority === "urgent"} onChange={(value) => updateAnnouncementField("priority", value ? "urgent" : "normal")} />
+                          </div>
+                          <div className="mt-4 grid gap-2 md:grid-cols-2">
+                            {[
+                              { value: "custom", title: "Custom Message", description: "Visible in app and software." },
+                              { value: "registered_dlt", title: "Registered DLT", description: "Uses approved SMS template variables." },
+                            ].map((option) => (
+                              <button
+                                key={option.value}
+                                type="button"
+                                className={`rounded-lg border px-4 py-3 text-left transition ${
+                                  announcementForm.message_type === option.value ? "border-primary bg-primary/5" : "border-border bg-background hover:bg-muted/50"
+                                }`}
+                                onClick={() => updateAnnouncementField("message_type", option.value)}
+                              >
+                                <span className="block text-sm font-semibold text-foreground">{option.title}</span>
+                                <span className="mt-1 block text-xs text-muted-foreground">{option.description}</span>
+                              </button>
+                            ))}
+                          </div>
+                          <div className="mt-4">
+                            {announcementForm.message_type === "custom" ? (
+                              <Field label="Body"><Textarea className="min-h-32" value={announcementForm.body} onChange={(event) => updateAnnouncementField("body", event.target.value)} /></Field>
+                            ) : (
+                              <div className="space-y-3">
+                                <Field label="DLT Template">
+                                  <select className={selectClassName} value={announcementForm.sms_template_id} onChange={(event) => updateAnnouncementField("sms_template_id", event.target.value)}>
+                                    <option value="">Select registered template</option>
+                                    {templates.filter((item) => item.status === "registered").map((item) => <option key={item.id} value={item.id}>{item.template_name}</option>)}
+                                  </select>
                                 </Field>
-                              ))}
-                            </div>
-                            <datalist id="announcement-holiday-options">
-                              {holidays.map((item) => <option key={item.id} value={item.title} />)}
-                              {categories.filter((item) => ["holiday", "festival", "vacation"].includes(item.slug)).map((item) => <option key={item.slug} value={item.name} />)}
-                            </datalist>
-                            <Field label="Preview"><Textarea readOnly className="min-h-24 bg-background" value={renderedDltBody} /></Field>
-                          </>
-                        ) : null}
-                      </div>
-                    )}
-                    <div className="grid gap-3 md:grid-cols-3">
-                      <Field label="Category">
-                        <select className={selectClassName} value={announcementForm.category_id} onChange={(event) => updateAnnouncementField("category_id", event.target.value)}>
-                          <option value="">General</option>
-                          {categories.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
-                        </select>
-                      </Field>
-                      <Field label="Status">
-                        <select className={selectClassName} value={announcementForm.status} onChange={(event) => updateAnnouncementField("status", event.target.value)}>
-                          <option value="draft">Draft</option>
-                          <option value="scheduled">Scheduled</option>
-                        </select>
-                      </Field>
-                      <Field label="Priority">
-                        <select className={selectClassName} value={announcementForm.priority} onChange={(event) => updateAnnouncementField("priority", event.target.value)}>
-                          <option value="normal">Normal</option>
-                          <option value="urgent">Urgent</option>
-                        </select>
-                      </Field>
-                    </div>
-                  </FormSection>
-                  <FormSection title="Delivery" description="Online announcements create notifications. Offline announcements create SMS jobs after publish.">
-                    <div className="grid gap-3 md:grid-cols-3">
-                      <Field label="Delivery">
-                        <select className={selectClassName} value={announcementForm.delivery_mode} onChange={(event) => updateAnnouncementField("delivery_mode", event.target.value)}>
-                          <option value="online">Online</option>
-                          {announcementForm.message_type === "registered_dlt" ? <option value="offline_sms">Offline SMS</option> : null}
-                          {announcementForm.message_type === "registered_dlt" ? <option value="both">Online + SMS</option> : null}
-                        </select>
-                      </Field>
-                      <Field label="Publish At"><Input type="datetime-local" value={announcementForm.publish_at} onChange={(event) => updateAnnouncementField("publish_at", event.target.value)} /></Field>
-                      <Field label="Expires At"><Input type="datetime-local" value={announcementForm.expires_at} onChange={(event) => updateAnnouncementField("expires_at", event.target.value)} /></Field>
-                    </div>
-                    {announcementForm.message_type === "custom" ? (
-                      <p className="rounded-md border border-border bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
-                        Custom messages are online only because DLT SMS requires registered template content.
-                      </p>
-                    ) : null}
-                  </FormSection>
-                  <FormSection title="Event / Holiday Dates (Optional)" description="Use only for holidays, closures, vacations, or dated events.">
-                    <div className="grid gap-3 md:grid-cols-3">
-                      <Field label="Event Starts (Optional)"><Input type="date" value={announcementForm.event_start_date} onChange={(event) => updateAnnouncementField("event_start_date", event.target.value)} /></Field>
-                      <Field label="Event Ends (Optional)"><Input type="date" value={announcementForm.event_end_date} onChange={(event) => updateAnnouncementField("event_end_date", event.target.value)} /></Field>
-                      <Field label="Reopen Date (Optional)"><Input type="date" value={announcementForm.reopen_date} onChange={(event) => updateAnnouncementField("reopen_date", event.target.value)} /></Field>
-                    </div>
-                  </FormSection>
-                  {holidayCategoryIds.has(Number(announcementForm.category_id)) ? (
-                    <Alert>
-                      <CalendarDays className="size-4" />
-                      <AlertTitle>Holiday calendar</AlertTitle>
-                      <AlertDescription>Publishing this category will create calendar holiday records for the selected target.</AlertDescription>
-                    </Alert>
-                  ) : null}
+                                {selectedTemplate ? (
+                                  <>
+                                    <div className="rounded-md border border-border bg-muted/20 p-3 text-xs leading-5 text-muted-foreground">
+                                      {selectedTemplate.template_content}
+                                    </div>
+                                    <div className="grid gap-3 md:grid-cols-2">
+                                      {selectedTemplateSchema.map((item) => (
+                                        <Field key={item.key} label={item.label}>
+                                          {item.type === "date" ? (
+                                            <Input required={item.required !== false} type="date" value={announcementForm.sms_variables?.[item.key] || ""} onChange={(event) => updateSmsVariable(item.key, event.target.value)} />
+                                          ) : item.type === "holiday" ? (
+                                            <div className="flex gap-2">
+                                              <Input required={item.required !== false} list="announcement-holiday-options" value={announcementForm.sms_variables?.[item.key] || ""} onChange={(event) => updateSmsVariable(item.key, event.target.value)} placeholder="Select or type holiday" />
+                                              <Button type="button" variant="outline" size="sm" onClick={() => saveHolidayName(announcementForm.sms_variables?.[item.key])} disabled={saving || !String(announcementForm.sms_variables?.[item.key] || "").trim()}>
+                                                Add
+                                              </Button>
+                                            </div>
+                                          ) : (
+                                            <Input required={item.required !== false} type={item.type === "number" ? "number" : "text"} value={announcementForm.sms_variables?.[item.key] || ""} onChange={(event) => updateSmsVariable(item.key, event.target.value)} />
+                                          )}
+                                        </Field>
+                                      ))}
+                                    </div>
+                                    <datalist id="announcement-holiday-options">
+                                      {holidayNames.map((item) => <option key={`name-${item.id}`} value={item.name} />)}
+                                      {holidays.map((item) => <option key={item.id} value={item.title} />)}
+                                      {categories.filter((item) => ["holiday", "festival", "vacation"].includes(item.slug)).map((item) => <option key={item.slug} value={item.name} />)}
+                                    </datalist>
+                                    <Field label="Preview"><Textarea readOnly className="min-h-24 bg-background" value={renderedDltBody} /></Field>
+                                  </>
+                                ) : null}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+
+                        <CompactPanel title="Publish Options" description="Defaults save a normal online announcement. Change only when required.">
+                          <div className="grid gap-3 md:grid-cols-3">
+                            <Field label="Category">
+                              <select className={selectClassName} value={announcementForm.category_id} onChange={(event) => updateAnnouncementField("category_id", event.target.value)}>
+                                <option value="">General</option>
+                                {categories.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+                              </select>
+                            </Field>
+                            <Field label="Status">
+                              <select className={selectClassName} value={announcementForm.status} onChange={(event) => updateAnnouncementField("status", event.target.value)}>
+                                <option value="draft">Draft</option>
+                                <option value="scheduled">Scheduled</option>
+                              </select>
+                            </Field>
+                            {announcementForm.status === "scheduled" ? (
+                              <Field label="Publish At"><Input type="datetime-local" value={announcementForm.publish_at} onChange={(event) => updateAnnouncementField("publish_at", event.target.value)} /></Field>
+                            ) : null}
+                            {announcementForm.message_type === "registered_dlt" ? (
+                              <>
+                                <Field label="Delivery">
+                                  <select className={selectClassName} value={announcementForm.delivery_mode} onChange={(event) => updateAnnouncementField("delivery_mode", event.target.value)}>
+                                    <option value="online">Online</option>
+                                    <option value="offline_sms">Offline SMS</option>
+                                    <option value="both">Online + SMS</option>
+                                  </select>
+                                </Field>
+                                <Field label="SMS Send At"><Input type="datetime-local" value={announcementForm.sms_send_at} onChange={(event) => updateAnnouncementField("sms_send_at", event.target.value)} /></Field>
+                              </>
+                            ) : (
+                              <p className="rounded-md border border-border bg-muted/20 px-3 py-2 text-xs text-muted-foreground md:col-span-2">
+                                Custom messages stay online because DLT SMS requires registered template content.
+                              </p>
+                            )}
+                          </div>
+                        </CompactPanel>
+
+                        <CompactPanel title="Advanced" description="Visibility, notifications, expiry, and holiday-calendar dates.">
+                          <div className="grid gap-2 md:grid-cols-2">
+                            <ToggleField label="Show in software" checked={announcementForm.show_in_software} onChange={(value) => updateAnnouncementField("show_in_software", value)} />
+                            <ToggleField label="Show in mobile" checked={announcementForm.show_in_mobile} onChange={(value) => updateAnnouncementField("show_in_mobile", value)} />
+                            <ToggleField label="Create online notification" checked={announcementForm.create_notification} onChange={(value) => updateAnnouncementField("create_notification", value)} />
+                            <ToggleField label="Send push notification" checked={announcementForm.send_push} onChange={(value) => updateAnnouncementField("send_push", value)} />
+                          </div>
+                          <div className="grid gap-3 md:grid-cols-4">
+                            <Field label="Expires At"><Input type="datetime-local" value={announcementForm.expires_at} onChange={(event) => updateAnnouncementField("expires_at", event.target.value)} /></Field>
+                            <Field label="Event Starts"><Input type="date" value={announcementForm.event_start_date} onChange={(event) => updateAnnouncementField("event_start_date", event.target.value)} /></Field>
+                            <Field label="Event Ends"><Input type="date" value={announcementForm.event_end_date} onChange={(event) => updateAnnouncementField("event_end_date", event.target.value)} /></Field>
+                            <Field label="Reopen Date"><Input type="date" value={announcementForm.reopen_date} onChange={(event) => updateAnnouncementField("reopen_date", event.target.value)} /></Field>
+                          </div>
+                          {holidayCategoryIds.has(Number(announcementForm.category_id)) ? (
+                            <Alert>
+                              <CalendarDays className="size-4" />
+                              <AlertTitle>Holiday calendar</AlertTitle>
+                              <AlertDescription>Publishing this category will create calendar holiday records for the selected target.</AlertDescription>
+                            </Alert>
+                          ) : null}
+                        </CompactPanel>
                       </>
                     )}
                   </div>
@@ -1292,21 +1349,31 @@ export default function Announcements() {
             </DialogContent>
           </Dialog>
           </div>
-        }
-      />
+      }
+    />
 
-      {error ? (
-        <Alert variant="destructive">
-          <AlertTitle>{errorTitle}</AlertTitle>
-          <AlertDescription>{error}</AlertDescription>
-        </Alert>
-      ) : null}
-      {notice ? (
-        <Alert variant={notice.variant}>
-          <AlertTitle>{notice.title}</AlertTitle>
-          <AlertDescription>{notice.message}</AlertDescription>
-        </Alert>
-      ) : null}
+      <div className="pointer-events-none fixed top-6 right-6 z-50 w-full max-w-sm">
+        <div
+          className={`transition-all duration-500 ease-out ${
+            error || notice ? "translate-x-0 scale-100 opacity-100" : "translate-x-12 scale-95 opacity-0"
+          }`}
+        >
+          {error ? (
+            <Alert variant="destructive" className="pointer-events-auto overflow-hidden border shadow-xl">
+              <AlertTitle>{errorTitle}</AlertTitle>
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
+          ) : notice ? (
+            <Alert
+              variant={notice.variant === "error" ? "destructive" : "success"}
+              className="pointer-events-auto overflow-hidden border shadow-xl"
+            >
+              <AlertTitle>{notice.title}</AlertTitle>
+              <AlertDescription>{notice.message}</AlertDescription>
+            </Alert>
+          ) : null}
+        </div>
+      </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="min-w-0">
         <TabsList variant="line" className="w-full justify-start overflow-x-auto">
@@ -1391,6 +1458,7 @@ export default function Announcements() {
                       <StatusBadge status={item.status} />
                     </div>
                     <p className="mt-1 text-xs text-muted-foreground">DLT: {item.dlt_template_id}</p>
+                    {item.provider_template_id ? <p className="mt-1 text-xs text-muted-foreground">Fast2SMS: {item.provider_template_id}</p> : null}
                     <p className="mt-1 text-xs text-muted-foreground">Header: {item.header}</p>
                     <p className="mt-3 line-clamp-4 text-sm text-muted-foreground">{item.template_content}</p>
                   </div>

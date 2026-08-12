@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { Ionicons } from "@expo/vector-icons";
 import {
   ActivityIndicator,
   Alert,
@@ -135,23 +136,6 @@ function SectionCard({ title, hint, children }: { title: string; hint?: string; 
   );
 }
 
-function SummaryCard({
-  label,
-  value,
-  tone = "default",
-}: {
-  label: string;
-  value: number;
-  tone?: "default" | "green" | "red" | "amber";
-}) {
-  return (
-    <View style={[styles.summaryCard, summaryCardTone(tone)]}>
-      <Text style={[styles.summaryValue, summaryValueTone(tone)]}>{value}</Text>
-      <Text style={styles.summaryLabel}>{label}</Text>
-    </View>
-  );
-}
-
 function PaginationBar({
   page,
   pageSize,
@@ -252,6 +236,7 @@ export default function AttendanceTab() {
   const [activeTab, setActiveTab] = useState<AttendanceTabKey>("student-attendance");
   const [refreshing, setRefreshing] = useState(false);
   const [notice, setNotice] = useState<{ title: string; message: string; tone: "success" | "error" } | null>(null);
+  const [studentFiltersOpen, setStudentFiltersOpen] = useState(false);
 
   const [entryScopes, setEntryScopes] = useState<{
     restricted: boolean;
@@ -426,6 +411,27 @@ export default function AttendanceTab() {
       { total: 0, present: 0, absent: 0 },
     );
   }, [roster]);
+  const selectedAttendanceTitle = useMemo(() => {
+    const section = (selectedClass?.sections || []).find((row) => String(row.id) === String(form.section_id));
+    if (!selectedClass && !section) return "Student Attendance";
+    return [selectedClass?.name, section?.name].filter(Boolean).join(" / ") || "Student Attendance";
+  }, [selectedClass, form.section_id]);
+  const selectedAttendanceMeta = useMemo(() => {
+    const section = (selectedClass?.sections || []).find((row) => String(row.id) === String(form.section_id));
+    return [
+      form.date ? formatDate(form.date) : null,
+      section?.medium || null,
+      selectedSessionLabel || null,
+    ].filter(Boolean).join(" | ");
+  }, [selectedClass, form.section_id, form.date, selectedSessionLabel]);
+  const attendanceLocked = Boolean(rosterMeta.existing_session_id) && rosterMeta.existing_approval_status !== "rejected";
+  const submitAttendanceLabel = submitting
+    ? "Submitting..."
+    : attendanceLocked
+      ? "Locked"
+      : rosterMeta.existing_approval_status === "rejected"
+        ? "Resubmit"
+        : "Submit";
 
   useEffect(() => {
     if (tabs.length && !tabs.some((tab) => tab.key === activeTab)) {
@@ -711,6 +717,18 @@ export default function AttendanceTab() {
     setRoster((prev) => prev.map((row) => ({ ...row, status })));
   }
 
+  function resetStudentAttendanceFilters() {
+    setForm({ class_id: "", section_id: "", session_id: "", date: todayDate() });
+    setRoster([]);
+    setRosterMeta(defaultRosterMeta());
+  }
+
+  async function applyStudentAttendanceFilters() {
+    if (!form.class_id || !form.section_id) return Alert.alert("Validation", "Choose class and section before loading students.");
+    await loadRoster();
+    setStudentFiltersOpen(false);
+  }
+
   async function handleSubmitAttendance() {
     if (!form.class_id || !form.section_id || !form.date) return Alert.alert("Validation", "Class, section, and date are required.");
     if (!roster.length) return Alert.alert("Validation", "Load the student roster before submitting.");
@@ -798,7 +816,6 @@ export default function AttendanceTab() {
       <View style={styles.innerContent}>
       <View style={styles.heroCard}>
         <View style={styles.heroCopy}>
-          <Text style={styles.heroEyebrow}>Overview</Text>
           <Text style={styles.title}>Student Attendance</Text>
           <Text style={styles.subtitle}>Record class and section attendance, review submitted sessions, notify parents, and keep teacher logs separate.</Text>
         </View>
@@ -809,68 +826,119 @@ export default function AttendanceTab() {
       </View>
 
       {activeTab === "student-attendance" ? <>
-        <View style={styles.statsGrid}>
-          <SummaryCard label="Students" value={rosterSummary.total} />
-          <SummaryCard label="Present" value={rosterSummary.present} tone="green" />
-          <SummaryCard label="Absent" value={rosterSummary.absent} tone="red" />
+        <View style={styles.compactOverviewCard}>
+          <View style={styles.compactOverviewHeader}>
+            <View style={styles.compactOverviewTitleWrap}>
+              <Text style={styles.compactSubjectTitle} numberOfLines={1}>{selectedAttendanceTitle}</Text>
+              <Text style={styles.compactOverviewMeta} numberOfLines={1}>{selectedAttendanceMeta || "Choose class and section"}</Text>
+            </View>
+            <Text style={styles.compactStudentsText}>{rosterSummary.total} students</Text>
+          </View>
+          <View style={styles.compactStatsRow}>
+            <View style={styles.compactStatPill}><Text style={styles.compactStatValue}>{rosterSummary.total}</Text><Text style={styles.compactStatLabel}>Students</Text></View>
+            <View style={[styles.compactStatPill, styles.compactStatGreen]}><Text style={[styles.compactStatValue, styles.compactStatGreenText]}>{rosterSummary.present}</Text><Text style={[styles.compactStatLabel, styles.compactStatGreenText]}>Present</Text></View>
+            <View style={[styles.compactStatPill, styles.compactStatRed]}><Text style={[styles.compactStatValue, styles.compactStatRedText]}>{rosterSummary.absent}</Text><Text style={[styles.compactStatLabel, styles.compactStatRedText]}>Absent</Text></View>
+            <View style={styles.compactStatPill}><Text style={styles.compactStatValue}>{rosterMeta.existing_approval_status ? capitalize(rosterMeta.existing_approval_status) : "New"}</Text><Text style={styles.compactStatLabel}>Status</Text></View>
+          </View>
         </View>
 
-        <SectionCard title="Attendance Entry" hint={rosterMeta.existing_approval_status ? `Status: ${rosterMeta.existing_approval_status}` : "New entry"}>
-          <DateField
-            label="Attendance Date"
-            value={form.date}
-            onChange={(value) => setForm((prev) => ({ ...prev, date: value }))}
-            placeholder="Select attendance date"
-          />
-          {shouldShowSessionPicker ? (
-            <SelectField
-              label="Session"
-              value={form.session_id}
-              onChange={(value) => setForm((prev) => ({ ...prev, session_id: value }))}
-              options={sessionOptions}
-              placeholder="Choose session"
-            />
-          ) : selectedSessionLabel ? (
-            <View style={styles.infoCard}>
-              <Text style={styles.infoTitle}>Academic Session</Text>
-              <Text style={styles.infoText}>{selectedSessionLabel}</Text>
+        <View style={styles.compactToolbar}>
+          <Pressable style={styles.toolbarBtn} onPress={() => setStudentFiltersOpen((prev) => !prev)}>
+            <Ionicons name="filter-outline" size={16} color={theme.icon} />
+            <Text style={styles.toolbarBtnText}>Filters</Text>
+          </Pressable>
+          <Pressable style={[styles.toolbarBtn, (!roster.length || attendanceLocked) && styles.btnDisabled]} onPress={() => bulkMark("present")} disabled={!roster.length || attendanceLocked}>
+            <Text style={styles.toolbarBtnText}>Present All</Text>
+          </Pressable>
+          <Pressable style={[styles.toolbarPrimaryBtn, (submitting || !roster.length || attendanceLocked) && styles.btnDisabled]} onPress={handleSubmitAttendance} disabled={submitting || !roster.length || attendanceLocked}>
+            <Text style={styles.toolbarPrimaryText}>{submitAttendanceLabel}</Text>
+          </Pressable>
+        </View>
+
+        {studentFiltersOpen ? (
+          <View style={styles.compactFilterCard}>
+            <View style={styles.compactPanelHeader}>
+              <Text style={styles.compactPanelTitle}>Filters</Text>
+              <View style={styles.compactHeaderActions}>
+                <Pressable onPress={resetStudentAttendanceFilters} hitSlop={8}><Text style={styles.resetText}>Reset</Text></Pressable>
+                <Pressable onPress={() => setStudentFiltersOpen(false)} hitSlop={8}><Ionicons name="chevron-up-outline" size={18} color={theme.icon} /></Pressable>
+              </View>
             </View>
-          ) : null}
-          <SelectField
-            label="Class"
-            value={form.class_id}
-            onChange={(value) => setForm((prev) => ({ ...prev, class_id: value, section_id: "" }))}
-            options={availableClasses.map((item) => ({
-              label: item.name,
-              value: String(item.id),
-              description: scopeLabel(item.class_scope),
-            }))}
-            placeholder="Choose class"
-          />
-          <SelectField
-            label="Section"
-            value={form.section_id}
-            onChange={(value) => setForm((prev) => ({ ...prev, section_id: value }))}
-            options={(selectedClass?.sections || []).map((section) => ({
-              label: `${section.name}${section.medium ? ` (${section.medium})` : ""}`,
-              value: String(section.id),
-            }))}
-            placeholder="Choose section"
-            disabled={!selectedClass}
-          />
-          <View style={styles.rowActions}>
-            <Pressable style={styles.secondaryBtn} onPress={loadRoster} disabled={rosterLoading}><Text style={styles.secondaryBtnText}>{rosterLoading ? "Loading..." : "Load Students"}</Text></Pressable>
-            <Pressable style={styles.secondaryBtn} onPress={() => bulkMark("present")} disabled={!roster.length || (Boolean(rosterMeta.existing_session_id) && rosterMeta.existing_approval_status !== "rejected")}><Text style={styles.secondaryBtnText}>Mark All Present</Text></Pressable>
+            <View style={styles.compactFilterGrid}>
+              <View style={styles.compactFilterFieldFull}>
+                <DateField
+                  label="Attendance Date"
+                  value={form.date}
+                  onChange={(value) => setForm((prev) => ({ ...prev, date: value }))}
+                  placeholder="Select attendance date"
+                />
+              </View>
+              {shouldShowSessionPicker ? (
+                <View style={styles.compactFilterFieldFull}>
+                  <SelectField
+                    label="Session"
+                    value={form.session_id}
+                    onChange={(value) => setForm((prev) => ({ ...prev, session_id: value }))}
+                    options={sessionOptions}
+                    placeholder="Choose session"
+                  />
+                </View>
+              ) : selectedSessionLabel ? (
+                <View style={[styles.infoCard, styles.compactInfoCard]}>
+                  <Text style={styles.infoTitle}>Academic Session</Text>
+                  <Text style={styles.infoText}>{selectedSessionLabel}</Text>
+                </View>
+              ) : null}
+              <View style={styles.compactFilterField}>
+                <SelectField
+                  label="Class"
+                  value={form.class_id}
+                  onChange={(value) => setForm((prev) => ({ ...prev, class_id: value, section_id: "" }))}
+                  options={availableClasses.map((item) => ({
+                    label: item.name,
+                    value: String(item.id),
+                    description: scopeLabel(item.class_scope),
+                  }))}
+                  placeholder="Choose class"
+                />
+              </View>
+              <View style={styles.compactFilterField}>
+                <SelectField
+                  label="Section"
+                  value={form.section_id}
+                  onChange={(value) => setForm((prev) => ({ ...prev, section_id: value }))}
+                  options={(selectedClass?.sections || []).map((section) => ({
+                    label: `${section.name}${section.medium ? ` (${section.medium})` : ""}`,
+                    value: String(section.id),
+                  }))}
+                  placeholder="Choose section"
+                  disabled={!selectedClass}
+                />
+              </View>
+            </View>
+            <View style={styles.rowActions}>
+              <Pressable style={styles.secondaryBtn} onPress={() => bulkMark("absent")} disabled={!roster.length || attendanceLocked}><Text style={styles.secondaryBtnText}>Mark All Absent</Text></Pressable>
+              <Pressable style={styles.compactApplyBtn} onPress={applyStudentAttendanceFilters} disabled={rosterLoading}><Text style={styles.compactApplyText}>{rosterLoading ? "Loading..." : "Apply Filters"}</Text></Pressable>
+            </View>
           </View>
-          <View style={styles.rowActions}>
-            <Pressable style={styles.secondaryBtn} onPress={() => bulkMark("absent")} disabled={!roster.length || (Boolean(rosterMeta.existing_session_id) && rosterMeta.existing_approval_status !== "rejected")}><Text style={styles.secondaryBtnText}>Mark All Absent</Text></Pressable>
-            <Pressable style={[styles.successBtn, styles.actionSubmitBtn]} onPress={handleSubmitAttendance} disabled={submitting || !roster.length || (Boolean(rosterMeta.existing_session_id) && rosterMeta.existing_approval_status !== "rejected")}><Text style={styles.successBtnText}>{submitting ? "Submitting..." : (rosterMeta.existing_session_id && rosterMeta.existing_approval_status !== "rejected") ? "Attendance Locked" : rosterMeta.existing_approval_status === "rejected" ? "Resubmit Attendance" : "Submit Attendance"}</Text></Pressable>
-          </View>
-          {rosterMeta.existing_session_id ? <View style={styles.infoCard}><Text style={styles.infoTitle}>Existing Session</Text><Text style={styles.infoText}>Submitted by {rosterMeta.existing_submitted_by_username || "-"} on {formatDateTime(rosterMeta.existing_submitted_at)}</Text><Text style={styles.infoText}>Approval: {rosterMeta.existing_approval_status || "-"}</Text>{rosterMeta.existing_approval_status === "rejected" ? <Text style={styles.infoText}>This session was rejected. Update the attendance and submit it again.</Text> : null}{rosterMeta.existing_reviewed_by_username ? <Text style={styles.infoText}>Reviewed by {rosterMeta.existing_reviewed_by_username}</Text> : null}{rosterMeta.existing_review_remarks ? <Text style={styles.infoText}>Remarks: {rosterMeta.existing_review_remarks}</Text> : null}</View> : null}
-        </SectionCard>
+        ) : null}
+
+        {rosterMeta.existing_session_id ? <View style={styles.infoCard}><Text style={styles.infoTitle}>Existing Session</Text><Text style={styles.infoText}>Submitted by {rosterMeta.existing_submitted_by_username || "-"} on {formatDateTime(rosterMeta.existing_submitted_at)}</Text><Text style={styles.infoText}>Approval: {rosterMeta.existing_approval_status || "-"}</Text>{rosterMeta.existing_approval_status === "rejected" ? <Text style={styles.infoText}>This session was rejected. Update the attendance and submit it again.</Text> : null}{rosterMeta.existing_reviewed_by_username ? <Text style={styles.infoText}>Reviewed by {rosterMeta.existing_reviewed_by_username}</Text> : null}{rosterMeta.existing_review_remarks ? <Text style={styles.infoText}>Remarks: {rosterMeta.existing_review_remarks}</Text> : null}</View> : null}
 
         <SectionCard title="Student Roster" hint={roster.length ? `${roster.length} loaded` : "No roster"}>
-          {rosterLoading ? <ActivityIndicator size="large" color="#0f172a" /> : roster.length ? roster.map((student) => <View key={student.student_id} style={styles.studentCard}><View style={styles.rosterHeader}><View style={styles.rosterCopy}><Text style={styles.studentName}>{student.name}</Text><Text style={styles.detailText}>Roll: {student.roll_number || "-"}{student.medium ? ` | ${student.medium}` : ""}</Text></View><View style={styles.scopePill}><Text style={styles.scopePillText}>{scopeLabel(student.class_scope)}</Text></View></View><View style={styles.statusRow}>{STATUS_OPTIONS.map((status) => { const active = student.status === status; return <Pressable key={`${student.student_id}-${status}`} style={[styles.statusChip, active && statusChipActiveStyle(status)]} onPress={() => updateStudentStatus(student.student_id, status)}><Text style={[styles.statusChipText, active && statusChipTextActiveStyle(status)]}>{capitalize(status)}</Text></Pressable>; })}</View></View>) : <Text style={styles.emptyText}>Choose class and section, then load the roster.</Text>}
+          {rosterLoading ? <ActivityIndicator size="small" color={theme.primary} /> : roster.length ? roster.map((student) => <View key={student.student_id} style={styles.studentCard}>
+            <View style={styles.rosterHeader}>
+              <View style={styles.rosterCopy}>
+                <Text style={styles.studentName} numberOfLines={2}>{student.name}</Text>
+                <Text style={styles.detailText}>Roll No - {student.roll_number || "-"}{student.medium ? ` | ${student.medium}` : ""}</Text>
+              </View>
+              <View style={styles.scopePill}><Text style={styles.scopePillText}>{scopeLabel(student.class_scope)}</Text></View>
+            </View>
+            <View style={styles.compactAttendanceBlock}>
+              <Text style={styles.compactLabel}>Attendance</Text>
+              <View style={styles.statusRow}>{STATUS_OPTIONS.map((status) => { const active = student.status === status; return <Pressable key={`${student.student_id}-${status}`} style={[styles.statusChip, active && statusChipActiveStyle(status), attendanceLocked && styles.btnDisabled]} onPress={() => updateStudentStatus(student.student_id, status)} disabled={attendanceLocked}><Text style={[styles.statusChipText, active && statusChipTextActiveStyle(status)]}>{capitalize(status)}</Text></Pressable>; })}</View>
+            </View>
+          </View>) : <Text style={styles.emptyText}>Choose class and section, then load the roster.</Text>}
         </SectionCard>
       </> : null}
 
@@ -1064,8 +1132,6 @@ export default function AttendanceTab() {
 }
 
 function capitalize(value: string) { return value ? value.charAt(0).toUpperCase() + value.slice(1) : ""; }
-function summaryCardTone(tone: "default" | "green" | "red" | "amber") { if (tone === "green") return { borderColor: "#bbf7d0", backgroundColor: currentTheme.isDark ? "#052e16" : "#f0fdf4" }; if (tone === "red") return { borderColor: "#fecaca", backgroundColor: currentTheme.isDark ? "#450a0a" : "#fef2f2" }; if (tone === "amber") return { borderColor: "#fde68a", backgroundColor: currentTheme.isDark ? "#451a03" : "#fffbeb" }; return { borderColor: currentTheme.border, backgroundColor: currentTheme.card }; }
-function summaryValueTone(tone: "default" | "green" | "red" | "amber") { if (tone === "green") return { color: currentTheme.isDark ? "#86efac" : "#15803d" }; if (tone === "red") return { color: currentTheme.isDark ? "#fca5a5" : "#b91c1c" }; if (tone === "amber") return { color: currentTheme.isDark ? "#fcd34d" : "#b45309" }; return { color: currentTheme.text }; }
 function statusBadgeTone(status: string) { if (status === "present" || status === "approved") return { borderColor: "#bbf7d0", backgroundColor: currentTheme.isDark ? "#052e16" : "#f0fdf4" }; if (status === "absent" || status === "rejected") return { borderColor: "#fecaca", backgroundColor: currentTheme.isDark ? "#450a0a" : "#fef2f2" }; return { borderColor: "#fde68a", backgroundColor: currentTheme.isDark ? "#451a03" : "#fffbeb" }; }
 function statusBadgeTextTone(status: string) { if (status === "present" || status === "approved") return { color: currentTheme.isDark ? "#86efac" : "#15803d" }; if (status === "absent" || status === "rejected") return { color: currentTheme.isDark ? "#fca5a5" : "#b91c1c" }; return { color: currentTheme.isDark ? "#fcd34d" : "#b45309" }; }
 function statusChipActiveStyle(status: StudentAttendanceStatus) { if (status === "present") return { borderColor: "#15803d", backgroundColor: currentTheme.isDark ? "#14532d" : "#dcfce7" }; if (status === "absent") return { borderColor: "#b91c1c", backgroundColor: currentTheme.isDark ? "#7f1d1d" : "#fee2e2" }; return { borderColor: "#b45309", backgroundColor: currentTheme.isDark ? "#78350f" : "#fef3c7" }; }
@@ -1095,10 +1161,36 @@ return StyleSheet.create({
   tabBtnActive: { borderColor: theme.primary, backgroundColor: theme.primary },
   tabBtnText: { color: theme.subText, fontWeight: "700", fontSize: 12 },
   tabBtnTextActive: { color: theme.primaryText },
-  statsGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
-  summaryCard: { width: "48%", minHeight: 86, borderWidth: 1, borderRadius: 18, paddingHorizontal: 14, paddingVertical: 12, justifyContent: "space-between" },
-  summaryValue: { fontSize: 24, fontWeight: "800" },
-  summaryLabel: { color: theme.subText, fontSize: 12, fontWeight: "700" },
+  compactOverviewCard: { borderWidth: 1, borderColor: theme.border, borderRadius: 18, padding: 14, gap: 12, backgroundColor: theme.card },
+  compactOverviewHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 },
+  compactOverviewTitleWrap: { flex: 1, minWidth: 0, gap: 3 },
+  compactSubjectTitle: { color: theme.text, fontSize: 16, fontWeight: "900", minWidth: 0 },
+  compactOverviewMeta: { color: theme.subText, fontSize: 12, fontWeight: "700" },
+  compactStudentsText: { color: theme.subText, fontSize: 12, fontWeight: "800" },
+  compactStatsRow: { flexDirection: "row", gap: 8 },
+  compactStatPill: { flex: 1, minWidth: 0, borderWidth: 1, borderColor: theme.border, borderRadius: 10, paddingHorizontal: 8, paddingVertical: 8, backgroundColor: theme.cardMuted, gap: 2 },
+  compactStatGreen: { borderColor: "#bbf7d0", backgroundColor: theme.isDark ? "#14532d" : "#f0fdf4" },
+  compactStatRed: { borderColor: "#fecaca", backgroundColor: theme.isDark ? "#7f1d1d" : "#fef2f2" },
+  compactStatValue: { color: theme.text, fontSize: 13, fontWeight: "900" },
+  compactStatLabel: { color: theme.subText, fontSize: 10, fontWeight: "800" },
+  compactStatGreenText: { color: theme.isDark ? "#dcfce7" : "#166534" },
+  compactStatRedText: { color: theme.isDark ? "#fee2e2" : "#991b1b" },
+  compactToolbar: { flexDirection: "row", gap: 8 },
+  toolbarBtn: { flex: 1, minHeight: 44, borderWidth: 1, borderColor: theme.border, borderRadius: 10, paddingHorizontal: 8, paddingVertical: 8, alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 6, backgroundColor: theme.card },
+  toolbarPrimaryBtn: { flex: 1, minHeight: 44, borderRadius: 10, paddingHorizontal: 8, paddingVertical: 8, alignItems: "center", justifyContent: "center", backgroundColor: theme.danger },
+  toolbarBtnText: { color: theme.text, fontSize: 13, fontWeight: "800" },
+  toolbarPrimaryText: { color: theme.primaryText, fontSize: 13, fontWeight: "900" },
+  compactFilterCard: { borderWidth: 1, borderColor: theme.border, borderRadius: 18, padding: 14, gap: 12, backgroundColor: theme.card },
+  compactPanelHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 },
+  compactPanelTitle: { color: theme.text, fontSize: 18, fontWeight: "900" },
+  compactHeaderActions: { flexDirection: "row", alignItems: "center", gap: 14 },
+  resetText: { color: theme.subText, fontSize: 12, fontWeight: "800", textDecorationLine: "underline" },
+  compactFilterGrid: { flexDirection: "row", flexWrap: "wrap", columnGap: 10, rowGap: 12 },
+  compactFilterField: { width: "48%", minWidth: 0 },
+  compactFilterFieldFull: { width: "100%", gap: 8 },
+  compactApplyBtn: { flex: 1, minHeight: 44, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10, alignItems: "center", justifyContent: "center", backgroundColor: theme.danger },
+  compactApplyText: { color: theme.primaryText, fontWeight: "900", fontSize: 13 },
+  compactInfoCard: { width: "100%" },
   sectionCard: { backgroundColor: theme.card, borderRadius: 22, borderWidth: 1, borderColor: theme.border, padding: 16, gap: 12 },
   rowBetween: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 10 },
   sectionTitle: { color: theme.text, fontWeight: "800", fontSize: 16 },
@@ -1130,15 +1222,17 @@ return StyleSheet.create({
   infoCard: { borderWidth: 1, borderColor: theme.border, borderRadius: 16, padding: 12, backgroundColor: theme.cardMuted, gap: 4 },
   infoTitle: { color: theme.text, fontWeight: "800" },
   infoText: { color: theme.subText, lineHeight: 18 },
-  studentCard: { borderWidth: 1, borderColor: theme.border, borderRadius: 16, backgroundColor: theme.cardMuted, padding: 12, gap: 10 },
-  rosterHeader: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 10 },
+  studentCard: { borderWidth: 1, borderColor: theme.border, borderRadius: 16, backgroundColor: theme.cardMuted, padding: 12, gap: 9 },
+  rosterHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 },
   rosterCopy: { flex: 1, minWidth: 0, gap: 2 },
-  studentName: { color: theme.text, fontWeight: "700" },
-  detailText: { color: theme.subText, lineHeight: 18 },
-  scopePill: { maxWidth: "42%", borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4, backgroundColor: "#eef2ff", alignSelf: "flex-start" },
+  studentName: { color: theme.text, fontSize: 15, lineHeight: 20, fontWeight: "800" },
+  detailText: { color: theme.subText, fontSize: 12, lineHeight: 17 },
+  scopePill: { maxWidth: "42%", borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4, backgroundColor: "#eef2ff", alignSelf: "center" },
   scopePillText: { color: "#4338ca", fontSize: 12, fontWeight: "700", textAlign: "center" },
-  statusRow: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
-  statusChip: { borderWidth: 1, borderColor: theme.border, borderRadius: 10, paddingHorizontal: 10, paddingVertical: 7, backgroundColor: theme.card },
+  compactAttendanceBlock: { gap: 6 },
+  compactLabel: { color: theme.subText, fontSize: 11, fontWeight: "800" },
+  statusRow: { flexDirection: "row", gap: 7 },
+  statusChip: { flex: 1, minHeight: 38, borderWidth: 1, borderColor: theme.border, borderRadius: 10, paddingHorizontal: 10, paddingVertical: 8, alignItems: "center", justifyContent: "center", backgroundColor: theme.card },
   statusChipText: { color: theme.text, fontWeight: "700", fontSize: 12 },
   sessionCard: { borderWidth: 1, borderColor: theme.border, borderRadius: 16, backgroundColor: theme.cardMuted, padding: 12, gap: 5 },
   sessionTitle: { color: theme.text, fontWeight: "700" },

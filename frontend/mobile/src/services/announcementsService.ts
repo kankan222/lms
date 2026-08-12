@@ -62,9 +62,11 @@ export type AnnouncementSmsTemplate = {
   id: number;
   template_name?: string | null;
   dlt_template_id?: string | null;
+  provider_template_id?: string | null;
   header?: string | null;
   communication_type?: string | null;
   template_content?: string | null;
+  placeholder_count?: number | string | null;
   placeholder_schema_json?: string | null;
   status?: string | null;
   provider?: string | null;
@@ -74,6 +76,12 @@ export type AnnouncementCategory = {
   id: number;
   name: string;
   slug?: string | null;
+};
+
+export type AnnouncementHolidayName = {
+  id: number;
+  name: string;
+  category?: string | null;
 };
 
 export type AnnouncementSmsJob = {
@@ -122,6 +130,16 @@ export async function createAnnouncement(payload: Record<string, unknown>) {
 export async function getAnnouncementCategories() {
   const response = await api.get<ApiEnvelope<AnnouncementCategory[]>>("/announcements/categories");
   return response.data.data ?? [];
+}
+
+export async function getAnnouncementHolidayNames(params: { q?: string; category?: string; limit?: number } = {}) {
+  const response = await api.get<ApiEnvelope<AnnouncementHolidayName[]>>("/announcements/holiday-names", { params });
+  return response.data.data ?? [];
+}
+
+export async function createAnnouncementHolidayName(payload: { name: string; category?: string }) {
+  const response = await api.post<ApiEnvelope<AnnouncementHolidayName>>("/announcements/holiday-names", payload);
+  return response.data.data;
 }
 
 export async function getAnnouncementSmsTemplates(params: { status?: string; limit?: number } = {}) {

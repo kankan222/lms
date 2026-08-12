@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { Ionicons } from "@expo/vector-icons";
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAppTheme } from "../../theme/AppThemeProvider";
@@ -33,6 +34,23 @@ function daysInMonth(year: number, month: number) {
   return new Date(year, month, 0).getDate();
 }
 
+const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+function shiftMonth(year: number, month: number, delta: number) {
+  const next = new Date(year, month - 1 + delta, 1);
+  return { year: next.getFullYear(), month: next.getMonth() + 1 };
+}
+
+function buildCalendarDays(year: number, month: number) {
+  const totalDays = daysInMonth(year, month);
+  const firstWeekday = new Date(year, month - 1, 1).getDay();
+  const cells: Array<number | null> = Array.from({ length: firstWeekday }, () => null);
+  for (let day = 1; day <= totalDays; day += 1) cells.push(day);
+  while (cells.length % 7 !== 0) cells.push(null);
+  return cells;
+}
+
 export default function DateField({
   label,
   value,
@@ -59,17 +77,29 @@ export default function DateField({
     setDraftDay(Number(dateValue.slice(8, 10) || current.getDate()));
   }, [open, value]);
 
-  const years = useMemo(() => {
-    const currentYear = now.getFullYear();
-    return Array.from({ length: 41 }, (_, index) => currentYear - 25 + index);
-  }, [now]);
-  const months = useMemo(() => Array.from({ length: 12 }, (_, index) => index + 1), []);
-  const days = useMemo(() => Array.from({ length: daysInMonth(draftYear, draftMonth) }, (_, index) => index + 1), [draftYear, draftMonth]);
+  const calendarDays = useMemo(() => buildCalendarDays(draftYear, draftMonth), [draftYear, draftMonth]);
+  const todayKey = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+  const selectedKey = `${draftYear}-${pad(draftMonth)}-${pad(draftDay)}`;
 
   useEffect(() => {
     const maxDay = daysInMonth(draftYear, draftMonth);
     if (draftDay > maxDay) setDraftDay(maxDay);
   }, [draftYear, draftMonth, draftDay]);
+
+  function moveMonth(delta: number) {
+    const next = shiftMonth(draftYear, draftMonth, delta);
+    const maxDay = daysInMonth(next.year, next.month);
+    setDraftYear(next.year);
+    setDraftMonth(next.month);
+    setDraftDay((current) => Math.min(current, maxDay));
+  }
+
+  function moveYear(delta: number) {
+    const nextYear = draftYear + delta;
+    const maxDay = daysInMonth(nextYear, draftMonth);
+    setDraftYear(nextYear);
+    setDraftDay((current) => Math.min(current, maxDay));
+  }
 
   return (
     <View style={styles.root}>
@@ -109,78 +139,54 @@ export default function DateField({
               </View>
             </View>
 
-            <View style={styles.columns}>
-              <View style={styles.column}>
-                <Text style={[styles.columnTitle, { color: theme.subText }]}>Year</Text>
-                <ScrollView style={styles.columnList} showsVerticalScrollIndicator={false}>
-                  {years.map((year) => {
-                    const active = draftYear === year;
-                    return (
-                      <Pressable
-                        key={year}
-                        style={[
-                          styles.optionChip,
-                          { borderColor: theme.border, backgroundColor: theme.inputBg },
-                          active && {
-                            borderColor: theme.primary,
-                            backgroundColor: theme.isDark ? "#f8fafc" : theme.cardMuted,
-                          },
-                        ]}
-                        onPress={() => setDraftYear(year)}
-                      >
-                        <Text style={[styles.optionText, { color: active && theme.isDark ? "#0f172a" : theme.text }]}>{year}</Text>
-                      </Pressable>
-                    );
-                  })}
-                </ScrollView>
+            <View style={styles.calendarPanel}>
+              <View style={styles.yearRow}>
+                <Pressable style={[styles.iconButton, { borderColor: theme.border, backgroundColor: theme.inputBg }]} onPress={() => moveYear(-1)}>
+                  <Ionicons name="remove" size={18} color={theme.icon} />
+                </Pressable>
+                <Text style={[styles.yearText, { color: theme.text }]}>{draftYear}</Text>
+                <Pressable style={[styles.iconButton, { borderColor: theme.border, backgroundColor: theme.inputBg }]} onPress={() => moveYear(1)}>
+                  <Ionicons name="add" size={18} color={theme.icon} />
+                </Pressable>
               </View>
-              <View style={styles.column}>
-                <Text style={[styles.columnTitle, { color: theme.subText }]}>Month</Text>
-                <ScrollView style={styles.columnList} showsVerticalScrollIndicator={false}>
-                  {months.map((month) => {
-                    const active = draftMonth === month;
-                    return (
-                      <Pressable
-                        key={month}
-                        style={[
-                          styles.optionChip,
-                          { borderColor: theme.border, backgroundColor: theme.inputBg },
-                          active && {
-                            borderColor: theme.primary,
-                            backgroundColor: theme.isDark ? "#f8fafc" : theme.cardMuted,
-                          },
-                        ]}
-                        onPress={() => setDraftMonth(month)}
-                      >
-                        <Text style={[styles.optionText, { color: active && theme.isDark ? "#0f172a" : theme.text }]}>{pad(month)}</Text>
-                      </Pressable>
-                    );
-                  })}
-                </ScrollView>
+
+              <View style={styles.monthRow}>
+                <Pressable style={[styles.navButton, { borderColor: theme.border, backgroundColor: theme.inputBg }]} onPress={() => moveMonth(-1)}>
+                  <Ionicons name="chevron-back" size={18} color={theme.icon} />
+                </Pressable>
+                <Text style={[styles.monthTitle, { color: theme.text }]}>{MONTH_NAMES[draftMonth - 1]} {draftYear}</Text>
+                <Pressable style={[styles.navButton, { borderColor: theme.border, backgroundColor: theme.inputBg }]} onPress={() => moveMonth(1)}>
+                  <Ionicons name="chevron-forward" size={18} color={theme.icon} />
+                </Pressable>
               </View>
-              <View style={styles.column}>
-                <Text style={[styles.columnTitle, { color: theme.subText }]}>Day</Text>
-                <ScrollView style={styles.columnList} showsVerticalScrollIndicator={false}>
-                  {days.map((day) => {
-                    const active = draftDay === day;
-                    return (
-                      <Pressable
-                        key={day}
-                        style={[
-                          styles.optionChip,
-                          { borderColor: theme.border, backgroundColor: theme.inputBg },
-                          active && {
-                            borderColor: theme.primary,
-                            backgroundColor: theme.isDark ? "#f8fafc" : theme.cardMuted,
-                          },
-                        ]}
-                        onPress={() => setDraftDay(day)}
-                      >
-                        <Text style={[styles.optionText, { color: active && theme.isDark ? "#0f172a" : theme.text }]}>{pad(day)}</Text>
-                      </Pressable>
-                    );
-                  })}
-                </ScrollView>
+
+              <View style={styles.weekRow}>
+                {WEEKDAYS.map((day) => (
+                  <Text key={day} style={[styles.weekdayText, { color: theme.subText }]}>{day}</Text>
+                ))}
+              </View>
+
+              <View style={styles.dayGrid}>
+                {calendarDays.map((day, index) => {
+                  const dateKey = day ? `${draftYear}-${pad(draftMonth)}-${pad(day)}` : "";
+                  const active = dateKey === selectedKey;
+                  const today = dateKey === todayKey;
+                  return (
+                    <View key={`${draftYear}-${draftMonth}-${index}`} style={styles.dayCell}>
+                      {day ? (
+                        <Pressable
+                          style={[
+                            styles.dayButton,
+                            { borderColor: today ? theme.primary : "transparent", backgroundColor: active ? theme.primary : theme.inputBg },
+                          ]}
+                          onPress={() => setDraftDay(day)}
+                        >
+                          <Text style={[styles.dayText, { color: active ? theme.primaryText : theme.text }]}>{day}</Text>
+                        </Pressable>
+                      ) : null}
+                    </View>
+                  );
+                })}
               </View>
             </View>
           </View>
@@ -249,4 +255,38 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   optionText: { color: "#334155", fontWeight: "700" },
+  calendarPanel: { gap: 14 },
+  yearRow: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 10 },
+  yearText: { minWidth: 78, textAlign: "center", color: "#0f172a", fontSize: 18, fontWeight: "800" },
+  iconButton: {
+    width: 36,
+    height: 36,
+    borderWidth: 1,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  monthRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
+  navButton: {
+    width: 42,
+    height: 42,
+    borderWidth: 1,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  monthTitle: { flex: 1, textAlign: "center", color: "#0f172a", fontSize: 16, fontWeight: "800" },
+  weekRow: { flexDirection: "row" },
+  weekdayText: { width: `${100 / 7}%`, textAlign: "center", color: "#64748b", fontSize: 11, fontWeight: "800" },
+  dayGrid: { flexDirection: "row", flexWrap: "wrap", rowGap: 6 },
+  dayCell: { width: `${100 / 7}%`, aspectRatio: 1, alignItems: "center", justifyContent: "center" },
+  dayButton: {
+    width: 36,
+    height: 36,
+    borderWidth: 1,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  dayText: { color: "#0f172a", fontSize: 14, fontWeight: "800" },
 });

@@ -226,6 +226,38 @@ function SummaryCard({ label, value, tone = "default", icon }: { label: string; 
   );
 }
 
+function CompactStat({ label, value, tone = "default" }: { label: string; value: string | number; tone?: SummaryTone }) {
+  const { theme } = useAppTheme();
+  const palette = summaryPalette(tone, theme.isDark);
+  return (
+    <View style={[styles.compactStatPill, { borderColor: theme.border, backgroundColor: theme.cardMuted }]}>
+      <Text style={[styles.compactStatValue, { color: palette.color }]} numberOfLines={1}>{value}</Text>
+      <Text style={[styles.compactStatLabel, { color: theme.subText }]} numberOfLines={1}>{label}</Text>
+    </View>
+  );
+}
+
+function DetailTabButton({ tab, active, onPress }: { tab: TabKey; active: boolean; onPress: () => void }) {
+  const { theme } = useAppTheme();
+  return (
+    <Pressable
+      style={[
+        styles.detailTabButton,
+        {
+          borderColor: active ? theme.primary : theme.border,
+          backgroundColor: active ? theme.primary : theme.card,
+        },
+      ]}
+      onPress={onPress}
+    >
+      <Ionicons name={tabIcon(tab)} size={15} color={active ? theme.primaryText : theme.icon} />
+      <Text style={[styles.detailTabText, { color: active ? theme.primaryText : theme.text }]} numberOfLines={1}>
+        {tabLabel(tab)}
+      </Text>
+    </Pressable>
+  );
+}
+
 function DetailIcon({ name, tone = "green" }: { name: keyof typeof Ionicons.glyphMap; tone?: SummaryTone }) {
   const { theme } = useAppTheme();
   const palette = summaryPalette(tone, theme.isDark);
@@ -872,29 +904,32 @@ export default function StudentDetailsModule({ studentId }: Props) {
   return (
     <View style={styles.root}>
       <TopNotice notice={notice} style={styles.topNoticeOverlay} />
-      <View style={[styles.heroCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
-        <View style={styles.heroTop}>
-          {photoUri ? <Image source={{ uri: photoUri }} style={[styles.photo, { backgroundColor: theme.cardMuted, borderColor: theme.border }]} /> : <View style={[styles.avatarFallback, { backgroundColor: theme.cardMuted, borderColor: theme.border }]}><Text style={[styles.avatarText, { color: theme.text }]}>{(student.name || "S").slice(0, 1).toUpperCase()}</Text></View>}
-          <View style={styles.heroCopy}>
-            <Text style={[styles.title, { color: theme.text }]} numberOfLines={2}>{student.name}</Text>
+      <View style={[styles.compactOverviewCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+        <View style={styles.compactOverviewTop}>
+          {photoUri ? <Image source={{ uri: photoUri }} style={[styles.compactPhoto, { backgroundColor: theme.cardMuted, borderColor: theme.border }]} /> : <View style={[styles.compactAvatarFallback, { backgroundColor: theme.cardMuted, borderColor: theme.border }]}><Text style={[styles.compactAvatarText, { color: theme.text }]}>{(student.name || "S").slice(0, 1).toUpperCase()}</Text></View>}
+          <View style={styles.compactStudentCopy}>
+            <Text style={[styles.compactStudentName, { color: theme.text }]} numberOfLines={2}>{student.name}</Text>
             <Text style={[styles.subtitle, { color: theme.subText }]}>{student.class || "-"} / {student.section || "-"} • {fmtScope(student.class_scope)}</Text>
             <Text style={[styles.heroMeta, { color: theme.subText }]}>Admission {student.admission_no || "-"} • Roll {student.roll_number || "-"}</Text>
-            <View style={styles.identityBadgeWrap}>
+            <View style={styles.compactIdentityRow}>
               <IdentityChip value={String(student.gender || "-")} kind="gender" />
               <IdentityChip value={fmtScope(student.class_scope)} kind="scope" />
               {student.class_scope === "hs" && student.stream_name ? <IdentityChip value={student.stream_name} kind="stream" /> : null}
             </View>
           </View>
         </View>
-        <View style={styles.summaryGrid}>
-          <SummaryCard label="Session" value={student.session || "-"} tone="blue" icon="calendar-outline" />
-          <SummaryCard label="Attendance" value={attendanceSummary} tone="orange" icon="person-outline" />
+        <View style={styles.compactStatsRow}>
+          <CompactStat label="Session" value={student.session || "-"} tone="blue" />
+          <CompactStat label="Attendance" value={attendanceSummary} tone="orange" />
+          <CompactStat label="Fees Due" value={fmtCurrency(totalDue)} tone={totalDue > 0 ? "orange" : "green"} />
         </View>
       </View>
 
-      <View style={styles.tabsGrid}>
-        {tabs.map((tab) => <FilterChip key={tab} label={tabLabel(tab)} icon={tabIcon(tab)} active={activeTab === tab} onPress={() => setActiveTab(tab)} />)}
-      </View>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.detailTabRow}>
+        {tabs.map((tab) => (
+          <DetailTabButton key={tab} tab={tab} active={activeTab === tab} onPress={() => setActiveTab(tab)} />
+        ))}
+      </ScrollView>
 
       {activeTab === "overview" ? (
         <SectionCard title="Student Information">
@@ -1383,6 +1418,22 @@ const styles = StyleSheet.create({
   root: { position: "relative", gap: 14, paddingBottom: 8 },
   centered: { minHeight: 260, alignItems: "center", justifyContent: "center" },
   topNoticeOverlay: { position: "absolute", top: 0, left: 0, right: 0, zIndex: 20, elevation: 20 },
+  compactOverviewCard: { backgroundColor: "#ffffff", borderRadius: 18, borderWidth: 1, borderColor: "#e2e8f0", paddingHorizontal: 14, paddingVertical: 13, gap: 11 },
+  compactOverviewTop: { flexDirection: "row", alignItems: "center", gap: 12 },
+  compactPhoto: { width: 58, height: 58, borderRadius: 16, borderWidth: 1, backgroundColor: "#e2e8f0" },
+  compactAvatarFallback: { width: 58, height: 58, borderRadius: 16, borderWidth: 1, backgroundColor: "#e2e8f0", alignItems: "center", justifyContent: "center" },
+  compactAvatarText: { color: "#0f172a", fontWeight: "900", fontSize: 22 },
+  compactStudentCopy: { flex: 1, gap: 3, minWidth: 0 },
+  compactStudentName: { color: "#0f172a", fontWeight: "900", fontSize: 17, lineHeight: 22 },
+  compactStudentMeta: { color: "#64748b", fontWeight: "700", fontSize: 12, lineHeight: 16 },
+  compactIdentityRow: { flexDirection: "row", flexWrap: "wrap", gap: 7, alignItems: "center" },
+  compactStatsRow: { flexDirection: "row", gap: 8 },
+  compactStatPill: { flex: 1, minHeight: 54, borderWidth: 1, borderRadius: 13, paddingHorizontal: 9, paddingVertical: 8, justifyContent: "space-between" },
+  compactStatValue: { fontSize: 14, lineHeight: 18, fontWeight: "900" },
+  compactStatLabel: { fontSize: 10, lineHeight: 13, fontWeight: "800" },
+  detailTabRow: { gap: 8, paddingRight: 14, paddingBottom: 2 },
+  detailTabButton: { minHeight: 38, minWidth: 104, borderWidth: 1, borderRadius: 10, paddingHorizontal: 11, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6 },
+  detailTabText: { fontSize: 12, fontWeight: "800", maxWidth: 112 },
   heroCard: { backgroundColor: "#ffffff", borderRadius: 22, borderWidth: 1, borderColor: "#e2e8f0", padding: 16, gap: 12 },
   heroEyebrow: { fontSize: 12, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.6, marginBottom: -2 },
   heroTop: { flexDirection: "row", alignItems: "center", gap: 14 },

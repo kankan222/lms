@@ -222,6 +222,71 @@ The mobile app lives in `frontend/mobile`.
 - Do not share web UI components with mobile.
 - Preserve dark-mode behavior for every new mobile screen or component.
 
+### Mobile Compact Workflow Screens
+
+Use this pattern for mobile screens where a teacher, admin, or parent
+must repeatedly review or edit many records, such as marks entry,
+attendance, approvals, routine rows, message/announcement targeting, or
+other operational lists.
+
+Default hierarchy:
+
+1. Existing app header.
+2. Compact overview/status card.
+3. Compact global action toolbar.
+4. Collapsible filters or sheet/modal filters.
+5. Record cards/list rows with local actions.
+6. Existing bottom navigation.
+
+Rules:
+
+- Keep the existing app header and bottom navigation. Do not add a
+  second large hero/header inside the screen unless the module has no
+  shell header.
+- Do not keep large filter forms permanently expanded above the main
+  work list. Show one compact `Filters` button with a filter icon, then
+  open the full filter controls in a collapsed section, sheet, or modal.
+- Preserve every existing filter. Reorganize filters into compact
+  mobile-friendly rows or two-column groups where width allows.
+- Include clear `Apply Filters` and `Reset` actions in the filter UI.
+  Applying filters should return the user to the compact workflow view
+  when possible.
+- Put only true bulk actions in the global toolbar, usually three or
+  fewer actions. Examples: `Filters`, `Select All`, `Submit All`.
+- Move row-specific actions into the row/card itself. Examples: per
+  student `Save` and `Submit`, per row `Edit`, `Delete`, `Approve`, or
+  `Download`.
+- Secondary bulk utilities that are not primary workflow actions should
+  be in a small overflow or secondary menu, not as large standalone
+  buttons.
+- Overview/statistics should be one compact card with small stat pills,
+  not multiple large metric cards, unless analytics comparison is the
+  primary purpose of the screen.
+- Record cards should use clear text hierarchy:
+  - Primary name/title is largest and semibold/bold.
+  - Class, roll, date, section, medium, or other identifiers are smaller
+    supporting text.
+  - Field labels are small and muted.
+  - Status badges use semantic colors only when the status is semantic.
+- Use compact segmented controls for repeated state choices such as
+  present/absent/pending. The selected state must be obvious but not a
+  huge colored block.
+- Inputs inside record cards should be compact and close to the status
+  they affect. Avoid full-width oversized inputs for short values such
+  as marks, counts, periods, or roll numbers.
+- A typical 360-430px mobile viewport should show useful work context
+  immediately and ideally show at least one full record card plus part
+  of the next card for repetitive entry screens.
+- Avoid horizontal scrolling. Long names and subjects should wrap or
+  truncate within the card without breaking controls.
+- Touch targets must remain comfortable even when spacing is dense.
+- Use subtle borders, light backgrounds, and minimal shadow. Avoid
+  nested cards inside cards unless the inner element is an actual
+  repeated selectable item or modal content.
+
+The Teacher Portal Marksheet entry screen is the reference
+implementation for this pattern.
+
 ## Accessibility
 
 - Dialogs need title and description.

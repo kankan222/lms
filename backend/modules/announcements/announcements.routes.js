@@ -7,6 +7,8 @@ const router = express.Router();
 
 router.get("/categories", requirePermission("announcements.view"), controller.listCategories);
 router.post("/categories", requirePermission("announcements.manage"), controller.createCategory);
+router.get("/holiday-names", requirePermission("announcements.view"), controller.listHolidayNames);
+router.post("/holiday-names", requirePermission("announcements.manage"), controller.createHolidayName);
 
 router.get("/sms-templates", requirePermission("announcements.view"), controller.listSmsTemplates);
 router.post(

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { Ionicons } from "@expo/vector-icons";
 import { ActivityIndicator, Alert, Image, Linking, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { adminResetPassword } from "../../../services/usersService";
 import {
@@ -136,32 +137,65 @@ function FilterChip({ label, active, onPress }: { label: string; active: boolean
   return <Pressable style={[styles.filterChip, { borderColor: theme.border, backgroundColor: theme.cardMuted }, active && { borderColor: theme.primary, backgroundColor: theme.primary }]} onPress={onPress}><Text style={[styles.filterChipText, { color: theme.subText }, active && { color: theme.primaryText }]}>{label}</Text></Pressable>;
 }
 
-function SummaryCard({ label, value, tone = "default" }: { label: string; value: string | number; tone?: "default" | "blue" | "green" | "violet" }) {
+type SummaryTone = "default" | "blue" | "green" | "violet" | "red" | "amber";
+
+function summaryPalette(theme: ReturnType<typeof useAppTheme>["theme"], tone: SummaryTone = "default") {
+  if (tone === "blue") {
+    return {
+      borderColor: theme.isDark ? "#1d4ed8" : "#bfdbfe",
+      backgroundColor: theme.isDark ? "#172554" : "#eff6ff",
+      color: theme.isDark ? "#bfdbfe" : "#1d4ed8",
+    };
+  }
+  if (tone === "green") {
+    return {
+      borderColor: theme.isDark ? "#15803d" : "#bbf7d0",
+      backgroundColor: theme.isDark ? "#14532d" : "#f0fdf4",
+      color: theme.isDark ? "#bbf7d0" : "#15803d",
+    };
+  }
+  if (tone === "red") {
+    return {
+      borderColor: theme.isDark ? "#b91c1c" : "#fecaca",
+      backgroundColor: theme.isDark ? "#7f1d1d" : "#fef2f2",
+      color: theme.isDark ? "#fecaca" : "#991b1b",
+    };
+  }
+  if (tone === "amber") {
+    return {
+      borderColor: theme.isDark ? "#b45309" : "#fde68a",
+      backgroundColor: theme.isDark ? "#451a03" : "#fffbeb",
+      color: theme.isDark ? "#fde68a" : "#b45309",
+    };
+  }
+  if (tone === "violet") {
+    return {
+      borderColor: theme.isDark ? "#7c3aed" : "#ddd6fe",
+      backgroundColor: theme.isDark ? "#3b0764" : "#f5f3ff",
+      color: theme.isDark ? "#ddd6fe" : "#6d28d9",
+    };
+  }
+  return {
+    borderColor: theme.border,
+    backgroundColor: theme.cardMuted,
+    color: theme.text,
+  };
+}
+
+function CompactStat({ label, value, tone = "default" }: { label: string; value: string | number; tone?: SummaryTone }) {
   const { theme } = useAppTheme();
-  const palette = tone === "blue"
-    ? {
-        borderColor: theme.isDark ? "#1d4ed8" : "#bfdbfe",
-        backgroundColor: theme.isDark ? "#172554" : "#eff6ff",
-        color: theme.isDark ? "#bfdbfe" : "#1d4ed8",
-      }
-    : tone === "green"
-      ? {
-          borderColor: theme.isDark ? "#15803d" : "#bbf7d0",
-          backgroundColor: theme.isDark ? "#14532d" : "#f0fdf4",
-          color: theme.isDark ? "#bbf7d0" : "#15803d",
-        }
-      : tone === "violet"
-        ? {
-            borderColor: theme.isDark ? "#7c3aed" : "#ddd6fe",
-            backgroundColor: theme.isDark ? "#3b0764" : "#f5f3ff",
-            color: theme.isDark ? "#ddd6fe" : "#6d28d9",
-          }
-        : {
-            borderColor: theme.isDark ? "#475569" : "#e2e8f0",
-            backgroundColor: theme.isDark ? "#1e293b" : "#ffffff",
-            color: theme.isDark ? "#f8fafc" : "#0f172a",
-          };
-  return <View style={[styles.summaryCard, { borderColor: palette.borderColor, backgroundColor: palette.backgroundColor }]}><Text style={[styles.summaryValue, { color: palette.color }]}>{value}</Text><Text style={[styles.summaryLabel, { color: theme.subText }]}>{label}</Text></View>;
+  const palette = summaryPalette(theme, tone);
+  return <View style={[styles.compactStatPill, { borderColor: palette.borderColor, backgroundColor: palette.backgroundColor }]}><Text style={[styles.compactStatValue, { color: palette.color }]} numberOfLines={1}>{value}</Text><Text style={[styles.compactStatLabel, { color: tone === "default" ? theme.subText : palette.color }]} numberOfLines={1}>{label}</Text></View>;
+}
+
+function TabButton({ label, icon, active, onPress }: { label: string; icon: keyof typeof Ionicons.glyphMap; active: boolean; onPress: () => void }) {
+  const { theme } = useAppTheme();
+  return (
+    <Pressable style={[styles.tabButton, { borderColor: theme.border, backgroundColor: theme.card }, active && { borderColor: theme.primary, backgroundColor: theme.primary }]} onPress={onPress}>
+      <Ionicons name={icon} size={15} color={active ? theme.primaryText : theme.icon} />
+      <Text style={[styles.tabButtonText, { color: active ? theme.primaryText : theme.text }]} numberOfLines={1}>{label}</Text>
+    </Pressable>
+  );
 }
 
 function SectionCard({ title: heading, hint, children }: { title: string; hint?: string; children: React.ReactNode }) {
@@ -198,6 +232,7 @@ export default function TeacherDetailsModule({ teacherId, canManageTeachers }: P
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<TabKey>("overview");
+  const [attendanceFiltersOpen, setAttendanceFiltersOpen] = useState(false);
   const [attendancePreset, setAttendancePreset] = useState<AttendancePreset>("month");
   const [attendanceDraftRange, setAttendanceDraftRange] = useState<DateRange>(() =>
     resolveAttendancePresetRange("month"),
@@ -317,6 +352,17 @@ export default function TeacherDetailsModule({ teacherId, canManageTeachers }: P
   );
   const currentStart = attendance.length ? (currentPage - 1) * ATTENDANCE_PAGE_SIZE + 1 : 0;
   const currentEnd = Math.min(currentPage * ATTENDANCE_PAGE_SIZE, attendance.length);
+  const tabs = useMemo(
+    () =>
+      ([
+        { key: "overview", label: "Overview", icon: "person-outline" },
+        { key: "assignments", label: "Classes", icon: "albums-outline" },
+        { key: "attendance", label: "Attendance", icon: "time-outline" },
+      ] as Array<{ key: TabKey; label: string; icon: keyof typeof Ionicons.glyphMap }>).concat(
+        canManageTeachers && teacher?.user_id ? [{ key: "security", label: "Security", icon: "shield-checkmark-outline" }] : [],
+      ),
+    [canManageTeachers, teacher?.user_id],
+  );
 
   function handleAttendancePresetChange(preset: Exclude<AttendancePreset, "custom">) {
     const nextRange = resolveAttendancePresetRange(preset);
@@ -330,14 +376,15 @@ export default function TeacherDetailsModule({ teacherId, canManageTeachers }: P
     const to = String(attendanceDraftRange.to || "");
     if (!from || !to) {
       Alert.alert("Validation", "Select both start and end date.");
-      return;
+      return false;
     }
     if (from > to) {
       Alert.alert("Validation", "Start date cannot be later than end date.");
-      return;
+      return false;
     }
     setAttendancePreset("custom");
     setAttendanceAppliedRange({ from, to });
+    return true;
   }
 
   async function handleResetPassword() {
@@ -378,28 +425,29 @@ export default function TeacherDetailsModule({ teacherId, canManageTeachers }: P
   return (
     <View style={styles.root}>
       <TopNotice notice={notice} style={styles.topNoticeOverlay} />
-      <View style={[styles.heroCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
-        <Text style={[styles.heroEyebrow, { color: theme.subText }]}>Overview</Text>
-        <View style={styles.heroTop}>
+      <View style={[styles.compactOverviewCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+        <View style={styles.profileHeader}>
           {photoUri ? <Image source={{ uri: photoUri }} style={[styles.photo, { backgroundColor: theme.cardMuted }]} /> : <View style={[styles.avatarFallback, { backgroundColor: theme.cardMuted }]}><Text style={[styles.avatarText, { color: theme.text }]}>{(teacher.name || "T").slice(0, 1).toUpperCase()}</Text></View>}
-          <View style={styles.heroCopy}>
-            <Text style={[styles.title, { color: theme.text }]}>{teacher.name}</Text>
-            <Text style={[styles.subtitle, { color: theme.subText }]}>{formatScopeLabel(teacher.class_scope, teacher.scope_name)}</Text>
-            <Text style={styles.heroMeta}>Employee ID {teacher.employee_id || "-"} • Phone {teacher.phone || "-"}</Text>
-            <Text style={[styles.heroMeta, { color: theme.subText }]}>Email {teacher.email || "-"}</Text>
+          <View style={styles.profileCopy}>
+            <View style={styles.profileTitleRow}>
+              <Text style={[styles.title, { color: theme.text }]} numberOfLines={2}>{teacher.name}</Text>
+              <View style={[styles.scopeBadge, { borderColor: theme.border, backgroundColor: theme.cardMuted }]}><Text style={[styles.scopeBadgeText, { color: theme.subText }]}>{formatScopeLabel(teacher.class_scope, teacher.scope_name)}</Text></View>
+            </View>
+            <Text style={[styles.profileMeta, { color: theme.subText }]} numberOfLines={1}>Employee ID {teacher.employee_id || "-"} | Phone {teacher.phone || "-"}</Text>
+            <Text style={[styles.profileMeta, { color: theme.subText }]} numberOfLines={1}>Email {teacher.email || "-"}</Text>
           </View>
         </View>
-        <View style={styles.summaryGrid}>
-          <SummaryCard label="Assignments" value={assignments.length} tone="blue" />
-          <SummaryCard label="Punch In" value={punchInCount} tone="green" />
-          <SummaryCard label="Punch Out" value={punchOutCount} tone="violet" />
-          <SummaryCard label="Scope" value={formatScopeLabel(teacher.class_scope, teacher.scope_name)} />
+        <View style={styles.compactStatsRow}>
+          <CompactStat label="Assignments" value={assignments.length} tone="blue" />
+          <CompactStat label="Classes" value={assignedClassSections.length} />
+          <CompactStat label="In" value={punchInCount} tone="green" />
+          <CompactStat label="Out" value={punchOutCount} tone="violet" />
         </View>
       </View>
 
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tabsRow}>
-        {(["overview", "assignments", "attendance"] as TabKey[]).concat(canManageTeachers && teacher.user_id ? ["security"] : []).map((tab) => (
-          <FilterChip key={tab} label={title(tab)} active={activeTab === tab} onPress={() => setActiveTab(tab)} />
+        {tabs.map((tab) => (
+          <TabButton key={tab.key} label={tab.label} icon={tab.icon} active={activeTab === tab.key} onPress={() => setActiveTab(tab.key)} />
         ))}
       </ScrollView>
 
@@ -466,7 +514,30 @@ export default function TeacherDetailsModule({ teacherId, canManageTeachers }: P
 
       {activeTab === "attendance" ? (
         <SectionCard title="Attendance Logs" hint={`${attendance.length} records`}>
-          <View style={styles.filterBlock}>
+          <View style={[styles.attendanceOverview, { borderColor: theme.border, backgroundColor: theme.cardMuted }]}>
+            <View style={styles.rowBetween}>
+              <Text style={[styles.attendanceOverviewTitle, { color: theme.text }]}>Attendance Summary</Text>
+              <Text style={[styles.attendanceRangeText, { color: theme.subText }]}>{attendanceAppliedRange.from || "-"} to {attendanceAppliedRange.to || "-"}</Text>
+            </View>
+            <View style={styles.compactStatsRow}>
+              <CompactStat label="Present" value={presentDays} tone="green" />
+              <CompactStat label="Absent" value={absentDays} tone="red" />
+              <CompactStat label="Days" value={totalDaysInRange} />
+              <CompactStat label="Unknown" value={logSummary.unknown} tone="amber" />
+            </View>
+          </View>
+
+          <View style={styles.compactToolbar}>
+            <Pressable style={[styles.toolbarBtn, { borderColor: theme.border, backgroundColor: theme.card }]} onPress={() => setAttendanceFiltersOpen((prev) => !prev)}>
+              <Ionicons name="filter-outline" size={16} color={theme.icon} />
+              <Text style={[styles.toolbarBtnText, { color: theme.text }]}>Filters</Text>
+            </Pressable>
+            <View style={[styles.toolbarInfo, { borderColor: theme.border, backgroundColor: theme.cardMuted }]}>
+              <Text style={[styles.toolbarInfoText, { color: theme.subText }]}>IN/OUT {logSummary.in}/{logSummary.out}</Text>
+            </View>
+          </View>
+
+          {attendanceFiltersOpen ? <View style={styles.filterBlock}>
             <Text style={[styles.inputLabel, { color: theme.text }]}>Date range</Text>
             <View style={styles.filterRow}>
               <FilterChip label="Today" active={attendancePreset === "today"} onPress={() => handleAttendancePresetChange("today")} />
@@ -498,20 +569,13 @@ export default function TeacherDetailsModule({ teacherId, canManageTeachers }: P
             </View>
             <Pressable
               style={[styles.secondaryBtn, { borderColor: theme.border, backgroundColor: theme.card }]}
-              onPress={handleViewAttendanceRange}
+              onPress={() => {
+                if (handleViewAttendanceRange()) setAttendanceFiltersOpen(false);
+              }}
             >
               <Text style={[styles.secondaryBtnText, { color: theme.text }]}>View Range</Text>
             </Pressable>
-          </View>
-
-          <View style={styles.summaryPills}>
-            <Text style={[styles.summaryPill, styles.summaryPillDefault]}>Range: {attendanceAppliedRange.from || "-"} to {attendanceAppliedRange.to || "-"}</Text>
-            <Text style={[styles.summaryPill, styles.summaryPillGreen]}>Present Days: {presentDays}</Text>
-            <Text style={[styles.summaryPill, styles.summaryPillRed]}>Absent Days: {absentDays}</Text>
-            <Text style={[styles.summaryPill, styles.summaryPillDefault]}>Total Days: {totalDaysInRange}</Text>
-            <Text style={[styles.summaryPill, styles.summaryPillBlue]}>IN/OUT: {logSummary.in}/{logSummary.out}</Text>
-            <Text style={[styles.summaryPill, styles.summaryPillAmber]}>Unknown: {logSummary.unknown}</Text>
-          </View>
+          </View> : null}
 
           {paginatedAttendance.length ? paginatedAttendance.map((row) => (
             <View key={row.id} style={[styles.listCard, { borderColor: theme.border, backgroundColor: theme.cardMuted }]}>
@@ -575,25 +639,26 @@ const styles = StyleSheet.create({
   root: { position: "relative", gap: 14, paddingBottom: 8 },
   centered: { minHeight: 240, alignItems: "center", justifyContent: "center" },
   topNoticeOverlay: { position: "absolute", top: 0, left: 0, right: 0, zIndex: 20, elevation: 20 },
-  heroCard: { backgroundColor: "#ffffff", borderRadius: 24, borderWidth: 1, borderColor: "#e2e8f0", padding: 16, gap: 12 },
-  heroEyebrow: { fontSize: 12, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.6, marginBottom: -2 },
-  heroTop: { flexDirection: "row", gap: 14 },
-  photo: { width: 76, height: 76, borderRadius: 22, backgroundColor: "#e2e8f0" },
-  avatarFallback: { width: 76, height: 76, borderRadius: 22, backgroundColor: "#e2e8f0", alignItems: "center", justifyContent: "center" },
-  avatarText: { color: "#0f172a", fontWeight: "800", fontSize: 28 },
-  heroCopy: { flex: 1, gap: 4 },
-  title: { color: "#0f172a", fontWeight: "800", fontSize: 22 },
-  subtitle: { color: "#475569", fontWeight: "700" },
-  heroMeta: { color: "#64748b", lineHeight: 18 },
-  summaryGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
-  summaryCard: { width: "48%", minHeight: 88, borderWidth: 1, borderRadius: 18, paddingHorizontal: 14, paddingVertical: 12, justifyContent: "space-between" },
-  summaryValue: { fontSize: 22, fontWeight: "800" },
-  summaryLabel: { fontSize: 12, fontWeight: "700" },
+  compactOverviewCard: { borderRadius: 18, borderWidth: 1, padding: 14, gap: 12 },
+  profileHeader: { flexDirection: "row", alignItems: "center", gap: 12 },
+  photo: { width: 58, height: 58, borderRadius: 16, backgroundColor: "#e2e8f0" },
+  avatarFallback: { width: 58, height: 58, borderRadius: 16, backgroundColor: "#e2e8f0", alignItems: "center", justifyContent: "center" },
+  avatarText: { color: "#0f172a", fontWeight: "900", fontSize: 22 },
+  profileCopy: { flex: 1, minWidth: 0, gap: 3 },
+  profileTitleRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  title: { flex: 1, color: "#0f172a", fontWeight: "900", fontSize: 18, lineHeight: 23, minWidth: 0 },
+  scopeBadge: { maxWidth: "44%", borderWidth: 1, borderRadius: 999, paddingHorizontal: 8, paddingVertical: 4 },
+  scopeBadgeText: { fontSize: 11, fontWeight: "800" },
+  profileMeta: { fontSize: 12, fontWeight: "700", lineHeight: 17 },
+  compactStatsRow: { flexDirection: "row", gap: 8 },
+  compactStatPill: { flex: 1, minWidth: 0, borderWidth: 1, borderRadius: 10, paddingHorizontal: 8, paddingVertical: 8, gap: 2 },
+  compactStatValue: { fontSize: 13, fontWeight: "900" },
+  compactStatLabel: { fontSize: 10, fontWeight: "800" },
   tabsRow: { gap: 8, paddingBottom: 2 },
+  tabButton: { minHeight: 40, borderWidth: 1, borderRadius: 10, paddingHorizontal: 11, paddingVertical: 8, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6 },
+  tabButtonText: { fontSize: 12, fontWeight: "800" },
   filterChip: { borderWidth: 1, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 8 },
-  filterChipActive: { borderColor: "#0f172a", backgroundColor: "#0f172a" },
   filterChipText: { fontWeight: "700", fontSize: 12 },
-  filterChipTextActive: { color: "#ffffff" },
   sectionCard: { backgroundColor: "#ffffff", borderRadius: 22, borderWidth: 1, borderColor: "#e2e8f0", padding: 16, gap: 12 },
   rowBetween: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 10 },
   sectionTitle: { color: "#0f172a", fontWeight: "800", fontSize: 16 },
@@ -613,6 +678,14 @@ const styles = StyleSheet.create({
   listMeta: { color: "#64748b", fontSize: 12, lineHeight: 18 },
   statusChip: { borderWidth: 1, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 5 },
   statusChipText: { fontSize: 12, fontWeight: "700" },
+  attendanceOverview: { borderWidth: 1, borderRadius: 14, padding: 12, gap: 10 },
+  attendanceOverviewTitle: { fontSize: 14, fontWeight: "900" },
+  attendanceRangeText: { flexShrink: 1, fontSize: 11, fontWeight: "800", textAlign: "right" },
+  compactToolbar: { flexDirection: "row", gap: 8 },
+  toolbarBtn: { flex: 1, minHeight: 42, borderWidth: 1, borderRadius: 10, paddingHorizontal: 10, paddingVertical: 8, alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 6 },
+  toolbarBtnText: { fontSize: 13, fontWeight: "800" },
+  toolbarInfo: { flex: 1, minHeight: 42, borderWidth: 1, borderRadius: 10, paddingHorizontal: 10, paddingVertical: 8, alignItems: "center", justifyContent: "center" },
+  toolbarInfoText: { fontSize: 12, fontWeight: "800" },
   filterBlock: { gap: 10 },
   filterRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   inputLabel: { color: "#334155", fontWeight: "700" },
@@ -621,13 +694,6 @@ const styles = StyleSheet.create({
   inputHalf: { flex: 1 },
   secondaryBtn: { alignSelf: "flex-start", borderWidth: 1, borderColor: "#cbd5e1", backgroundColor: "#ffffff", paddingHorizontal: 14, paddingVertical: 11, borderRadius: 12, alignItems: "center", justifyContent: "center" },
   secondaryBtnText: { color: "#334155", fontWeight: "700" },
-  summaryPills: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-  summaryPill: { borderWidth: 1, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 6, fontSize: 12, fontWeight: "700" },
-  summaryPillDefault: { borderColor: "#cbd5e1", backgroundColor: "#f8fafc", color: "#334155" },
-  summaryPillGreen: { borderColor: "#bbf7d0", backgroundColor: "#f0fdf4", color: "#166534" },
-  summaryPillRed: { borderColor: "#fecaca", backgroundColor: "#fef2f2", color: "#b91c1c" },
-  summaryPillBlue: { borderColor: "#bfdbfe", backgroundColor: "#eff6ff", color: "#1d4ed8" },
-  summaryPillAmber: { borderColor: "#fde68a", backgroundColor: "#fffbeb", color: "#b45309" },
   paginationRow: { gap: 10, paddingTop: 2 },
   paginationMeta: { color: "#64748b", fontSize: 12, fontWeight: "600" },
   paginationActions: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 8 },

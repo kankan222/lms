@@ -12,6 +12,7 @@ const TEMPLATE_STATUSES = new Set(["registered", "inactive", "pending", "rejecte
 const PLACEHOLDER_STYLES = new Set(["var", "alp", "mixed"]);
 const PLACEHOLDER_TYPES = new Set(["text", "date", "holiday", "number"]);
 const HOLIDAY_CATEGORY_SLUGS = new Set(["holiday", "festival", "vacation"]);
+const HOLIDAY_NAME_CATEGORIES = new Set(["holiday", "festival", "vacation", "event", "other"]);
 const FAST2SMS_DLT_URL = "https://www.fast2sms.com/dev/bulkV2";
 
 function requiredString(value, field) {
@@ -289,6 +290,17 @@ export async function createCategory(body, userId) {
   });
 }
 
+export function listHolidayNames(filters) {
+  return repo.listHolidayNames(filters);
+}
+
+export async function createHolidayName(body, userId) {
+  const name = requiredString(body.name, "name").replace(/\s+/g, " ");
+  const category = String(body.category || "holiday").trim().toLowerCase();
+  if (!HOLIDAY_NAME_CATEGORIES.has(category)) throw new AppError(`Invalid holiday category: ${category}`, 400);
+  return repo.upsertHolidayName({ name, category, user_id: userId });
+}
+
 function normalizeSmsTemplate(body = {}, userId) {
   const status = String(body.status || "registered").trim().toLowerCase();
   if (!TEMPLATE_STATUSES.has(status)) throw new AppError(`Invalid template status: ${status}`, 400);
@@ -304,6 +316,7 @@ function normalizeSmsTemplate(body = {}, userId) {
   return {
     template_name: requiredString(body.template_name, "template_name"),
     dlt_template_id: requiredString(body.dlt_template_id, "dlt_template_id"),
+    provider_template_id: optionalTemplateString(body.provider_template_id || body.fast2sms_message_id || body.message_id),
     header: requiredString(body.header, "header"),
     communication_type: optionalTemplateString(body.communication_type),
     template_content: templateContent,
@@ -388,6 +401,7 @@ function parseCsvTemplates(text, userId) {
     const template = normalizeSmsTemplate({
       template_name: pick(row, ["template_name", "name", "template", "template_title"]),
       dlt_template_id: pick(row, ["dlt_template_id", "template_dlt_id", "template_id", "dlt_id", "entity_template_id"]),
+      provider_template_id: pick(row, ["provider_template_id", "fast2sms_message_id", "fast2sms_id", "message_id", "provider_message_id"]),
       header: pick(row, ["header", "sender_id", "sender", "principal_entity_header"]),
       communication_type: pick(row, ["communication_type", "type", "category"]),
       template_content: pick(row, ["template_content", "content", "message", "template_message", "text"]),
@@ -525,6 +539,7 @@ function parseXlsxTemplates(buffer, userId) {
     const template = normalizeSmsTemplate({
       template_name: pick(row, ["template_name", "name", "template", "template_title"]),
       dlt_template_id: pick(row, ["dlt_template_id", "template_dlt_id", "template_id", "dlt_id", "entity_template_id"]),
+      provider_template_id: pick(row, ["provider_template_id", "fast2sms_message_id", "fast2sms_id", "message_id", "provider_message_id"]),
       header: pick(row, ["header", "sender_id", "sender", "principal_entity_header"]),
       communication_type: pick(row, ["communication_type", "type", "category"]),
       template_content: pick(row, ["template_content", "content", "message", "template_message", "text"]),
@@ -747,6 +762,16 @@ function countTemplatePlaceholders(template = {}) {
   return Number(template.placeholder_count || detected || 0);
 }
 
+function parseTemplateSchema(job = {}) {
+  const raw = job.placeholder_schema_json || job.placeholder_schema;
+  if (!raw) return [];
+  const parsed = parseSmsVariables(raw);
+  if (Array.isArray(parsed)) return parsed;
+  if (Array.isArray(parsed?.variables)) return parsed.variables;
+  if (Array.isArray(parsed?.placeholders)) return parsed.placeholders;
+  return [];
+}
+
 function normalizeVariableList(variables, job) {
   if (Array.isArray(variables)) return variables.map((item) => String(item ?? ""));
   if (Array.isArray(variables?.values)) return variables.values.map((item) => String(item ?? ""));
@@ -754,6 +779,12 @@ function normalizeVariableList(variables, job) {
   const orderedKeys = Array.isArray(named.order) ? named.order : [];
   const ordered = orderedKeys.map((key) => named[key]).filter((item) => item !== undefined && item !== null && item !== "");
   if (ordered.length) return ordered.map((item) => String(item));
+
+  const schemaKeys = parseTemplateSchema(job)
+    .map((item, index) => String(item?.key || item?.name || `value_${index + 1}`))
+    .filter(Boolean);
+  const schemaOrdered = schemaKeys.map((key) => named[key]).filter((item) => item !== undefined && item !== null && item !== "");
+  if (schemaOrdered.length) return schemaOrdered.map((item) => String(item));
 
   const commonKeys = [
     "start_date",
@@ -838,11 +869,13 @@ async function sendFast2SmsDlt({ job, recipient }) {
 
   const senderId = job.header || process.env.SMS_SENDER_ID;
   if (!senderId) throw new AppError("SMS sender id is not configured", 500);
+  const providerTemplateId = job.provider_template_id || job.dlt_template_id;
+  if (!providerTemplateId) throw new AppError("SMS provider template id is not configured", 500);
 
   const body = {
     route: "dlt",
     sender_id: senderId,
-    message: job.dlt_template_id,
+    message: providerTemplateId,
     variables_values: buildVariableValues(job),
     numbers: recipient.phone,
     flash: 0,

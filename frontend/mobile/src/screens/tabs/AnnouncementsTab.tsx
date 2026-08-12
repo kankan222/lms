@@ -14,7 +14,9 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import {
   createAnnouncement,
+  createAnnouncementHolidayName,
   getAnnouncementCategories,
+  getAnnouncementHolidayNames,
   getAnnouncement,
   getAnnouncementSmsJobs,
   getAnnouncementSmsTemplates,
@@ -24,6 +26,7 @@ import {
   getMobileAnnouncements,
   publishAnnouncement,
   type AnnouncementCategory,
+  type AnnouncementHolidayName,
   type AnnouncementHoliday,
   type AnnouncementSmsJob,
   type AnnouncementSmsTemplate,
@@ -31,6 +34,7 @@ import {
 } from "../../services/announcementsService";
 import { useAuthStore } from "../../store/authStore";
 import { useAppTheme } from "../../theme/AppThemeProvider";
+import DateField from "../../components/form/DateField";
 
 type FilterKey = "all" | "urgent" | "holiday";
 type AdminFilterKey = "all" | "draft" | "scheduled" | "published" | "sent";
@@ -50,6 +54,7 @@ const EMPTY_COMPOSE = {
   status: "publish_now" as ComposeStatus,
   priority: "normal" as "normal" | "urgent",
   publish_at: "",
+  sms_send_at: "",
   expires_at: "",
   event_start_date: "",
   event_end_date: "",
@@ -122,6 +127,63 @@ function numberValue(value?: number | string | null) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+function templateVariableKey(item: any, index: number) {
+  return String(item?.key || item?.name || `value_${index + 1}`);
+}
+
+function templateVariableLabel(item: any, fallback: string) {
+  return String(item?.label || item?.name || fallback);
+}
+
+function parseJsonValue(value: unknown, fallback: any = null) {
+  if (!value) return fallback;
+  if (typeof value === "object") return value;
+  try {
+    return JSON.parse(String(value));
+  } catch {
+    return fallback;
+  }
+}
+
+function parsePlaceholderSchema(template?: AnnouncementSmsTemplate | null) {
+  const schema = parseJsonValue(template?.placeholder_schema_json, []);
+  const parsed = Array.isArray(schema)
+    ? schema
+    : Array.isArray(schema?.variables)
+      ? schema.variables
+      : Array.isArray(schema?.placeholders)
+        ? schema.placeholders
+        : [];
+  if (parsed.length) {
+    return parsed.map((item: any, index: number) => ({
+      ...item,
+      key: templateVariableKey(item, index),
+      label: templateVariableLabel(item, `Value ${index + 1}`),
+      type: String(item?.type || "text").toLowerCase(),
+      required: item?.required !== false,
+    }));
+  }
+  const detectedCount = String(template?.template_content || "").match(/\{#(?:var|alp)#\}/gi)?.length || 0;
+  const count = Number(template?.placeholder_count || detectedCount || 0);
+  return Array.from({ length: Number.isFinite(count) ? count : 0 }, (_, index) => ({
+    key: `value_${index + 1}`,
+    label: `Value ${index + 1}`,
+    type: "text",
+    required: true,
+  }));
+}
+
+function renderTemplateContent(template = "", schema: any[] = [], variables: Record<string, string> = {}) {
+  let index = 0;
+  return String(template || "").replace(/\{#(?:var|alp)#\}/gi, () => {
+    const item = schema[index];
+    const key = templateVariableKey(item, index);
+    const value = String(variables[key] || "").trim();
+    index += 1;
+    return value;
+  });
+}
+
 function statusTone(status?: string | null) {
   const value = String(status || "").toLowerCase();
   if (["published", "sent"].includes(value)) return "success";
@@ -174,6 +236,7 @@ export default function AnnouncementsTab() {
   const [queue, setQueue] = useState<MobileAnnouncement[]>([]);
   const [templates, setTemplates] = useState<AnnouncementSmsTemplate[]>([]);
   const [categories, setCategories] = useState<AnnouncementCategory[]>([]);
+  const [holidayNames, setHolidayNames] = useState<AnnouncementHolidayName[]>([]);
   const [smsJobs, setSmsJobs] = useState<AnnouncementSmsJob[]>([]);
   const [holidays, setHolidays] = useState<AnnouncementHoliday[]>([]);
   const [selected, setSelected] = useState<MobileAnnouncement | null>(null);
@@ -225,18 +288,28 @@ export default function AnnouncementsTab() {
   );
 
   const selectedTemplateVariables = useMemo(() => {
-    const raw = String(selectedTemplate?.placeholder_schema_json || "").trim();
-    if (!raw) return [];
-    try {
-      const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed)) return parsed;
-      if (Array.isArray(parsed?.variables)) return parsed.variables;
-      if (Array.isArray(parsed?.placeholders)) return parsed.placeholders;
-    } catch {
-      return [];
-    }
-    return [];
+    return parsePlaceholderSchema(selectedTemplate);
   }, [selectedTemplate]);
+
+  const renderedDltBody = useMemo(
+    () => renderTemplateContent(selectedTemplate?.template_content || "", selectedTemplateVariables, compose.sms_variables),
+    [compose.sms_variables, selectedTemplate, selectedTemplateVariables],
+  );
+
+  const holidayVariableOptions = useMemo(() => {
+    const seen = new Set<string>();
+    return [
+      ...holidayNames.map((item) => item.name).filter(Boolean),
+      ...holidays.map((item) => item.title).filter(Boolean),
+      ...categories.filter((item) => ["holiday", "festival", "vacation"].includes(String(item.slug || "").toLowerCase())).map((item) => item.name),
+    ]
+      .map((item) => String(item || "").trim())
+      .filter((item) => {
+        if (!item || seen.has(item.toLowerCase())) return false;
+        seen.add(item.toLowerCase());
+        return true;
+      });
+  }, [categories, holidayNames, holidays]);
 
   const load = useCallback(async () => {
     setError(null);
@@ -248,11 +321,14 @@ export default function AnnouncementsTab() {
         canViewSms ? getAnnouncementSmsJobs({ limit: 80 }) : Promise.resolve([]),
         canViewAdmin ? getHolidays({ limit: 80 }) : Promise.resolve([]),
       ]);
-      const categoryRows = canManage ? await getAnnouncementCategories() : [];
+      const [categoryRows, holidayNameRows] = canManage
+        ? await Promise.all([getAnnouncementCategories(), getAnnouncementHolidayNames({ limit: 120 })])
+        : [[], []];
       setItems(mobileRows);
       setQueue(queueRows);
       setTemplates(templateRows);
       setCategories(categoryRows);
+      setHolidayNames(holidayNameRows);
       setSmsJobs(smsRows);
       setHolidays(holidayRows);
     } catch {
@@ -349,11 +425,12 @@ export default function AnnouncementsTab() {
       ...prev,
       [key]: value,
       ...(key === "message_type" && value === "custom"
-        ? { delivery_mode: "online", sms_template_id: "", sms_variables: {} }
+        ? { delivery_mode: "online", sms_template_id: "", sms_send_at: "", sms_variables: {} }
         : {}),
       ...(key === "message_type" && value === "registered_dlt"
         ? { delivery_mode: "both", body: "" }
         : {}),
+      ...(key === "sms_template_id" ? { sms_variables: {} } : {}),
     }));
   }
 
@@ -375,6 +452,27 @@ export default function AnnouncementsTab() {
     }));
   }
 
+  async function handleAddHolidayName(name: string) {
+    const value = String(name || "").trim();
+    if (!value || !canManage) return;
+    setSaving(true);
+    setError(null);
+    try {
+      const created = await createAnnouncementHolidayName({ name: value, category: "holiday" });
+      if (created) {
+        setHolidayNames((prev) => {
+          const exists = prev.some((item) => String(item.id) === String(created.id) || String(item.name).toLowerCase() === String(created.name).toLowerCase());
+          const next = exists ? prev.map((item) => (String(item.id) === String(created.id) ? created : item)) : [...prev, created];
+          return next.sort((a, b) => String(a.name).localeCompare(String(b.name)));
+        });
+      }
+    } catch (err: any) {
+      setError(err?.response?.data?.message || err?.message || "Could not save holiday name.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   function validateCompose() {
     if (!compose.title.trim()) return "Title is required.";
     if (compose.message_type === "custom" && !compose.body.trim()) return "Body is required.";
@@ -382,7 +480,7 @@ export default function AnnouncementsTab() {
     if (compose.status === "scheduled" && !compose.publish_at.trim()) return "Publish date/time is required for scheduled announcements.";
     if (compose.target_type === "scope" && !compose.scope_code.trim()) return "Select school or higher secondary scope.";
     const missingVariable = selectedTemplateVariables.find((item: any, index: number) => {
-      const key = String(item.key || item.name || `var_${index + 1}`);
+      const key = templateVariableKey(item, index);
       return item.required !== false && !String(compose.sms_variables[key] || "").trim();
     });
     if (compose.message_type === "registered_dlt" && missingVariable) return "Fill all required template variables.";
@@ -402,22 +500,28 @@ export default function AnnouncementsTab() {
       const created = await createAnnouncement({
         message_type: compose.message_type,
         title: compose.title.trim(),
-        body: compose.message_type === "registered_dlt" ? selectedTemplate?.template_content || compose.body : compose.body.trim(),
+        body: compose.message_type === "registered_dlt" ? renderedDltBody || selectedTemplate?.template_content || compose.body : compose.body.trim(),
         category_id: compose.category_id ? Number(compose.category_id) : null,
         delivery_mode: compose.message_type === "custom" ? "online" : compose.delivery_mode,
         status: compose.status === "publish_now" ? "draft" : compose.status,
         priority: compose.priority,
         publish_at: compose.status === "scheduled" ? compose.publish_at.trim() : null,
+        sms_send_at: compose.message_type === "registered_dlt" ? compose.sms_send_at.trim() || null : null,
         expires_at: compose.expires_at.trim() || null,
         event_start_date: compose.event_start_date.trim() || null,
-        event_end_date: compose.event_end_date.trim() || null,
+        event_end_date: compose.event_end_date.trim() || compose.event_start_date.trim() || null,
         reopen_date: compose.reopen_date.trim() || null,
         show_in_software: compose.show_in_software,
         show_in_mobile: compose.show_in_mobile,
         create_notification: compose.create_notification,
         send_push: compose.send_push,
         sms_template_id: compose.message_type === "registered_dlt" ? Number(compose.sms_template_id) : null,
-        sms_variables: compose.message_type === "registered_dlt" ? compose.sms_variables : {},
+        sms_variables: compose.message_type === "registered_dlt"
+          ? {
+              ...compose.sms_variables,
+              order: selectedTemplateVariables.map((item: any, index: number) => templateVariableKey(item, index)),
+            }
+          : {},
         targets: [{
           target_type: compose.target_type,
           scope_code: compose.target_type === "scope" ? compose.scope_code : null,
@@ -497,14 +601,15 @@ export default function AnnouncementsTab() {
     );
   }
 
-  function renderInput(label: string, value: string, onChangeText: (value: string) => void, options: { multiline?: boolean; placeholder?: string } = {}) {
+  function renderInput(label: string, value: string, onChangeText: (value: string) => void, options: { key?: string; multiline?: boolean; placeholder?: string; keyboardType?: "default" | "number-pad" | "numeric" } = {}) {
     return (
-      <View style={styles.field}>
+      <View key={options.key} style={styles.field}>
         <Text style={[styles.fieldLabel, { color: theme.subText }]}>{label}</Text>
         <TextInput
           value={value}
           onChangeText={onChangeText}
           multiline={options.multiline}
+          keyboardType={options.keyboardType || "default"}
           placeholder={options.placeholder}
           placeholderTextColor={theme.mutedText}
           style={[
@@ -526,6 +631,71 @@ export default function AnnouncementsTab() {
         </View>
       </Pressable>
     );
+  }
+
+  function renderDltVariableInput(item: any, index: number) {
+    const key = templateVariableKey(item, index);
+    const label = templateVariableLabel(item, key);
+    const type = String(item?.type || "text").toLowerCase();
+    const value = compose.sms_variables[key] || "";
+
+    if (type === "date") {
+      return (
+        <DateField
+          key={key}
+          label={label}
+          value={value}
+          onChange={(next) => updateSmsVariable(key, next)}
+          placeholder="Select date"
+        />
+      );
+    }
+
+    if (type === "holiday") {
+      const canAddHolidayName = Boolean(value.trim()) && !holidayVariableOptions.some((option) => option.toLowerCase() === value.trim().toLowerCase());
+      return (
+        <View key={key} style={styles.field}>
+          <Text style={[styles.fieldLabel, { color: theme.subText }]}>{label}</Text>
+          <View style={styles.variableInputRow}>
+            <TextInput
+              value={value}
+              onChangeText={(next) => updateSmsVariable(key, next)}
+              placeholder="Select or type holiday"
+              placeholderTextColor={theme.mutedText}
+              style={[styles.input, styles.variableInput, { borderColor: theme.border, backgroundColor: theme.card, color: theme.text }]}
+            />
+            <Pressable
+              style={[styles.variableAddButton, { borderColor: theme.border, backgroundColor: canAddHolidayName ? theme.primary : theme.cardMuted, opacity: saving || !canAddHolidayName ? 0.55 : 1 }]}
+              disabled={saving || !canAddHolidayName}
+              onPress={() => void handleAddHolidayName(value)}
+            >
+              <Ionicons name="add" size={16} color={canAddHolidayName ? theme.primaryText : theme.mutedText} />
+            </Pressable>
+          </View>
+          {holidayVariableOptions.length ? (
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.variableOptionRow}>
+              {holidayVariableOptions.map((option) => {
+                const active = option === value;
+                return (
+                  <Pressable
+                    key={`${key}-${option}`}
+                    style={[styles.variableChip, { borderColor: active ? theme.primary : theme.border, backgroundColor: active ? theme.infoSoft : theme.cardMuted }]}
+                    onPress={() => updateSmsVariable(key, option)}
+                  >
+                    <Text style={[styles.variableChipText, { color: active ? theme.primary : theme.subText }]} numberOfLines={1}>{option}</Text>
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+          ) : null}
+        </View>
+      );
+    }
+
+    return renderInput(label, value, (next) => updateSmsVariable(key, next), {
+      key,
+      keyboardType: type === "number" ? "numeric" : "default",
+    });
   }
 
   function renderAudienceCard(option: { value: ComposeTarget; label: string; description: string }) {
@@ -570,15 +740,15 @@ export default function AnnouncementsTab() {
         onPress={() => openDetail(item, source)}
       >
         <View style={styles.cardTop}>
-          <View style={[styles.iconBox, { backgroundColor: holiday ? theme.successSoft : theme.infoSoft }]}>
-            <Ionicons name={holiday ? "calendar-outline" : "megaphone-outline"} size={20} color={holiday ? theme.success : theme.info} />
+          <View style={[styles.iconBox, { backgroundColor: holiday ? theme.successSoft : theme.cardMuted }]}>
+            <Ionicons name={holiday ? "calendar-outline" : "megaphone-outline"} size={20} color={holiday ? theme.success : theme.primary} />
           </View>
           <View style={styles.cardCopy}>
             <View style={styles.badgeRow}>
               {source === "admin" ? renderBadge(String(item.status || "draft"), statusTone(item.status)) : null}
               {item.priority === "urgent" ? renderBadge("Urgent", "warning") : null}
               {item.category_name ? renderBadge(item.category_name, "muted") : null}
-              {renderBadge(messageTypeLabel(item), "muted")}
+              {source === "admin" ? renderBadge(messageTypeLabel(item), "muted") : null}
             </View>
             <Text style={[styles.cardTitle, { color: theme.text }]} numberOfLines={2}>{item.title}</Text>
             <Text style={[styles.cardBody, { color: theme.subText }]} numberOfLines={2}>{item.body}</Text>
@@ -589,9 +759,11 @@ export default function AnnouncementsTab() {
           <Text style={[styles.footerText, { color: theme.mutedText }]} numberOfLines={1}>
             {formatDateTime(item.published_at || item.publish_at) || "Not published"}
           </Text>
-          <Text style={[styles.footerText, { color: theme.mutedText }]} numberOfLines={1}>
-            {deliveryLabel(item.delivery_mode)}
-          </Text>
+          {source === "admin" ? (
+            <Text style={[styles.footerText, { color: theme.mutedText }]} numberOfLines={1}>
+              {deliveryLabel(item.delivery_mode)}
+            </Text>
+          ) : null}
         </View>
       </Pressable>
     );
@@ -660,6 +832,7 @@ export default function AnnouncementsTab() {
           <View style={styles.cardCopy}>
             <Text style={[styles.cardTitle, { color: theme.text }]} numberOfLines={2}>{item.template_name || "DLT Template"}</Text>
             <Text style={[styles.cardBody, { color: theme.subText }]} numberOfLines={1}>DLT: {item.dlt_template_id || "-"}</Text>
+            {item.provider_template_id ? <Text style={[styles.cardBody, { color: theme.subText }]} numberOfLines={1}>Fast2SMS: {item.provider_template_id}</Text> : null}
           </View>
           {renderBadge(String(item.status || "unknown"), statusTone(item.status))}
         </View>
@@ -825,13 +998,19 @@ export default function AnnouncementsTab() {
                       );
                     })}
                   </View>
-                  {selectedTemplateVariables.map((item: any, index: number) => {
-                    const key = String(item.key || item.name || `var_${index + 1}`);
-                    const label = String(item.label || item.name || key);
-                    return renderInput(label, compose.sms_variables[key] || "", (value) => updateSmsVariable(key, value), {
-                      placeholder: item.type === "date" ? "YYYY-MM-DD" : undefined,
-                    });
-                  })}
+                  {selectedTemplate ? (
+                    <View style={[styles.templatePreviewBox, { borderColor: theme.border, backgroundColor: theme.cardMuted }]}>
+                      <Text style={[styles.templateBody, { color: theme.subText }]}>{selectedTemplate.template_content || "No template content."}</Text>
+                    </View>
+                  ) : null}
+                  {selectedTemplateVariables.map(renderDltVariableInput)}
+                  {selectedTemplate ? (
+                    <View style={[styles.templatePreviewBox, { borderColor: theme.infoBorder, backgroundColor: theme.infoSoft }]}>
+                      <Text style={[styles.fieldLabel, { color: theme.infoText }]}>Preview</Text>
+                      <Text style={[styles.previewText, { color: theme.text }]}>{renderedDltBody || selectedTemplate.template_content || ""}</Text>
+                    </View>
+                  ) : null}
+                  {renderInput("SMS Send At", compose.sms_send_at, (value) => updateCompose("sms_send_at", value), { placeholder: "YYYY-MM-DD HH:mm" })}
                   <View style={styles.segmentWrap}>
                     {renderSegment("online", "Online", compose.delivery_mode, (value) => updateCompose("delivery_mode", value))}
                     {renderSegment("offline_sms", "SMS", compose.delivery_mode, (value) => updateCompose("delivery_mode", value))}
@@ -857,6 +1036,14 @@ export default function AnnouncementsTab() {
               {renderBoolean("Show in mobile", compose.show_in_mobile, () => updateCompose("show_in_mobile", !compose.show_in_mobile))}
               {renderBoolean("Create notification", compose.create_notification, () => updateCompose("create_notification", !compose.create_notification))}
               {renderBoolean("Send push notification", compose.send_push, () => updateCompose("send_push", !compose.send_push))}
+            </View>
+
+            <View style={[styles.detailCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+              <Text style={[styles.sectionTitle, { color: theme.text }]}>Event / Holiday Dates</Text>
+              <Text style={[styles.helperText, { color: theme.subText }]}>Optional for closures, holidays, vacations, or dated events.</Text>
+              <DateField label="Event Starts" value={compose.event_start_date} onChange={(value) => updateCompose("event_start_date", value)} placeholder="Select start date" />
+              <DateField label="Event Ends" value={compose.event_end_date} onChange={(value) => updateCompose("event_end_date", value)} placeholder="Select end date" />
+              <DateField label="Reopen Date" value={compose.reopen_date} onChange={(value) => updateCompose("reopen_date", value)} placeholder="Select reopen date" />
             </View>
 
             <View style={styles.composeFooterRow}>
@@ -898,8 +1085,8 @@ export default function AnnouncementsTab() {
             {selectedSource === "admin" ? renderBadge(String(selected.status || "draft"), statusTone(selected.status)) : null}
             {selected.category_name ? renderBadge(selected.category_name, "info") : null}
             {selected.priority === "urgent" ? renderBadge("Urgent", "warning") : null}
-            {renderBadge(messageTypeLabel(selected), "muted")}
-            {selected.version_number ? renderBadge(`v${selected.version_number}`, "muted") : null}
+            {selectedSource === "admin" ? renderBadge(messageTypeLabel(selected), "muted") : null}
+            {selectedSource === "admin" && selected.version_number ? renderBadge(`v${selected.version_number}`, "muted") : null}
           </View>
           <Text style={[styles.detailTitle, { color: theme.text }]}>{selected.title}</Text>
           <Text style={[styles.detailBody, { color: theme.subText }]}>{selected.body}</Text>
@@ -920,8 +1107,8 @@ export default function AnnouncementsTab() {
           {renderMetaRow("calendar-outline", isHoliday(selected) ? "Holiday Date" : "Event Date", eventText(selected))}
           {renderMetaRow("return-up-forward-outline", "Reopen Date", formatDate(selected.reopen_date))}
           {renderMetaRow("hourglass-outline", "Available Until", formatDateTime(selected.expires_at))}
-          {renderMetaRow("phone-portrait-outline", "Delivery", deliveryLabel(selected.delivery_mode))}
-          {renderMetaRow("document-text-outline", "DLT Template", selected.sms_template_name || (selected.sms_template_id ? `Template #${selected.sms_template_id}` : ""))}
+          {selectedSource === "admin" ? renderMetaRow("phone-portrait-outline", "Delivery", deliveryLabel(selected.delivery_mode)) : null}
+          {selectedSource === "admin" ? renderMetaRow("document-text-outline", "DLT Template", selected.sms_template_name || (selected.sms_template_id ? `Template #${selected.sms_template_id}` : "")) : null}
         </View>
 
         {selected.attachments?.length ? (
@@ -957,9 +1144,6 @@ export default function AnnouncementsTab() {
       <View style={styles.listTitleRow}>
         <Text style={[styles.listTitle, { color: theme.text }]}>Announcements</Text>
         <View style={styles.listTitleActions}>
-          <Pressable style={[styles.listIconBtn, { backgroundColor: theme.cardMuted, borderColor: theme.border }]} onPress={() => void refresh()}>
-            <Ionicons name="refresh-outline" size={19} color={theme.icon} />
-          </Pressable>
           {canManage ? (
             <Pressable
               style={[styles.newAnnouncementBtn, { backgroundColor: theme.primary, shadowColor: theme.primary }]}
@@ -1206,6 +1390,58 @@ const styles = StyleSheet.create({
     marginTop: 4,
     fontSize: 12,
     lineHeight: 18,
+  },
+  templatePreviewBox: {
+    borderWidth: 1,
+    borderRadius: 8,
+    marginTop: 10,
+    padding: 12,
+  },
+  previewText: {
+    marginTop: 8,
+    fontSize: 13,
+    lineHeight: 20,
+    fontWeight: "700",
+  },
+  variableOptionRow: {
+    gap: 8,
+    paddingRight: 12,
+    paddingTop: 2,
+  },
+  variableInputRow: {
+    flexDirection: "row",
+    gap: 8,
+    alignItems: "center",
+  },
+  variableInput: {
+    flex: 1,
+  },
+  variableAddButton: {
+    width: 42,
+    height: 42,
+    borderWidth: 1,
+    borderRadius: 8,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  variableChip: {
+    maxWidth: 180,
+    minHeight: 32,
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  variableChipText: {
+    fontSize: 12,
+    fontWeight: "800",
+  },
+  helperText: {
+    marginTop: 6,
+    fontSize: 12,
+    lineHeight: 18,
+    fontWeight: "700",
   },
   toggleRow: {
     minHeight: 42,

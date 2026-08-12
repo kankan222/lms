@@ -793,7 +793,6 @@ export default function FeesTab() {
       <View style={styles.innerContent}>
       <View style={styles.heroCard}>
         <View style={styles.heroCopy}>
-          <Text style={styles.heroEyebrow}>Overview</Text>
           <Text style={styles.title}>Fees</Text>
           <Text style={styles.subtitle}>
             {isAccounts

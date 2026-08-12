@@ -15,6 +15,7 @@ import {
   Text,
   TextInput,
   View,
+  useWindowDimensions,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useIsFocused, useNavigation } from "@react-navigation/native";
@@ -414,6 +415,7 @@ export default function MessagingTab({
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const isFocused = useIsFocused();
   const { theme, isDark } = useAppTheme();
+  const { width: windowWidth } = useWindowDimensions();
   styles = useMemo(() => createStyles(theme), [theme]);
   const insets = useSafeAreaInsets();
   const user = useAuthStore((state) => state.user);
@@ -422,6 +424,7 @@ export default function MessagingTab({
   const isSuperAdmin = hasSuperAdminRole(roles);
   const isParentOrTeacher = !isSuperAdmin && (roles.includes("parent") || roles.includes("teacher"));
   const canStartMessages = !isParentOrTeacher && (isSuperAdmin || permissions.includes("messages.send"));
+  const adaptiveBubbleMaxWidth = Math.max(176, Math.min(Math.floor(windowWidth * 0.78), windowWidth - 86));
 
   const [screen, setScreen] = useState<Screen>("list");
   const [conversations, setConversations] = useState<ConversationItem[]>([]);
@@ -1917,9 +1920,6 @@ export default function MessagingTab({
                     <>
                       <Text style={[styles.listTitle, { color: theme.text }]}>Messaging</Text>
                       <View style={styles.listTitleActions}>
-                        <Pressable style={[styles.listIconBtn, { backgroundColor: theme.cardMuted, borderColor: theme.border }]} onPress={() => void onRefresh()}>
-                          <Ionicons name="refresh-outline" size={19} color={theme.icon} />
-                        </Pressable>
                         {canStartMessages ? (
                           <Pressable
                             style={[
@@ -2234,6 +2234,7 @@ export default function MessagingTab({
                       <View style={[
                         styles.bubble,
                         hasMediaAttachment ? styles.mediaBubble : null,
+                        { maxWidth: adaptiveBubbleMaxWidth },
                         mine
                           ? { backgroundColor: sentBubbleColor, borderTopRightRadius: 6 }
                           : { backgroundColor: receivedBubbleColor, borderTopLeftRadius: 6 },
@@ -2484,14 +2485,14 @@ return StyleSheet.create({
   rowCard: { flexDirection: "row", gap: 12, borderBottomWidth: 1, paddingHorizontal: 14, paddingVertical: 11 },
   rowBody: { flex: 1, gap: 3, justifyContent: "center", minWidth: 0 },
   rowTop: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 },
-  rowBottom: { flexDirection: "row", alignItems: "flex-start", gap: 8 },
-  rowTitle: { fontSize: 15, fontWeight: "800", flex: 1 },
+  rowBottom: { flexDirection: "row", alignItems: "flex-start", gap: 8, minWidth: 0 },
+  rowTitle: { fontSize: 15, fontWeight: "800", flex: 1, minWidth: 0 },
   avatarSelectionWrap: { position: "relative" },
   selectionBadge: { position: "absolute", right: 0, bottom: 0, width: 20, height: 20, borderRadius: 10, alignItems: "center", justifyContent: "center" },
   rowTime: { fontSize: 11, flexShrink: 0 },
-  rowPreview: { flex: 1, minWidth: 0, flexShrink: 1, fontSize: 13, lineHeight: 18, fontWeight: "600" },
+  rowPreview: { flex: 1, minWidth: 0, flexShrink: 1, flexWrap: "wrap", fontSize: 13, lineHeight: 18, fontWeight: "600" },
   rowMeta: { fontSize: 12, flex: 1 },
-  unread: { minWidth: 20, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 999, textAlign: "center", backgroundColor: theme.success, color: theme.successText, fontSize: 11, fontWeight: "700" },
+  unread: { minWidth: 20, flexShrink: 0, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 999, textAlign: "center", backgroundColor: theme.success, color: theme.successText, fontSize: 11, fontWeight: "700" },
   emptyCard: { borderWidth: 1, borderRadius: 20, paddingHorizontal: 18, paddingVertical: 24, alignItems: "center", justifyContent: "center", gap: 8 },
   emptyTitle: { fontSize: 15, fontWeight: "800" },
   avatarWrap: { width: 46, height: 46, alignItems: "center", justifyContent: "center", position: "relative" },
@@ -2512,10 +2513,10 @@ return StyleSheet.create({
   chatHeaderCopy: { flex: 1, gap: 2 },
   chatTitle: { fontSize: 15, fontWeight: "800" },
   chatMeta: { fontSize: 12 },
-  messageRow: { flexDirection: "row", gap: 8, paddingHorizontal: 2, minWidth: 0 },
+  messageRow: { flexDirection: "row", gap: 8, paddingHorizontal: 2, minWidth: 0, width: "100%" },
   mine: { justifyContent: "flex-end", alignItems: "flex-end" },
   other: { justifyContent: "flex-start", alignItems: "flex-start" },
-  bubble: { maxWidth: "88%", minWidth: 120, flexShrink: 1, alignSelf: "flex-start", borderRadius: 18, paddingHorizontal: 12, paddingVertical: 9 },
+  bubble: { minWidth: 0, flexShrink: 1, alignSelf: "flex-start", borderRadius: 18, paddingHorizontal: 12, paddingVertical: 9 },
   mediaBubble: { paddingHorizontal: 0, paddingVertical: 0, overflow: "hidden" },
   mediaBubbleInset: { marginHorizontal: 10, marginTop: 8 },
   mediaBubbleMeta: { paddingHorizontal: 10, paddingBottom: 7 },
@@ -2524,7 +2525,7 @@ return StyleSheet.create({
   senderName: { flex: 1, fontSize: 11, fontWeight: "700" },
   senderNameSpacer: { flex: 1 },
   messageActionBtn: { width: 24, height: 20, alignItems: "center", justifyContent: "center", borderRadius: 10 },
-  messageText: { width: "100%", minWidth: 0, flexShrink: 1, flexWrap: "wrap", fontSize: 14, lineHeight: 21, fontWeight: "600", includeFontPadding: true },
+  messageText: { alignSelf: "stretch", minWidth: 0, flexShrink: 1, flexWrap: "wrap", fontSize: 14, lineHeight: 21, fontWeight: "600", includeFontPadding: true },
   bubbleTime: { fontSize: 11 },
   messageMetaRow: { marginTop: 7, flexDirection: "row", flexWrap: "wrap", justifyContent: "flex-end", gap: 6 },
   deliveryIconWrap: { width: 16, height: 14, alignItems: "center", justifyContent: "center" },

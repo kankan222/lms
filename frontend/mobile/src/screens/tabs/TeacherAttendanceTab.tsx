@@ -243,7 +243,6 @@ export default function TeacherAttendanceTab() {
       >
         <View style={styles.innerContent}>
           <View style={styles.heroCard}>
-            <Text style={styles.heroEyebrow}>Overview</Text>
             <Text style={styles.title}>Teacher Attendance</Text>
             <Text style={styles.subtitle}>Review machine punch logs, filter by date range, and download the attendance matrix.</Text>
           </View>
