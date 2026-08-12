@@ -11,12 +11,11 @@ type Props = {
   stats: Stat[];
 };
 
-export default function ModulePlaceholderTab({ title, subtitle, stats }: Props) {
+export default function ModulePlaceholderTab({ title, stats }: Props) {
   return (
     <View style={styles.container}>
       <View style={styles.headerCard}>
-        <Text style={styles.title}>{title}</Text>
-        <Text style={styles.subtitle}>{subtitle}</Text>
+        <Text style={styles.title}>{String(title || "Module").toUpperCase()}</Text>
       </View>
 
       {stats.length > 0 ? (
@@ -49,13 +48,11 @@ const styles = StyleSheet.create({
     padding: 12,
   },
   title: {
-    color: "#0f172a",
-    fontWeight: "700",
-    fontSize: 16,
-  },
-  subtitle: {
-    marginTop: 6,
     color: "#64748b",
+    fontWeight: "900",
+    fontSize: 13,
+    lineHeight: 16,
+    letterSpacing: 0.8,
   },
   grid: {
     flexDirection: "row",
@@ -91,4 +88,3 @@ const styles = StyleSheet.create({
     color: "#64748b",
   },
 });
-

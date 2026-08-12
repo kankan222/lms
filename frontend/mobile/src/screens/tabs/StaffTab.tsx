@@ -295,12 +295,7 @@ export default function StaffTab() {
       showsVerticalScrollIndicator={false}
     >
       <View style={styles.heroCard}>
-        <Text style={styles.heroTitle}>{canManageStaff ? "Staff" : "My Staff Profile"}</Text>
-        <Text style={styles.heroSubtitle}>
-          {canManageStaff
-            ? "Manage staff records, linked staff users, and profile details with the live backend staff module."
-            : "View your linked staff profile from the live backend staff module."}
-        </Text>
+        <Text style={styles.heroTitle}>{canManageStaff ? "STAFF" : "MY STAFF PROFILE"}</Text>
       </View>
 
       <TopNotice notice={notice} />
@@ -529,7 +524,7 @@ function InfoRow({ label, value }: { label: string; value: string }) {
 const styles = StyleSheet.create({
   container: { gap: 14, paddingBottom: 120 },
   heroCard: { borderWidth: 1, borderColor: "#e2e8f0", borderRadius: 24, backgroundColor: "#ffffff", padding: 18, gap: 6 },
-  heroTitle: { color: "#0f172a", fontWeight: "800", fontSize: 22 },
+  heroTitle: { color: "#64748b", fontWeight: "900", fontSize: 13, lineHeight: 16, letterSpacing: 0.8 },
   heroSubtitle: { color: "#64748b", lineHeight: 20 },
   noticeCard: { borderWidth: 1, borderRadius: 18, paddingHorizontal: 14, paddingVertical: 12 },
   noticeTitle: { color: "#0f172a", fontWeight: "800", marginBottom: 2 },

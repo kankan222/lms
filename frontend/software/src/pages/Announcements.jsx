@@ -57,6 +57,7 @@ import {
   publishAnnouncement,
   refreshAnnouncementSmsJobStatus,
   updateAnnouncement,
+  updateAnnouncementSmsTemplate,
 } from "../api/announcements.api";
 
 const selectClassName =
@@ -300,6 +301,26 @@ function announcementToForm(item = {}) {
   };
 }
 
+function templateToForm(item = {}) {
+  return {
+    ...emptyTemplateForm,
+    template_name: item.template_name || "",
+    dlt_template_id: item.dlt_template_id || "",
+    provider_template_id: item.provider_template_id || "",
+    header: item.header || "",
+    communication_type: item.communication_type || "",
+    template_content: item.template_content || "",
+    brand_dlt_id: item.brand_dlt_id || "",
+    placeholder_style: item.placeholder_style || "alp",
+    placeholder_count: String(item.placeholder_count || 0),
+    placeholder_schema: parseJsonValue(item.placeholder_schema_json || item.placeholder_schema, []) || [],
+    status: item.status || "registered",
+    provider: item.provider || "fast2sms",
+    creator: item.creator || "",
+    registered_on: toDateInput(item.registered_on),
+  };
+}
+
 function StatusBadge({ status }) {
   return (
     <Badge variant="outline" className={statusClass[status] || statusClass.cancelled}>
@@ -454,6 +475,7 @@ export default function Announcements() {
   const [importOpen, setImportOpen] = useState(false);
   const [importFile, setImportFile] = useState(null);
   const [editingAnnouncement, setEditingAnnouncement] = useState(null);
+  const [editingTemplate, setEditingTemplate] = useState(null);
   const [filters, setFilters] = useState({ status: "", delivery_mode: "" });
   const [holidayMonth, setHolidayMonth] = useState(() => {
     const today = new Date();
@@ -694,16 +716,32 @@ export default function Announcements() {
         placeholder_count: Number(templateForm.placeholder_count || 0),
         placeholder_schema: templateForm.placeholder_schema || [],
       };
-      const response = await createAnnouncementSmsTemplate(payload);
-      setTemplates((prev) => [response.data, ...prev]);
+      const response = editingTemplate
+        ? await updateAnnouncementSmsTemplate(editingTemplate.id, payload)
+        : await createAnnouncementSmsTemplate(payload);
+      setTemplates((prev) => {
+        if (!editingTemplate) return [response.data, ...prev];
+        return prev.map((item) => (String(item.id) === String(editingTemplate.id) ? response.data : item));
+      });
       showSuccess("DLT Template Saved", "The SMS template is available for offline announcements.");
-      setTemplateOpen(false);
-      setTemplateForm(emptyTemplateForm);
+      closeTemplateDialog();
     } catch (err) {
       showError("Template Save Failed", err?.message || "Could not save DLT template.");
     } finally {
       setSaving(false);
     }
+  }
+
+  function openTemplateDialog(item = null) {
+    setEditingTemplate(item);
+    setTemplateForm(item ? templateToForm(item) : emptyTemplateForm);
+    setTemplateOpen(true);
+  }
+
+  function closeTemplateDialog() {
+    setTemplateOpen(false);
+    setEditingTemplate(null);
+    setTemplateForm(emptyTemplateForm);
   }
 
   async function importTemplates() {
@@ -973,13 +1011,10 @@ export default function Announcements() {
               </div>
             </DialogContent>
           </Dialog>
-          <Dialog open={templateOpen} onOpenChange={setTemplateOpen}>
-            <DialogTrigger asChild>
-              <Button variant="outline" className="gap-1"><Smartphone className="size-4" /> DLT Template</Button>
-            </DialogTrigger>
+          <Dialog open={templateOpen} onOpenChange={(open) => (open ? setTemplateOpen(true) : closeTemplateDialog())}>
             <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-3xl">
               <DialogHeader>
-                <DialogTitle>New DLT SMS Template</DialogTitle>
+                <DialogTitle>{editingTemplate ? "Edit DLT SMS Template" : "New DLT SMS Template"}</DialogTitle>
                 <DialogDescription>Registered templates are used when offline announcements are published.</DialogDescription>
               </DialogHeader>
               <div className="space-y-3">
@@ -1033,7 +1068,7 @@ export default function Announcements() {
                   </div>
                 </FormSection>
                 <div className="flex justify-end gap-2">
-                  <Button variant="outline" onClick={() => setTemplateOpen(false)}>Cancel</Button>
+                  <Button variant="outline" onClick={closeTemplateDialog}>Cancel</Button>
                   <Button onClick={saveTemplate} disabled={saving}>Save Template</Button>
                 </div>
               </div>
@@ -1441,6 +1476,9 @@ export default function Announcements() {
                   <CardDescription>Only registered templates should be selected for offline announcements.</CardDescription>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
+                  <Button variant="outline" onClick={() => openTemplateDialog()}>
+                    <Plus className="mr-2 size-4" /> New Template
+                  </Button>
                   <Button variant="outline" onClick={() => setImportOpen(true)}>
                     <Upload className="mr-2 size-4" /> Import DLT Sheet
                   </Button>
@@ -1455,7 +1493,12 @@ export default function Announcements() {
                   <div key={item.id} className="rounded-md border border-border bg-background p-4 dark:bg-input/20">
                     <div className="flex items-start justify-between gap-2">
                       <p className="font-semibold">{item.template_name}</p>
-                      <StatusBadge status={item.status} />
+                      <div className="flex shrink-0 items-center gap-2">
+                        <StatusBadge status={item.status} />
+                        <Button type="button" size="icon" variant="outline" onClick={() => openTemplateDialog(item)} aria-label="Edit template">
+                          <Pencil className="size-4" />
+                        </Button>
+                      </div>
                     </div>
                     <p className="mt-1 text-xs text-muted-foreground">DLT: {item.dlt_template_id}</p>
                     {item.provider_template_id ? <p className="mt-1 text-xs text-muted-foreground">Fast2SMS: {item.provider_template_id}</p> : null}

@@ -156,6 +156,20 @@ function CardAction({ icon, label, onPress, tone = "default" }: { icon: keyof ty
   return <Pressable accessibilityRole="button" accessibilityLabel={label} style={[styles.cardActionBtn, { borderColor: isDanger ? theme.dangerBorder : theme.border, backgroundColor: isDanger ? theme.dangerSoft : theme.card }, isDanger && styles.cardDeleteBtn]} onPress={onPress}><Ionicons name={icon} size={18} color={isDanger ? theme.danger : theme.text} /></Pressable>;
 }
 
+function TeacherListBadge({ label, tone = "neutral" }: { label: string; tone?: "accent" | "neutral" | "success" }) {
+  const { theme } = useAppTheme();
+  const palette = tone === "accent"
+    ? { backgroundColor: theme.successSoft, borderColor: theme.successBorder, color: theme.success }
+    : tone === "success"
+      ? { backgroundColor: theme.infoSoft, borderColor: theme.infoBorder, color: theme.infoText }
+      : { backgroundColor: theme.cardMuted, borderColor: theme.border, color: theme.subText };
+  return (
+    <View style={[styles.teacherListBadge, { backgroundColor: palette.backgroundColor, borderColor: palette.borderColor }]}>
+      <Text style={[styles.teacherListBadgeText, { color: palette.color }]} numberOfLines={1}>{label}</Text>
+    </View>
+  );
+}
+
 export default function TeachersTab({ onStartTeacherMessage }: Props) {
   const { theme } = useAppTheme();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
@@ -187,6 +201,7 @@ export default function TeachersTab({ onStartTeacherMessage }: Props) {
   const [createOpen, setCreateOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [assignmentOpen, setAssignmentOpen] = useState(false);
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [scopeFilter, setScopeFilter] = useState<ScopeFilter>("all");
   const [createForm, setCreateForm] = useState<TeacherForm>(EMPTY_CREATE);
@@ -225,13 +240,9 @@ export default function TeachersTab({ onStartTeacherMessage }: Props) {
     const school = teachers.filter((t) => resolveScopeCode(t.class_scope, t.scope_name) === "school").length;
     const hs = teachers.filter((t) => resolveScopeCode(t.class_scope, t.scope_name) === "hs").length;
     const withPhone = teachers.filter((t) => String(t.phone || "").trim()).length;
-    return [
-      { label: "Total Teachers", value: teachers.length, accent: theme.infoSoft, border: theme.infoBorder, tone: theme.infoText },
-      { label: getScopeLabel("school"), value: school, accent: theme.successSoft, border: theme.successBorder, tone: theme.success },
-      { label: getScopeLabel("hs"), value: hs, accent: theme.card, border: theme.border, tone: theme.text },
-      { label: "Phone Linked", value: withPhone, accent: theme.warningSoft, border: theme.warningBorder, tone: theme.warningText },
-    ];
-  }, [teachers, theme, getScopeLabel]);
+    return { total: teachers.length, school, hs, withPhone };
+  }, [teachers]);
+  const activeFilterCount = scopeFilter === "all" ? 0 : 1;
 
   const loadTeacherRows = useCallback(async (mode: "initial" | "refresh" | "loadMore" = "initial") => {
     if (mode === "loadMore") {
@@ -666,26 +677,81 @@ export default function TeachersTab({ onStartTeacherMessage }: Props) {
         windowSize={7}
         ListHeaderComponent={
           <View style={styles.innerContent}>
-            <View style={styles.heroCard}>
-              <View style={styles.heroCopy}>
-                <Text style={[styles.title, { color: theme.text }]}>{canManageTeachers ? "Teachers" : "My Profile"}</Text>
-                <Text style={[styles.subtitle, { color: theme.subText }]}>{canManageTeachers ? "Manage teacher records and assignment scopes." : "View your teacher profile and assignments."}</Text>
-              </View>
-              <View style={styles.heroPrimaryActions}>
-                {canManageTeachers ? <Pressable style={[styles.heroPrimaryBtn, { backgroundColor: theme.primary }]} onPress={() => setCreateOpen(true)}><Text style={[styles.primaryBtnText, { color: theme.primaryText }]}>Add Teacher</Text></Pressable> : null}
-              </View>
-            </View>
+            <Text style={[styles.title, { color: theme.subText }]}>{canManageTeachers ? "TEACHERS" : "MY PROFILE"}</Text>
 
-            {canManageTeachers ? <View style={styles.statsGrid}>{stats.map((item) => <View key={item.label} style={[styles.statCard, { backgroundColor: item.accent, borderColor: item.border }]}><Text style={[styles.statLabel, { color: theme.subText }]}>{item.label}</Text><Text style={[styles.statValue, { color: item.tone }]}>{item.value}</Text></View>)}</View> : null}
+            <View style={[styles.overviewCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+              <View style={styles.rowBetween}>
+                <View style={styles.overviewTitleCopy}>
+                  <Text style={[styles.overviewTitle, { color: theme.text }]}>{canManageTeachers ? "Teacher Directory" : "Teacher Profile"}</Text>
+                  <Text style={[styles.overviewMeta, { color: theme.subText }]}>
+                    {selfTeacher ? "Linked teacher account" : `${filteredTeachers.length} visible${teachersTotal !== null ? ` | ${teachers.length}/${teachersTotal} loaded` : ""}`}
+                  </Text>
+                </View>
+                <Text style={[styles.overviewCount, { color: theme.text }]}>{selfTeacher ? 1 : teachersTotal ?? stats.total}</Text>
+              </View>
+              {canManageTeachers ? (
+                <View style={styles.compactStatsRow}>
+                  <TeacherListBadge label={`${stats.total} Loaded`} tone="accent" />
+                  <TeacherListBadge label={`${stats.school} ${getScopeLabel("school")}`} />
+                  <TeacherListBadge label={`${stats.hs} ${getScopeLabel("hs")}`} />
+                  <TeacherListBadge label={`${stats.withPhone} Phone`} tone="success" />
+                </View>
+              ) : null}
+            </View>
 
             {error ? <Text style={[styles.errorText, { color: theme.danger }]}>{error}</Text> : null}
 
-            {canManageTeachers ? <View style={[styles.sectionCard, { backgroundColor: theme.card, borderColor: theme.border }] }>
-              <View style={styles.rowBetween}><Text style={[styles.sectionTitle, { color: theme.text }]}>Teacher Directory</Text><Text style={[styles.hint, { color: theme.subText }]}>{filteredTeachers.length} visible{teachersTotal !== null ? ` | ${teachers.length}/${teachersTotal} loaded` : ""}</Text></View>
-              <FormInput label="Search" value={search} onChangeText={setSearch} placeholder="Name, employee ID, phone or email" autoCapitalize="none" />
-              <Text style={[styles.inputLabel, { color: theme.subText }]}>Scope</Text>
-              <View style={styles.filterRow}>{scopeFilterOptions.map((scope) => <Pressable key={scope.code} style={[styles.filterChip, { borderColor: theme.border, backgroundColor: theme.cardMuted }, scopeFilter === scope.code && { borderColor: theme.primary, backgroundColor: theme.isDark ? "#f8fafc" : theme.primary }]} onPress={() => setScopeFilter(scope.code as ScopeFilter)}><Text style={[styles.filterChipText, { color: theme.subText }, scopeFilter === scope.code && { color: theme.isDark ? "#0f172a" : theme.primaryText }]}>{scope.name}</Text></Pressable>)}</View>
-            </View> : null}
+            {canManageTeachers ? (
+              <>
+                <View style={styles.toolbarRow}>
+                  <Pressable style={[styles.toolbarBtn, { borderColor: theme.border, backgroundColor: theme.card }]} onPress={() => setFiltersOpen((prev) => !prev)}>
+                    <Ionicons name="options-outline" size={16} color={theme.icon} />
+                    <Text style={[styles.toolbarBtnText, { color: theme.text }]}>Filters{activeFilterCount ? ` (${activeFilterCount})` : ""}</Text>
+                  </Pressable>
+                  <Pressable style={[styles.toolbarBtn, styles.toolbarPrimaryBtn, { backgroundColor: theme.primary, borderColor: theme.primary }]} onPress={() => setCreateOpen(true)}>
+                    <Ionicons name="add" size={16} color={theme.primaryText} />
+                    <Text style={[styles.toolbarBtnText, { color: theme.primaryText }]}>Add</Text>
+                  </Pressable>
+                </View>
+
+                {filtersOpen ? (
+                  <View style={[styles.compactFilterCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                    <View style={styles.compactPanelHeader}>
+                      <Text style={[styles.compactPanelTitle, { color: theme.text }]}>Filters</Text>
+                      <View style={styles.compactHeaderActions}>
+                        <Pressable onPress={() => setScopeFilter("all")} hitSlop={8}>
+                          <Text style={[styles.resetText, { color: theme.subText }]}>Reset</Text>
+                        </Pressable>
+                        <Pressable onPress={() => setFiltersOpen(false)} hitSlop={8}>
+                          <Ionicons name="chevron-up-outline" size={18} color={theme.icon} />
+                        </Pressable>
+                      </View>
+                    </View>
+                    <Text style={[styles.inputLabel, { color: theme.subText }]}>Scope</Text>
+                    <View style={styles.filterRow}>
+                      {scopeFilterOptions.map((scope) => (
+                        <Pressable
+                          key={scope.code}
+                          style={[styles.filterChip, { borderColor: theme.border, backgroundColor: theme.cardMuted }, scopeFilter === scope.code && { borderColor: theme.primary, backgroundColor: theme.isDark ? "#f8fafc" : theme.primary }]}
+                          onPress={() => setScopeFilter(scope.code as ScopeFilter)}
+                        >
+                          <Text style={[styles.filterChipText, { color: theme.subText }, scopeFilter === scope.code && { color: theme.isDark ? "#0f172a" : theme.primaryText }]}>{scope.name}</Text>
+                        </Pressable>
+                      ))}
+                    </View>
+                    <Pressable style={[styles.compactApplyBtn, { backgroundColor: theme.primary }]} onPress={() => setFiltersOpen(false)}>
+                      <Text style={[styles.primaryBtnText, { color: theme.primaryText }]}>Apply Filters</Text>
+                    </Pressable>
+                  </View>
+                ) : null}
+
+                <View style={[styles.searchWrap, { borderColor: theme.border, backgroundColor: theme.inputBg }]}>
+                  <Ionicons name="search-outline" size={16} color={theme.icon} />
+                  <TextInput style={[styles.searchInput, { color: theme.text }]} value={search} onChangeText={setSearch} placeholder="Search teachers..." placeholderTextColor={theme.mutedText} autoCapitalize="none" />
+                </View>
+                {scopeFilter !== "all" ? <Text style={[styles.activeFiltersText, { color: theme.subText }]}>Scope: {getScopeLabel(scopeFilter)}</Text> : null}
+              </>
+            ) : null}
           </View>
         }
         ListEmptyComponent={
@@ -723,8 +789,8 @@ export default function TeachersTab({ onStartTeacherMessage }: Props) {
         ItemSeparatorComponent={() => <View style={styles.rowGap} />}
         renderItem={({ item: teacher }) => {
           const scopeLabel = getScopeLabel(teacher.class_scope, teacher.scope_name);
-          const identityLine = [`Emp ${teacher.employee_id || "-"}`, `Phone ${teacher.phone || "-"}`].join(" | ");
-          const contactLine = `Email ${teacher.email || "-"}`;
+          const identityLine = [`Emp ${teacher.employee_id || "-"}`, teacher.phone ? `Phone ${teacher.phone}` : ""].filter(Boolean).join(" | ");
+          const contactLine = teacher.email ? `Email ${teacher.email}` : "";
 
           return (
             <View style={styles.rowWrap}>
@@ -739,13 +805,16 @@ export default function TeachersTab({ onStartTeacherMessage }: Props) {
                   </View>
                   <View style={styles.cardCopy}>
                     <Text style={[styles.teacherName, { color: theme.text }]} numberOfLines={1}>{teacher.name}</Text>
-                    <Text style={[styles.teacherMeta, { color: theme.subText }]} numberOfLines={1}>{scopeLabel}</Text>
+                    <Text style={[styles.teacherMeta, { color: theme.subText }]} numberOfLines={1}>{identityLine}</Text>
                   </View>
                 </View>
 
                 <View style={styles.metaStack}>
-                  <Text style={[styles.detailText, styles.metaLineText, { color: theme.subText }]} numberOfLines={1}>{identityLine}</Text>
-                  <Text style={[styles.detailText, styles.metaLineText, { color: theme.subText }]} numberOfLines={1}>{contactLine}</Text>
+                  <View style={styles.teacherBadgeRow}>
+                    <TeacherListBadge label={scopeLabel} tone="accent" />
+                    {teacher.user_id ? <TeacherListBadge label="User linked" tone="success" /> : null}
+                  </View>
+                  {contactLine ? <Text style={[styles.detailText, styles.metaLineText, { color: theme.subText }]} numberOfLines={1}>{contactLine}</Text> : null}
                 </View>
 
                 <View style={styles.cardActions}>
@@ -877,64 +946,78 @@ export default function TeachersTab({ onStartTeacherMessage }: Props) {
 const styles = StyleSheet.create({
   screen: { flex: 1 },
   root: { flex: 1 },
-  content: { gap: 14, paddingBottom: 120 },
-  innerContent: { gap: 14, paddingHorizontal: 14, paddingTop: 10 },
+  content: { gap: 10, paddingBottom: 120 },
+  innerContent: { gap: 10, paddingHorizontal: 14, paddingTop: 10 },
   topNoticeOverlay: { position: "absolute", top: 0, left: 14, right: 14, zIndex: 20 },
-  heroCard: { borderRadius: 24, paddingVertical: 0, gap: 8 },
-  heroCopy: { gap: 6 },
-  heroPrimaryActions: { flexDirection: "row", gap: 10 },
+  overviewCard: { borderWidth: 1, borderRadius: 8, padding: 12, gap: 10 },
+  overviewTitleCopy: { flex: 1, minWidth: 0 },
+  overviewTitle: { fontSize: 15, lineHeight: 19, fontWeight: "900" },
+  overviewMeta: { marginTop: 2, fontSize: 11, lineHeight: 15, fontWeight: "700" },
+  overviewCount: { fontSize: 20, fontWeight: "900" },
+  compactStatsRow: { flexDirection: "row", flexWrap: "wrap", gap: 7 },
+  toolbarRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  toolbarBtn: { flex: 1, minHeight: 40, borderWidth: 1, borderRadius: 8, paddingHorizontal: 10, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6 },
+  toolbarPrimaryBtn: { flex: 0.7 },
+  toolbarBtnText: { fontSize: 12, fontWeight: "800" },
+  compactFilterCard: { borderWidth: 1, borderRadius: 8, padding: 12, gap: 10 },
+  compactPanelHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 },
+  compactPanelTitle: { fontSize: 14, fontWeight: "900" },
+  compactHeaderActions: { flexDirection: "row", alignItems: "center", gap: 12 },
+  compactApplyBtn: { minHeight: 40, borderRadius: 8, alignItems: "center", justifyContent: "center" },
   heroEyebrow: { fontSize: 12, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.6 },
-  title: { color: "#0f172a", fontWeight: "800", fontSize: 22 },
+  title: { color: "#0f172a", fontWeight: "900", fontSize: 13, lineHeight: 16, letterSpacing: 0.8 },
   subtitle: { color: "#64748b", lineHeight: 20 },
   noticeCard: { borderRadius: 18, paddingHorizontal: 14, paddingVertical: 12, borderWidth: 1 },
   noticeSuccess: { backgroundColor: "#f0fdf4", borderColor: "#bbf7d0" },
   noticeError: { backgroundColor: "#fef2f2", borderColor: "#fecaca" },
   noticeTitle: { color: "#0f172a", fontWeight: "800", marginBottom: 2 },
   noticeMessage: { color: "#475569" },
-  statsGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
-  statCard: { width: "48%", minHeight: 92, borderRadius: 20, borderWidth: 1, paddingHorizontal: 14, paddingVertical: 12, justifyContent: "space-between" },
-  statLabel: { color: "#334155", fontSize: 12, fontWeight: "700" },
-  statValue: { fontSize: 26, fontWeight: "800" },
   centered: { alignItems: "center", justifyContent: "center", paddingVertical: 40 },
   errorText: { color: "#dc2626", fontWeight: "700" },
-  sectionCard: { backgroundColor: "#fff", borderRadius: 22, borderWidth: 1, borderColor: "#e2e8f0", padding: 16, gap: 12 },
+  sectionCard: { backgroundColor: "#fff", borderRadius: 8, borderWidth: 1, borderColor: "#e2e8f0", paddingHorizontal: 12, paddingVertical: 10, gap: 8 },
   rowBetween: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 10 },
   sectionTitle: { color: "#0f172a", fontWeight: "800", fontSize: 16 },
   hint: { color: "#64748b", fontSize: 12, fontWeight: "600" },
   fieldBlock: { gap: 6 },
   inputLabel: { color: "#334155", fontWeight: "700" },
   input: { borderWidth: 1, borderColor: "#cbd5e1", borderRadius: 14, backgroundColor: "#fff", paddingHorizontal: 12, paddingVertical: 11, color: "#0f172a" },
+  searchWrap: { minHeight: 42, borderWidth: 1, borderRadius: 8, flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 11 },
+  searchInput: { flex: 1, minWidth: 0, paddingVertical: 9, fontSize: 14, fontWeight: "700" },
+  activeFiltersText: { fontSize: 12, lineHeight: 17, fontWeight: "700" },
   filterRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-  filterChip: { borderWidth: 1, borderColor: "#cbd5e1", borderRadius: 999, paddingHorizontal: 12, paddingVertical: 8, backgroundColor: "#f8fafc" },
+  filterChip: { borderWidth: 1, borderColor: "#cbd5e1", borderRadius: 8, paddingHorizontal: 12, paddingVertical: 8, backgroundColor: "#f8fafc" },
   filterChipActive: { borderColor: "#0f172a", backgroundColor: "#0f172a" },
   filterChipText: { color: "#475569", fontWeight: "700", fontSize: 12 },
   filterChipTextActive: { color: "#fff" },
   rowWrap: { paddingHorizontal: 14 },
-  rowGap: { height: 12 },
+  rowGap: { height: 10 },
   listFooter: { paddingHorizontal: 14, paddingVertical: 14, alignItems: "center", justifyContent: "center" },
   grid: { gap: 12 },
-  teacherCard: { backgroundColor: "#fff", borderRadius: 22, borderWidth: 1, borderColor: "#e2e8f0", padding: 16, gap: 8 },
-  cardTop: { flexDirection: "row", alignItems: "center", gap: 12 },
-  avatarBadge: { width: 44, height: 44, borderRadius: 14, backgroundColor: "#e2e8f0", alignItems: "center", justifyContent: "center" },
-  avatarImage: { width: "100%", height: "100%", borderRadius: 14 },
-  avatarText: { color: "#0f172a", fontWeight: "800", fontSize: 16 },
-  cardCopy: { flex: 1, minWidth: 0, gap: 3 },
-  teacherName: { color: "#0f172a", fontWeight: "800", fontSize: 18 },
+  teacherCard: { backgroundColor: "#fff", borderRadius: 8, borderWidth: 1, borderColor: "#e2e8f0", paddingHorizontal: 12, paddingVertical: 11, gap: 8 },
+  cardTop: { flexDirection: "row", alignItems: "center", gap: 10 },
+  avatarBadge: { width: 40, height: 40, borderRadius: 8, backgroundColor: "#e2e8f0", alignItems: "center", justifyContent: "center", overflow: "hidden" },
+  avatarImage: { width: "100%", height: "100%", borderRadius: 8 },
+  avatarText: { color: "#0f172a", fontWeight: "900", fontSize: 15 },
+  cardCopy: { flex: 1, minWidth: 0, gap: 2 },
+  teacherName: { color: "#0f172a", fontWeight: "900", fontSize: 15, lineHeight: 19 },
   teacherMeta: { color: "#475569", fontWeight: "700", fontSize: 12 },
   detailList: { gap: 4 },
-  metaStack: { gap: 2 },
+  metaStack: { gap: 6 },
   metaLineText: { fontSize: 12 },
   detailText: { color: "#475569", lineHeight: 20 },
+  teacherBadgeRow: { flexDirection: "row", flexWrap: "wrap", gap: 7, alignItems: "center" },
+  teacherListBadge: { maxWidth: "100%", borderWidth: 1, borderRadius: 7, paddingHorizontal: 8, paddingVertical: 4 },
+  teacherListBadgeText: { fontSize: 11, lineHeight: 14, fontWeight: "800" },
   rowActions: { flexDirection: "row", gap: 10, marginTop: 14 },
-  cardActions: { flexDirection: "row", flexWrap: "nowrap", justifyContent: "flex-end", gap: 8, marginTop: 4 },
-  cardActionBtn: { width: 38, height: 38, borderWidth: 1, borderColor: "#cbd5e1", backgroundColor: "#fff", borderRadius: 12, alignItems: "center", justifyContent: "center" },
+  cardActions: { flexDirection: "row", flexWrap: "nowrap", justifyContent: "flex-end", gap: 7, marginTop: 2 },
+  cardActionBtn: { width: 36, height: 36, borderWidth: 1, borderColor: "#cbd5e1", backgroundColor: "#fff", borderRadius: 8, alignItems: "center", justifyContent: "center" },
   cardActionText: { color: "#334155", fontWeight: "700", fontSize: 12 },
   cardDeleteBtn: { backgroundColor: "#fee2e2", borderWidth: 1, borderColor: "#fecaca" },
   cardDeleteText: { color: "#b91c1c", fontWeight: "700", fontSize: 12 },
   primaryBtn: { backgroundColor: "#0f172a", paddingHorizontal: 16, paddingVertical: 11, borderRadius: 12, alignItems: "center", justifyContent: "center" },
   heroPrimaryBtn: { flex: 1, backgroundColor: "#0f172a", paddingHorizontal: 16, paddingVertical: 11, borderRadius: 12, alignItems: "center", justifyContent: "center" },
   primaryBtnText: { color: "#fff", fontWeight: "700" },
-  ghostBtn: { borderWidth: 1, borderColor: "#cbd5e1", backgroundColor: "#fff", paddingHorizontal: 16, paddingVertical: 11, borderRadius: 12, alignItems: "center", justifyContent: "center" },
+  ghostBtn: { borderWidth: 1, borderColor: "#cbd5e1", backgroundColor: "#fff", paddingHorizontal: 16, paddingVertical: 9, borderRadius: 8, alignItems: "center", justifyContent: "center" },
   ghostBtnText: { color: "#334155", fontWeight: "700" },
   iconUtilityBtn: { width: 42, height: 42, borderWidth: 1, borderColor: "#cbd5e1", backgroundColor: "#fff", borderRadius: 12, alignItems: "center", justifyContent: "center" },
   secondaryBtn: { flex: 1, borderWidth: 1, borderColor: "#cbd5e1", backgroundColor: "#fff", paddingHorizontal: 14, paddingVertical: 11, borderRadius: 12, alignItems: "center", justifyContent: "center" },
@@ -945,6 +1028,7 @@ const styles = StyleSheet.create({
   successBtnText: { color: "#fff", fontWeight: "700" },
   modalOverlay: { flex: 1, justifyContent: "flex-end" },
   modalBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(15, 23, 42, 0.28)" },
+  resetText: { color: "#15803d", fontWeight: "700" },
   modalCard: { maxHeight: "88%", backgroundColor: "#fff", borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingHorizontal: 16, paddingTop: 16, paddingBottom: 32, marginBottom: 12, gap: 10 },
   modalTitle: { fontSize: 18, fontWeight: "800", color: "#0f172a" },
   modalBody: { maxHeight: 620 },
@@ -966,7 +1050,7 @@ const styles = StyleSheet.create({
   assignmentSubText: { marginTop: 2, color: "#64748b" },
   assignmentDelete: { marginTop: 8, alignSelf: "flex-start", borderWidth: 1, borderColor: "#fecaca", borderRadius: 8, paddingHorizontal: 8, paddingVertical: 4, backgroundColor: "#fee2e2" },
   assignmentDeleteText: { color: "#b91c1c", fontWeight: "700", fontSize: 12 },
-  emptyCard: { borderWidth: 1, borderColor: "#e2e8f0", borderStyle: "dashed", borderRadius: 18, backgroundColor: "#f8fafc", padding: 20 },
+  emptyCard: { borderWidth: 1, borderColor: "#e2e8f0", borderStyle: "dashed", borderRadius: 8, backgroundColor: "#f8fafc", padding: 20, marginHorizontal: 14 },
   emptyTitle: { color: "#0f172a", fontWeight: "700", fontSize: 15 },
   emptyText: { color: "#64748b", marginTop: 8 },
   spaceTop: { marginTop: 10 },

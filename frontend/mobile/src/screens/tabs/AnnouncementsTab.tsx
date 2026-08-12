@@ -15,6 +15,7 @@ import { Ionicons } from "@expo/vector-icons";
 import {
   createAnnouncement,
   createAnnouncementHolidayName,
+  createAnnouncementSmsTemplate,
   getAnnouncementCategories,
   getAnnouncementHolidayNames,
   getAnnouncement,
@@ -25,6 +26,7 @@ import {
   getMobileAnnouncement,
   getMobileAnnouncements,
   publishAnnouncement,
+  updateAnnouncementSmsTemplate,
   type AnnouncementCategory,
   type AnnouncementHolidayName,
   type AnnouncementHoliday,
@@ -66,6 +68,22 @@ const EMPTY_COMPOSE = {
   send_push: true,
 };
 
+const EMPTY_TEMPLATE_FORM = {
+  template_name: "",
+  dlt_template_id: "",
+  provider_template_id: "",
+  header: "",
+  communication_type: "",
+  template_content: "",
+  placeholder_count: "0",
+  placeholder_schema: [] as Array<{ key: string; label: string; type: string; required: boolean }>,
+  status: "registered",
+  provider: "fast2sms",
+};
+
+const TIME_HOURS_12 = Array.from({ length: 12 }, (_, index) => String(index + 1));
+const TIME_MINUTES = ["00", "15", "30", "45"];
+
 const DELIVERY_LABELS: Record<string, string> = {
   online: "Online",
   offline_sms: "Offline SMS",
@@ -89,6 +107,11 @@ function hasAny(permissions: string[], list: string[]) {
 function formatDate(value?: string | null) {
   const raw = String(value || "").trim();
   if (!raw) return "";
+  const localDate = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (localDate) {
+    const [, year, month, day] = localDate;
+    return `${day}/${month}/${year}`;
+  }
   const parsed = new Date(raw);
   if (Number.isNaN(parsed.getTime())) return raw;
   return parsed.toLocaleDateString();
@@ -97,9 +120,57 @@ function formatDate(value?: string | null) {
 function formatDateTime(value?: string | null) {
   const raw = String(value || "").trim();
   if (!raw) return "";
+  const localDateTime = raw.match(/^(\d{4})-(\d{2})-(\d{2})[T\s](\d{2}):(\d{2})/);
+  if (localDateTime) {
+    const [, year, month, day, hourText, minute] = localDateTime;
+    const hour24 = Number(hourText);
+    const hour12 = hour24 % 12 || 12;
+    const period = hour24 >= 12 ? "PM" : "AM";
+    return `${day}/${month}/${year}, ${hour12}:${minute} ${period}`;
+  }
   const parsed = new Date(raw);
   if (Number.isNaN(parsed.getTime())) return raw;
   return parsed.toLocaleString();
+}
+
+function splitDateTime(value?: string | null) {
+  const raw = String(value || "").trim();
+  const match = raw.match(/^(\d{4}-\d{2}-\d{2})[T\s](\d{2}:\d{2})/);
+  return {
+    date: match?.[1] || "",
+    time: match?.[2] || "",
+  };
+}
+
+function joinDateTime(date: string, time: string) {
+  const nextDate = String(date || "").trim();
+  const nextTime = String(time || "").trim();
+  if (!nextDate) return "";
+  return `${nextDate} ${nextTime || "09:00"}`;
+}
+
+function parseTimeParts(time?: string | null) {
+  const raw = String(time || "09:00").trim();
+  const match = raw.match(/^(\d{1,2}):(\d{2})/);
+  const hour24 = Math.min(Math.max(Number(match?.[1] ?? 9), 0), 23);
+  const minute = TIME_MINUTES.includes(match?.[2] || "") ? String(match?.[2]) : "00";
+  return {
+    hour: String(hour24 % 12 || 12),
+    minute,
+    period: hour24 >= 12 ? "PM" : "AM",
+  };
+}
+
+function toTwentyFourHourTime(hour: string, minute: string, period: string) {
+  const baseHour = Math.min(Math.max(Number(hour || 9), 1), 12);
+  const normalizedMinute = TIME_MINUTES.includes(minute) ? minute : "00";
+  const hour24 = period === "PM" ? (baseHour === 12 ? 12 : baseHour + 12) : baseHour === 12 ? 0 : baseHour;
+  return `${String(hour24).padStart(2, "0")}:${normalizedMinute}`;
+}
+
+function formatTwelveHourTime(time?: string | null) {
+  const parts = parseTimeParts(time);
+  return `${parts.hour}:${parts.minute} ${parts.period}`;
 }
 
 function isHoliday(item: MobileAnnouncement) {
@@ -173,6 +244,23 @@ function parsePlaceholderSchema(template?: AnnouncementSmsTemplate | null) {
   }));
 }
 
+function templateToForm(template?: AnnouncementSmsTemplate | null) {
+  const schema = parsePlaceholderSchema(template);
+  return {
+    ...EMPTY_TEMPLATE_FORM,
+    template_name: template?.template_name || "",
+    dlt_template_id: template?.dlt_template_id || "",
+    provider_template_id: template?.provider_template_id || "",
+    header: template?.header || "",
+    communication_type: template?.communication_type || "",
+    template_content: template?.template_content || "",
+    placeholder_count: String(template?.placeholder_count || schema.length || 0),
+    placeholder_schema: schema,
+    status: template?.status || "registered",
+    provider: template?.provider || "fast2sms",
+  };
+}
+
 function renderTemplateContent(template = "", schema: any[] = [], variables: Record<string, string> = {}) {
   let index = 0;
   return String(template || "").replace(/\{#(?:var|alp)#\}/gi, () => {
@@ -243,6 +331,10 @@ export default function AnnouncementsTab() {
   const [composing, setComposing] = useState(false);
   const [composeStep, setComposeStep] = useState<"audience" | "message">("audience");
   const [compose, setCompose] = useState(EMPTY_COMPOSE);
+  const [smsSendTimeDraft, setSmsSendTimeDraft] = useState("09:00");
+  const [templateEditorOpen, setTemplateEditorOpen] = useState(false);
+  const [templateEditing, setTemplateEditing] = useState<AnnouncementSmsTemplate | null>(null);
+  const [templateForm, setTemplateForm] = useState(EMPTY_TEMPLATE_FORM);
   const [selectedSource, setSelectedSource] = useState<"mobile" | "admin">("mobile");
   const [filter, setFilter] = useState<FilterKey>("all");
   const [queueFilter, setQueueFilter] = useState<AdminFilterKey>("all");
@@ -253,9 +345,10 @@ export default function AnnouncementsTab() {
   const [detailError, setDetailError] = useState<string | null>(null);
 
   const tabs = useMemo(() => {
-    const next: Array<{ key: TabKey; label: string; icon: keyof typeof Ionicons.glyphMap }> = [
-      { key: "inbox", label: "Inbox", icon: "megaphone-outline" },
-    ];
+    const next: Array<{ key: TabKey; label: string; icon: keyof typeof Ionicons.glyphMap }> = [];
+    if (!canViewAdmin) {
+      next.push({ key: "inbox", label: "Inbox", icon: "megaphone-outline" });
+    }
     if (canViewAdmin) {
       next.push({ key: "queue", label: "Queue", icon: "list-outline" });
       next.push({ key: "templates", label: "DLT", icon: "phone-portrait-outline" });
@@ -315,7 +408,7 @@ export default function AnnouncementsTab() {
     setError(null);
     try {
       const [mobileRows, queueRows, templateRows, smsRows, holidayRows] = await Promise.all([
-        getMobileAnnouncements({ limit: 80 }),
+        canViewAdmin ? Promise.resolve([]) : getMobileAnnouncements({ limit: 80 }),
         canViewAdmin ? getAnnouncements({ limit: 80 }) : Promise.resolve([]),
         canViewAdmin ? getAnnouncementSmsTemplates({ limit: 80 }) : Promise.resolve([]),
         canViewSms ? getAnnouncementSmsJobs({ limit: 80 }) : Promise.resolve([]),
@@ -337,7 +430,7 @@ export default function AnnouncementsTab() {
   }, [canManage, canViewAdmin, canViewSms]);
 
   useEffect(() => {
-    if (!tabs.some((tab) => tab.key === activeTab)) setActiveTab("inbox");
+    if (!tabs.some((tab) => tab.key === activeTab)) setActiveTab(tabs[0]?.key || "inbox");
   }, [activeTab, tabs]);
 
   useEffect(() => {
@@ -438,6 +531,7 @@ export default function AnnouncementsTab() {
     setCompose(EMPTY_COMPOSE);
     setComposeStep("audience");
     setComposing(false);
+    setSmsSendTimeDraft("09:00");
   }
 
   function selectAudience(value: ComposeTarget) {
@@ -468,6 +562,80 @@ export default function AnnouncementsTab() {
       }
     } catch (err: any) {
       setError(err?.response?.data?.message || err?.message || "Could not save holiday name.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function openTemplateEditor(template?: AnnouncementSmsTemplate | null) {
+    setError(null);
+    setTemplateEditorOpen(true);
+    setTemplateEditing(template || null);
+    setTemplateForm(templateToForm(template));
+  }
+
+  function closeTemplateEditor() {
+    setTemplateEditorOpen(false);
+    setTemplateEditing(null);
+    setTemplateForm(EMPTY_TEMPLATE_FORM);
+  }
+
+  function updateTemplateForm<K extends keyof typeof EMPTY_TEMPLATE_FORM>(key: K, value: (typeof EMPTY_TEMPLATE_FORM)[K]) {
+    setTemplateForm((prev) => ({ ...prev, [key]: value }));
+  }
+
+  function syncTemplateContent(content: string) {
+    const count = String(content || "").match(/\{#(?:var|alp)#\}/gi)?.length || 0;
+    setTemplateForm((prev) => {
+      const current = prev.placeholder_schema || [];
+      return {
+        ...prev,
+        template_content: content,
+        placeholder_count: String(count),
+        placeholder_schema: Array.from({ length: count }, (_, index) => current[index] || {
+          key: `value_${index + 1}`,
+          label: `Value ${index + 1}`,
+          type: "text",
+          required: true,
+        }),
+      };
+    });
+  }
+
+  function updateTemplateSchema(index: number, field: "key" | "label" | "type", value: string) {
+    setTemplateForm((prev) => ({
+      ...prev,
+      placeholder_schema: prev.placeholder_schema.map((item, itemIndex) =>
+        itemIndex === index ? { ...item, [field]: value } : item,
+      ),
+    }));
+  }
+
+  async function saveTemplate() {
+    if (!canManage) return;
+    if (!templateForm.template_name.trim() || !templateForm.dlt_template_id.trim() || !templateForm.template_content.trim()) {
+      setError("Template name, DLT Template ID, and content are required.");
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    try {
+      const payload = {
+        ...templateForm,
+        placeholder_count: Number(templateForm.placeholder_count || 0),
+        placeholder_schema: templateForm.placeholder_schema || [],
+      };
+      const saved = templateEditing?.id
+        ? await updateAnnouncementSmsTemplate(templateEditing.id, payload)
+        : await createAnnouncementSmsTemplate(payload);
+      setTemplates((prev) => {
+        if (!templateEditing?.id) return [saved, ...prev];
+        return prev.map((item) => (String(item.id) === String(templateEditing.id) ? saved : item));
+      });
+      closeTemplateEditor();
+      setActiveTab("templates");
+    } catch (err: any) {
+      setError(err?.response?.data?.message || err?.message || "Could not save DLT template.");
     } finally {
       setSaving(false);
     }
@@ -618,6 +786,97 @@ export default function AnnouncementsTab() {
             { borderColor: theme.border, backgroundColor: theme.card, color: theme.text },
           ]}
         />
+      </View>
+    );
+  }
+
+  function renderDateTimeField(label: string, value: string, onChange: (value: string) => void) {
+    const parts = splitDateTime(value);
+    const selectedTime = parts.time || smsSendTimeDraft;
+    const timeParts = parseTimeParts(selectedTime);
+
+    function updateTime(nextTime: string) {
+      setSmsSendTimeDraft(nextTime);
+      if (parts.date) onChange(joinDateTime(parts.date, nextTime));
+    }
+
+    function updateTimePart(next: Partial<{ hour: string; minute: string; period: string }>) {
+      updateTime(toTwentyFourHourTime(next.hour || timeParts.hour, next.minute || timeParts.minute, next.period || timeParts.period));
+    }
+
+    function updateDate(date: string) {
+      if (!date) {
+        onChange("");
+        return;
+      }
+      onChange(joinDateTime(date, selectedTime));
+    }
+
+    return (
+      <View style={styles.field}>
+        <DateField
+          label={label}
+          value={parts.date}
+          onChange={updateDate}
+          placeholder="Select date"
+        />
+        <View style={styles.timePickerHeader}>
+          <Text style={[styles.fieldLabel, styles.timeLabel, { color: theme.subText }]}>Time</Text>
+          <Text style={[styles.timePreviewText, { color: theme.text }]}>{formatTwelveHourTime(selectedTime)}</Text>
+        </View>
+        <View style={styles.timePickerGrid}>
+          <View style={styles.timePickerColumn}>
+            <Text style={[styles.timeColumnLabel, { color: theme.subText }]}>Hour</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.timeOptionRow}>
+              {TIME_HOURS_12.map((hour) => {
+                const active = timeParts.hour === hour;
+                return (
+                  <Pressable
+                    key={hour}
+                    style={[styles.timeChip, { borderColor: active ? theme.primary : theme.border, backgroundColor: active ? theme.infoSoft : theme.cardMuted }]}
+                    onPress={() => updateTimePart({ hour })}
+                  >
+                    <Text style={[styles.timeChipText, { color: active ? theme.primary : theme.subText }]}>{hour}</Text>
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+          </View>
+          <View style={styles.timePickerColumn}>
+            <Text style={[styles.timeColumnLabel, { color: theme.subText }]}>Minute</Text>
+            <View style={styles.timeOptionRow}>
+              {TIME_MINUTES.map((minute) => {
+                const active = timeParts.minute === minute;
+                return (
+                  <Pressable
+                    key={minute}
+                    style={[styles.timeChip, { borderColor: active ? theme.primary : theme.border, backgroundColor: active ? theme.infoSoft : theme.cardMuted }]}
+                    onPress={() => updateTimePart({ minute })}
+                  >
+                    <Text style={[styles.timeChipText, { color: active ? theme.primary : theme.subText }]}>{minute}</Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          </View>
+          <View style={styles.timeOptionRow}>
+            {(["AM", "PM"] as const).map((period) => {
+              const active = timeParts.period === period;
+              return (
+                <Pressable
+                  key={period}
+                  style={[styles.periodChip, { borderColor: active ? theme.primary : theme.border, backgroundColor: active ? theme.primary : theme.cardMuted }]}
+                  onPress={() => updateTimePart({ period })}
+                >
+                  <Text style={[styles.periodChipText, { color: active ? theme.primaryText : theme.subText }]}>{period}</Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        </View>
+        {!parts.date ? (
+          <Text style={[styles.helperText, { color: theme.subText }]}>Choose a date to schedule SMS at {formatTwelveHourTime(selectedTime)}.</Text>
+        ) : null}
       </View>
     );
   }
@@ -825,20 +1084,107 @@ export default function AnnouncementsTab() {
     );
   }
 
-  function renderTemplates() {
-    return renderList(templates, "No registered DLT templates found.", (item) => (
-      <View key={item.id} style={[styles.card, styles.simpleCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
-        <View style={styles.rowBetween}>
-          <View style={styles.cardCopy}>
-            <Text style={[styles.cardTitle, { color: theme.text }]} numberOfLines={2}>{item.template_name || "DLT Template"}</Text>
-            <Text style={[styles.cardBody, { color: theme.subText }]} numberOfLines={1}>DLT: {item.dlt_template_id || "-"}</Text>
-            {item.provider_template_id ? <Text style={[styles.cardBody, { color: theme.subText }]} numberOfLines={1}>Fast2SMS: {item.provider_template_id}</Text> : null}
-          </View>
-          {renderBadge(String(item.status || "unknown"), statusTone(item.status))}
+  function renderTemplateEditor() {
+    return (
+      <ScrollView
+        style={[styles.screen, { backgroundColor: theme.bg }]}
+        contentContainerStyle={styles.detailContent}
+        keyboardShouldPersistTaps="handled"
+      >
+        <Pressable accessibilityRole="button" style={styles.backButton} onPress={closeTemplateEditor}>
+          <Ionicons name="chevron-back" size={20} color={theme.primary} />
+          <Text style={[styles.backText, { color: theme.primary }]}>DLT Templates</Text>
+        </Pressable>
+
+        <View style={[styles.detailCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+          <Text style={[styles.heroEyebrow, { color: theme.subText }]}>DLT SMS</Text>
+          <Text style={[styles.detailTitle, { color: theme.text }]}>{templateEditing ? "Edit Template" : "New Template"}</Text>
+          <Text style={[styles.cardBody, { color: theme.subText }]}>Use the Fast2SMS Message ID for SMS delivery and the DLT Template ID for registration reference.</Text>
         </View>
-        <Text style={[styles.cardBody, { color: theme.subText }]} numberOfLines={4}>{item.template_content || "No template content."}</Text>
-      </View>
-    ));
+
+        <View style={[styles.detailCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+          <Text style={[styles.sectionTitle, { color: theme.text }]}>Template Registration</Text>
+          {renderInput("Template Name", templateForm.template_name, (value) => updateTemplateForm("template_name", value))}
+          {renderInput("DLT Template ID", templateForm.dlt_template_id, (value) => updateTemplateForm("dlt_template_id", value))}
+          {renderInput("Fast2SMS Message ID", templateForm.provider_template_id, (value) => updateTemplateForm("provider_template_id", value))}
+          {renderInput("Header", templateForm.header, (value) => updateTemplateForm("header", value))}
+          {renderInput("Communication Type", templateForm.communication_type, (value) => updateTemplateForm("communication_type", value))}
+          {renderInput("Template Content", templateForm.template_content, syncTemplateContent, { multiline: true })}
+          <Text style={[styles.fieldLabel, { color: theme.subText }]}>Status</Text>
+          <View style={styles.segmentWrap}>
+            {renderSegment("registered", "Registered", templateForm.status, (value) => updateTemplateForm("status", value))}
+            {renderSegment("pending", "Pending", templateForm.status, (value) => updateTemplateForm("status", value))}
+            {renderSegment("inactive", "Inactive", templateForm.status, (value) => updateTemplateForm("status", value))}
+          </View>
+        </View>
+
+        {templateForm.placeholder_schema.length ? (
+          <View style={[styles.detailCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+            <Text style={[styles.sectionTitle, { color: theme.text }]}>Variables</Text>
+            {templateForm.placeholder_schema.map((item, index) => (
+              <View key={`${index}-${item.key}`} style={[styles.templateVariableEditor, { borderColor: theme.border }]}>
+                {renderInput(`Key ${index + 1}`, item.key, (value) => updateTemplateSchema(index, "key", value))}
+                {renderInput("Label", item.label, (value) => updateTemplateSchema(index, "label", value))}
+                <Text style={[styles.fieldLabel, { color: theme.subText }]}>Type</Text>
+                <View style={styles.segmentWrap}>
+                  {renderSegment("text", "Text", item.type, (value) => updateTemplateSchema(index, "type", value))}
+                  {renderSegment("date", "Date", item.type, (value) => updateTemplateSchema(index, "type", value))}
+                  {renderSegment("holiday", "Holiday", item.type, (value) => updateTemplateSchema(index, "type", value))}
+                  {renderSegment("number", "Number", item.type, (value) => updateTemplateSchema(index, "type", value))}
+                </View>
+              </View>
+            ))}
+          </View>
+        ) : null}
+
+        <View style={styles.composeFooterRow}>
+          <Pressable style={[styles.secondaryAction, { borderColor: theme.border, backgroundColor: theme.card }]} onPress={closeTemplateEditor}>
+            <Text style={[styles.secondaryActionText, { color: theme.text }]}>Cancel</Text>
+          </Pressable>
+          <Pressable
+            style={[styles.primaryAction, styles.footerPrimaryAction, { backgroundColor: theme.primary, opacity: saving ? 0.65 : 1 }]}
+            disabled={saving}
+            onPress={() => void saveTemplate()}
+          >
+            <Ionicons name="save-outline" size={16} color={theme.primaryText} />
+            <Text style={[styles.primaryActionText, { color: theme.primaryText }]}>{saving ? "Saving..." : "Save Template"}</Text>
+          </Pressable>
+        </View>
+      </ScrollView>
+    );
+  }
+
+  function renderTemplates() {
+    return (
+      <>
+        {canManage ? (
+          <Pressable style={[styles.newTemplateBtn, { borderColor: theme.border, backgroundColor: theme.card }]} onPress={() => openTemplateEditor()}>
+            <Ionicons name="add" size={16} color={theme.primary} />
+            <Text style={[styles.secondaryActionText, { color: theme.text }]}>New DLT Template</Text>
+          </Pressable>
+        ) : null}
+        {renderList(templates, "No registered DLT templates found.", (item) => (
+          <View key={item.id} style={[styles.card, styles.simpleCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+            <View style={styles.rowBetween}>
+              <View style={styles.cardCopy}>
+                <Text style={[styles.cardTitle, { color: theme.text }]} numberOfLines={2}>{item.template_name || "DLT Template"}</Text>
+                <Text style={[styles.cardBody, { color: theme.subText }]} numberOfLines={1}>DLT: {item.dlt_template_id || "-"}</Text>
+                {item.provider_template_id ? <Text style={[styles.cardBody, { color: theme.subText }]} numberOfLines={1}>Fast2SMS: {item.provider_template_id}</Text> : null}
+              </View>
+              <View style={styles.templateCardActions}>
+                {renderBadge(String(item.status || "unknown"), statusTone(item.status))}
+                {canManage ? (
+                  <Pressable style={[styles.listIconBtn, { borderColor: theme.border, backgroundColor: theme.cardMuted }]} onPress={() => openTemplateEditor(item)}>
+                    <Ionicons name="pencil" size={16} color={theme.icon} />
+                  </Pressable>
+                ) : null}
+              </View>
+            </View>
+            <Text style={[styles.cardBody, { color: theme.subText }]} numberOfLines={4}>{item.template_content || "No template content."}</Text>
+          </View>
+        ))}
+      </>
+    );
   }
 
   function renderSmsJobs() {
@@ -1010,7 +1356,7 @@ export default function AnnouncementsTab() {
                       <Text style={[styles.previewText, { color: theme.text }]}>{renderedDltBody || selectedTemplate.template_content || ""}</Text>
                     </View>
                   ) : null}
-                  {renderInput("SMS Send At", compose.sms_send_at, (value) => updateCompose("sms_send_at", value), { placeholder: "YYYY-MM-DD HH:mm" })}
+                  {renderDateTimeField("SMS Send At", compose.sms_send_at, (value) => updateCompose("sms_send_at", value))}
                   <View style={styles.segmentWrap}>
                     {renderSegment("online", "Online", compose.delivery_mode, (value) => updateCompose("delivery_mode", value))}
                     {renderSegment("offline_sms", "SMS", compose.delivery_mode, (value) => updateCompose("delivery_mode", value))}
@@ -1064,6 +1410,8 @@ export default function AnnouncementsTab() {
       </ScrollView>
     );
   }
+
+  if (templateEditorOpen) return renderTemplateEditor();
 
   if (composing) return renderCompose();
 
@@ -1142,7 +1490,7 @@ export default function AnnouncementsTab() {
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={theme.primary} />}
     >
       <View style={styles.listTitleRow}>
-        <Text style={[styles.listTitle, { color: theme.text }]}>Announcements</Text>
+        <Text style={[styles.listTitle, { color: theme.subText }]}>ANNOUNCEMENTS</Text>
         <View style={styles.listTitleActions}>
           {canManage ? (
             <Pressable
@@ -1200,9 +1548,10 @@ const styles = StyleSheet.create({
   },
   listTitle: {
     flex: 1,
-    fontSize: 20,
-    lineHeight: 25,
-    fontWeight: "800",
+    fontSize: 13,
+    lineHeight: 16,
+    fontWeight: "900",
+    letterSpacing: 0.8,
   },
   listTitleActions: {
     flexDirection: "row",
@@ -1373,6 +1722,73 @@ const styles = StyleSheet.create({
     minHeight: 120,
     textAlignVertical: "top",
   },
+  timeInputRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  timeInput: {
+    flex: 1,
+  },
+  timePickerHeader: {
+    marginTop: 2,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10,
+  },
+  timeLabel: {
+    marginTop: 0,
+  },
+  timePreviewText: {
+    fontSize: 13,
+    fontWeight: "900",
+  },
+  timePickerGrid: {
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
+    borderRadius: 8,
+    padding: 10,
+    gap: 10,
+  },
+  timePickerColumn: {
+    gap: 6,
+  },
+  timeColumnLabel: {
+    fontSize: 11,
+    fontWeight: "900",
+    textTransform: "uppercase",
+  },
+  timeOptionRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 7,
+  },
+  timeChip: {
+    minHeight: 34,
+    minWidth: 42,
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  timeChipText: {
+    fontSize: 12,
+    fontWeight: "900",
+  },
+  periodChip: {
+    flex: 1,
+    minHeight: 36,
+    borderWidth: 1,
+    borderRadius: 8,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  periodChipText: {
+    fontSize: 12,
+    fontWeight: "900",
+  },
   optionList: {
     gap: 8,
     marginTop: 8,
@@ -1396,6 +1812,25 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     marginTop: 10,
     padding: 12,
+  },
+  newTemplateBtn: {
+    minHeight: 42,
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+  },
+  templateCardActions: {
+    alignItems: "flex-end",
+    gap: 8,
+  },
+  templateVariableEditor: {
+    borderTopWidth: 1,
+    paddingTop: 10,
+    marginTop: 10,
   },
   previewText: {
     marginTop: 8,

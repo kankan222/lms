@@ -147,6 +147,16 @@ export async function getAnnouncementSmsTemplates(params: { status?: string; lim
   return response.data.data ?? [];
 }
 
+export async function createAnnouncementSmsTemplate(payload: Record<string, unknown>) {
+  const response = await api.post<ApiEnvelope<AnnouncementSmsTemplate>>("/announcements/sms-templates", payload);
+  return response.data.data;
+}
+
+export async function updateAnnouncementSmsTemplate(id: number | string, payload: Record<string, unknown>) {
+  const response = await api.put<ApiEnvelope<AnnouncementSmsTemplate>>(`/announcements/sms-templates/${id}`, payload);
+  return response.data.data;
+}
+
 export async function getAnnouncementSmsJobs(params: { limit?: number; announcement_id?: number | string; status?: string } = {}) {
   const response = await api.get<ApiEnvelope<AnnouncementSmsJob[]>>("/announcements/sms-jobs", { params });
   return response.data.data ?? [];

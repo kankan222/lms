@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
-  Alert,
   FlatList,
   Modal,
   Pressable,
@@ -12,6 +11,7 @@ import {
   TextInput,
   View,
 } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 import TopNotice from "../../components/feedback/TopNotice";
 import { useAppTheme } from "../../theme/AppThemeProvider";
 import {
@@ -295,7 +295,7 @@ export default function ClassesTab() {
     setCreateSectionErrors(buildSectionErrors(createForm));
     const result = validateForm(createForm);
     if (!result.ok) {
-      Alert.alert("Validation", result.message);
+      showNotice("Validation", result.message, "error");
       return;
     }
 
@@ -329,7 +329,7 @@ export default function ClassesTab() {
     setEditSectionErrors(buildSectionErrors(editForm));
     const result = validateForm(editForm);
     if (!result.ok) {
-      Alert.alert("Validation", result.message);
+      showNotice("Validation", result.message, "error");
       return;
     }
     if (editingId === null) return;
@@ -396,35 +396,31 @@ export default function ClassesTab() {
         }}
         ListHeaderComponent={
           <View style={styles.innerContent}>
-            <View style={styles.heroCard}>
+            <View style={styles.compactHeader}>
               <View style={styles.heroCopy}>
-                <Text style={[styles.title, { color: theme.text }]}>Class</Text>
-                <Text style={[styles.subtitle, { color: theme.subText }]}>
-                  Manage class records, sections, and scope with the live academic structure.
-                </Text>
+                <Text style={[styles.title, { color: theme.subText }]}>CLASS</Text>
               </View>
             </View>
 
-            <View style={styles.heroPrimaryActions}>
-              <Pressable style={[styles.heroPrimaryBtn, { backgroundColor: theme.primary }]} onPress={() => setCreateOpen(true)}>
-                <Text style={[styles.primaryBtnText, { color: theme.primaryText }]}>Add Class</Text>
-              </Pressable>
-            </View>
-
-            <View style={styles.statsGrid}>
-              {stats.map((item) => (
-                <View key={item.label} style={[styles.statCard, { backgroundColor: item.accent, borderColor: item.border }]}>
-                  <Text style={[styles.statLabel, { color: item.labelTone }]}>{item.label}</Text>
-                  <Text style={[styles.statValue, { color: item.tone }]}>{item.value}</Text>
+            <View style={[styles.overviewCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+              <View style={styles.overviewTop}>
+                <View style={styles.overviewTitleWrap}>
+                  <Text style={[styles.overviewTitle, { color: theme.text }]}>Class Structure</Text>
+                  <Text style={[styles.overviewSubtitle, { color: theme.subText }]}>{visibleLabel}</Text>
                 </View>
-              ))}
+                <Text style={[styles.overviewCount, { color: theme.text }]}>{rows.length}</Text>
+              </View>
+              <View style={styles.compactStatsRow}>
+                {stats.map((item) => (
+                  <View key={item.label} style={[styles.compactStat, { backgroundColor: item.accent, borderColor: item.border }]}>
+                    <Text style={[styles.compactStatValue, { color: item.tone }]}>{item.value}</Text>
+                    <Text style={[styles.compactStatLabel, { color: item.labelTone }]} numberOfLines={1}>{item.label}</Text>
+                  </View>
+                ))}
+              </View>
             </View>
 
-            <View style={[styles.filterCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
-              <View style={styles.filterHeader}>
-                <Text style={[styles.sectionTitle, { color: theme.text }]}>Browse</Text>
-                <Text style={[styles.filterHint, { color: theme.subText }]}>{visibleLabel}</Text>
-              </View>
+            <View style={[styles.toolbarCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
               <View style={styles.scopeRow}>
                 {(["all", "school", "hs"] as const).map((scope) => {
                   const active = scopeFilter === scope;
@@ -444,6 +440,7 @@ export default function ClassesTab() {
                           { color: theme.subText },
                           active && [styles.filterChipTextActive, { color: theme.primaryText }],
                         ]}
+                        numberOfLines={1}
                       >
                         {scope === "all" ? "All" : formatScope(scope)}
                       </Text>
@@ -451,6 +448,10 @@ export default function ClassesTab() {
                   );
                 })}
               </View>
+              <Pressable style={[styles.addClassBtn, { backgroundColor: theme.primary }]} onPress={() => setCreateOpen(true)}>
+                <Ionicons name="add" size={18} color={theme.primaryText} />
+                <Text style={[styles.addClassBtnText, { color: theme.primaryText }]}>Add</Text>
+              </Pressable>
             </View>
 
             {error ? <Text style={[styles.errorText, { color: theme.danger }]}>{error}</Text> : null}
@@ -485,12 +486,14 @@ export default function ClassesTab() {
           <View style={styles.rowWrap}>
             <View style={[styles.classCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
               <View style={styles.cardTop}>
-                <View style={[styles.iconBadge, { backgroundColor: theme.cardMuted }]}>
-                  <Text style={[styles.iconBadgeText, { color: theme.text }]}>{row.name.slice(0, 1).toUpperCase()}</Text>
-                </View>
                 <View style={styles.cardCopy}>
                   <Text style={[styles.className, { color: theme.text }]}>{row.name}</Text>
-                  <Text style={[styles.scopeBadge, { color: theme.subText }]}>{formatScope(row.class_scope)}</Text>
+                  <Text style={[styles.classMeta, { color: theme.subText }]}>
+                    {formatScope(row.class_scope)} | {row.sections.length} section{row.sections.length === 1 ? "" : "s"}
+                  </Text>
+                </View>
+                <View style={[styles.scopeMiniBadge, { backgroundColor: theme.cardMuted, borderColor: theme.border }]}>
+                  <Text style={[styles.scopeMiniBadgeText, { color: theme.text }]}>{row.class_scope === "hs" ? "HS" : "School"}</Text>
                 </View>
               </View>
 
@@ -519,23 +522,23 @@ export default function ClassesTab() {
 
               <View style={styles.detailBlock}>
                 <Text style={[styles.detailLabel, { color: theme.subText }]}>Subjects</Text>
-                <Text style={[styles.subjectText, { color: theme.subText }]}>
+                <Text style={[styles.subjectText, { color: theme.subText }]} numberOfLines={2}>
                   {row.subjects.length ? row.subjects.join(", ") : "No subjects linked yet."}
                 </Text>
               </View>
 
-              <View style={styles.rowActions}>
+              <View style={styles.cardIconActions}>
                 <Pressable
-                  style={[styles.secondaryBtn, { backgroundColor: theme.card, borderColor: theme.border }]}
+                  style={[styles.iconActionBtn, { backgroundColor: theme.card, borderColor: theme.border }]}
                   onPress={() => openEdit(row)}
                 >
-                  <Text style={[styles.secondaryBtnText, { color: theme.text }]}>Edit</Text>
+                  <Ionicons name="create-outline" size={18} color={theme.text} />
                 </Pressable>
                 <Pressable
-                  style={[styles.deleteBtn, { backgroundColor: theme.dangerSoft, borderColor: theme.dangerBorder }]}
+                  style={[styles.iconActionBtn, styles.iconActionBtnDanger, { backgroundColor: theme.dangerSoft, borderColor: theme.dangerBorder }]}
                   onPress={() => confirmDelete(row.id, row.name)}
                 >
-                  <Text style={[styles.deleteBtnText, { color: theme.danger }]}>Delete</Text>
+                  <Ionicons name="trash-outline" size={18} color={theme.danger} />
                 </Pressable>
               </View>
             </View>
@@ -657,7 +660,15 @@ function ClassFormModal({
       <View style={styles.modalOverlay}>
         <Pressable style={[styles.modalBackdrop, { backgroundColor: theme.overlay }]} onPress={onClose} />
         <View style={[styles.modalCard, { backgroundColor: theme.card }]}>
-          <Text style={[styles.modalTitle, { color: theme.text }]}>{title}</Text>
+          <View style={styles.sheetHeader}>
+            <View style={styles.sheetHeaderCopy}>
+              <Text style={[styles.modalTitle, { color: theme.text }]}>{title}</Text>
+              <Text style={[styles.sheetSubtitle, { color: theme.subText }]}>Class name, scope, and section mediums.</Text>
+            </View>
+            <Pressable style={[styles.closeIconBtn, { borderColor: theme.border, backgroundColor: theme.card }]} onPress={onClose}>
+              <Ionicons name="close" size={18} color={theme.text} />
+            </Pressable>
+          </View>
           <ScrollView style={styles.modalBody} showsVerticalScrollIndicator={false}>
             <Text style={[styles.inputLabel, { color: theme.subText }]}>Class Name *</Text>
             <TextInput
@@ -698,7 +709,19 @@ function ClassFormModal({
 
             <Text style={[styles.inputLabel, styles.spaceTop, { color: theme.subText }]}>Sections (Optional)</Text>
             {form.sections.map((section, index) => (
-              <View key={`section-${index}`} style={styles.sectionRow}>
+              <View key={`section-${index}`} style={[styles.sectionRow, { borderColor: theme.border, backgroundColor: theme.cardMuted }]}>
+                <View style={styles.sectionRowHeader}>
+                  <Text style={[styles.sectionRowTitle, { color: theme.text }]}>Section {index + 1}</Text>
+                  <Pressable
+                    style={[styles.removeSectionIconBtn, { borderColor: theme.dangerBorder, backgroundColor: theme.dangerSoft }]}
+                    onPress={() => {
+                      const nextSections = form.sections.filter((_, sectionIndex) => sectionIndex !== index);
+                      onChange({ ...form, sections: nextSections });
+                    }}
+                  >
+                    <Ionicons name="trash-outline" size={16} color={theme.danger} />
+                  </Pressable>
+                </View>
                 <TextInput
                   style={[styles.input, styles.sectionInput, { borderColor: theme.border, backgroundColor: theme.inputBg, color: theme.text }]}
                   value={section.name}
@@ -744,15 +767,6 @@ function ClassFormModal({
                 {sectionErrors[index]?.medium ? (
                   <Text style={[styles.fieldError, { color: theme.danger }]}>{sectionErrors[index]?.medium}</Text>
                 ) : null}
-                <Pressable
-                  style={[styles.removeSectionBtn, { borderColor: theme.dangerBorder, backgroundColor: theme.dangerSoft }]}
-                  onPress={() => {
-                    const nextSections = form.sections.filter((_, sectionIndex) => sectionIndex !== index);
-                    onChange({ ...form, sections: nextSections });
-                  }}
-                >
-                  <Text style={[styles.removeSectionBtnText, { color: theme.danger }]}>Remove Section</Text>
-                </Pressable>
               </View>
             ))}
 
@@ -760,6 +774,7 @@ function ClassFormModal({
               style={[styles.addSectionBtn, { borderColor: theme.border, backgroundColor: theme.cardMuted }]}
               onPress={() => onChange({ ...form, sections: [...form.sections, { name: "", medium: "" }] })}
             >
+              <Ionicons name="add" size={16} color={theme.text} />
               <Text style={[styles.addSectionBtnText, { color: theme.text }]}>Add Section</Text>
             </Pressable>
           </ScrollView>
@@ -829,6 +844,72 @@ const styles = StyleSheet.create({
     right: 14,
     zIndex: 20,
   },
+  compactHeader: {
+    paddingTop: 2,
+  },
+  overviewCard: {
+    borderWidth: 1,
+    borderRadius: 16,
+    padding: 12,
+    gap: 10,
+  },
+  overviewTop: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: 10,
+  },
+  overviewTitleWrap: {
+    flex: 1,
+    minWidth: 0,
+    gap: 2,
+  },
+  overviewTitle: {
+    fontSize: 15,
+    lineHeight: 19,
+    fontWeight: "800",
+  },
+  overviewSubtitle: {
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "600",
+  },
+  overviewCount: {
+    fontSize: 22,
+    lineHeight: 26,
+    fontWeight: "800",
+  },
+  compactStatsRow: {
+    flexDirection: "row",
+    gap: 6,
+  },
+  compactStat: {
+    flex: 1,
+    minWidth: 0,
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingHorizontal: 7,
+    paddingVertical: 7,
+    gap: 1,
+  },
+  compactStatValue: {
+    fontSize: 15,
+    lineHeight: 18,
+    fontWeight: "800",
+  },
+  compactStatLabel: {
+    fontSize: 9,
+    lineHeight: 12,
+    fontWeight: "700",
+  },
+  toolbarCard: {
+    borderWidth: 1,
+    borderRadius: 16,
+    padding: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
   heroCard: {
     borderRadius: 24,
     paddingVertical: 0,
@@ -849,14 +930,16 @@ const styles = StyleSheet.create({
   },
   title: {
     color: "#0f172a",
-    fontWeight: "800",
-    fontSize: 22,
-    marginTop: 4,
+    fontWeight: "900",
+    fontSize: 13,
+    lineHeight: 16,
+    letterSpacing: 0.8,
   },
   subtitle: {
     color: "#64748b",
-    marginTop: 6,
-    lineHeight: 20,
+    lineHeight: 18,
+    fontSize: 12,
+    fontWeight: "600",
   },
   noticeCard: {
     borderRadius: 18,
@@ -927,17 +1010,22 @@ const styles = StyleSheet.create({
     fontWeight: "600",
   },
   scopeRow: {
+    flex: 1,
     flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
+    gap: 6,
+    minWidth: 0,
   },
   filterChip: {
+    flex: 1,
+    minWidth: 0,
     borderWidth: 1,
     borderColor: "#cbd5e1",
-    borderRadius: 999,
-    paddingHorizontal: 12,
+    borderRadius: 10,
+    paddingHorizontal: 7,
     paddingVertical: 8,
     backgroundColor: "#f8fafc",
+    alignItems: "center",
+    justifyContent: "center",
   },
   filterChipActive: {
     borderColor: "#0f172a",
@@ -946,7 +1034,8 @@ const styles = StyleSheet.create({
   filterChipText: {
     color: "#475569",
     fontWeight: "700",
-    fontSize: 12,
+    fontSize: 11,
+    lineHeight: 14,
   },
   filterChipTextActive: {
     color: "#ffffff",
@@ -962,7 +1051,7 @@ const styles = StyleSheet.create({
   },
   emptyCard: {
     backgroundColor: "#ffffff",
-    borderRadius: 22,
+    borderRadius: 16,
     borderWidth: 1,
     borderColor: "#e2e8f0",
     padding: 18,
@@ -988,16 +1077,16 @@ const styles = StyleSheet.create({
   },
   classCard: {
     backgroundColor: "#ffffff",
-    borderRadius: 22,
+    borderRadius: 16,
     borderWidth: 1,
     borderColor: "#e2e8f0",
-    padding: 16,
-    gap: 14,
+    padding: 12,
+    gap: 10,
   },
   cardTop: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
+    gap: 10,
   },
   iconBadge: {
     width: 42,
@@ -1014,27 +1103,41 @@ const styles = StyleSheet.create({
   },
   cardCopy: {
     flex: 1,
-    gap: 4,
+    minWidth: 0,
+    gap: 2,
   },
   className: {
     color: "#0f172a",
     fontWeight: "800",
-    fontSize: 18,
+    fontSize: 16,
+    lineHeight: 20,
   },
-  scopeBadge: {
+  classMeta: {
     color: "#475569",
     fontWeight: "700",
     fontSize: 12,
+    lineHeight: 16,
+  },
+  scopeMiniBadge: {
+    borderWidth: 1,
+    borderRadius: 9,
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+  },
+  scopeMiniBadgeText: {
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: "800",
   },
   detailBlock: {
-    gap: 8,
+    gap: 6,
   },
   detailLabel: {
     color: "#334155",
     fontWeight: "800",
-    fontSize: 12,
+    fontSize: 10,
+    lineHeight: 13,
     textTransform: "uppercase",
-    letterSpacing: 0.4,
   },
   pillWrap: {
     flexDirection: "row",
@@ -1043,20 +1146,41 @@ const styles = StyleSheet.create({
   },
   detailPill: {
     backgroundColor: "#f8fafc",
-    borderRadius: 999,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
+    borderRadius: 9,
+    paddingHorizontal: 8,
+    paddingVertical: 5,
     borderWidth: 1,
     borderColor: "#e2e8f0",
   },
   detailPillText: {
     color: "#334155",
-    fontSize: 12,
+    fontSize: 11,
+    lineHeight: 14,
     fontWeight: "600",
   },
   subjectText: {
     color: "#475569",
-    lineHeight: 20,
+    lineHeight: 17,
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  cardIconActions: {
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    gap: 8,
+    marginTop: 0,
+  },
+  iconActionBtn: {
+    width: 38,
+    height: 38,
+    borderWidth: 1,
+    borderRadius: 11,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  iconActionBtnDanger: {
+    borderColor: "#fecaca",
+    backgroundColor: "#fef2f2",
   },
   rowActions: {
     flexDirection: "row",
@@ -1071,7 +1195,7 @@ const styles = StyleSheet.create({
   },
   loadMoreBtn: {
     borderWidth: 1,
-    borderRadius: 999,
+    borderRadius: 12,
     paddingHorizontal: 14,
     paddingVertical: 9,
     alignItems: "center",
@@ -1100,6 +1224,20 @@ const styles = StyleSheet.create({
   primaryBtnText: {
     color: "#ffffff",
     fontWeight: "700",
+  },
+  addClassBtn: {
+    minWidth: 68,
+    height: 38,
+    borderRadius: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 3,
+    paddingHorizontal: 10,
+  },
+  addClassBtnText: {
+    fontWeight: "800",
+    fontSize: 12,
   },
   secondaryBtn: {
     flex: 1,
@@ -1153,23 +1291,46 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(15, 23, 42, 0.28)",
   },
   modalCard: {
-    maxHeight: "86%",
+    maxHeight: "88%",
     backgroundColor: "#ffffff",
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    paddingHorizontal: 16,
-    paddingTop: 16,
-    paddingBottom: 32,
-    marginBottom: 12,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingHorizontal: 14,
+    paddingTop: 14,
+    paddingBottom: 30,
     gap: 10,
+  },
+  sheetHeader: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 10,
+  },
+  sheetHeaderCopy: {
+    flex: 1,
+    minWidth: 0,
+    gap: 3,
   },
   modalTitle: {
     fontSize: 18,
+    lineHeight: 22,
     fontWeight: "800",
     color: "#0f172a",
   },
+  sheetSubtitle: {
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "600",
+  },
+  closeIconBtn: {
+    width: 36,
+    height: 36,
+    borderWidth: 1,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   modalBody: {
-    maxHeight: 500,
+    maxHeight: 560,
   },
   inputLabel: {
     color: "#334155",
@@ -1183,16 +1344,19 @@ const styles = StyleSheet.create({
     backgroundColor: "#ffffff",
     paddingHorizontal: 12,
     paddingVertical: 11,
-    marginBottom: 8,
+    marginBottom: 7,
     color: "#0f172a",
   },
   scopeChip: {
+    flex: 1,
+    minWidth: 0,
     borderWidth: 1,
     borderColor: "#cbd5e1",
-    borderRadius: 999,
+    borderRadius: 10,
     paddingHorizontal: 12,
     paddingVertical: 8,
     backgroundColor: "#f8fafc",
+    alignItems: "center",
   },
   scopeChipActive: {
     borderColor: "#0f172a",
@@ -1207,16 +1371,39 @@ const styles = StyleSheet.create({
     color: "#ffffff",
   },
   sectionRow: {
-    marginBottom: 10,
+    marginBottom: 9,
+    borderWidth: 1,
+    borderRadius: 14,
+    padding: 10,
+    gap: 6,
+  },
+  sectionRowHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8,
+  },
+  sectionRowTitle: {
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "800",
+  },
+  removeSectionIconBtn: {
+    width: 32,
+    height: 32,
+    borderWidth: 1,
+    borderRadius: 9,
+    alignItems: "center",
+    justifyContent: "center",
   },
   sectionInput: {
-    marginBottom: 6,
+    marginBottom: 2,
   },
   spaceTop: {
     marginTop: 8,
   },
   addSectionBtn: {
-    marginTop: 4,
+    marginTop: 2,
     borderWidth: 1,
     borderColor: "#cbd5e1",
     borderRadius: 12,
@@ -1224,6 +1411,9 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     alignSelf: "flex-start",
     backgroundColor: "#f8fafc",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
   },
   addSectionBtnText: {
     color: "#334155",

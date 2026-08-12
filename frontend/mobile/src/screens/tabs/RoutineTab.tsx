@@ -142,6 +142,15 @@ function withDisplayPeriodLabels(groups: RoutineSlotGroup[]) {
   });
 }
 
+function asSingleEntrySlotGroups(entries: RoutineEntry[]): RoutineSlotGroup[] {
+  return entries.map((entry, index) => ({
+    key: `entry-${entry.entry_id || entry.id || index}`,
+    entry,
+    entries: [entry],
+    displayLabel: entryPeriodLabel(entry),
+  }));
+}
+
 function normalizeIdList(value?: Array<number | string> | string | null) {
   if (Array.isArray(value)) return value.map((item) => Number(item)).filter((item) => Number.isFinite(item) && item > 0);
   if (typeof value === "string") return value.split(",").map((item) => Number(item.trim())).filter((item) => Number.isFinite(item) && item > 0);
@@ -153,6 +162,11 @@ function scopeText(entry?: RoutineEntry | null) {
     .map((value) => String(value || "").trim())
     .filter(Boolean);
   return parts.length ? parts.join(" / ") : "Published routine";
+}
+
+function teacherClassText(entry?: RoutineEntry | null) {
+  const parts = [entry?.class_name, entry?.section_name].map(normalizeFilterValue).filter(Boolean);
+  return parts.length ? parts.join(" ") : "Class";
 }
 
 function normalizeFilterValue(value?: string | number | null) {
@@ -560,7 +574,7 @@ export default function RoutineTab() {
     const label = slot.displayLabel || entryPeriodLabel(entry);
     const periodMeta = entryPeriodMeta(entry);
     const multipleEntries = slot.entries.length > 1;
-    const showTeacherScope = isTeacher && teacherRoutineView === "mine" && !isParent;
+    const showTeacherClass = isTeacher && teacherRoutineView === "mine" && !isParent;
 
     return (
       <View key={`${slot.key}-${index}`} style={styles.timelineRow}>
@@ -617,8 +631,8 @@ export default function RoutineTab() {
                       >
                         <View style={styles.entryTextBlock}>
                           <Text style={[styles.slotSubjectTitle, { color: theme.text }]} numberOfLines={1}>{entryTitle(item)}</Text>
-                          {showTeacherScope ? (
-                            <Text style={[styles.entryClassText, { color: theme.infoText }]} numberOfLines={1}>{scopeText(item)}</Text>
+                          {showTeacherClass ? (
+                            <Text style={[styles.entryClassText, { color: theme.infoText }]} numberOfLines={1}>{teacherClassText(item)}</Text>
                           ) : null}
                           {itemTeacherText ? (
                             <Text style={[styles.entryMetaText, { color: theme.subText }]} numberOfLines={1}>{itemTeacherText}</Text>
@@ -635,10 +649,10 @@ export default function RoutineTab() {
                 </View>
               ) : (
                 <View style={styles.entryMetaRow}>
-                  {showTeacherScope ? (
+                  {showTeacherClass ? (
                     <View style={styles.entryMetaItem}>
                       <Ionicons name="school-outline" size={14} color={theme.infoText} />
-                      <Text style={[styles.entryClassText, { color: theme.infoText }]} numberOfLines={1}>{scopeText(entry)}</Text>
+                      <Text style={[styles.entryClassText, { color: theme.infoText }]} numberOfLines={1}>{teacherClassText(entry)}</Text>
                     </View>
                   ) : null}
                   {entryTeachers(entry) ? (
@@ -851,13 +865,7 @@ export default function RoutineTab() {
     >
       <View style={styles.heroRow}>
         <View>
-          <Text style={[styles.kicker, { color: theme.primary }]}>Routine</Text>
-          <Text style={[styles.title, { color: theme.text }]}>
-            {mode === "exam" ? "Exam Routine" : isParent ? selectedStudent?.name || "Student Routine" : isTeacher && teacherRoutineView === "mine" ? "My Periods" : isTeacher ? "Class Routine" : "Routine"}
-          </Text>
-          <Text style={[styles.subtitle, { color: theme.subText }]} numberOfLines={2}>
-            {mode === "exam" ? `${visibleExamEntries.length} published paper${visibleExamEntries.length === 1 ? "" : "s"}` : isParent ? classLabel(selectedStudent) : isTeacher && teacherRoutineView === "mine" ? "Periods assigned to you" : isTeacher ? "Assigned class routines" : "Create and publish routines from the software portal."}
-          </Text>
+          <Text style={[styles.kicker, { color: theme.subText }]}>ROUTINE</Text>
         </View>
       </View>
 
@@ -1032,7 +1040,7 @@ export default function RoutineTab() {
       ) : mode === "exam" && visibleExamEntries.length ? (
         <View style={styles.timelineList}>{visibleExamEntries.map(renderExamEntry)}</View>
       ) : isTeacher && mode !== "exam" && teacherRoutineView === "mine" && teacherDayEntries.length ? (
-        <View style={styles.timelineList}>{groupRoutineSlots(teacherDayEntries).map(renderRoutineSlotGroup)}</View>
+        <View style={styles.timelineList}>{asSingleEntrySlotGroups(teacherDayEntries).map(renderRoutineSlotGroup)}</View>
       ) : classSwitchingClassRoutineView && selectedRoutineGroup ? (
         <View style={styles.groupList}>{renderAdminRoutineGroup(selectedRoutineGroup)}</View>
       ) : mode !== "exam" && visibleEntries.length ? (
@@ -1076,9 +1084,11 @@ const styles = StyleSheet.create({
     marginBottom: 14,
   },
   kicker: {
-    fontSize: 12,
-    fontWeight: "800",
+    fontSize: 13,
+    lineHeight: 16,
+    fontWeight: "900",
     textTransform: "uppercase",
+    letterSpacing: 0.8,
   },
   title: {
     fontSize: 24,

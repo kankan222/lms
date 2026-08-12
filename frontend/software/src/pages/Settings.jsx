@@ -18,6 +18,7 @@ import {
 } from "../api/academic.api";
 import { adminResetPassword, getMyAccount, getUsers, changeMyPassword } from "../api/users.api";
 import { getAppUpdatePolicies, notifyAppUpdate, saveAppUpdatePolicy } from "../api/appUpdates.api";
+import { createAppNotice, deleteAppNotice, getAppNotices, updateAppNotice } from "../api/appNotices.api";
 import { usePermissions } from "../hooks/usePermissions";
 import { formatReadableDate } from "../lib/dateTime";
 
@@ -818,6 +819,244 @@ const emptyUpdateForm = {
   is_active: true,
 };
 
+const emptyNoticeForm = {
+  title: "",
+  message: "",
+  severity: "warning",
+  platform: "all",
+  starts_at: "",
+  ends_at: "",
+  min_app_version: "",
+  max_app_version: "",
+  min_build: "",
+  max_build: "",
+  dismissible: true,
+  action_label: "",
+  action_url: "",
+  is_active: true,
+};
+
+function AppNoticesPanel({ showNotice }) {
+  const [notices, setNotices] = useState([]);
+  const [form, setForm] = useState(emptyNoticeForm);
+  const [editingId, setEditingId] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    loadNotices();
+  }, []);
+
+  async function loadNotices() {
+    setLoading(true);
+    setError("");
+    try {
+      const res = await getAppNotices();
+      setNotices(Array.isArray(res?.data) ? res.data : []);
+    } catch (err) {
+      setError(err?.message || "Failed to load app notices.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function resetForm() {
+    setEditingId(null);
+    setForm(emptyNoticeForm);
+  }
+
+  function editNotice(item) {
+    setEditingId(item.id);
+    setForm({
+      title: item.title || "",
+      message: item.message || "",
+      severity: item.severity || "warning",
+      platform: item.platform || "all",
+      starts_at: String(item.starts_at || "").slice(0, 16).replace("T", " "),
+      ends_at: String(item.ends_at || "").slice(0, 16).replace("T", " "),
+      min_app_version: item.min_app_version || "",
+      max_app_version: item.max_app_version || "",
+      min_build: item.min_build ? String(item.min_build) : "",
+      max_build: item.max_build ? String(item.max_build) : "",
+      dismissible: item.dismissible !== false,
+      action_label: item.action_label || "",
+      action_url: item.action_url || "",
+      is_active: item.is_active !== false,
+    });
+  }
+
+  async function saveNotice(e) {
+    e.preventDefault();
+    setError("");
+    if (!form.title.trim() || !form.message.trim()) {
+      setError("Title and message are required.");
+      return;
+    }
+    setSaving(true);
+    try {
+      const payload = {
+        ...form,
+        starts_at: form.starts_at || null,
+        ends_at: form.ends_at || null,
+        min_build: form.min_build ? Number(form.min_build) : null,
+        max_build: form.max_build ? Number(form.max_build) : null,
+      };
+      if (editingId) await updateAppNotice(editingId, payload);
+      else await createAppNotice(payload);
+      await loadNotices();
+      resetForm();
+      showNotice("App Notice Saved", "The mobile notice is ready for active app users.");
+    } catch (err) {
+      setError(err?.message || "Failed to save app notice.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function removeNotice(id) {
+    setError("");
+    setSaving(true);
+    try {
+      await deleteAppNotice(id);
+      await loadNotices();
+      if (editingId === id) resetForm();
+      showNotice("App Notice Deleted", "The mobile notice has been removed.");
+    } catch (err) {
+      setError(err?.message || "Failed to delete app notice.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="grid gap-4 lg:grid-cols-[420px_minmax(0,1fr)]">
+      <Card>
+        <CardHeader>
+          <CardTitle>{editingId ? "Edit App Notice" : "Create App Notice"}</CardTitle>
+          <CardDescription>
+            Show update warnings, maintenance messages, or critical developer notices inside the mobile app.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <form onSubmit={saveNotice} className="grid gap-4">
+            <div className="grid gap-2">
+              <Label>Title *</Label>
+              <Input value={form.title} onChange={(e) => setForm((prev) => ({ ...prev, title: e.target.value }))} placeholder="Scheduled maintenance" />
+            </div>
+            <div className="grid gap-2">
+              <Label>Message *</Label>
+              <Input value={form.message} onChange={(e) => setForm((prev) => ({ ...prev, message: e.target.value }))} placeholder="The app may be unavailable tonight from 10:00 PM." />
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="grid gap-2">
+                <Label>Severity</Label>
+                <select className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground shadow-xs outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] dark:bg-input/30" value={form.severity} onChange={(e) => setForm((prev) => ({ ...prev, severity: e.target.value }))}>
+                  <option value="info">Info</option>
+                  <option value="warning">Warning</option>
+                  <option value="critical">Critical</option>
+                </select>
+              </div>
+              <div className="grid gap-2">
+                <Label>Platform</Label>
+                <select className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground shadow-xs outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] dark:bg-input/30" value={form.platform} onChange={(e) => setForm((prev) => ({ ...prev, platform: e.target.value }))}>
+                  <option value="all">All</option>
+                  <option value="android">Android</option>
+                  <option value="ios">iOS</option>
+                </select>
+              </div>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="grid gap-2">
+                <Label>Starts At</Label>
+                <Input value={form.starts_at} onChange={(e) => setForm((prev) => ({ ...prev, starts_at: e.target.value }))} placeholder="2026-08-12 21:00" />
+              </div>
+              <div className="grid gap-2">
+                <Label>Ends At</Label>
+                <Input value={form.ends_at} onChange={(e) => setForm((prev) => ({ ...prev, ends_at: e.target.value }))} placeholder="2026-08-12 22:30" />
+              </div>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="grid gap-2">
+                <Label>Min App Version</Label>
+                <Input value={form.min_app_version} onChange={(e) => setForm((prev) => ({ ...prev, min_app_version: e.target.value }))} placeholder="1.1.9" />
+              </div>
+              <div className="grid gap-2">
+                <Label>Max App Version</Label>
+                <Input value={form.max_app_version} onChange={(e) => setForm((prev) => ({ ...prev, max_app_version: e.target.value }))} placeholder="1.1.9" />
+              </div>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="grid gap-2">
+                <Label>Action Label</Label>
+                <Input value={form.action_label} onChange={(e) => setForm((prev) => ({ ...prev, action_label: e.target.value }))} placeholder="View Details" />
+              </div>
+              <div className="grid gap-2">
+                <Label>Action URL</Label>
+                <Input value={form.action_url} onChange={(e) => setForm((prev) => ({ ...prev, action_url: e.target.value }))} placeholder="https://kalongkapilividyapith.com" />
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-4 text-sm">
+              <label className="flex items-center gap-2">
+                <input type="checkbox" checked={form.dismissible} onChange={(e) => setForm((prev) => ({ ...prev, dismissible: e.target.checked }))} />
+                Dismissible
+              </label>
+              <label className="flex items-center gap-2">
+                <input type="checkbox" checked={form.is_active} onChange={(e) => setForm((prev) => ({ ...prev, is_active: e.target.checked }))} />
+                Active
+              </label>
+            </div>
+            {error && <p className="text-sm text-red-600">{error}</p>}
+            <div className="flex flex-wrap gap-2">
+              <Button type="submit" disabled={saving}>{saving ? "Saving..." : editingId ? "Update Notice" : "Save Notice"}</Button>
+              {editingId ? <Button type="button" variant="outline" onClick={resetForm}>Cancel Edit</Button> : null}
+            </div>
+          </form>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Active And Scheduled Notices</CardTitle>
+          <CardDescription>Critical notices can block app usage until dismissed or resolved.</CardDescription>
+        </CardHeader>
+        <CardContent className="grid gap-3">
+          {loading ? (
+            <p className="text-sm text-muted-foreground">Loading app notices...</p>
+          ) : notices.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No app notices have been created.</p>
+          ) : (
+            notices.map((item) => (
+              <div key={item.id} className="rounded-lg border bg-muted/30 px-4 py-3">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="font-semibold">{item.title}</p>
+                      <span className="rounded-md border px-2 py-0.5 text-xs font-medium capitalize">{item.severity}</span>
+                      <span className="rounded-md border px-2 py-0.5 text-xs font-medium capitalize">{item.platform}</span>
+                      <span className={`rounded-md px-2 py-0.5 text-xs font-medium ${item.is_active ? "bg-emerald-100 text-emerald-700" : "bg-stone-100 text-stone-600"}`}>{item.is_active ? "Active" : "Inactive"}</span>
+                    </div>
+                    <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">{item.message}</p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {item.starts_at ? `Starts ${formatReadableDate(item.starts_at)}` : "Starts immediately"}
+                      {" · "}
+                      {item.ends_at ? `Ends ${formatReadableDate(item.ends_at)}` : "No end time"}
+                    </p>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button type="button" variant="outline" size="sm" onClick={() => editNotice(item)}>Edit</Button>
+                    <Button type="button" variant="destructive" size="sm" onClick={() => removeNotice(item.id)} disabled={saving}>Delete</Button>
+                  </div>
+                </div>
+              </div>
+            ))
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
 function AppUpdatePolicyPanel({ showNotice }) {
   const [policies, setPolicies] = useState([]);
   const [platform, setPlatform] = useState("android");
@@ -1051,7 +1290,10 @@ export default function Settings() {
         </TabsContent>
 
         <TabsContent value="app-updates">
-          <AppUpdatePolicyPanel showNotice={showNotice} />
+          <div className="grid gap-6">
+            <AppUpdatePolicyPanel showNotice={showNotice} />
+            <AppNoticesPanel showNotice={showNotice} />
+          </div>
         </TabsContent>
 
         <TabsContent value="general">

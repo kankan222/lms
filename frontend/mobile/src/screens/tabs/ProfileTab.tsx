@@ -303,6 +303,7 @@ export default function ProfileTab() {
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.innerContent}>
+      <Text style={[styles.moduleLabel, { color: theme.subText }]}>PROFILE</Text>
       <View style={[styles.heroCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
         <View style={[styles.avatarBadge, { backgroundColor: theme.successSoft, borderColor: theme.successBorder }]}>
           <Text style={[styles.avatarText, { color: theme.success }]}>{profileInitial}</Text>
@@ -509,6 +510,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 12,
   },
+  moduleLabel: { fontSize: 13, lineHeight: 16, fontWeight: "900", letterSpacing: 0.8 },
   heroCopy: {
     flex: 1,
     minWidth: 0,

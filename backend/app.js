@@ -51,6 +51,7 @@ import messagingMediaPublicRoutes from "./modules/messaging/messaging.media.publ
 
 import notificationRoutes from "./modules/notifications/notification.routes.js"
 import appUpdateRoutes from "./modules/appUpdates/appUpdate.routes.js"
+import appNoticeRoutes from "./modules/appNotices/appNotice.routes.js"
 import routineRoutes from "./modules/routines/routines.routes.js"
 import announcementRoutes from "./modules/announcements/announcements.routes.js"
 import announcementPublicRoutes from "./modules/announcements/announcements.public.routes.js"
@@ -98,6 +99,7 @@ app.use("/api/v1/website", staffWebsiteRoutes)
 
 app.use("/api/v1/notifications", notificationRoutes)
 app.use("/api/v1/app-updates", appUpdateRoutes)
+app.use("/api/v1/app-notices", appNoticeRoutes)
 app.use("/api/v1/routines", routineRoutes)
 app.use("/api/v1/announcements", announcementRoutes)
 

@@ -243,8 +243,7 @@ export default function TeacherAttendanceTab() {
       >
         <View style={styles.innerContent}>
           <View style={styles.heroCard}>
-            <Text style={styles.title}>Teacher Attendance</Text>
-            <Text style={styles.subtitle}>Review machine punch logs, filter by date range, and download the attendance matrix.</Text>
+            <Text style={styles.title}>TEACHER ATTENDANCE</Text>
           </View>
 
           <SectionCard title="Teacher Logs" hint={`${filteredLogs.length} records`}>
@@ -346,7 +345,7 @@ function createStyles(theme: typeof DEFAULT_THEME) {
     topNoticeOverlay: { position: "absolute", top: 0, left: 14, right: 14, zIndex: 20 },
     heroCard: { borderRadius: 24, paddingVertical: 0, gap: 8 },
     heroEyebrow: { color: theme.subText, fontSize: 12, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.6 },
-    title: { color: theme.text, fontWeight: "800", fontSize: 22 },
+    title: { color: theme.subText, fontWeight: "900", fontSize: 13, lineHeight: 16, letterSpacing: 0.8 },
     subtitle: { color: theme.subText, lineHeight: 20 },
     sectionCard: { backgroundColor: theme.card, borderRadius: 22, borderWidth: 1, borderColor: theme.border, padding: 16, gap: 12 },
     rowBetween: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 10 },

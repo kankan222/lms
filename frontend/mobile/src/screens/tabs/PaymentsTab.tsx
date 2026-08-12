@@ -879,14 +879,7 @@ export default function PaymentsTab() {
           <View style={styles.innerContent}>
             <View style={styles.heroCard}>
               <View style={styles.heroCopy}>
-                <Text style={[styles.title, { color: theme.text }]}>Payments</Text>
-                <Text style={[styles.subtitle, { color: theme.subText }]}> 
-                  {isParentOnly
-                    ? "Review your child payment history and due items."
-                    : isAccounts
-                      ? "Record, review, and update fee payments from the finance workspace."
-                      : "Record, review, export, and update fee payments."}
-                </Text>
+                <Text style={[styles.title, { color: theme.subText }]}>PAYMENTS</Text>
               </View>
               {!isParentOnly ? (
                 <View style={styles.heroActions}>
@@ -1193,7 +1186,7 @@ const styles = StyleSheet.create({
   heroActions: { flexDirection: "row", alignItems: "stretch", gap: 10 },
   heroCopy: { gap: 6 },
   heroEyebrow: { fontSize: 12, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.6 },
-  title: { color: "#0f172a", fontWeight: "800", fontSize: 22 },
+  title: { color: "#0f172a", fontWeight: "900", fontSize: 13, lineHeight: 16, letterSpacing: 0.8 },
   subtitle: { color: "#64748b", lineHeight: 20 },
   noticeCard: { borderRadius: 18, paddingHorizontal: 14, paddingVertical: 12, borderWidth: 1 },
   noticeSuccessCard: { backgroundColor: "#f0fdf4", borderColor: "#bbf7d0" },

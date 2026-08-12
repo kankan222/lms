@@ -145,6 +145,13 @@ export default function ActivitiesTab() {
     }));
   }, [activities]);
 
+  const stats = useMemo(() => {
+    const active = groupedActivities.filter((group) => statusValue(group) === "active").length;
+    const inactive = Math.max(groupedActivities.length - active, 0);
+    const scopedRows = activities.filter((activity) => activity.class_id || activity.section_id || activity.scope_key).length;
+    return { active, inactive, scopedRows };
+  }, [activities, groupedActivities]);
+
   useEffect(() => {
     void loadAll("initial");
   }, []);
@@ -266,16 +273,46 @@ export default function ActivitiesTab() {
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void loadAll("refresh")} />}
         showsVerticalScrollIndicator={false}
       >
-        <View style={styles.hero}>
-          <View style={styles.heroCopy}>
-            <Text style={[styles.eyebrow, { color: theme.subText }]}>Academics</Text>
-            <Text style={[styles.title, { color: theme.text }]}>Activities</Text>
-            <Text style={[styles.subtitle, { color: theme.subText }]}>Configure class-scoped activities for the final marksheet.</Text>
+        <Text style={[styles.title, { color: theme.subText }]}>ACTIVITIES</Text>
+
+        <View style={[styles.overviewCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+          <View style={styles.overviewHeader}>
+            <View style={styles.overviewTitleWrap}>
+              <Text style={[styles.overviewTitle, { color: theme.text }]}>Activity Definitions</Text>
+              <Text style={[styles.overviewSubText, { color: theme.subText }]}>
+                {groupedActivities.length} grouped activities from {activities.length} scoped rows
+              </Text>
+            </View>
+            <View style={[styles.countBadge, { backgroundColor: theme.cardMuted, borderColor: theme.border }]}>
+              <Text style={[styles.countBadgeValue, { color: theme.text }]}>{classes.length}</Text>
+              <Text style={[styles.countBadgeLabel, { color: theme.subText }]}>classes</Text>
+            </View>
           </View>
+          <View style={styles.compactStatsRow}>
+            <View style={[styles.compactStat, { backgroundColor: theme.cardMuted, borderColor: theme.border }]}>
+              <Text style={[styles.compactStatValue, { color: theme.text }]}>{groupedActivities.length}</Text>
+              <Text style={[styles.compactStatLabel, { color: theme.subText }]}>Total</Text>
+            </View>
+            <View style={[styles.compactStat, { backgroundColor: theme.successSoft, borderColor: theme.successBorder }]}>
+              <Text style={[styles.compactStatValue, { color: theme.success }]}>{stats.active}</Text>
+              <Text style={[styles.compactStatLabel, { color: theme.subText }]}>Active</Text>
+            </View>
+            <View style={[styles.compactStat, { backgroundColor: theme.dangerSoft, borderColor: theme.dangerBorder }]}>
+              <Text style={[styles.compactStatValue, { color: theme.danger }]}>{stats.inactive}</Text>
+              <Text style={[styles.compactStatLabel, { color: theme.subText }]}>Inactive</Text>
+            </View>
+            <View style={[styles.compactStat, { backgroundColor: theme.cardMuted, borderColor: theme.border }]}>
+              <Text style={[styles.compactStatValue, { color: theme.text }]}>{stats.scopedRows}</Text>
+              <Text style={[styles.compactStatLabel, { color: theme.subText }]}>Scoped</Text>
+            </View>
+          </View>
+        </View>
+
+        <View style={styles.toolbarRow}>
           {canCreate ? (
-            <Pressable style={[styles.primaryBtn, { backgroundColor: theme.primary }]} onPress={openCreate}>
-              <Ionicons name="add" size={18} color={theme.primaryText} />
-              <Text style={[styles.primaryBtnText, { color: theme.primaryText }]}>Add Activity</Text>
+            <Pressable style={[styles.primaryToolbarButton, { backgroundColor: theme.primary, borderColor: theme.primary }]} onPress={openCreate}>
+              <Ionicons name="add" size={16} color={theme.primaryText} />
+              <Text style={[styles.primaryToolbarButtonText, { color: theme.primaryText }]}>Add Activity</Text>
             </Pressable>
           ) : null}
         </View>
@@ -286,7 +323,9 @@ export default function ActivitiesTab() {
               <View style={styles.rowBetween}>
                 <View style={styles.cardCopy}>
                   <Text style={[styles.activityTitle, { color: theme.text }]}>{group.name}</Text>
-                  <Text style={[styles.activityMeta, { color: theme.subText }]}>Max {wholeNumber(group.max_marks)} | Order {group.sort_order || 0}</Text>
+                  <Text style={[styles.activityMeta, { color: theme.subText }]}>
+                    Max {wholeNumber(group.max_marks)} marks | Order {group.sort_order || 0} | {group.rows.length} scope{group.rows.length === 1 ? "" : "s"}
+                  </Text>
                 </View>
                 <StatusBadge value={statusValue(group)} />
               </View>
@@ -424,29 +463,44 @@ const styles = StyleSheet.create({
   root: { flex: 1 },
   centered: { flex: 1, alignItems: "center", justifyContent: "center" },
   topNoticeOverlay: { position: "absolute", top: 0, left: 14, right: 14, zIndex: 20 },
-  content: { paddingHorizontal: 14, paddingTop: 10, paddingBottom: 120, gap: 14 },
+  content: { paddingHorizontal: 14, paddingTop: 10, paddingBottom: 120, gap: 10 },
   hero: { gap: 12 },
   heroCopy: { gap: 5 },
   eyebrow: { fontSize: 12, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.6 },
-  title: { fontSize: 22, fontWeight: "800" },
+  title: { fontSize: 15, lineHeight: 18, fontWeight: "900", letterSpacing: 0.8 },
   subtitle: { lineHeight: 20 },
-  sectionCard: { borderWidth: 1, borderRadius: 18, padding: 14, gap: 10 },
+  overviewCard: { borderWidth: 1, borderRadius: 8, padding: 12, gap: 10 },
+  overviewHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 },
+  overviewTitleWrap: { flex: 1, gap: 2 },
+  overviewTitle: { fontSize: 15, fontWeight: "900" },
+  overviewSubText: { fontSize: 11, fontWeight: "600", lineHeight: 15 },
+  countBadge: { borderWidth: 1, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 7, alignItems: "center", minWidth: 64 },
+  countBadgeValue: { fontSize: 15, fontWeight: "900", lineHeight: 17 },
+  countBadgeLabel: { fontSize: 10, fontWeight: "800", textTransform: "uppercase" },
+  compactStatsRow: { flexDirection: "row", gap: 6 },
+  compactStat: { flex: 1, borderWidth: 1, borderRadius: 8, paddingHorizontal: 6, paddingVertical: 7, alignItems: "center", gap: 2 },
+  compactStatValue: { fontSize: 14, fontWeight: "900", lineHeight: 16 },
+  compactStatLabel: { fontSize: 10, fontWeight: "800", textTransform: "uppercase" },
+  toolbarRow: { flexDirection: "row", gap: 8 },
+  primaryToolbarButton: { flex: 1, minHeight: 38, borderWidth: 1, borderRadius: 8, paddingHorizontal: 10, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6 },
+  primaryToolbarButtonText: { fontSize: 12, fontWeight: "900" },
+  sectionCard: { borderWidth: 1, borderRadius: 8, padding: 12, gap: 10 },
   rowBetween: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 },
-  sectionTitle: { fontSize: 16, fontWeight: "800" },
+  sectionTitle: { fontSize: 15, fontWeight: "900" },
   sectionHint: { fontSize: 12, fontWeight: "700" },
-  activityCard: { borderWidth: 1, borderRadius: 14, padding: 12, gap: 9 },
+  activityCard: { borderWidth: 1, borderRadius: 8, padding: 12, gap: 9 },
   cardCopy: { flex: 1, minWidth: 0, gap: 2 },
-  activityTitle: { fontSize: 16, fontWeight: "800" },
-  activityMeta: { fontSize: 12.5, fontWeight: "600" },
-  scopeWrap: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-  scopePill: { borderWidth: 1, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 6 },
+  activityTitle: { fontSize: 15, lineHeight: 19, fontWeight: "900" },
+  activityMeta: { fontSize: 12, lineHeight: 16, fontWeight: "700" },
+  scopeWrap: { flexDirection: "row", flexWrap: "wrap", gap: 7 },
+  scopePill: { borderWidth: 1, borderRadius: 8, paddingHorizontal: 9, paddingVertical: 5 },
   scopePillText: { fontSize: 12, fontWeight: "700" },
-  statusBadge: { borderWidth: 1, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 5 },
-  statusText: { fontSize: 12, fontWeight: "700" },
+  statusBadge: { borderWidth: 1, borderRadius: 8, paddingHorizontal: 8, paddingVertical: 5 },
+  statusText: { fontSize: 10, fontWeight: "900", textTransform: "uppercase" },
   actionRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   primaryBtn: { minHeight: 44, paddingHorizontal: 16, paddingVertical: 11, borderRadius: 12, alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 6 },
   primaryBtnText: { fontWeight: "700" },
-  secondaryBtn: { minHeight: 42, borderWidth: 1, paddingHorizontal: 14, paddingVertical: 10, borderRadius: 12, alignItems: "center", justifyContent: "center", flex: 1 },
+  secondaryBtn: { minHeight: 38, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 9, borderRadius: 8, alignItems: "center", justifyContent: "center", flex: 1 },
   secondaryBtnText: { fontWeight: "700" },
   emptyText: { lineHeight: 20 },
   modalOverlay: { flex: 1, justifyContent: "flex-end" },

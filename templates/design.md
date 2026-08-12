@@ -234,7 +234,7 @@ Default hierarchy:
 1. Existing app header.
 2. Compact overview/status card.
 3. Compact global action toolbar.
-4. Collapsible filters or sheet/modal filters.
+4. Inline collapsible filters.
 5. Record cards/list rows with local actions.
 6. Existing bottom navigation.
 
@@ -245,7 +245,12 @@ Rules:
   shell header.
 - Do not keep large filter forms permanently expanded above the main
   work list. Show one compact `Filters` button with a filter icon, then
-  open the full filter controls in a collapsed section, sheet, or modal.
+  open the full filter controls as an inline collapsible section below
+  the toolbar. Use a sheet/modal only when the filter form is too large
+  or requires a separate focused selection flow.
+- Do not wrap a bordered search input inside another bordered card just
+  to create a search row. Use either one bordered search field directly
+  in the flow, or an unbordered section containing the bordered input.
 - Preserve every existing filter. Reorganize filters into compact
   mobile-friendly rows or two-column groups where width allows.
 - Include clear `Apply Filters` and `Reset` actions in the filter UI.
@@ -286,6 +291,13 @@ Rules:
 
 The Teacher Portal Marksheet entry screen is the reference
 implementation for this pattern.
+
+Mobile module screens should still show a small in-content module label
+below the shared app header. This label is a compact uppercase title
+only, for example `MARKSHEET`, with no explanatory subtitle. The shared
+app header carries the portal name and active module subtitle; the
+in-content label is only a lightweight section marker before the screen
+controls and records.
 
 ## Accessibility
 

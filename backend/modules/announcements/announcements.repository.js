@@ -1,6 +1,21 @@
 import { pool } from "../../database/pool.js";
 import { execute, query } from "../../core/db/query.js";
 
+function schoolTimezoneOffsetMinutes() {
+  const raw = String(process.env.SCHOOL_TIMEZONE_OFFSET || process.env.APP_TIMEZONE_OFFSET || "+05:30").trim();
+  const match = raw.match(/^([+-])(\d{2}):?(\d{2})$/);
+  if (!match) return 330;
+  const [, sign, hours, minutes] = match;
+  const total = Number(hours) * 60 + Number(minutes);
+  return sign === "-" ? -total : total;
+}
+
+function schoolNowSql() {
+  const minutes = schoolTimezoneOffsetMinutes();
+  if (minutes === 0) return "UTC_TIMESTAMP()";
+  return `DATE_ADD(UTC_TIMESTAMP(), INTERVAL ${minutes} MINUTE)`;
+}
+
 function appendFilter(where, params, column, value) {
   if (value === undefined || value === null || value === "") return;
   where.push(`${column} = ?`);
@@ -191,7 +206,7 @@ export function listAnnouncements(filters = {}) {
   appendFilter(where, params, "a.category_id", filters.category_id);
   if (filters.published_only) {
     where.push("a.status IN ('published', 'sent')");
-    where.push("(a.expires_at IS NULL OR a.expires_at >= NOW())");
+    where.push(`(a.expires_at IS NULL OR a.expires_at >= ${schoolNowSql()})`);
   }
   if (!filters.include_archived) {
     where.push("(a.is_current = 1 OR a.status IN ('draft', 'scheduled'))");
@@ -264,7 +279,7 @@ export function listMobileAnnouncementsForUser(userId, filters = {}) {
     "a.status IN ('published', 'sent')",
     "a.is_current = 1",
     "a.show_in_mobile = 1",
-    "(a.expires_at IS NULL OR a.expires_at >= NOW())",
+    `(a.expires_at IS NULL OR a.expires_at >= ${schoolNowSql()})`,
     mobileAudienceSql(),
   ];
   const params = mobileAudienceParams(userId);
@@ -294,7 +309,7 @@ export async function getMobileAnnouncementForUser(id, userId) {
        AND a.status IN ('published', 'sent')
        AND a.is_current = 1
        AND a.show_in_mobile = 1
-       AND (a.expires_at IS NULL OR a.expires_at >= NOW())
+       AND (a.expires_at IS NULL OR a.expires_at >= ${schoolNowSql()})
        AND ${mobileAudienceSql()}
      LIMIT 1`,
     [id, ...mobileAudienceParams(userId)]
@@ -526,7 +541,7 @@ export async function publishAnnouncement(id, userId) {
     );
     const [result] = await conn.execute(
       `UPDATE announcements
-       SET status = 'published', published_at = NOW(), is_current = 1, archived_at = NULL, updated_by = ?
+       SET status = 'published', published_at = ${schoolNowSql()}, is_current = 1, archived_at = NULL, updated_by = ?
        WHERE id = ? AND status IN ('draft', 'scheduled')`,
       [userId || null, id]
     );
@@ -547,7 +562,7 @@ export function listDueScheduledAnnouncements(limit = 25) {
      FROM announcements
      WHERE status = 'scheduled'
        AND publish_at IS NOT NULL
-       AND publish_at <= NOW()
+       AND publish_at <= ${schoolNowSql()}
      ORDER BY publish_at, id
      LIMIT ${safeLimit}`
   );
@@ -795,14 +810,14 @@ export async function listDueSmsJobs(limit = 5) {
     `SELECT id
      FROM announcement_sms_jobs
      WHERE status IN ('queued', 'scheduled')
-       AND (scheduled_at IS NULL OR scheduled_at <= NOW())
+       AND (scheduled_at IS NULL OR scheduled_at <= ${schoolNowSql()})
      ORDER BY COALESCE(scheduled_at, created_at), id
      LIMIT ${safeLimit}`
   );
 }
 
 export async function claimSmsJob(id, force = false) {
-  const dueClause = force ? "" : "AND (scheduled_at IS NULL OR scheduled_at <= NOW())";
+  const dueClause = force ? "" : `AND (scheduled_at IS NULL OR scheduled_at <= ${schoolNowSql()})`;
   const result = await execute(
     `UPDATE announcement_sms_jobs
      SET status = 'sending', started_at = COALESCE(started_at, NOW()), error_message = NULL

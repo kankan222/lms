@@ -284,10 +284,7 @@ export default function WebsiteTab() {
       showsVerticalScrollIndicator={false}
     >
       <View style={styles.heroCard}>
-        <Text style={styles.heroTitle}>Website Module</Text>
-        <Text style={styles.heroSubtitle}>
-          Manage school and college website staff cards and review contact form submissions from the live backend website APIs.
-        </Text>
+        <Text style={styles.heroTitle}>WEBSITE</Text>
       </View>
 
       <TopNotice notice={notice} />
@@ -484,7 +481,7 @@ export default function WebsiteTab() {
 const styles = StyleSheet.create({
   container: { gap: 14, paddingBottom: 120 },
   heroCard: { borderWidth: 1, borderColor: "#e2e8f0", borderRadius: 24, backgroundColor: "#ffffff", padding: 18, gap: 6 },
-  heroTitle: { color: "#0f172a", fontWeight: "800", fontSize: 22 },
+  heroTitle: { color: "#64748b", fontWeight: "900", fontSize: 13, lineHeight: 16, letterSpacing: 0.8 },
   heroSubtitle: { color: "#64748b", lineHeight: 20 },
   noticeCard: { borderWidth: 1, borderRadius: 18, paddingHorizontal: 14, paddingVertical: 12 },
   noticeTitle: { color: "#0f172a", fontWeight: "800", marginBottom: 2 },

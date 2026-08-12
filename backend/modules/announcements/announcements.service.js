@@ -68,9 +68,31 @@ function templateDateValue(value) {
 function dateTimeValue(value, field) {
   const text = String(value || "").trim();
   if (!text) return null;
-  const parsed = new Date(text);
-  if (Number.isNaN(parsed.getTime())) throw new AppError(`${field} must be a valid date/time`, 400);
-  return text.length === 10 ? `${text} 00:00:00` : text;
+  const match = text.match(/^(\d{4})-(\d{2})-(\d{2})(?:[T\s](\d{1,2}):(\d{2})(?::(\d{2}))?)?$/);
+  if (!match) throw new AppError(`${field} must be YYYY-MM-DD HH:mm`, 400);
+  const [, yearText, monthText, dayText, hourText = "0", minuteText = "0", secondText = "0"] = match;
+  const year = Number(yearText);
+  const month = Number(monthText);
+  const day = Number(dayText);
+  const hour = Number(hourText);
+  const minute = Number(minuteText);
+  const second = Number(secondText);
+  const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  if (
+    month < 1 ||
+    month > 12 ||
+    day < 1 ||
+    day > daysInMonth ||
+    hour < 0 ||
+    hour > 23 ||
+    minute < 0 ||
+    minute > 59 ||
+    second < 0 ||
+    second > 59
+  ) {
+    throw new AppError(`${field} must be a valid date/time`, 400);
+  }
+  return `${yearText}-${monthText}-${dayText} ${String(hour).padStart(2, "0")}:${minuteText}:${String(second).padStart(2, "0")}`;
 }
 
 function parseJsonValue(value, fallback = null) {

@@ -223,13 +223,10 @@ export default function StudentsTab({ onStartParentMessage }: Props) {
     const school = students.filter((s) => String(s.class_scope || "").toLowerCase() === "school").length;
     const hs = students.filter((s) => String(s.class_scope || "").toLowerCase() === "hs").length;
     const girls = students.filter((s) => String(s.gender || "").toLowerCase() === "female").length;
-    return [
-      { label: "Total Students", value: total, accent: theme.infoSoft, border: theme.infoBorder, tone: theme.infoText },
-      { label: "School", value: school, accent: theme.successSoft, border: theme.successBorder, tone: theme.success },
-      { label: "Higher Secondary", value: hs, accent: theme.card, border: theme.border, tone: theme.text },
-      { label: "Girls", value: girls, accent: theme.warningSoft, border: theme.warningBorder, tone: theme.warningText },
-    ];
-  }, [students, theme]);
+    return { total, school, hs, girls };
+  }, [students]);
+
+  const activeFilterCount = [classId, sectionId].filter((value) => value !== null).length;
 
   const loadStudentsList = useCallback(async (mode: "initial" | "refresh" | "loadMore" = "initial") => {
     if (mode === "loadMore") {
@@ -608,45 +605,100 @@ export default function StudentsTab({ onStartParentMessage }: Props) {
         windowSize={7}
         ListHeaderComponent={
           <View style={styles.innerContent}>
-            <View style={styles.heroCard}>
-              <View style={styles.heroCopy}>
-                <Text style={[styles.title, { color: theme.text }]}>Students</Text>
-                <Text style={[styles.subtitle, { color: theme.subText }]}>
-                  {isParent
-                    ? "View your child records, attendance, fees, and results"
-                    : "Manage admissions, class placement, and parent linkage"}
-                </Text>
+            <Text style={[styles.title, { color: theme.subText }]}>STUDENTS</Text>
+
+            <View style={[styles.overviewCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+              <View style={styles.rowBetween}>
+                <View style={styles.overviewTitleCopy}>
+                  <Text style={[styles.overviewTitle, { color: theme.text }]}>{isParent ? "My Students" : "Student Directory"}</Text>
+                  <Text style={[styles.overviewMeta, { color: theme.subText }]}>
+                    {filteredStudents.length} visible{studentsTotal !== null ? ` | ${students.length}/${studentsTotal} loaded` : ""}
+                  </Text>
+                </View>
+                <Text style={[styles.overviewCount, { color: theme.text }]}>{studentsTotal ?? stats.total}</Text>
               </View>
-              <View style={styles.heroPrimaryActions}>
-                {!isParent ? (
-                  <Pressable style={[styles.heroPrimaryBtn, { backgroundColor: theme.primary }]} onPress={() => { setCreateOpen(true); setCreateErrors({}); setCreateForm((p) => ({ ...p, session_id: p.session_id ?? activeSession?.id ?? null })); }}><Text style={[styles.primaryBtnText, { color: theme.primaryText }]}>Add Student</Text></Pressable>
-                ) : null}
-              </View>
+              {!isParent ? (
+                <View style={styles.compactStatsRow}>
+                  <StudentListBadge label={`${stats.total} Loaded`} tone="accent" />
+                  <StudentListBadge label={`${stats.school} School`} />
+                  <StudentListBadge label={`${stats.hs} HS`} />
+                  <StudentListBadge label={`${stats.girls} Girls`} />
+                </View>
+              ) : null}
             </View>
 
-            {!isParent ? (
-              <View style={styles.statsGrid}>
-                {stats.map((item) => <View key={item.label} style={[styles.statCard, { backgroundColor: item.accent, borderColor: item.border }]}><Text style={[styles.statLabel, { color: theme.subText }]}>{item.label}</Text><Text style={[styles.statValue, { color: item.tone }]}>{item.value}</Text></View>)}
+            <View style={styles.toolbarRow}>
+              <Pressable style={[styles.toolbarBtn, { borderColor: theme.border, backgroundColor: theme.card }]} onPress={() => setFiltersOpen((prev) => !prev)}>
+                <Ionicons name="options-outline" size={16} color={theme.icon} />
+                <Text style={[styles.toolbarBtnText, { color: theme.text }]}>Filters{activeFilterCount ? ` (${activeFilterCount})` : ""}</Text>
+              </Pressable>
+              {!isParent ? (
+                <Pressable style={[styles.toolbarBtn, styles.toolbarPrimaryBtn, { backgroundColor: theme.primary, borderColor: theme.primary }]} onPress={() => { setCreateOpen(true); setCreateErrors({}); setCreateForm((p) => ({ ...p, session_id: p.session_id ?? activeSession?.id ?? null })); }}>
+                  <Ionicons name="add" size={16} color={theme.primaryText} />
+                  <Text style={[styles.toolbarBtnText, { color: theme.primaryText }]}>Add</Text>
+                </Pressable>
+              ) : null}
+            </View>
+
+            {filtersOpen ? (
+              <View style={[styles.compactFilterCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                <View style={styles.compactPanelHeader}>
+                  <Text style={[styles.compactPanelTitle, { color: theme.text }]}>Filters</Text>
+                  <View style={styles.compactHeaderActions}>
+                    <Pressable onPress={resetBrowseFilters} hitSlop={8}>
+                      <Text style={[styles.resetText, { color: theme.subText }]}>Reset</Text>
+                    </Pressable>
+                    <Pressable onPress={() => setFiltersOpen(false)} hitSlop={8}>
+                      <Ionicons name="chevron-up-outline" size={18} color={theme.icon} />
+                    </Pressable>
+                  </View>
+                </View>
+                <SelectField
+                  label="Class"
+                  value={classId === null ? "" : String(classId)}
+                  onChange={(value) => {
+                    if (!value) {
+                      setClassId(null);
+                      setSectionId(null);
+                      return;
+                    }
+                    setClassId(Number(value));
+                    setSectionId(null);
+                  }}
+                  options={classes.map((item) => ({ label: item.name, value: String(item.id) }))}
+                  placeholder="All classes"
+                  allowClear
+                  clearLabel="All classes"
+                />
+                <SelectField
+                  label="Section"
+                  value={sectionId === null ? "" : String(sectionId)}
+                  onChange={(value) => setSectionId(value ? Number(value) : null)}
+                  options={(selectedClass?.sections || []).map((section) => ({
+                    label: `${section.name}${section.medium ? ` (${section.medium})` : ""}`,
+                    value: String(section.id),
+                  }))}
+                  placeholder="All sections"
+                  allowClear
+                  clearLabel="All sections"
+                  disabled={!selectedClass}
+                />
+                <Pressable style={[styles.compactApplyBtn, { backgroundColor: theme.primary }]} onPress={() => setFiltersOpen(false)}>
+                  <Text style={[styles.primaryBtnText, { color: theme.primaryText }]}>Apply Filters</Text>
+                </Pressable>
               </View>
             ) : null}
 
-            <View style={[styles.sectionCard, { backgroundColor: theme.card, borderColor: theme.border }] }>
-              <View style={styles.rowBetween}><Text style={[styles.sectionTitle, { color: theme.text }]}>{isParent ? "My Students" : "Browse Students"}</Text><Text style={[styles.hint, { color: theme.subText }]}>{filteredStudents.length} visible{studentsTotal !== null ? ` | ${students.length}/${studentsTotal} loaded` : ""}</Text></View>
-              <View style={styles.searchRow}>
-                <View style={styles.searchWrap}>
-                  <TextInput style={[styles.input, styles.searchInput, { borderColor: theme.border, backgroundColor: theme.inputBg, color: theme.text }]} value={search} onChangeText={setSearch} placeholder={isParent ? "Search child..." : "Search..."} placeholderTextColor={theme.mutedText} />
-                </View>
-                <Pressable style={[styles.iconUtilityBtn, { borderColor: theme.successBorder, backgroundColor: theme.successSoft }]} onPress={() => setFiltersOpen(true)}>
-                  <Ionicons name="options-outline" size={18} color={theme.success} />
-                </Pressable>
-              </View>
-              {(classId !== null || sectionId !== null) ? (
-                <Text style={[styles.activeFiltersText, { color: theme.subText }]}>
-                  {classId !== null ? `Class: ${selectedClass?.name || "-"}` : "All classes"}
-                  {sectionId !== null ? ` | Section: ${selectedClass?.sections?.find((section) => section.id === sectionId)?.name || "-"}` : ""}
-                </Text>
-              ) : null}
+            <View style={[styles.searchWrap, { borderColor: theme.border, backgroundColor: theme.inputBg }]}>
+              <Ionicons name="search-outline" size={16} color={theme.icon} />
+              <TextInput style={[styles.searchInput, { color: theme.text }]} value={search} onChangeText={setSearch} placeholder={isParent ? "Search child..." : "Search students..."} placeholderTextColor={theme.mutedText} />
             </View>
+            {(classId !== null || sectionId !== null) ? (
+              <Text style={[styles.activeFiltersText, { color: theme.subText }]} numberOfLines={2}>
+                {classId !== null ? `Class: ${selectedClass?.name || "-"}` : "All classes"}
+                {sectionId !== null ? ` | Section: ${selectedClass?.sections?.find((section) => section.id === sectionId)?.name || "-"}` : ""}
+              </Text>
+            ) : null}
           </View>
         }
         ListEmptyComponent={
@@ -693,9 +745,9 @@ export default function StudentsTab({ onStartParentMessage }: Props) {
             scope_name: (student as Student & { scope_name?: string | null }).scope_name || matched?.scope_name,
           }) === "hs";
           const contactLine = [
-            `Phone ${student.phone || student.mobile || "-"}`,
-            `Admission ${fmtDate(student.date_of_admission)}`,
-          ].join(" | ");
+            student.phone || student.mobile ? `Phone ${student.phone || student.mobile}` : "",
+            student.date_of_admission ? `Admission ${fmtDate(student.date_of_admission)}` : "",
+          ].filter(Boolean).join(" | ");
           return (
             <View style={styles.rowWrap}>
               <Pressable style={[styles.studentCard, { backgroundColor: theme.card, borderColor: theme.border }]} onPress={() => openDetails(student)}>
@@ -708,7 +760,7 @@ export default function StudentsTab({ onStartParentMessage }: Props) {
                       {student.name}
                     </Text>
                     <Text style={[styles.studentMeta, { color: theme.subText }]} numberOfLines={1}>
-                      {student.admission_no ? `Adm ${student.admission_no}` : `KKV-${student.id}`}
+                      {[student.admission_no ? `Adm ${student.admission_no}` : `KKV-${student.id}`, student.roll_number ? `Roll ${student.roll_number}` : ""].filter(Boolean).join(" | ")}
                     </Text>
                   </View>
                   <ClassSectionBlock className={student.class} section={student.section} />
@@ -716,14 +768,13 @@ export default function StudentsTab({ onStartParentMessage }: Props) {
 
                 <View style={styles.metaStack}>
                   <View style={styles.studentBadgeRow}>
-                    <StudentListBadge label={`Roll No - ${student.roll_number || "-"}`} tone="accent" />
                     <StudentListBadge label={scopeLabel} />
                     <StudentListBadge label={`Medium - ${medium}`} />
                     {isHsScope ? <StudentListBadge label={`Stream ${student.stream_name || "-"}`} tone="success" /> : null}
                   </View>
-                  <Text style={[styles.detailText, styles.metaLineText, { color: theme.subText }]} numberOfLines={1}>
+                  {contactLine ? <Text style={[styles.detailText, styles.metaLineText, { color: theme.subText }]} numberOfLines={1}>
                     {contactLine}
-                  </Text>
+                  </Text> : null}
                 </View>
 
                 {!isParent ? (
@@ -741,55 +792,6 @@ export default function StudentsTab({ onStartParentMessage }: Props) {
           );
         }}
       />
-
-      <Modal visible={filtersOpen} transparent animationType="fade" onRequestClose={() => setFiltersOpen(false)}>
-        <View style={styles.popoverOverlay}>
-          <Pressable style={styles.popoverBackdrop} onPress={() => setFiltersOpen(false)} />
-          <View style={[styles.filterPopover, { backgroundColor: theme.card, borderColor: theme.border }] }>
-            <View style={styles.rowBetween}>
-              <Text style={[styles.sectionTitle, { color: theme.text }]}>Filters</Text>
-              <Pressable onPress={resetBrowseFilters}>
-                <Text style={[styles.resetText, { color: theme.success }]}>Reset</Text>
-              </Pressable>
-            </View>
-            <SelectField
-              label="Class"
-              value={classId === null ? "" : String(classId)}
-              onChange={(value) => {
-                if (!value) {
-                  setClassId(null);
-                  setSectionId(null);
-                  return;
-                }
-                setClassId(Number(value));
-                setSectionId(null);
-              }}
-              options={classes.map((item) => ({ label: item.name, value: String(item.id) }))}
-              placeholder="All classes"
-              allowClear
-              clearLabel="All classes"
-            />
-            <SelectField
-              label="Section"
-              value={sectionId === null ? "" : String(sectionId)}
-              onChange={(value) => setSectionId(value ? Number(value) : null)}
-              options={(selectedClass?.sections || []).map((section) => ({
-                label: `${section.name}${section.medium ? ` (${section.medium})` : ""}`,
-                value: String(section.id),
-              }))}
-              placeholder="All sections"
-              allowClear
-              clearLabel="All sections"
-              disabled={!selectedClass}
-            />
-            <View style={styles.rowActions}>
-              <Pressable style={[styles.secondaryBtn, { borderColor: theme.border, backgroundColor: theme.card }]} onPress={() => setFiltersOpen(false)}>
-                <Text style={[styles.secondaryBtnText, { color: theme.text }]}>Apply</Text>
-              </Pressable>
-            </View>
-          </View>
-        </View>
-      </Modal>
 
       <Modal visible={createOpen} transparent animationType="slide" onRequestClose={() => setCreateOpen(false)}>
         <Sheet title="Add Student" subtitle="Create a student, enrollment, and parent linkage in one flow." onClose={() => setCreateOpen(false)}>
@@ -868,7 +870,7 @@ export default function StudentsTab({ onStartParentMessage }: Props) {
 const styles = StyleSheet.create({
   screen: { flex: 1 },
   root: { flex: 1 },
-  content: { gap: 14, paddingBottom: 120 },
+  content: { gap: 10, paddingBottom: 120 },
   detailHeader: { minHeight: 62, paddingHorizontal: 14, paddingVertical: 10, borderBottomWidth: 1, flexDirection: "row", alignItems: "center", gap: 10 },
   detailBackBtn: { width: 40, height: 40, borderRadius: 12, borderWidth: 1, alignItems: "center", justifyContent: "center" },
   detailHeaderCopy: { flex: 1, minWidth: 0 },
@@ -876,27 +878,35 @@ const styles = StyleSheet.create({
   detailHeaderSubtitle: { fontSize: 12, fontWeight: "600", marginTop: 2 },
   detailScreenBody: { flex: 1 },
   detailScreenContent: { gap: 14, paddingHorizontal: 14, paddingTop: 12, paddingBottom: 120 },
-  innerContent: { gap: 14, paddingHorizontal: 14, paddingTop: 10 },
+  innerContent: { gap: 10, paddingHorizontal: 14, paddingTop: 10 },
   topNoticeOverlay: { position: "absolute", top: 0, left: 14, right: 14, zIndex: 20 },
-  heroCard: { borderRadius: 24, paddingVertical: 0, gap: 8 },
-  heroCopy: { gap: 6 },
-  heroPrimaryActions: { flexDirection: "row", gap: 10 },
+  overviewCard: { borderWidth: 1, borderRadius: 8, padding: 12, gap: 10 },
+  overviewTitleCopy: { flex: 1, minWidth: 0 },
+  overviewTitle: { fontSize: 15, lineHeight: 19, fontWeight: "900" },
+  overviewMeta: { marginTop: 2, fontSize: 11, lineHeight: 15, fontWeight: "700" },
+  overviewCount: { fontSize: 20, fontWeight: "900" },
+  compactStatsRow: { flexDirection: "row", flexWrap: "wrap", gap: 7 },
+  toolbarRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  toolbarBtn: { flex: 1, minHeight: 40, borderWidth: 1, borderRadius: 8, paddingHorizontal: 10, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6 },
+  toolbarPrimaryBtn: { flex: 0.7 },
+  toolbarBtnText: { fontSize: 12, fontWeight: "800" },
+  compactFilterCard: { borderWidth: 1, borderRadius: 8, padding: 12, gap: 10 },
+  compactPanelHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 },
+  compactPanelTitle: { fontSize: 14, fontWeight: "900" },
+  compactHeaderActions: { flexDirection: "row", alignItems: "center", gap: 12 },
+  compactApplyBtn: { minHeight: 40, borderRadius: 8, alignItems: "center", justifyContent: "center" },
   heroEyebrow: { fontSize: 12, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.6 },
   searchRow: { flexDirection: "row", alignItems: "center", gap: 10 },
-  searchWrap: { flex: 1 },
-  searchInput: { marginBottom: 0 },
-  title: { color: "#0f172a", fontWeight: "800", fontSize: 22 },
+  searchWrap: { flex: 1, minHeight: 42, borderWidth: 1, borderRadius: 8, flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 11 },
+  searchInput: { flex: 1, minWidth: 0, paddingVertical: 9, fontSize: 14, fontWeight: "700" },
+  title: { color: "#0f172a", fontWeight: "900", fontSize: 13, lineHeight: 16, letterSpacing: 0.8 },
   subtitle: { color: "#64748b", lineHeight: 20 },
   noticeCard: { borderRadius: 18, paddingHorizontal: 14, paddingVertical: 12, borderWidth: 1 },
   noticeSuccess: { backgroundColor: "#f0fdf4", borderColor: "#bbf7d0" },
   noticeError: { backgroundColor: "#fef2f2", borderColor: "#fecaca" },
   noticeTitle: { color: "#0f172a", fontWeight: "800", marginBottom: 2 },
   noticeMessage: { color: "#475569" },
-  statsGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
-  statCard: { width: "48%", minHeight: 92, borderRadius: 20, borderWidth: 1, paddingHorizontal: 14, paddingVertical: 12, justifyContent: "space-between" },
-  statLabel: { color: "#334155", fontSize: 12, fontWeight: "700" },
-  statValue: { fontSize: 26, fontWeight: "800" },
-  sectionCard: { backgroundColor: "#fff", borderRadius: 22, borderWidth: 1, borderColor: "#e2e8f0", padding: 16, gap: 12 },
+  sectionCard: { backgroundColor: "#fff", borderRadius: 8, borderWidth: 1, borderColor: "#e2e8f0", paddingHorizontal: 12, paddingVertical: 10, gap: 8 },
   rowBetween: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 10 },
   sectionTitle: { color: "#0f172a", fontWeight: "800", fontSize: 16 },
   hint: { color: "#64748b", fontSize: 12, fontWeight: "600" },
@@ -906,23 +916,23 @@ const styles = StyleSheet.create({
   filterChipActive: { borderColor: "#0f172a", backgroundColor: "#0f172a" },
   filterChipText: { color: "#475569", fontWeight: "700", fontSize: 12 },
   filterChipTextActive: { color: "#fff" },
-  activeFiltersText: { fontSize: 12, fontWeight: "600" },
+  activeFiltersText: { fontSize: 12, lineHeight: 17, fontWeight: "700" },
   input: { borderWidth: 1, borderColor: "#cbd5e1", borderRadius: 14, backgroundColor: "#fff", paddingHorizontal: 12, paddingVertical: 11, color: "#0f172a" },
   textarea: { minHeight: 240 },
   centered: { alignItems: "center", justifyContent: "center", paddingVertical: 40 },
-  emptyCard: { backgroundColor: "#fff", borderRadius: 22, borderWidth: 1, borderColor: "#e2e8f0", padding: 18, gap: 6 },
+  emptyCard: { backgroundColor: "#fff", borderRadius: 8, borderWidth: 1, borderColor: "#e2e8f0", padding: 18, gap: 6, marginHorizontal: 14 },
   emptyTitle: { color: "#0f172a", fontWeight: "800", fontSize: 16 },
   emptyText: { color: "#64748b", lineHeight: 20 },
   rowWrap: { paddingHorizontal: 14 },
-  rowGap: { height: 12 },
+  rowGap: { height: 10 },
   listFooter: { paddingHorizontal: 14, paddingVertical: 14, alignItems: "center", justifyContent: "center" },
   grid: { gap: 12 },
-  studentCard: { backgroundColor: "#fff", borderRadius: 20, borderWidth: 1, borderColor: "#e2e8f0", padding: 14, gap: 8 },
+  studentCard: { backgroundColor: "#fff", borderRadius: 8, borderWidth: 1, borderColor: "#e2e8f0", paddingHorizontal: 12, paddingVertical: 11, gap: 8 },
   cardTop: { flexDirection: "row", alignItems: "center", gap: 10 },
-  avatarBadge: { width: 40, height: 40, borderRadius: 12, borderWidth: 1, backgroundColor: "#e2e8f0", alignItems: "center", justifyContent: "center" },
-  avatarText: { color: "#0f172a", fontWeight: "800", fontSize: 16 },
-  cardCopy: { flex: 1, minWidth: 0, gap: 3 },
-  studentName: { color: "#0f172a", fontWeight: "800", fontSize: 16 },
+  avatarBadge: { width: 36, height: 36, borderRadius: 8, borderWidth: 1, backgroundColor: "#e2e8f0", alignItems: "center", justifyContent: "center" },
+  avatarText: { color: "#0f172a", fontWeight: "900", fontSize: 15 },
+  cardCopy: { flex: 1, minWidth: 0, gap: 2 },
+  studentName: { color: "#0f172a", fontWeight: "900", fontSize: 15, lineHeight: 19 },
   studentMeta: { color: "#475569", fontWeight: "700", fontSize: 12 },
   classSectionWrap: { flexDirection: "row", alignItems: "center", flexShrink: 0, maxWidth: 92 },
   classSectionValues: { alignItems: "center", gap: 4, minWidth: 46 },
@@ -930,22 +940,22 @@ const styles = StyleSheet.create({
   classSectionValue: { fontSize: 14, lineHeight: 17, fontWeight: "800" },
   classSectionLabel: { fontSize: 10, lineHeight: 13, fontWeight: "700" },
   classSectionDivider: { width: 18, height: 1 },
-  metaStack: { gap: 7 },
+  metaStack: { gap: 6 },
   metaLine: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
   studentBadgeRow: { flexDirection: "row", flexWrap: "wrap", gap: 7, alignItems: "center" },
-  studentListBadge: { maxWidth: "100%", borderWidth: 1, borderRadius: 9, paddingHorizontal: 9, paddingVertical: 5 },
-  studentListBadgeText: { fontSize: 12, lineHeight: 15, fontWeight: "700" },
+  studentListBadge: { maxWidth: "100%", borderWidth: 1, borderRadius: 7, paddingHorizontal: 8, paddingVertical: 4 },
+  studentListBadgeText: { fontSize: 11, lineHeight: 14, fontWeight: "800" },
   detailText: { color: "#475569", lineHeight: 18 },
   metaLineText: { fontSize: 12 },
   rowActions: { flexDirection: "row", gap: 10, marginTop: 14 },
-  cardIconActions: { flexDirection: "row", justifyContent: "flex-end", gap: 8, marginTop: 4 },
-  iconActionBtn: { width: 38, height: 38, borderWidth: 1, borderColor: "#cbd5e1", borderRadius: 12, backgroundColor: "#fff", alignItems: "center", justifyContent: "center" },
+  cardIconActions: { flexDirection: "row", justifyContent: "flex-end", gap: 7, marginTop: 2 },
+  iconActionBtn: { width: 36, height: 36, borderWidth: 1, borderColor: "#cbd5e1", borderRadius: 8, backgroundColor: "#fff", alignItems: "center", justifyContent: "center" },
   iconActionBtnDanger: { borderColor: "#fecaca", backgroundColor: "#fff5f5" },
   primaryBtn: { backgroundColor: "#0f172a", paddingHorizontal: 16, paddingVertical: 11, borderRadius: 12, alignItems: "center", justifyContent: "center" },
   primaryBtnText: { color: "#fff", fontWeight: "700" },
   ghostBtn: { borderWidth: 1, borderColor: "#cbd5e1", backgroundColor: "#fff", paddingHorizontal: 16, paddingVertical: 11, borderRadius: 12, alignItems: "center", justifyContent: "center" },
   ghostBtnText: { color: "#334155", fontWeight: "700" },
-  inlineGhostBtn: { alignSelf: "flex-start", borderWidth: 1, borderColor: "#cbd5e1", backgroundColor: "#fff", paddingHorizontal: 12, paddingVertical: 8, borderRadius: 999, alignItems: "center", justifyContent: "center" },
+  inlineGhostBtn: { alignSelf: "flex-start", borderWidth: 1, borderColor: "#cbd5e1", backgroundColor: "#fff", paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8, alignItems: "center", justifyContent: "center" },
   iconUtilityBtn: { width: 42, height: 42, borderWidth: 1, borderColor: "#cbd5e1", backgroundColor: "#fff", borderRadius: 12, alignItems: "center", justifyContent: "center" },
   heroPrimaryBtn: { flex: 1, backgroundColor: "#0f172a", paddingHorizontal: 14, paddingVertical: 11, borderRadius: 12, alignItems: "center", justifyContent: "center" },
   heroSecondaryBtn: { flex: 1, borderWidth: 1, borderColor: "#cbd5e1", backgroundColor: "#fff", paddingHorizontal: 14, paddingVertical: 11, borderRadius: 12, alignItems: "center", justifyContent: "center" },
@@ -957,9 +967,6 @@ const styles = StyleSheet.create({
   successBtnText: { color: "#fff", fontWeight: "700" },
   modalOverlay: { flex: 1, justifyContent: "flex-end" },
   modalBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(15, 23, 42, 0.28)" },
-  popoverOverlay: { ...StyleSheet.absoluteFillObject, justifyContent: "flex-start", paddingTop: 250, paddingHorizontal: 24 },
-  popoverBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: "transparent" },
-  filterPopover: { borderWidth: 1, borderRadius: 18, padding: 14, gap: 12, marginLeft: "auto", width: "82%" },
   resetText: { color: "#15803d", fontWeight: "700" },
   modalCard: { maxHeight: "88%", backgroundColor: "#fff", borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingHorizontal: 16, paddingTop: 16, paddingBottom: 32, marginBottom: 12, gap: 10 },
   modalTitle: { fontSize: 18, fontWeight: "800", color: "#0f172a" },

@@ -1,0 +1,23 @@
+CREATE TABLE IF NOT EXISTS mobile_app_notices (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  title VARCHAR(160) NOT NULL,
+  message TEXT NOT NULL,
+  severity ENUM('info', 'warning', 'critical') NOT NULL DEFAULT 'info',
+  platform ENUM('all', 'android', 'ios') NOT NULL DEFAULT 'all',
+  starts_at DATETIME NULL,
+  ends_at DATETIME NULL,
+  min_app_version VARCHAR(32) NULL,
+  max_app_version VARCHAR(32) NULL,
+  min_build INT NULL,
+  max_build INT NULL,
+  dismissible BOOLEAN NOT NULL DEFAULT TRUE,
+  action_label VARCHAR(80) NULL,
+  action_url VARCHAR(500) NULL,
+  is_active BOOLEAN NOT NULL DEFAULT TRUE,
+  created_by BIGINT NULL,
+  updated_by BIGINT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  INDEX idx_mobile_app_notices_active_window (is_active, starts_at, ends_at),
+  INDEX idx_mobile_app_notices_platform (platform)
+);

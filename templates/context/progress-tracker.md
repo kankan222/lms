@@ -14,9 +14,82 @@ Update this file after every meaningful implementation change.
 
 ## Completed
 
-- Added class/section/scope context to the mobile teacher routine `My Periods`
-  cards so teacher login can see which class each assigned period belongs to,
-  including packed multi-subject routine rows.
+- Added developer-managed mobile app notices with a backend table/migration,
+  authenticated API endpoints, Settings/App Updates software management UI,
+  and mobile app-shell display that refreshes while the app is open, supports
+  info/warning/critical notices, optional action links, dismissible notices,
+  and version/build/platform targeting.
+- Fixed announcement scheduling timezone handling by normalizing backend
+  datetime inputs as school-local wall-clock values, comparing due
+  publish/SMS/expiry checks against an explicit school-local current time
+  defaulting to `+05:30`, setting published timestamps with that same clock,
+  and formatting mobile announcement datetimes without JavaScript timezone
+  shifting.
+- Updated the mobile announcement SMS Send At picker so it uses a clear
+  12-hour hour/minute/AM-PM control, keeps the selected time when the date is
+  cleared, and still submits a normal backend datetime only after a date is
+  selected.
+- Updated the mobile Exam Setup tab to follow the compact UI rules with an
+  uppercase module label, lightweight exam overview, Filters/Add Exam toolbar,
+  inline collapsible session/class/section filters, a single-border search row,
+  denser exam cards, and compact subject-count badges while preserving exam
+  CRUD, subject, scope, and marks-entry-access logic.
+- Updated the mobile Activities tab to follow the compact UI rules with an
+  uppercase module label, lightweight activity overview, compact Add Activity
+  toolbar, denser definition cards, square-radius status/scope badges, and
+  tighter section spacing while preserving existing activity CRUD and scoped
+  row logic.
+- Updated the mobile Subjects tab to follow the compact UI rules with an
+  uppercase module label, lightweight overview card, Filters/Assign/Add
+  toolbar, inline assignment-status filters, a single-border search row,
+  denser subject cards, and tighter class assignment cards while preserving
+  subject CRUD and class assignment logic.
+- Changed mobile Students and Teachers filters from overlay popovers to inline
+  collapsible filter cards matching the marksheet workflow, removed the extra
+  bordered search wrapper card, and updated the mobile compact workflow UI rule
+  to prefer inline filters with only one search border.
+- Updated the mobile Teachers tab to follow the compact UI rules with an
+  uppercase module label, lightweight overview card, Filters/Add toolbar,
+  collapsed scope filter popover, compact search panel, denser teacher cards,
+  and reduced stat/card spacing while preserving create, edit, delete,
+  assignment, details, pagination, refresh, photo, device mapping, and
+  messaging logic.
+- Updated the mobile Students tab to follow the compact UI rules with an
+  uppercase module label, lightweight overview card, Filters/Add toolbar,
+  compact search panel, denser student cards, and reduced stat/card spacing
+  while preserving existing list, filter, create, edit, delete, details, and
+  parent messaging logic.
+- Moved the mobile login logo above the institution name and centered the
+  branded login header.
+- Refined the mobile login header hierarchy so the institution name is the
+  primary title, the secure portal label is secondary, and the supporting text
+  is shorter.
+- Redesigned the mobile login screen into a branded KKV portal entry with a
+  logo-led header, secure sign-in card, icon-based inputs, inline OTP feedback,
+  and no generic system alert for OTP resend.
+- Added a mobile startup splash overlay with the animated school logo, inspiring
+  text, and a minimum two-second display while fonts and auth hydration continue
+  loading behind it.
+- Aligned shared mobile header icon buttons with the square-radius mobile UI
+  controls by keeping their border and reducing the rounded shape.
+- Updated mobile teacher routine cards so the teacher view class line shows
+  both class name and section name, while still omitting scope and medium.
+- Removed the mobile announcements Inbox tab for admin-capable users so admin
+  announcement management opens directly on Queue/Templates/SMS/Holidays while
+  parent, teacher, and student users keep the received-announcements Inbox.
+- Updated announcement DLT template management so software no longer shows the
+  top-bar DLT Template shortcut, software/mobile can create or edit templates
+  with the Fast2SMS provider template/message ID, and mobile registered-DLT SMS
+  scheduling uses the app calendar date picker plus compact time selection
+  instead of a raw datetime text field.
+- Added `PRODUCTION_DEPLOYMENT.md` as a production runbook covering the
+  Git pull/push workflow, backend deploy steps, software frontend build,
+  Nginx checks, PM2 management for `lms-backend` and `lms-cron`, environment
+  handling, smoke tests, and rollback notes.
+- Added class context to the mobile teacher routine `My Periods` cards so
+  teacher login can see which class each assigned period belongs to, and
+  changed the teacher-only routine list to render multiple same-slot entries
+  as separate cards instead of a packed card.
 - Removed the shared mobile shell subtitle line and the decorative `Overview`
   eyebrow labels from mobile tab hero headers so each screen starts with the
   main header text; added a compact `Marksheet` header to the marksheet entry
@@ -1490,3 +1563,29 @@ Update this file after every meaningful implementation change.
   `AlertDialog` confirmations, and a reusable shadcn input dialog for edit,
   delete mode, report, forward, moderation note, suspension reason, and member
   add flows.
+- Applied the compact mobile workflow rule to the Class module by replacing
+  the large hero/stat/filter layout with a compact overview, scope toolbar,
+  denser class cards, icon edit/delete actions, and a tighter add/edit class
+  bottom sheet while preserving the existing class CRUD logic.
+- Applied the compact mobile workflow rule to the Marksheet Review and
+  Published tabs by replacing the old large admin summary/filter/grid stack
+  with compact headers, overview cards, filter toolbar, dense student cards,
+  review approve/select actions, edit overflow actions, and published
+  per-student download actions while preserving the existing marks approval
+  and marksheet download APIs.
+- Fixed mobile Marksheet Review/Published edge cases: Review and Published now
+  enforce their tab-specific approval statuses at load/mutation time, status
+  filters are hidden outside Entry, review approval is disabled while edited
+  marks are unsaved, parent/student marksheet download errors use the shared
+  notice UI, and pending review groups can be selected from a horizontal queue
+  chip list so large approval queues do not keep jumping to the first group.
+- Restored the active mobile tab label as the shared header subtitle directly
+  below the portal name, and removed the duplicate compact Marksheet content
+  heading so `Marksheet` appears under the main portal header instead.
+- Restored the compact in-content Marksheet label as a small uppercase
+  `MARKSHEET` heading without subtitle, keeping the shared header subtitle in
+  place.
+- Added the mobile module-label rule to the design guide and applied it across
+  mobile module screens: top in-content labels now use compact uppercase text
+  without explanatory subtitles, while shared headers keep the portal name and
+  active module subtitle.

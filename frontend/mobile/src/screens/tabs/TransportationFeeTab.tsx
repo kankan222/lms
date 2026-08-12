@@ -434,9 +434,7 @@ export default function TransportationFeeTab() {
       >
         <View style={styles.hero}>
           <View style={styles.heroCopy}>
-            <Text style={[styles.eyebrow, { color: theme.subText }]}>Fee</Text>
-            <Text style={[styles.title, { color: theme.text }]}>Transportation Fee</Text>
-            <Text style={[styles.subtitle, { color: theme.subText }]}>Manage monthly transport dues, assignments, payments, and receipts.</Text>
+            <Text style={[styles.title, { color: theme.subText }]}>TRANSPORTATION FEE</Text>
           </View>
           <View style={styles.heroActions}>
             <Pressable style={[styles.primaryBtn, { backgroundColor: theme.primary }]} onPress={() => {
@@ -639,7 +637,7 @@ const styles = StyleSheet.create({
   hero: { gap: 12 },
   heroCopy: { gap: 5 },
   eyebrow: { fontSize: 12, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.6 },
-  title: { fontSize: 22, fontWeight: "800" },
+  title: { fontSize: 13, lineHeight: 16, fontWeight: "900", letterSpacing: 0.8 },
   subtitle: { lineHeight: 20 },
   heroActions: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
   primaryBtn: { minHeight: 44, paddingHorizontal: 16, paddingVertical: 11, borderRadius: 12, alignItems: "center", justifyContent: "center", flex: 1 },

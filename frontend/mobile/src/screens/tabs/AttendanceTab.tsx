@@ -816,8 +816,7 @@ export default function AttendanceTab() {
       <View style={styles.innerContent}>
       <View style={styles.heroCard}>
         <View style={styles.heroCopy}>
-          <Text style={styles.title}>Student Attendance</Text>
-          <Text style={styles.subtitle}>Record class and section attendance, review submitted sessions, notify parents, and keep teacher logs separate.</Text>
+          <Text style={styles.title}>STUDENT ATTENDANCE</Text>
         </View>
       </View>
 
@@ -1149,7 +1148,7 @@ return StyleSheet.create({
   heroCard: { borderRadius: 24, paddingVertical: 0, gap: 8 },
   heroCopy: { gap: 6 },
   heroEyebrow: { color: theme.subText, fontSize: 12, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.6 },
-  title: { color: theme.text, fontWeight: "800", fontSize: 22 },
+  title: { color: theme.subText, fontWeight: "900", fontSize: 13, lineHeight: 16, letterSpacing: 0.8 },
   subtitle: { color: theme.subText, lineHeight: 20 },
   noticeCard: { borderRadius: 18, paddingHorizontal: 14, paddingVertical: 12, borderWidth: 1 },
   noticeSuccess: { backgroundColor: "#f0fdf4", borderColor: "#bbf7d0" },

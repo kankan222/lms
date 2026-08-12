@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   ActivityIndicator,
-  Alert,
   Dimensions,
   Keyboard,
   Platform,
@@ -39,6 +38,7 @@ import {
   type MarksGridRow,
   type MarksApprovalSummary,
   type MarkStatus,
+  type PendingApprovalGroup,
   type PendingApprovalQueue,
   type StudentReport,
 } from "../../services/reportsService";
@@ -135,6 +135,23 @@ function formatPercent(value?: number | null) {
 
 function formatScope(scope?: string | null) {
   return String(scope || "school").trim().toLowerCase() === "hs" ? "Higher Secondary" : "School";
+}
+
+function statusForTab(tab: ReportsTabKey) {
+  if (tab === "review") return "pending";
+  if (tab === "published") return "approved";
+  return "";
+}
+
+function reviewQueueKey(group?: PendingApprovalGroup | null) {
+  if (!group) return "";
+  return [
+    group.exam_id,
+    group.class_id,
+    group.section_id,
+    group.medium || "",
+    group.subject_id,
+  ].join(":");
 }
 
 function capitalize(value: string) {
@@ -420,6 +437,7 @@ export default function ReportsTab() {
   const [pendingQueue, setPendingQueue] = useState<PendingApprovalQueue>({ total_pending: 0, groups: [] });
   const [approvalSummary, setApprovalSummary] = useState<MarksApprovalSummary>({ pending: 0, draft: 0, approved: 0 });
   const [reviewQueueSnapshot, setReviewQueueSnapshot] = useState<PendingApprovalQueue | null>(null);
+  const [selectedReviewQueueKey, setSelectedReviewQueueKey] = useState<string>("");
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [bulkActionsOpen, setBulkActionsOpen] = useState(false);
   const scrollRef = useRef<ScrollView | null>(null);
@@ -460,7 +478,14 @@ export default function ReportsTab() {
     [availableSections, filters.section_id],
   );
   const displayedPendingQueue = editMode && reviewQueueSnapshot ? reviewQueueSnapshot : pendingQueue;
-  const pendingReviewMeta = displayedPendingQueue.groups?.[0] || null;
+  const pendingQueueGroups = useMemo(
+    () => Array.isArray(displayedPendingQueue.groups) ? displayedPendingQueue.groups : [],
+    [displayedPendingQueue.groups],
+  );
+  const pendingReviewMeta = useMemo(() => {
+    if (!pendingQueueGroups.length) return null;
+    return pendingQueueGroups.find((group) => reviewQueueKey(group) === selectedReviewQueueKey) || pendingQueueGroups[0] || null;
+  }, [pendingQueueGroups, selectedReviewQueueKey]);
 
   const mediums = useMemo(() => uniqueMediums(availableSections), [availableSections]);
   const examOptions = useMemo(
@@ -621,6 +646,18 @@ export default function ReportsTab() {
   }, [editMode, pendingQueue]);
 
   useEffect(() => {
+    if (!isAdmin || activeTab !== "review" || editMode) return;
+    const queueKeys = pendingQueueGroups.map(reviewQueueKey).filter(Boolean);
+    if (!queueKeys.length) {
+      if (selectedReviewQueueKey) setSelectedReviewQueueKey("");
+      return;
+    }
+    if (!selectedReviewQueueKey || !queueKeys.includes(selectedReviewQueueKey)) {
+      setSelectedReviewQueueKey(queueKeys[0]);
+    }
+  }, [activeTab, editMode, isAdmin, pendingQueueGroups, selectedReviewQueueKey]);
+
+  useEffect(() => {
     loadBootstrap();
   }, []);
 
@@ -685,10 +722,9 @@ export default function ReportsTab() {
     if (loading || selfViewOnly || !grid) return;
     if (editMode || gridLoading) return;
 
-    const nextStatus =
-      activeTab === "review" ? "pending" : activeTab === "published" ? "approved" : "";
+    const nextStatus = statusForTab(activeTab);
     const currentStatus = String(filters.approval_status || "");
-    const activeStatus = currentStatus || nextStatus;
+    const activeStatus = nextStatus || currentStatus;
     const gridHasRows = Array.isArray(grid?.rows) && grid.rows.length > 0;
 
     const scopeMismatch =
@@ -766,7 +802,7 @@ export default function ReportsTab() {
   useEffect(() => {
     if (!isAdmin || loading || activeTab !== "review") return;
     if (editMode) return;
-    const nextScope = pendingQueue.groups?.[0];
+    const nextScope = pendingReviewMeta;
     if (!nextScope) return;
 
     const needsScopeUpdate =
@@ -787,7 +823,7 @@ export default function ReportsTab() {
         approval_status: "pending",
       }));
     }
-  }, [activeTab, pendingQueue, loading, isAdmin, filters.exam_id, filters.class_id, filters.section_id, filters.subject_id, filters.approval_status, editMode]);
+  }, [activeTab, pendingReviewMeta, loading, isAdmin, filters.exam_id, filters.class_id, filters.section_id, filters.subject_id, filters.approval_status, editMode]);
 
   useEffect(() => {
     if (!isAdmin || loading || activeTab !== "review") return undefined;
@@ -815,7 +851,7 @@ export default function ReportsTab() {
           filters.section_id &&
           filters.subject_id
         ) {
-          const data = await getMarksGrid(filters);
+          const data = await getMarksGrid(gridFiltersForActiveTab());
           if (!cancelled) {
             resetGridState(data);
           }
@@ -918,8 +954,15 @@ export default function ReportsTab() {
   function syncTabFilter(tab: ReportsTabKey) {
     setFilters((prev) => ({
       ...prev,
-      approval_status: tab === "review" ? "pending" : tab === "published" ? "approved" : "",
+      approval_status: statusForTab(tab),
     }));
+  }
+
+  function gridFiltersForActiveTab() {
+    return {
+      ...filters,
+      approval_status: statusForTab(activeTab) || filters.approval_status,
+    };
   }
 
   async function handleLoadGrid() {
@@ -930,7 +973,7 @@ export default function ReportsTab() {
 
     setGridLoading(true);
     try {
-      const data = await getMarksGrid(filters);
+      const data = await getMarksGrid(gridFiltersForActiveTab());
       resetGridState(data);
       setNotice(null);
       return true;
@@ -1055,7 +1098,7 @@ export default function ReportsTab() {
   }
 
   function resetFilters() {
-    setFilters(EMPTY_FILTERS);
+    setFilters({ ...EMPTY_FILTERS, approval_status: statusForTab(activeTab) });
     resetGridState({
       exam_id: 0,
       class_id: 0,
@@ -1068,6 +1111,24 @@ export default function ReportsTab() {
       },
       rows: [],
     });
+  }
+
+  function selectReviewQueueGroup(group: PendingApprovalGroup) {
+    const key = reviewQueueKey(group);
+    setSelectedReviewQueueKey(key);
+    setFilters((prev) => ({
+      ...prev,
+      exam_id: String(group.exam_id),
+      class_id: String(group.class_id),
+      section_id: String(group.section_id),
+      medium: group.medium || "",
+      subject_id: String(group.subject_id),
+      approval_status: "pending",
+    }));
+    setSelectedStudentIds([]);
+    setVisibleRowCount(GRID_BATCH_SIZE);
+    setBulkActionsOpen(false);
+    setFiltersOpen(false);
   }
 
   async function applyFiltersAndCollapse() {
@@ -1137,6 +1198,7 @@ export default function ReportsTab() {
       section_id: filters.section_id || grid?.section_id || "",
       medium: filters.medium || undefined,
       subject_id: filters.subject_id || grid?.subject?.id || "",
+      approval_status: statusForTab(activeTab) || filters.approval_status || undefined,
       ...extra,
     };
   }
@@ -1272,6 +1334,24 @@ export default function ReportsTab() {
     }
   }
 
+  async function handleApproveStudent(row: MarksGridRow) {
+    setGridLoading(true);
+    try {
+      await approveMarks(buildMutationPayload({ student_ids: [Number(row.student_id)] }));
+      if (isAdmin) {
+        const queue = await getPendingApprovalQueue();
+        setPendingQueue(queue);
+        const summary = await getMarksApprovalSummary();
+        setApprovalSummary(summary);
+      }
+      await handleLoadGrid();
+      setSuccess("Approved", `${row.student_name}'s marks approved.`);
+    } catch (err: unknown) {
+      setError("Approve failed", getErrorMessage(err, "Failed to approve marks."));
+      setGridLoading(false);
+    }
+  }
+
   async function handleReject() {
     setGridLoading(true);
     try {
@@ -1294,7 +1374,7 @@ export default function ReportsTab() {
     try {
       await downloadStudentMarksheet(filters.exam_id, studentId);
     } catch (err: unknown) {
-      Alert.alert("Download failed", getErrorMessage(err, "Failed to download marksheet."));
+      setError("Download failed", getErrorMessage(err, "Failed to download marksheet."));
     }
   }
 
@@ -1318,10 +1398,14 @@ export default function ReportsTab() {
   }
 
   async function handleDownloadMyResult() {
+    if (!selfReport) {
+      setError("Validation", "Load an approved result first.");
+      return;
+    }
     try {
       await downloadMyMarksheet(selfFilters);
     } catch (err: unknown) {
-      Alert.alert("Download failed", getErrorMessage(err, "Failed to download marksheet."));
+      setError("Download failed", getErrorMessage(err, "Failed to download marksheet."));
     }
   }
 
@@ -1447,7 +1531,7 @@ export default function ReportsTab() {
           </View>
         ) : null}
 
-        {isAdmin ? (
+        {isAdmin && activeTab === "entry" ? (
           <View style={fullFieldStyle}>
             <Text style={styles.inputLabel}>Status</Text>
             <View style={styles.filterWrap}>
@@ -1496,6 +1580,59 @@ export default function ReportsTab() {
   }
 
   function renderCompactToolbar() {
+    const isPendingMode = activeTab === "review";
+    const isPublishedMode = activeTab === "published";
+    if (isPendingMode) {
+      return (
+        <View style={styles.compactToolbar}>
+          <Pressable
+            style={[styles.toolbarBtn, { borderColor: theme.border, backgroundColor: theme.card }]}
+            onPress={() => setFiltersOpen((prev) => !prev)}
+          >
+            <Ionicons name="filter-outline" size={16} color={theme.icon} />
+            <Text style={[styles.toolbarBtnText, { color: theme.text }]}>Filters</Text>
+          </Pressable>
+          <Pressable
+            style={[styles.toolbarBtn, { borderColor: theme.border, backgroundColor: theme.card }, (!selectableVisibleRows.length || gridLoading) && styles.disabledBtn]}
+            onPress={toggleAllRows}
+            disabled={!selectableVisibleRows.length || gridLoading}
+          >
+            <Text style={[styles.toolbarBtnText, { color: theme.text }]}>{allVisibleSelected ? "Clear All" : "Select All"}</Text>
+          </Pressable>
+          <Pressable
+            style={[styles.toolbarPrimaryBtn, { backgroundColor: theme.success }, (!grid?.rows?.length || gridLoading || editMode) && styles.disabledBtn]}
+            onPress={() => handleApprove(true)}
+            disabled={!grid?.rows?.length || gridLoading || editMode}
+          >
+            <Text style={[styles.toolbarPrimaryText, { color: theme.successText }]}>Approve All</Text>
+          </Pressable>
+        </View>
+      );
+    }
+    if (isPublishedMode) {
+      return (
+        <View style={styles.compactToolbar}>
+          <Pressable
+            style={[styles.toolbarBtn, { borderColor: theme.border, backgroundColor: theme.card }]}
+            onPress={() => setFiltersOpen((prev) => !prev)}
+          >
+            <Ionicons name="filter-outline" size={16} color={theme.icon} />
+            <Text style={[styles.toolbarBtnText, { color: theme.text }]}>Filters</Text>
+          </Pressable>
+          <Pressable
+            style={[styles.toolbarBtn, { borderColor: theme.border, backgroundColor: theme.card }, gridLoading && styles.disabledBtn]}
+            onPress={handleLoadGrid}
+            disabled={gridLoading}
+          >
+            <Ionicons name="refresh-outline" size={16} color={theme.icon} />
+            <Text style={[styles.toolbarBtnText, { color: theme.text }]}>{gridLoading ? "Loading" : "Load"}</Text>
+          </Pressable>
+          <View style={[styles.toolbarStaticPill, { borderColor: theme.border, backgroundColor: theme.cardMuted }]}>
+            <Text style={[styles.toolbarBtnText, { color: theme.text }]}>{gridStatusCounts.approved} Approved</Text>
+          </View>
+        </View>
+      );
+    }
     return (
       <View style={styles.compactToolbar}>
         <Pressable
@@ -1547,34 +1684,107 @@ export default function ReportsTab() {
   }
 
   function renderCompactOverview() {
+    const title =
+      activeTab === "review"
+        ? "Pending Review"
+        : activeTab === "published"
+          ? "Published Marksheets"
+          : grid?.subject?.name || selectedSubject?.name || "Marks Grid";
+    const subtitle =
+      activeTab === "review"
+        ? `${approvalSummary.pending} pending | ${approvalSummary.draft} draft | ${approvalSummary.approved} approved`
+        : activeTab === "published"
+          ? `${gridStatusCounts.approved} approved records`
+          : `${gridStatusCounts.total} students`;
     return (
       <View style={[styles.compactOverviewCard, { borderColor: theme.border, backgroundColor: theme.card }]}>
         <View style={styles.compactOverviewHeader}>
           <Text style={[styles.compactSubjectTitle, { color: theme.text }]} numberOfLines={1}>
-            {grid?.subject?.name || selectedSubject?.name || "Marks Grid"}
+            {title}
           </Text>
           <View style={styles.compactOverviewRight}>
-            <Text style={[styles.compactStudentsText, { color: theme.subText }]}>{gridStatusCounts.total} students</Text>
+            <Text style={[styles.compactStudentsText, { color: theme.subText }]} numberOfLines={1}>{subtitle}</Text>
             <Pressable
               style={[styles.iconOnlyBtn, { borderColor: theme.border, backgroundColor: theme.cardMuted }]}
               onPress={() => setBulkActionsOpen((prev) => !prev)}
-              disabled={!selectableGridRows.length}
+              disabled={!selectableGridRows.length && activeTab !== "review"}
             >
               <Ionicons name="ellipsis-vertical" size={16} color={theme.icon} />
             </Pressable>
           </View>
         </View>
         {bulkActionsOpen ? (
-          <Pressable
-            style={[styles.secondaryUtilityBtn, { borderColor: theme.border, backgroundColor: theme.cardMuted }, (!selectableGridRows.length || gridLoading) && styles.disabledBtn]}
-            onPress={() => {
-              markBlankRowsAbsent();
-              setBulkActionsOpen(false);
-            }}
-            disabled={!selectableGridRows.length || gridLoading}
-          >
-            <Text style={[styles.secondaryUtilityText, { color: theme.text }]}>Mark Blank Absent</Text>
-          </Pressable>
+          <View style={styles.compactUtilityRow}>
+            {activeTab === "review" ? (
+              <>
+                <Pressable
+                  style={[styles.secondaryUtilityBtn, { borderColor: theme.border, backgroundColor: theme.cardMuted }, (!grid?.rows?.length || gridLoading) && styles.disabledBtn]}
+                  onPress={() => {
+                    setEditMode((prev) => !prev);
+                    setBulkActionsOpen(false);
+                  }}
+                  disabled={!grid?.rows?.length || gridLoading}
+                >
+                  <Text style={[styles.secondaryUtilityText, { color: theme.text }]}>{editMode ? "Cancel Edit" : "Edit Marks"}</Text>
+                </Pressable>
+                <Pressable
+                  style={[styles.secondaryUtilityBtn, { borderColor: theme.border, backgroundColor: theme.cardMuted }, (!selectedStudentIds.length || gridLoading || editMode) && styles.disabledBtn]}
+                  onPress={() => {
+                    void handleApprove(false);
+                    setBulkActionsOpen(false);
+                  }}
+                  disabled={!selectedStudentIds.length || gridLoading || editMode}
+                >
+                  <Text style={[styles.secondaryUtilityText, { color: theme.text }]}>Approve Selected</Text>
+                </Pressable>
+                <Pressable
+                  style={[styles.secondaryUtilityBtn, { borderColor: theme.dangerBorder, backgroundColor: theme.dangerSoft }, (!selectedStudentIds.length || gridLoading) && styles.disabledBtn]}
+                  onPress={() => {
+                    void handleReject();
+                    setBulkActionsOpen(false);
+                  }}
+                  disabled={!selectedStudentIds.length || gridLoading}
+                >
+                  <Text style={[styles.secondaryUtilityText, { color: theme.danger }]}>Reject</Text>
+                </Pressable>
+                {editMode ? (
+                  <>
+                    <Pressable
+                      style={[styles.secondaryUtilityBtn, { borderColor: theme.border, backgroundColor: theme.cardMuted }, (!grid?.rows?.length || gridLoading) && styles.disabledBtn]}
+                      onPress={() => {
+                        markBlankRowsAbsent();
+                        setBulkActionsOpen(false);
+                      }}
+                      disabled={!grid?.rows?.length || gridLoading}
+                    >
+                      <Text style={[styles.secondaryUtilityText, { color: theme.text }]}>Mark Blank Absent</Text>
+                    </Pressable>
+                    <Pressable
+                      style={[styles.secondaryUtilityBtn, { borderColor: theme.success, backgroundColor: theme.success }, (!grid?.rows?.length || gridLoading) && styles.disabledBtn]}
+                      onPress={() => {
+                        void handleSaveMarks();
+                        setBulkActionsOpen(false);
+                      }}
+                      disabled={!grid?.rows?.length || gridLoading}
+                    >
+                      <Text style={[styles.secondaryUtilityText, { color: theme.successText }]}>Save Changes</Text>
+                    </Pressable>
+                  </>
+                ) : null}
+              </>
+            ) : (
+              <Pressable
+                style={[styles.secondaryUtilityBtn, { borderColor: theme.border, backgroundColor: theme.cardMuted }, (!selectableGridRows.length || gridLoading) && styles.disabledBtn]}
+                onPress={() => {
+                  markBlankRowsAbsent();
+                  setBulkActionsOpen(false);
+                }}
+                disabled={!selectableGridRows.length || gridLoading}
+              >
+                <Text style={[styles.secondaryUtilityText, { color: theme.text }]}>Mark Blank Absent</Text>
+              </Pressable>
+            )}
+          </View>
         ) : null}
         <View style={styles.compactStatsRow}>
           <CompactStat label="Students" value={gridStatusCounts.total} />
@@ -1582,6 +1792,42 @@ export default function ReportsTab() {
           <CompactStat label="Pending" value={gridStatusCounts.pending} tone="amber" />
           <CompactStat label="Approved" value={gridStatusCounts.approved} tone="green" />
         </View>
+        {activeTab === "review" && pendingQueueGroups.length ? (
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.reviewQueueScroller}
+          >
+            {pendingQueueGroups.map((group) => {
+              const key = reviewQueueKey(group);
+              const active = key === reviewQueueKey(pendingReviewMeta);
+              return (
+                <Pressable
+                  key={key}
+                  style={[
+                    styles.reviewQueueChip,
+                    { borderColor: active ? theme.primary : theme.border, backgroundColor: active ? theme.primary : theme.cardMuted },
+                  ]}
+                  onPress={() => selectReviewQueueGroup(group)}
+                  disabled={gridLoading || editMode}
+                >
+                  <Text
+                    style={[styles.reviewQueueChipTitle, { color: active ? theme.primaryText : theme.text }]}
+                    numberOfLines={1}
+                  >
+                    {group.subject_name}
+                  </Text>
+                  <Text
+                    style={[styles.reviewQueueChipMeta, { color: active ? theme.primaryText : theme.subText }]}
+                    numberOfLines={1}
+                  >
+                    {group.class_name} / {group.section_name} - {group.pending_count}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </ScrollView>
+        ) : null}
       </View>
     );
   }
@@ -1600,7 +1846,8 @@ export default function ReportsTab() {
         ? "Load approved records to download marksheets."
         : "Select the filters above and load a marks grid.";
 
-    if (showEntryActions && activeTab === "entry") {
+    const useCompactGrid = (showEntryActions && activeTab === "entry") || isPendingMode || isPublishedMode;
+    if (useCompactGrid) {
       return (
         <View style={styles.compactMarksheetStack}>
           {renderCompactOverview()}
@@ -1653,17 +1900,17 @@ export default function ReportsTab() {
                           {subjectLabel}
                         </Text>
                       </View>
-                      <Pressable
-                        style={[
-                          styles.squareCheckbox,
-                          { borderColor: isSelected ? theme.primary : theme.border, backgroundColor: isSelected ? theme.primary : theme.card },
-                          !rowCanSelect && styles.disabledBtn,
-                        ]}
-                        onPress={() => toggleRow(studentId)}
-                        disabled={!rowCanSelect}
-                      >
-                        {isSelected ? <Ionicons name="checkmark" size={14} color={theme.primaryText} /> : null}
-                      </Pressable>
+                      {rowCanSelect ? (
+                        <Pressable
+                          style={[
+                            styles.squareCheckbox,
+                            { borderColor: isSelected ? theme.primary : theme.border, backgroundColor: isSelected ? theme.primary : theme.card },
+                          ]}
+                          onPress={() => toggleRow(studentId)}
+                        >
+                          {isSelected ? <Ionicons name="checkmark" size={14} color={theme.primaryText} /> : null}
+                        </Pressable>
+                      ) : null}
                     </View>
 
                     <View style={styles.compactFieldBlock}>
@@ -1728,22 +1975,58 @@ export default function ReportsTab() {
                       </View>
                     </View>
 
-                    <View style={styles.compactCardActions}>
-                      <Pressable
-                        style={[styles.compactSaveBtn, { borderColor: theme.border, backgroundColor: theme.card }, (!rowCanEdit || gridLoading) && styles.disabledBtn]}
-                        onPress={() => handleSaveStudent(row)}
-                        disabled={!rowCanEdit || gridLoading}
-                      >
-                        <Text style={[styles.compactSaveText, { color: theme.text }]}>Save</Text>
-                      </Pressable>
-                      <Pressable
-                        style={[styles.compactSubmitBtn, { backgroundColor: theme.danger }, (!rowCanSelect || gridLoading) && styles.disabledBtn]}
-                        onPress={() => handleSubmitStudent(row)}
-                        disabled={!rowCanSelect || gridLoading}
-                      >
-                        <Text style={[styles.compactSubmitText, { color: theme.primaryText }]}>Submit</Text>
-                      </Pressable>
-                    </View>
+                    {isPublishedMode ? (
+                      <View style={styles.compactCardActions}>
+                        <Pressable
+                          style={[styles.compactSubmitBtn, { backgroundColor: theme.primary }, row.approval_status !== "approved" && styles.disabledBtn]}
+                          disabled={row.approval_status !== "approved"}
+                          onPress={() => handleDownloadStudent(Number(row.student_id))}
+                        >
+                          <Ionicons name="download-outline" size={16} color={theme.primaryText} />
+                          <Text style={[styles.compactSubmitText, { color: theme.primaryText }]}>Download</Text>
+                        </Pressable>
+                      </View>
+                    ) : isPendingMode ? (
+                      <View style={styles.compactCardActions}>
+                        <Pressable
+                          style={[styles.compactSaveBtn, { borderColor: isSelected ? theme.primary : theme.border, backgroundColor: theme.card }, (gridLoading || (editMode && !rowCanEdit)) && styles.disabledBtn]}
+                          onPress={() => {
+                            if (editMode) {
+                              void handleSaveStudent(row);
+                            } else {
+                              toggleRow(studentId);
+                            }
+                          }}
+                          disabled={gridLoading || (editMode && !rowCanEdit)}
+                        >
+                          <Text style={[styles.compactSaveText, { color: theme.text }]}>{editMode ? "Save" : "Select"}</Text>
+                        </Pressable>
+                        <Pressable
+                          style={[styles.compactSubmitBtn, { backgroundColor: theme.success }, (!rowCanSelect || gridLoading || editMode) && styles.disabledBtn]}
+                          onPress={() => handleApproveStudent(row)}
+                          disabled={!rowCanSelect || gridLoading || editMode}
+                        >
+                          <Text style={[styles.compactSubmitText, { color: theme.successText }]}>Approve</Text>
+                        </Pressable>
+                      </View>
+                    ) : (
+                      <View style={styles.compactCardActions}>
+                        <Pressable
+                          style={[styles.compactSaveBtn, { borderColor: theme.border, backgroundColor: theme.card }, (!rowCanEdit || gridLoading) && styles.disabledBtn]}
+                          onPress={() => handleSaveStudent(row)}
+                          disabled={!rowCanEdit || gridLoading}
+                        >
+                          <Text style={[styles.compactSaveText, { color: theme.text }]}>Save</Text>
+                        </Pressable>
+                        <Pressable
+                          style={[styles.compactSubmitBtn, { backgroundColor: theme.danger }, (!rowCanSelect || gridLoading) && styles.disabledBtn]}
+                          onPress={() => handleSubmitStudent(row)}
+                          disabled={!rowCanSelect || gridLoading}
+                        >
+                          <Text style={[styles.compactSubmitText, { color: theme.primaryText }]}>Submit</Text>
+                        </Pressable>
+                      </View>
+                    )}
                   </View>
                 );
               })}
@@ -2072,7 +2355,8 @@ export default function ReportsTab() {
     );
   }
 
-  const useCompactEntryScreen = !selfViewOnly && activeTab === "entry" && canUseEntryFlow;
+  const useCompactMarksheetScreen = !selfViewOnly
+    && ((activeTab === "entry" && canUseEntryFlow) || activeTab === "review" || activeTab === "published");
 
   return (
     <View style={styles.screen}>
@@ -2092,27 +2376,17 @@ export default function ReportsTab() {
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refreshCurrentTab} />}
       >
         <View style={styles.innerContent}>
-          {!useCompactEntryScreen ? (
+          {!useCompactMarksheetScreen ? (
             <View style={styles.heroCard}>
               <View style={styles.heroCopy}>
-                <Text style={styles.title}>Marksheet</Text>
-                <Text style={styles.subtitle}>
-                  {selfViewOnly
-                    ? "View approved marks and download marksheets."
-                    : isAdmin
-                      ? "Review, update, approve, and publish marks."
-                      : "Load marks grids, save draft marks, and submit them for approval."}
-                </Text>
+                <Text style={styles.title}>MARKSHEET</Text>
               </View>
             </View>
           ) : null}
 
-          {useCompactEntryScreen ? (
+          {useCompactMarksheetScreen ? (
             <View style={styles.compactSectionHeader}>
-              <Text style={[styles.compactSectionTitle, { color: theme.text }]}>Marksheet</Text>
-              <Text style={[styles.compactSectionSubtitle, { color: theme.subText }]}>
-                Enter marks, save drafts, and submit selected students.
-              </Text>
+              <Text style={[styles.compactSectionTitle, { color: theme.subText }]}>MARKSHEET</Text>
             </View>
           ) : null}
 
@@ -2122,8 +2396,8 @@ export default function ReportsTab() {
             renderSelfView()
           ) : (
             <>
-              {!useCompactEntryScreen ? renderAdminSummary() : null}
-              {!useCompactEntryScreen ? renderFilterPanel() : null}
+              {!useCompactMarksheetScreen ? renderAdminSummary() : null}
+              {!useCompactMarksheetScreen ? renderFilterPanel() : null}
               {renderGridPanel()}
             </>
           )}
@@ -2142,18 +2416,13 @@ return StyleSheet.create({
   content: { paddingHorizontal: 14, paddingTop: 10, paddingBottom: 120 },
   innerContent: { gap: 14 },
   compactSectionHeader: {
-    paddingTop: 2,
-    gap: 2,
+    paddingTop: 0,
   },
   compactSectionTitle: {
-    fontSize: 20,
-    lineHeight: 25,
+    fontSize: 13,
+    lineHeight: 16,
     fontWeight: "900",
-  },
-  compactSectionSubtitle: {
-    fontSize: 12,
-    lineHeight: 17,
-    fontWeight: "700",
+    letterSpacing: 0.8,
   },
   compactMarksheetStack: { gap: 12 },
   compactToolbar: {
@@ -2176,6 +2445,16 @@ return StyleSheet.create({
   toolbarPrimaryBtn: {
     flex: 1,
     minHeight: 44,
+    borderRadius: 10,
+    paddingHorizontal: 8,
+    paddingVertical: 8,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  toolbarStaticPill: {
+    flex: 1,
+    minHeight: 44,
+    borderWidth: 1,
     borderRadius: 10,
     paddingHorizontal: 8,
     paddingVertical: 8,
@@ -2283,6 +2562,11 @@ return StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 8,
   },
+  compactUtilityRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
   secondaryUtilityText: {
     fontSize: 12,
     fontWeight: "800",
@@ -2290,6 +2574,28 @@ return StyleSheet.create({
   compactStatsRow: {
     flexDirection: "row",
     gap: 8,
+  },
+  reviewQueueScroller: {
+    gap: 8,
+    paddingRight: 4,
+  },
+  reviewQueueChip: {
+    width: 168,
+    borderWidth: 1,
+    borderRadius: 11,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    gap: 3,
+  },
+  reviewQueueChipTitle: {
+    fontSize: 12,
+    lineHeight: 15,
+    fontWeight: "900",
+  },
+  reviewQueueChipMeta: {
+    fontSize: 10,
+    lineHeight: 13,
+    fontWeight: "700",
   },
   compactStatPill: {
     flex: 1,
@@ -2430,6 +2736,8 @@ return StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     paddingHorizontal: 10,
+    flexDirection: "row",
+    gap: 5,
   },
   compactSaveText: {
     fontSize: 13,
@@ -2467,8 +2775,10 @@ return StyleSheet.create({
   },
   title: {
     color: theme.text,
-    fontWeight: "800",
-    fontSize: 22,
+    fontWeight: "900",
+    fontSize: 13,
+    lineHeight: 16,
+    letterSpacing: 0.8,
   },
   subtitle: {
     color: theme.subText,

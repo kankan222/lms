@@ -242,6 +242,7 @@ export default function DashboardTab({
     <View style={styles.container}>
       <View style={styles.contentBody}>
         <View style={styles.topBlock}>
+        <Text style={[styles.moduleLabel, { color: theme.subText }]}>DASHBOARD</Text>
         <View style={styles.scopeControl}>
           {SCOPE_OPTIONS.map((item) => {
             const active = scope === item.value;
@@ -676,6 +677,7 @@ return StyleSheet.create({
   contentBody: { gap: 12, paddingHorizontal: 16, paddingTop: 12 },
   topBlock: { gap: 10 },
   heroTitle: { fontSize: 16, lineHeight: 20, fontWeight: "800", letterSpacing: 0.4 },
+  moduleLabel: { fontSize: 13, lineHeight: 16, fontWeight: "900", letterSpacing: 0.8 },
   heroText: { fontSize: 12, lineHeight: 16, fontWeight: "400" },
   scopeControl: { flexDirection: "row", gap: 6 },
   scopeButton: { flex: 1, minHeight: 30, borderWidth: 1, borderRadius: 16, alignItems: "center", justifyContent: "center", paddingHorizontal: 8 },

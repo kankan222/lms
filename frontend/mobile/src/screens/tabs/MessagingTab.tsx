@@ -1918,7 +1918,7 @@ export default function MessagingTab({
                     </>
                   ) : (
                     <>
-                      <Text style={[styles.listTitle, { color: theme.text }]}>Messaging</Text>
+                      <Text style={[styles.listTitle, { color: theme.subText }]}>MESSAGING</Text>
                       <View style={styles.listTitleActions}>
                         {canStartMessages ? (
                           <Pressable
@@ -2444,7 +2444,7 @@ return StyleSheet.create({
   heroTitle: { color: theme.text, fontWeight: "800", fontSize: 22 },
   heroSubtitle: { color: theme.subText, lineHeight: 20 },
   listTitleRow: { minHeight: 36, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 },
-  listTitle: { flex: 1, fontSize: 20, lineHeight: 25, fontWeight: "800" },
+  listTitle: { flex: 1, fontSize: 13, lineHeight: 16, fontWeight: "900", letterSpacing: 0.8 },
   listTitleActions: { flexDirection: "row", alignItems: "center", gap: 8 },
   listIconBtn: { width: 36, height: 36, borderRadius: 12, borderWidth: 1, alignItems: "center", justifyContent: "center" },
   newMessageBtn: {

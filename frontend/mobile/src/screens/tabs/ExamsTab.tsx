@@ -252,6 +252,7 @@ export default function ExamsTab() {
     setSessionFilter("");
     setClassFilter("");
     setSectionFilter("");
+    setFiltersOpen(false);
   }
 
   function setScope(idx: number, key: "class_id" | "section_id", value: string) {
@@ -436,77 +437,74 @@ export default function ExamsTab() {
       showsVerticalScrollIndicator={false}
     >
       <View style={styles.innerContent}>
-      <View style={styles.heroCard}>
-        <View style={styles.heroText}>
-          <Text style={[styles.title, { color: theme.text, fontWeight: "800", fontSize: 22 }]}>Exams</Text>
-          <Text style={[styles.subtitle, { color: theme.subText, lineHeight: 20 }]}>
-            Manage exam setup, scopes, and subject marks
-          </Text>
-        </View>
-          <View style={styles.heroPrimaryActions}>
-            {canCreate ? (
-              <Pressable
-                style={[styles.heroPrimaryBtn, { backgroundColor: theme.primary }]}
-                onPress={() => {
-                  resetForm();
-                  setOpen(true);
-                }}
-              >
-                <Text style={[styles.primaryBtnText, { color: theme.primaryText }]}>Add Exam</Text>
-              </Pressable>
-            ) : null}
+      <Text style={[styles.title, { color: theme.subText }]}>EXAM SETUP</Text>
+
+      <View style={[styles.overviewCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+        <View style={styles.overviewHeader}>
+          <View style={styles.overviewTitleWrap}>
+            <Text style={[styles.overviewTitle, { color: theme.text }]}>Exam Directory</Text>
+            <Text style={[styles.overviewSubText, { color: theme.subText }]}>
+              {filteredExams.length} visible of {exams.length} exams
+            </Text>
           </View>
+          <View style={[styles.overviewCountBadge, { backgroundColor: theme.cardMuted, borderColor: theme.border }]}>
+            <Text style={[styles.overviewCountBadgeValue, { color: theme.text }]}>{sessions.length}</Text>
+            <Text style={[styles.overviewCountBadgeLabel, { color: theme.subText }]}>sessions</Text>
+          </View>
+        </View>
+        <View style={styles.compactStatsRow}>
+          <View style={[styles.compactStat, { backgroundColor: theme.cardMuted, borderColor: theme.border }]}>
+            <Text style={[styles.compactStatValue, { color: theme.text }]}>{filteredExams.length}</Text>
+            <Text style={[styles.compactStatLabel, { color: theme.subText }]}>Visible</Text>
+          </View>
+          <View style={[styles.compactStat, { backgroundColor: theme.successSoft, borderColor: theme.successBorder }]}>
+            <Text style={[styles.compactStatValue, { color: theme.success }]}>{totalScopes}</Text>
+            <Text style={[styles.compactStatLabel, { color: theme.subText }]}>Scopes</Text>
+          </View>
+          <View style={[styles.compactStat, { backgroundColor: theme.warningSoft, borderColor: theme.warningBorder }]}>
+            <Text style={[styles.compactStatValue, { color: theme.warningText }]}>{totalSubjects}</Text>
+            <Text style={[styles.compactStatLabel, { color: theme.subText }]}>Subjects</Text>
+          </View>
+          <View style={[styles.compactStat, { backgroundColor: theme.cardMuted, borderColor: theme.border }]}>
+            <Text style={[styles.compactStatValue, { color: theme.text }]}>{activeFilterCount}</Text>
+            <Text style={[styles.compactStatLabel, { color: theme.subText }]}>Filters</Text>
+          </View>
+        </View>
       </View>
 
-      <View style={styles.summaryRow}>
-        <View style={[styles.summaryCard, { backgroundColor: theme.isDark ? "#172554" : "#dbeafe", borderColor: theme.isDark ? "#1d4ed8" : "#93c5fd" }]}>
-          <Text style={[styles.summaryLabel, { color: theme.subText }]}>Visible Exams</Text>
-          <Text style={[styles.summaryValue, { color: theme.isDark ? "#bfdbfe" : "#1d4ed8" }]}>{filteredExams.length}</Text>
-        </View>
-        <View style={[styles.summaryCard, { backgroundColor: theme.isDark ? "#14532d" : "#dcfce7", borderColor: theme.isDark ? "#15803d" : "#86efac" }]}>
-          <Text style={[styles.summaryLabel, { color: theme.subText }]}>Scopes</Text>
-          <Text style={[styles.summaryValue, { color: theme.isDark ? "#bbf7d0" : "#15803d" }]}>{totalScopes}</Text>
-        </View>
-        <View style={[styles.summaryCard, { backgroundColor: theme.isDark ? "#78350f" : "#fef3c7", borderColor: theme.isDark ? "#d97706" : "#fcd34d" }]}>
-          <Text style={[styles.summaryLabel, { color: theme.subText }]}>Subjects</Text>
-          <Text style={[styles.summaryValue, { color: theme.isDark ? "#fde68a" : "#b45309" }]}>{totalSubjects}</Text>
-        </View>
-      </View>
-
-      <View style={[styles.filterCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
-        <View style={styles.sectionHeader}>
-          <Text style={styles.filterTitle}>Browse Exams</Text>
-          <Text style={styles.filterHint}>{filteredExams.length} visible</Text>
-        </View>
-        <View style={styles.searchRow}>
-          <TextInput
-            style={[styles.input, styles.searchInput, { borderColor: theme.border, backgroundColor: theme.inputBg, color: theme.text }]}
-            value={search}
-            onChangeText={setSearch}
-            placeholder="Search by exam, session, class, or section"
-            placeholderTextColor={theme.mutedText}
-          />
-          <Pressable style={[styles.iconUtilityBtn, { borderColor: theme.border, backgroundColor: theme.card }]} onPress={() => setFiltersOpen(true)}>
-            <Ionicons name="options-outline" size={18} color={theme.icon} />
+      <View style={styles.toolbarRow}>
+        <Pressable
+          style={[styles.toolbarButton, { backgroundColor: theme.card, borderColor: theme.border }]}
+          onPress={() => setFiltersOpen((value) => !value)}
+        >
+          <Ionicons name="filter" size={15} color={theme.text} />
+          <Text style={[styles.toolbarButtonText, { color: theme.text }]}>Filters</Text>
+          {activeFilterCount > 0 ? (
+            <View style={[styles.filterCount, { backgroundColor: theme.primary }]}>
+              <Text style={[styles.filterCountText, { color: theme.primaryText }]}>{activeFilterCount}</Text>
+            </View>
+          ) : null}
+        </Pressable>
+        {canCreate ? (
+          <Pressable
+            style={[styles.primaryToolbarButton, { backgroundColor: theme.primary, borderColor: theme.primary }]}
+            onPress={() => {
+              resetForm();
+              setOpen(true);
+            }}
+          >
+            <Ionicons name="add" size={16} color={theme.primaryText} />
+            <Text style={[styles.primaryToolbarButtonText, { color: theme.primaryText }]}>Add Exam</Text>
           </Pressable>
-        </View>
-        {activeFilterCount ? (
-          <Text style={[styles.activeFiltersText, { color: theme.subText }]}>
-            {sessionFilter ? `Session: ${sessions.find((s) => String(s.id) === sessionFilter)?.name || "-"}` : "All sessions"}
-            {classFilter ? ` - Class: ${selectedClass?.name || "-"}` : ""}
-            {sectionFilter ? ` - Section: ${filterSections.find((s) => String(s.id) === sectionFilter)?.name || "-"}` : ""}
-          </Text>
         ) : null}
       </View>
 
-      <Modal visible={filtersOpen} transparent animationType="fade" onRequestClose={() => setFiltersOpen(false)}>
-        <View style={styles.popoverOverlay}>
-          <Pressable style={styles.popoverBackdrop} onPress={() => setFiltersOpen(false)} />
-          <View style={[styles.filterPopover, { backgroundColor: theme.card, borderColor: theme.border }]}>
+      {filtersOpen ? (
+          <View style={[styles.compactFilterCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
             <View style={styles.sectionHeader}>
               <Text style={[styles.filterTitle, { color: theme.text }]}>Filters</Text>
               <Pressable onPress={resetFilters}>
-                <Text style={[styles.resetText, { color: theme.success }]}>Reset</Text>
+                <Text style={[styles.resetText, { color: theme.text }]}>Reset</Text>
               </Pressable>
             </View>
 
@@ -549,12 +547,30 @@ export default function ExamsTab() {
 
             <View style={styles.rowActions}>
               <Pressable style={[styles.secondaryBtn, { borderColor: theme.border, backgroundColor: theme.card }]} onPress={() => setFiltersOpen(false)}>
-                <Text style={[styles.secondaryBtnText, { color: theme.text }]}>Apply</Text>
+                <Text style={[styles.secondaryBtnText, { color: theme.text }]}>Apply Filters</Text>
               </Pressable>
             </View>
           </View>
-        </View>
-      </Modal>
+      ) : null}
+
+      <View style={[styles.searchWrap, { backgroundColor: theme.inputBg, borderColor: theme.border }]}>
+        <Ionicons name="search" size={16} color={theme.subText} />
+        <TextInput
+          style={[styles.searchInput, { color: theme.text }]}
+          value={search}
+          onChangeText={setSearch}
+          placeholder="Search exam, session, class, or section"
+          placeholderTextColor={theme.mutedText}
+        />
+      </View>
+
+      {activeFilterCount ? (
+        <Text style={[styles.activeFiltersText, { color: theme.subText }]}>
+          {sessionFilter ? `Session: ${sessions.find((s) => String(s.id) === sessionFilter)?.name || "-"}` : "All sessions"}
+          {classFilter ? ` - Class: ${selectedClass?.name || "-"}` : ""}
+          {sectionFilter ? ` - Section: ${filterSections.find((s) => String(s.id) === sectionFilter)?.name || "-"}` : ""}
+        </Text>
+      ) : null}
 
       {loading ? (
         <View style={styles.centered}>
@@ -583,8 +599,9 @@ export default function ExamsTab() {
                     <Text style={[styles.cardTitle, { color: theme.text }]}>{exam.name}</Text>
                     <Text style={[styles.metaCompact, { color: theme.subText }]}>Session: {exam.session_name || "-"}</Text>
                   </View>
-                  <View style={[styles.countBadge, { backgroundColor: theme.cardMuted }]}>
-                    <Text style={[styles.countBadgeText, { color: theme.text }]}>{details?.subjects?.length || 0} subjects</Text>
+                  <View style={[styles.cardCountBadge, { backgroundColor: theme.cardMuted, borderColor: theme.border }]}>
+                    <Text style={[styles.cardCountBadgeText, { color: theme.text }]}>{details?.subjects?.length || 0}</Text>
+                    <Text style={[styles.cardCountBadgeLabel, { color: theme.subText }]}>subjects</Text>
                   </View>
                 </View>
 
@@ -852,7 +869,7 @@ const styles = StyleSheet.create({
     paddingBottom: 120,
   },
   innerContent: {
-    gap: 12,
+    gap: 10,
   },
   topNoticeOverlay: {
     position: "absolute",
@@ -911,8 +928,10 @@ const styles = StyleSheet.create({
   },
   title: {
     color: "#0f172a",
-    fontWeight: "700",
-    fontSize: 20,
+    fontWeight: "900",
+    fontSize: 15,
+    lineHeight: 18,
+    letterSpacing: 0.8,
   },
   subtitle: {
     marginTop: 4,
@@ -940,6 +959,133 @@ const styles = StyleSheet.create({
     fontSize: 22,
     fontWeight: "700",
   },
+  overviewCard: {
+    borderWidth: 1,
+    borderRadius: 8,
+    padding: 12,
+    gap: 10,
+  },
+  overviewHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10,
+  },
+  overviewTitleWrap: {
+    flex: 1,
+    gap: 2,
+  },
+  overviewTitle: {
+    fontSize: 15,
+    fontWeight: "900",
+  },
+  overviewSubText: {
+    fontSize: 11,
+    fontWeight: "600",
+    lineHeight: 15,
+  },
+  overviewCountBadge: {
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    alignItems: "center",
+    minWidth: 64,
+  },
+  overviewCountBadgeValue: {
+    fontSize: 15,
+    fontWeight: "900",
+    lineHeight: 17,
+  },
+  overviewCountBadgeLabel: {
+    fontSize: 10,
+    fontWeight: "800",
+    textTransform: "uppercase",
+  },
+  compactStatsRow: {
+    flexDirection: "row",
+    gap: 6,
+  },
+  compactStat: {
+    flex: 1,
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingHorizontal: 6,
+    paddingVertical: 7,
+    alignItems: "center",
+    gap: 2,
+  },
+  compactStatValue: {
+    fontSize: 14,
+    fontWeight: "900",
+    lineHeight: 16,
+  },
+  compactStatLabel: {
+    fontSize: 10,
+    fontWeight: "800",
+    textTransform: "uppercase",
+  },
+  toolbarRow: {
+    flexDirection: "row",
+    gap: 8,
+  },
+  toolbarButton: {
+    flex: 1,
+    minHeight: 38,
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 5,
+  },
+  toolbarButtonText: {
+    fontSize: 12,
+    fontWeight: "800",
+  },
+  primaryToolbarButton: {
+    flex: 1,
+    minHeight: 38,
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+  },
+  primaryToolbarButtonText: {
+    fontSize: 12,
+    fontWeight: "900",
+  },
+  filterCount: {
+    minWidth: 17,
+    height: 17,
+    borderRadius: 8,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 4,
+  },
+  filterCountText: {
+    fontSize: 10,
+    fontWeight: "900",
+  },
+  compactFilterCard: {
+    borderWidth: 1,
+    borderRadius: 8,
+    padding: 10,
+    gap: 10,
+  },
+  searchWrap: {
+    minHeight: 42,
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingHorizontal: 11,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
   filterCard: {
     borderWidth: 1,
     borderColor: "#e2e8f0",
@@ -962,6 +1108,9 @@ const styles = StyleSheet.create({
   },
   searchInput: {
     flex: 1,
+    paddingVertical: 8,
+    fontSize: 13,
+    fontWeight: "600",
   },
   activeFiltersText: {
     color: "#64748b",
@@ -1035,8 +1184,8 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#cbd5e1",
     paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 10,
+    paddingVertical: 9,
+    borderRadius: 8,
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: "#fff",
@@ -1050,8 +1199,8 @@ const styles = StyleSheet.create({
     borderColor: "#fecaca",
     backgroundColor: "#fee2e2",
     paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 10,
+    paddingVertical: 9,
+    borderRadius: 8,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -1068,15 +1217,15 @@ const styles = StyleSheet.create({
     maxHeight: 560,
   },
   listContent: {
-    gap: 12,
+    gap: 10,
     paddingBottom: 16,
   },
   card: {
     borderWidth: 1,
     borderColor: "#e2e8f0",
-    borderRadius: 20,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 11,
     gap: 8,
   },
   cardHeader: {
@@ -1090,8 +1239,9 @@ const styles = StyleSheet.create({
   },
   cardTitle: {
     color: "#0f172a",
-    fontWeight: "800",
-    fontSize: 16,
+    fontWeight: "900",
+    fontSize: 15,
+    lineHeight: 19,
   },
   meta: {
     marginTop: 4,
@@ -1099,8 +1249,9 @@ const styles = StyleSheet.create({
   },
   metaCompact: {
     color: "#64748b",
-    lineHeight: 17,
-    fontSize: 12.5,
+    lineHeight: 16,
+    fontSize: 12,
+    fontWeight: "600",
   },
   metaStack: {
     gap: 3,
@@ -1116,6 +1267,27 @@ const styles = StyleSheet.create({
     color: "#0f172a",
     fontWeight: "700",
     fontSize: 12,
+  },
+  cardCountBadge: {
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    alignItems: "center",
+    alignSelf: "flex-start",
+    minWidth: 58,
+  },
+  cardCountBadgeText: {
+    color: "#0f172a",
+    fontWeight: "900",
+    fontSize: 14,
+    lineHeight: 16,
+  },
+  cardCountBadgeLabel: {
+    color: "#64748b",
+    fontWeight: "800",
+    fontSize: 9,
+    textTransform: "uppercase",
   },
   cardSectionTitle: {
     marginTop: 10,
@@ -1157,8 +1329,8 @@ const styles = StyleSheet.create({
   emptyCard: {
     borderWidth: 1,
     borderColor: "#e2e8f0",
-    borderRadius: 16,
-    padding: 18,
+    borderRadius: 8,
+    padding: 14,
     alignItems: "center",
   },
   emptyTitle: {

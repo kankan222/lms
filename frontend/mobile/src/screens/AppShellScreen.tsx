@@ -19,6 +19,7 @@ import { getUnreadMessageTotal } from "../services/messagingService";
 import { getMyNotifications } from "../services/notificationsService";
 import { syncPushNotificationsAfterSignIn } from "../services/pushNotificationService";
 import { checkAppUpdate, showAppUpdatePromptOnce } from "../services/appUpdateService";
+import { AppNotice, dismissAppNotice, getActiveAppNotice, openAppNoticeAction, wasAppNoticeDismissed } from "../services/appNoticeService";
 import { useAppTheme } from "../theme/AppThemeProvider";
 import DashboardTab from "./tabs/DashboardTab";
 import ClassesTab from "./tabs/ClassesTab";
@@ -317,6 +318,7 @@ export default function AppShellScreen({ navigation, route }: Props) {
   const [messagingComposeTarget, setMessagingComposeTarget] = useState<MessagingComposeResult | null>(null);
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
   const [messageUnread, setMessageUnread] = useState(0);
+  const [appNotice, setAppNotice] = useState<AppNotice | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -364,6 +366,38 @@ export default function AppShellScreen({ navigation, route }: Props) {
 
     return () => {
       active = false;
+    };
+  }, [user?.id]);
+
+  useEffect(() => {
+    if (!user?.id) {
+      setAppNotice(null);
+      return;
+    }
+    let active = true;
+    async function refreshAppNotice() {
+      try {
+        const notice = await getActiveAppNotice();
+        if (!active) return;
+        if (!notice) {
+          setAppNotice(null);
+          return;
+        }
+        const dismissed = await wasAppNoticeDismissed(notice);
+        if (active) setAppNotice(dismissed ? null : notice);
+      } catch {
+        if (active) setAppNotice(null);
+      }
+    }
+
+    void refreshAppNotice();
+    const timer = setInterval(() => {
+      void refreshAppNotice();
+    }, 120000);
+
+    return () => {
+      active = false;
+      clearInterval(timer);
     };
   }, [user?.id]);
 
@@ -458,6 +492,7 @@ export default function AppShellScreen({ navigation, route }: Props) {
     : hasRole(roles, "accounts")
       ? "Accounts Portal"
       : "KKV";
+  const headerSubtitle = TABS.find((tab) => tab.key === activeTab)?.label || "";
 
   function selectTab(next: TabKey) {
     setActiveTab(next);
@@ -504,6 +539,52 @@ export default function AppShellScreen({ navigation, route }: Props) {
       setIsLoading(false);
     }
   }, [permissions, roles]);
+
+  async function dismissCurrentAppNotice() {
+    if (!appNotice) return;
+    await dismissAppNotice(appNotice);
+    setAppNotice(null);
+  }
+
+  function noticeColors(notice: AppNotice) {
+    if (notice.severity === "critical") {
+      return { bg: theme.dangerSoft, border: theme.dangerBorder, icon: theme.danger };
+    }
+    if (notice.severity === "warning") {
+      return { bg: theme.warningSoft, border: theme.warningBorder, icon: theme.warningText };
+    }
+    return { bg: theme.infoSoft, border: theme.infoBorder, icon: theme.infoText };
+  }
+
+  function renderAppNoticeCard(mode: "banner" | "blocking" = "banner") {
+    if (!appNotice) return null;
+    const colors = noticeColors(appNotice);
+    return (
+      <View style={[
+        styles.appNoticeCard,
+        mode === "blocking" && styles.appNoticeBlockingCard,
+        { backgroundColor: colors.bg, borderColor: colors.border },
+      ]}>
+        <View style={styles.appNoticeHeader}>
+          <View style={styles.appNoticeTitleRow}>
+            <Ionicons name={appNotice.severity === "critical" ? "alert-circle-outline" : "information-circle-outline"} size={18} color={colors.icon} />
+            <Text style={[styles.appNoticeTitle, { color: theme.text }]}>{appNotice.title}</Text>
+          </View>
+          {appNotice.dismissible ? (
+            <Pressable style={[styles.appNoticeClose, { borderColor: colors.border }]} onPress={() => void dismissCurrentAppNotice()}>
+              <Ionicons name="close" size={15} color={theme.icon} />
+            </Pressable>
+          ) : null}
+        </View>
+        <Text style={[styles.appNoticeMessage, { color: theme.subText }]}>{appNotice.message}</Text>
+        {appNotice.action_label && appNotice.action_url ? (
+          <Pressable style={[styles.appNoticeAction, { borderColor: colors.border }]} onPress={() => void openAppNoticeAction(appNotice)}>
+            <Text style={[styles.appNoticeActionText, { color: colors.icon }]}>{appNotice.action_label}</Text>
+          </Pressable>
+        ) : null}
+      </View>
+    );
+  }
 
   function renderTabContent(tab: TabKey) {
     switch (tab) {
@@ -576,13 +657,16 @@ export default function AppShellScreen({ navigation, route }: Props) {
             backgroundColor: theme.bg,
             borderBottomColor: theme.border,
             paddingTop: Math.max(insets.top, 6),
-            minHeight: 52 + Math.max(insets.top, 6),
+            minHeight: 58 + Math.max(insets.top, 6),
           },
         ]}
       >
         <View style={styles.headerLeft}>
           <View style={styles.headerCopy}>
             <Text style={[styles.brandText, { color: theme.text }]} numberOfLines={1}>{headerBrand}</Text>
+            {headerSubtitle ? (
+              <Text style={[styles.brandSubtitle, { color: theme.subText }]} numberOfLines={1}>{headerSubtitle}</Text>
+            ) : null}
           </View>
         </View>
 
@@ -651,8 +735,16 @@ export default function AppShellScreen({ navigation, route }: Props) {
         </View>
       </View>
 
+      {appNotice && appNotice.severity !== "critical" ? (
+        <View style={styles.appNoticeBannerWrap}>{renderAppNoticeCard("banner")}</View>
+      ) : null}
+
       <View style={styles.contentStatic}>
-        {mountedTabs.map((tab) => {
+        {appNotice?.severity === "critical" ? (
+          <View style={styles.appNoticeBlockingWrap}>
+            {renderAppNoticeCard("blocking")}
+          </View>
+        ) : mountedTabs.map((tab) => {
           const isActive = tab === activeTab;
 
           if (!visibleTabs.includes(tab)) {
@@ -757,7 +849,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#f8fafc",
   },
   header: {
-    height: 52,
+    height: 58,
     paddingHorizontal: 12,
     borderBottomWidth: 1,
     flexDirection: "row",
@@ -779,16 +871,22 @@ const styles = StyleSheet.create({
   headerCopy: {
     flex: 1,
     minWidth: 0,
+    gap: 1,
   },
   brandText: {
     fontSize: 16,
     fontWeight: "800",
     letterSpacing: 0.4,
   },
+  brandSubtitle: {
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: "700",
+  },
   iconButton: {
     width: 38,
     height: 38,
-    borderRadius: 19,
+    borderRadius: 8,
     borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
@@ -806,6 +904,72 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   headerBadgeText: { color: "#ffffff", fontSize: 10, fontWeight: "800" },
+  appNoticeBannerWrap: {
+    paddingHorizontal: 12,
+    paddingTop: 8,
+    backgroundColor: "transparent",
+  },
+  appNoticeCard: {
+    borderWidth: 1,
+    borderRadius: 8,
+    padding: 12,
+    gap: 8,
+  },
+  appNoticeBlockingWrap: {
+    flex: 1,
+    justifyContent: "center",
+    paddingHorizontal: 18,
+    paddingBottom: 120,
+  },
+  appNoticeBlockingCard: {
+    padding: 16,
+  },
+  appNoticeHeader: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: 10,
+  },
+  appNoticeTitleRow: {
+    flex: 1,
+    minWidth: 0,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  appNoticeTitle: {
+    flex: 1,
+    minWidth: 0,
+    fontSize: 14,
+    fontWeight: "900",
+    lineHeight: 18,
+  },
+  appNoticeClose: {
+    width: 30,
+    height: 30,
+    borderWidth: 1,
+    borderRadius: 8,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  appNoticeMessage: {
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: "600",
+  },
+  appNoticeAction: {
+    alignSelf: "flex-start",
+    minHeight: 34,
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  appNoticeActionText: {
+    fontSize: 12,
+    fontWeight: "900",
+  },
   floatingBadge: {
     position: "absolute",
     top: -7,

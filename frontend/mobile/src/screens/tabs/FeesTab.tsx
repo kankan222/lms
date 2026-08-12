@@ -793,12 +793,7 @@ export default function FeesTab() {
       <View style={styles.innerContent}>
       <View style={styles.heroCard}>
         <View style={styles.heroCopy}>
-          <Text style={styles.title}>Fees</Text>
-          <Text style={styles.subtitle}>
-            {isAccounts
-              ? "Review fee structures and installment plans from the finance workspace."
-              : "Review fee structures, admission pricing, and installment plans."}
-          </Text>
+          <Text style={styles.title}>FEES</Text>
         </View>
           <View style={styles.heroPrimaryActions}>
             {canManage ? (
@@ -1118,7 +1113,7 @@ return StyleSheet.create({
   heroCopy: { gap: 6 },
   heroPrimaryActions: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
   heroEyebrow: { color: theme.subText, fontSize: 12, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.6 },
-  title: { color: theme.text, fontWeight: "800", fontSize: 22 },
+  title: { color: theme.subText, fontWeight: "900", fontSize: 13, lineHeight: 16, letterSpacing: 0.8 },
   subtitle: { color: theme.subText, lineHeight: 20 },
   noticeCard: { borderRadius: 18, paddingHorizontal: 14, paddingVertical: 12, borderWidth: 1 },
   noticeSuccessCard: { backgroundColor: "#f0fdf4", borderColor: "#bbf7d0" },

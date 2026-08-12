@@ -372,10 +372,7 @@ export default function SettingsTab() {
       showsVerticalScrollIndicator={false}
     >
       <View style={[styles.heroCard, { borderColor: theme.border, backgroundColor: theme.card }]}>
-        <Text style={[styles.heroTitle, { color: theme.text }]}>Settings</Text>
-        <Text style={[styles.heroSubtitle, { color: theme.subText }]}>
-          Manage account, academic sessions, streams, and security tools with the live backend settings workflows.
-        </Text>
+        <Text style={[styles.heroTitle, { color: theme.subText }]}>SETTINGS</Text>
       </View>
 
       <TopNotice notice={notice} />
@@ -670,7 +667,7 @@ export default function SettingsTab() {
 const styles = StyleSheet.create({
   container: { gap: 14, paddingBottom: 120 },
   heroCard: { borderWidth: 1, borderColor: "#e2e8f0", borderRadius: 24, backgroundColor: "#ffffff", padding: 18, gap: 6 },
-  heroTitle: { color: "#0f172a", fontWeight: "800", fontSize: 22 },
+  heroTitle: { color: "#0f172a", fontWeight: "900", fontSize: 13, lineHeight: 16, letterSpacing: 0.8 },
   heroSubtitle: { color: "#64748b", lineHeight: 20 },
   noticeCard: { borderWidth: 1, borderRadius: 18, paddingHorizontal: 14, paddingVertical: 12 },
   noticeTitle: { color: "#0f172a", fontWeight: "800", marginBottom: 2 },

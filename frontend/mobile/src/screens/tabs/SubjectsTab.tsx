@@ -140,6 +140,7 @@ export default function SubjectsTab() {
 
   const [search, setSearch] = useState("");
   const [assignmentFilter, setAssignmentFilter] = useState<AssignmentFilter>("all");
+  const [filtersOpen, setFiltersOpen] = useState(false);
 
   const [createOpen, setCreateOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
@@ -237,13 +238,10 @@ export default function SubjectsTab() {
     const assigned = subjects.filter((subject) => assignedIds.has(Number(subject.id))).length;
     const unassigned = Math.max(subjects.length - assigned, 0);
     const mappedClasses = classCards.filter((row) => row.subjects.length > 0).length;
-    return [
-      { label: "Total Subjects", value: subjects.length, accent: theme.infoSoft, border: theme.infoBorder, tone: theme.infoText },
-      { label: "Assigned", value: assigned, accent: theme.successSoft, border: theme.successBorder, tone: theme.success },
-      { label: "Unassigned", value: unassigned, accent: theme.warningSoft, border: theme.warningBorder, tone: theme.warningText },
-      { label: "Classes With Subjects", value: `${mappedClasses}/${classCards.length}`, accent: theme.card, border: theme.border, tone: theme.text },
-    ];
-  }, [subjects, assignedIds, classCards, theme]);
+    return { assigned, unassigned, mappedClasses };
+  }, [subjects, assignedIds, classCards]);
+
+  const activeFilterCount = assignmentFilter === "all" ? 0 : 1;
 
   const canCreate = !saving;
   const canEdit = !saving && editingSubjectId !== null;
@@ -369,69 +367,126 @@ export default function SubjectsTab() {
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => loadData("refresh")} />}
       >
         <View style={styles.innerContent}>
-          <View style={styles.heroCard}>
-            <View style={styles.heroCopy}>
-              <Text style={[styles.title, { color: theme.text }]}>Subjects</Text>
-              <Text style={[styles.subtitle, { color: theme.subText }]}>Create subjects, review class coverage, and assign them</Text>
-            </View>
-          </View>
+          <Text style={[styles.title, { color: theme.subText }]}>SUBJECTS</Text>
 
-          <View style={styles.heroPrimaryActions}>
-            <Pressable style={[styles.heroSecondaryBtn, { backgroundColor: theme.card, borderColor: theme.border }]} onPress={() => setAssignOpen(true)}>
-              <Text style={[styles.secondaryBtnText, { color: theme.text }]}>Assign</Text>
-            </Pressable>
-            <Pressable style={[styles.heroPrimaryBtn, { backgroundColor: theme.primary }]} onPress={() => setCreateOpen(true)}>
-              <Text style={[styles.primaryBtnText, { color: theme.primaryText }]}>Add Subject</Text>
-            </Pressable>
-          </View>
-          <View style={styles.statsGrid}>
-            {stats.map((item) => (
-              <View key={item.label} style={[styles.statCard, { backgroundColor: item.accent, borderColor: item.border }]}>
-                <Text style={[styles.statLabel, { color: theme.subText }]}>{item.label}</Text>
-                <Text style={[styles.statValue, { color: item.tone }]}>{item.value}</Text>
+          <View style={[styles.overviewCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+            <View style={styles.overviewHeader}>
+              <View style={styles.overviewTitleWrap}>
+                <Text style={[styles.overviewTitle, { color: theme.text }]}>Subject Directory</Text>
+                <Text style={[styles.overviewSubText, { color: theme.subText }]}>
+                  {filteredSubjects.length} visible of {subjects.length} subjects
+                </Text>
               </View>
-            ))}
+              <View style={[styles.countBadge, { backgroundColor: theme.cardMuted, borderColor: theme.border }]}>
+                <Text style={[styles.countBadgeValue, { color: theme.text }]}>{classCards.length}</Text>
+                <Text style={[styles.countBadgeLabel, { color: theme.subText }]}>classes</Text>
+              </View>
+            </View>
+            <View style={styles.compactStatsRow}>
+              <View style={[styles.compactStat, { backgroundColor: theme.cardMuted, borderColor: theme.border }]}>
+                <Text style={[styles.compactStatValue, { color: theme.text }]}>{subjects.length}</Text>
+                <Text style={[styles.compactStatLabel, { color: theme.subText }]}>Total</Text>
+              </View>
+              <View style={[styles.compactStat, { backgroundColor: theme.successSoft, borderColor: theme.successBorder }]}>
+                <Text style={[styles.compactStatValue, { color: theme.success }]}>{stats.assigned}</Text>
+                <Text style={[styles.compactStatLabel, { color: theme.subText }]}>Assigned</Text>
+              </View>
+              <View style={[styles.compactStat, { backgroundColor: theme.warningSoft, borderColor: theme.warningBorder }]}>
+                <Text style={[styles.compactStatValue, { color: theme.warningText }]}>{stats.unassigned}</Text>
+                <Text style={[styles.compactStatLabel, { color: theme.subText }]}>Open</Text>
+              </View>
+              <View style={[styles.compactStat, { backgroundColor: theme.cardMuted, borderColor: theme.border }]}>
+                <Text style={[styles.compactStatValue, { color: theme.text }]}>{stats.mappedClasses}</Text>
+                <Text style={[styles.compactStatLabel, { color: theme.subText }]}>Mapped</Text>
+              </View>
+            </View>
           </View>
 
-          <View style={[styles.sectionCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
-            <View style={styles.rowBetween}>
-              <Text style={[styles.sectionTitle, { color: theme.text }]}>Subject Directory</Text>
-              <Text style={[styles.hint, { color: theme.subText }]}>{filteredSubjects.length} visible</Text>
+          <View style={styles.toolbarRow}>
+            <Pressable
+              style={[styles.toolbarButton, { backgroundColor: theme.card, borderColor: theme.border }]}
+              onPress={() => setFiltersOpen((value) => !value)}
+            >
+              <Ionicons name="filter" size={15} color={theme.text} />
+              <Text style={[styles.toolbarButtonText, { color: theme.text }]}>Filters</Text>
+              {activeFilterCount > 0 ? (
+                <View style={[styles.filterCount, { backgroundColor: theme.primary }]}>
+                  <Text style={[styles.filterCountText, { color: theme.primaryText }]}>{activeFilterCount}</Text>
+                </View>
+              ) : null}
+            </Pressable>
+            <Pressable style={[styles.toolbarButton, { backgroundColor: theme.card, borderColor: theme.border }]} onPress={() => setAssignOpen(true)}>
+              <Ionicons name="albums-outline" size={15} color={theme.text} />
+              <Text style={[styles.toolbarButtonText, { color: theme.text }]}>Assign</Text>
+            </Pressable>
+            <Pressable style={[styles.primaryToolbarButton, { backgroundColor: theme.primary, borderColor: theme.primary }]} onPress={() => setCreateOpen(true)}>
+              <Ionicons name="add" size={16} color={theme.primaryText} />
+              <Text style={[styles.primaryToolbarButtonText, { color: theme.primaryText }]}>Add</Text>
+            </Pressable>
+          </View>
+
+          {filtersOpen ? (
+            <View style={[styles.compactFilterCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+              <View style={styles.compactPanelHeader}>
+                <View>
+                  <Text style={[styles.compactPanelTitle, { color: theme.text }]}>Filter Subjects</Text>
+                  <Text style={[styles.overviewSubText, { color: theme.subText }]}>Show assigned or unassigned subjects.</Text>
+                </View>
+                <Pressable
+                  style={[styles.smallIconButton, { backgroundColor: theme.cardMuted, borderColor: theme.border }]}
+                  onPress={() => {
+                    setAssignmentFilter("all");
+                    setFiltersOpen(false);
+                  }}
+                >
+                  <Ionicons name="refresh" size={15} color={theme.text} />
+                </Pressable>
+              </View>
+              <View style={styles.filterRow}>
+                {(["all", "assigned", "unassigned"] as const).map((filter) => {
+                  const active = assignmentFilter === filter;
+                  const label = filter === "all" ? "All" : filter === "assigned" ? "Assigned" : "Unassigned";
+                  return (
+                    <Pressable
+                      key={filter}
+                      style={[
+                        styles.filterChip,
+                        { borderColor: theme.border, backgroundColor: theme.cardMuted },
+                        active && [styles.filterChipActive, { borderColor: theme.primary, backgroundColor: theme.primary }],
+                      ]}
+                      onPress={() => setAssignmentFilter(filter)}
+                    >
+                      <Text
+                        style={[
+                          styles.filterChipText,
+                          { color: theme.subText },
+                          active && [styles.filterChipTextActive, { color: theme.primaryText }],
+                        ]}
+                      >
+                        {label}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+              <Pressable
+                style={[styles.compactApplyBtn, { backgroundColor: theme.primary, borderColor: theme.primary }]}
+                onPress={() => setFiltersOpen(false)}
+              >
+                <Text style={[styles.compactApplyText, { color: theme.primaryText }]}>Apply Filters</Text>
+              </Pressable>
             </View>
+          ) : null}
+
+          <View style={[styles.searchWrap, { backgroundColor: theme.inputBg, borderColor: theme.border }]}>
+            <Ionicons name="search" size={16} color={theme.subText} />
             <TextInput
-              style={[styles.input, { borderColor: theme.border, backgroundColor: theme.inputBg, color: theme.text }]}
+              style={[styles.searchInput, { color: theme.text }]}
               value={search}
               onChangeText={setSearch}
               placeholder="Search by name or code"
               placeholderTextColor={theme.mutedText}
             />
-            <View style={styles.filterRow}>
-              {(["all", "assigned", "unassigned"] as const).map((filter) => {
-                const active = assignmentFilter === filter;
-                const label = filter === "all" ? "All" : filter === "assigned" ? "Assigned" : "Unassigned";
-                return (
-                  <Pressable
-                    key={filter}
-                    style={[
-                      styles.filterChip,
-                      { borderColor: theme.border, backgroundColor: theme.cardMuted },
-                      active && [styles.filterChipActive, { borderColor: theme.primary, backgroundColor: theme.primary }],
-                    ]}
-                    onPress={() => setAssignmentFilter(filter)}
-                  >
-                    <Text
-                      style={[
-                        styles.filterChipText,
-                        { color: theme.subText },
-                        active && [styles.filterChipTextActive, { color: theme.primaryText }],
-                      ]}
-                    >
-                      {label}
-                    </Text>
-                  </Pressable>
-                );
-              })}
-            </View>
           </View>
 
       {loading ? (
@@ -460,25 +515,31 @@ export default function SubjectsTab() {
               return (
                 <View key={subject.id} style={[styles.itemCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
                   <View style={styles.cardTop}>
-                    <View style={[styles.iconBadge, { backgroundColor: theme.cardMuted }]}>
+                    <View style={[styles.iconBadge, { backgroundColor: theme.cardMuted, borderColor: theme.border }]}>
                       <Text style={[styles.iconBadgeText, { color: theme.text }]}>{subject.name.slice(0, 1).toUpperCase()}</Text>
                     </View>
                     <View style={styles.cardCopy}>
                       <Text style={[styles.itemTitle, { color: theme.text }]}>{subject.name}</Text>
                       <Text style={[styles.itemMeta, { color: theme.subText }]}>Code: {subject.code}</Text>
                     </View>
+                    <View
+                      style={[
+                        styles.statusBadge,
+                        {
+                          backgroundColor: coverage.length ? theme.successSoft : theme.cardMuted,
+                          borderColor: coverage.length ? theme.successBorder : theme.border,
+                        },
+                      ]}
+                    >
+                      <Text style={[styles.statusBadgeText, { color: coverage.length ? theme.success : theme.subText }]}>
+                        {coverage.length ? "In Use" : "Open"}
+                      </Text>
+                    </View>
                   </View>
 
-                  <View style={styles.miniStatsRow}>
-                    <View style={[styles.miniStat, { backgroundColor: theme.cardMuted, borderColor: theme.border }]}>
-                      <Text style={[styles.miniStatLabel, { color: theme.subText }]}>Assigned Classes</Text>
-                      <Text style={[styles.miniStatValue, { color: theme.text }]}>{coverage.length}</Text>
-                    </View>
-                    <View style={[styles.miniStat, { backgroundColor: theme.cardMuted, borderColor: theme.border }]}>
-                      <Text style={[styles.miniStatLabel, { color: theme.subText }]}>Status</Text>
-                      <Text style={[styles.miniStatValue, { color: theme.text }]}>{coverage.length ? "In Use" : "Not Assigned"}</Text>
-                    </View>
-                  </View>
+                  <Text style={[styles.cardSummary, { color: theme.subText }]}>
+                    {coverage.length ? `${coverage.length} assigned class${coverage.length === 1 ? "" : "es"}` : "No class assignments yet"}
+                  </Text>
 
                   <View style={styles.pillWrap}>
                     {coverage.length ? (
@@ -517,11 +578,17 @@ export default function SubjectsTab() {
             <View style={styles.grid}>
               {classCards.map((row) => (
                 <View key={row.id} style={[styles.assignmentCard, { backgroundColor: theme.cardMuted, borderColor: theme.border }]}>
-                  <View style={styles.rowBetween}>
-                    <Text style={[styles.assignmentTitle, { color: theme.text }]}>{row.name}</Text>
-                    <Text style={[styles.assignmentScope, { color: theme.subText }]}>{row.scope}</Text>
+                  <View style={styles.assignmentHeader}>
+                    <View style={styles.assignmentCopy}>
+                      <Text style={[styles.assignmentTitle, { color: theme.text }]}>{row.name}</Text>
+                      <Text style={[styles.assignmentText, { color: theme.subText }]}>
+                        {row.sections.length ? row.sections.join(", ") : "No sections"}
+                      </Text>
+                    </View>
+                    <View style={[styles.assignmentBadge, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                      <Text style={[styles.assignmentScope, { color: theme.subText }]}>{row.scope}</Text>
+                    </View>
                   </View>
-                  <Text style={[styles.assignmentText, { color: theme.subText }]}>Sections: {row.sections.length ? row.sections.join(", ") : "No sections"}</Text>
                   <Text style={[styles.assignmentSubjects, { color: theme.text }]}>{row.subjects.length ? row.subjects.join(", ") : "No subjects assigned"}</Text>
                 </View>
               ))}
@@ -678,54 +745,84 @@ const styles = StyleSheet.create({
   screen: { flex: 1 },
   root: { flex: 1 },
   content: { gap: 14, paddingBottom: 120 },
-  innerContent: { gap: 14, paddingHorizontal: 14, paddingTop: 10 },
+  innerContent: { gap: 10, paddingHorizontal: 14, paddingTop: 10 },
   topNoticeOverlay: { position: "absolute", top: 0, left: 14, right: 14, zIndex: 20 },
   heroCard: { borderRadius: 24, paddingVertical: 0, gap: 8 },
   heroCopy: { gap: 6 },
   heroPrimaryActions: { flexDirection: "row", gap: 10 },
   heroEyebrow: { fontSize: 12, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.6 },
-  title: { color: "#0f172a", fontWeight: "800", fontSize: 22 },
+  title: { color: "#0f172a", fontWeight: "900", fontSize: 15, lineHeight: 18, letterSpacing: 0.8 },
   subtitle: { color: "#64748b", lineHeight: 20 },
   noticeCard: { borderRadius: 18, paddingHorizontal: 14, paddingVertical: 12, borderWidth: 1 },
   noticeSuccess: { backgroundColor: "#f0fdf4", borderColor: "#bbf7d0" },
   noticeError: { backgroundColor: "#fef2f2", borderColor: "#fecaca" },
   noticeTitle: { color: "#0f172a", fontWeight: "800", marginBottom: 2 },
   noticeMessage: { color: "#475569" },
+  overviewCard: { borderRadius: 8, borderWidth: 1, padding: 12, gap: 10 },
+  overviewHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 },
+  overviewTitleWrap: { flex: 1, gap: 2 },
+  overviewTitle: { fontSize: 15, fontWeight: "900" },
+  overviewSubText: { fontSize: 11, fontWeight: "600", lineHeight: 15 },
+  countBadge: { borderWidth: 1, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 7, alignItems: "center", minWidth: 64 },
+  countBadgeValue: { fontSize: 15, fontWeight: "900", lineHeight: 17 },
+  countBadgeLabel: { fontSize: 10, fontWeight: "800", textTransform: "uppercase" },
+  compactStatsRow: { flexDirection: "row", gap: 6 },
+  compactStat: { flex: 1, borderWidth: 1, borderRadius: 8, paddingHorizontal: 6, paddingVertical: 7, alignItems: "center", gap: 2 },
+  compactStatValue: { fontSize: 14, fontWeight: "900", lineHeight: 16 },
+  compactStatLabel: { fontSize: 10, fontWeight: "800", textTransform: "uppercase" },
+  toolbarRow: { flexDirection: "row", gap: 8 },
+  toolbarButton: { flex: 1, minHeight: 38, borderWidth: 1, borderRadius: 8, paddingHorizontal: 8, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 5 },
+  toolbarButtonText: { fontSize: 12, fontWeight: "800" },
+  primaryToolbarButton: { flex: 1, minHeight: 38, borderWidth: 1, borderRadius: 8, paddingHorizontal: 8, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 5 },
+  primaryToolbarButtonText: { fontSize: 12, fontWeight: "900" },
+  filterCount: { minWidth: 17, height: 17, borderRadius: 8, alignItems: "center", justifyContent: "center", paddingHorizontal: 4 },
+  filterCountText: { fontSize: 10, fontWeight: "900" },
+  compactFilterCard: { borderRadius: 8, borderWidth: 1, padding: 10, gap: 10 },
+  compactPanelHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 },
+  compactPanelTitle: { fontSize: 13, fontWeight: "900" },
+  smallIconButton: { width: 34, height: 34, borderWidth: 1, borderRadius: 8, alignItems: "center", justifyContent: "center" },
+  compactApplyBtn: { minHeight: 36, borderWidth: 1, borderRadius: 8, alignItems: "center", justifyContent: "center", paddingHorizontal: 12 },
+  compactApplyText: { fontSize: 12, fontWeight: "900" },
+  searchWrap: { minHeight: 42, borderWidth: 1, borderRadius: 8, paddingHorizontal: 11, flexDirection: "row", alignItems: "center", gap: 8 },
+  searchInput: { flex: 1, paddingVertical: 8, fontSize: 13, fontWeight: "600" },
   statsGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
   statCard: { width: "48%", minHeight: 92, borderRadius: 20, borderWidth: 1, paddingHorizontal: 14, paddingVertical: 12, justifyContent: "space-between" },
   statLabel: { color: "#334155", fontSize: 12, fontWeight: "700" },
   statValue: { fontSize: 26, fontWeight: "800" },
-  sectionCard: { backgroundColor: "#fff", borderRadius: 22, borderWidth: 1, borderColor: "#e2e8f0", padding: 16, gap: 12 },
+  sectionCard: { backgroundColor: "#fff", borderRadius: 8, borderWidth: 1, borderColor: "#e2e8f0", padding: 12, gap: 10 },
   rowBetween: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 10 },
   sectionTitle: { color: "#0f172a", fontWeight: "800", fontSize: 16 },
   hint: { color: "#64748b", fontSize: 12, fontWeight: "600" },
   input: { borderWidth: 1, borderColor: "#cbd5e1", borderRadius: 14, backgroundColor: "#fff", paddingHorizontal: 12, paddingVertical: 11, color: "#0f172a" },
-  filterRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-  filterChip: { borderWidth: 1, borderColor: "#cbd5e1", borderRadius: 999, paddingHorizontal: 12, paddingVertical: 8, backgroundColor: "#f8fafc" },
+  filterRow: { flexDirection: "row", flexWrap: "wrap", gap: 7 },
+  filterChip: { flexGrow: 1, borderWidth: 1, borderColor: "#cbd5e1", borderRadius: 8, paddingHorizontal: 10, paddingVertical: 8, backgroundColor: "#f8fafc", alignItems: "center" },
   filterChipActive: { borderColor: "#0f172a", backgroundColor: "#0f172a" },
   filterChipText: { color: "#475569", fontWeight: "700", fontSize: 12 },
   filterChipTextActive: { color: "#fff" },
   centered: { alignItems: "center", justifyContent: "center", paddingVertical: 40 },
   errorText: { color: "#dc2626", fontWeight: "700" },
-  emptyCard: { backgroundColor: "#fff", borderRadius: 22, borderWidth: 1, borderColor: "#e2e8f0", padding: 18, gap: 6 },
+  emptyCard: { backgroundColor: "#fff", borderRadius: 8, borderWidth: 1, borderColor: "#e2e8f0", padding: 14, gap: 6 },
   emptyTitle: { color: "#0f172a", fontWeight: "800", fontSize: 16 },
   emptyText: { color: "#64748b", lineHeight: 20 },
-  grid: { gap: 12 },
-  itemCard: { backgroundColor: "#fff", borderRadius: 22, borderWidth: 1, borderColor: "#e2e8f0", padding: 16, gap: 14 },
-  cardTop: { flexDirection: "row", alignItems: "center", gap: 12 },
-  iconBadge: { width: 42, height: 42, borderRadius: 14, backgroundColor: "#e2e8f0", alignItems: "center", justifyContent: "center" },
-  iconBadgeText: { color: "#0f172a", fontWeight: "800", fontSize: 16 },
+  grid: { gap: 10 },
+  itemCard: { backgroundColor: "#fff", borderRadius: 8, borderWidth: 1, borderColor: "#e2e8f0", padding: 12, gap: 10 },
+  cardTop: { flexDirection: "row", alignItems: "center", gap: 10 },
+  iconBadge: { width: 36, height: 36, borderRadius: 8, borderWidth: 1, backgroundColor: "#e2e8f0", alignItems: "center", justifyContent: "center" },
+  iconBadgeText: { color: "#0f172a", fontWeight: "900", fontSize: 15 },
   cardCopy: { flex: 1, gap: 3 },
-  itemTitle: { color: "#0f172a", fontWeight: "800", fontSize: 16 },
+  itemTitle: { color: "#0f172a", fontWeight: "900", fontSize: 15, lineHeight: 19 },
   itemMeta: { color: "#475569", fontWeight: "700", fontSize: 12 },
+  statusBadge: { borderWidth: 1, borderRadius: 8, paddingHorizontal: 8, paddingVertical: 5 },
+  statusBadgeText: { fontSize: 10, fontWeight: "900", textTransform: "uppercase" },
+  cardSummary: { fontSize: 12, fontWeight: "700", lineHeight: 16 },
   miniStatsRow: { flexDirection: "row", gap: 10 },
   miniStat: { flex: 1, backgroundColor: "#f8fafc", borderWidth: 1, borderColor: "#e2e8f0", borderRadius: 16, paddingHorizontal: 12, paddingVertical: 10, gap: 4 },
   miniStatLabel: { color: "#64748b", fontSize: 11, fontWeight: "700", textTransform: "uppercase" },
   miniStatValue: { color: "#0f172a", fontSize: 14, fontWeight: "800" },
   pillWrap: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-  pill: { backgroundColor: "#f8fafc", borderRadius: 999, paddingHorizontal: 10, paddingVertical: 6, borderWidth: 1, borderColor: "#e2e8f0" },
+  pill: { backgroundColor: "#f8fafc", borderRadius: 8, paddingHorizontal: 9, paddingVertical: 5, borderWidth: 1, borderColor: "#e2e8f0" },
   pillText: { color: "#334155", fontSize: 12, fontWeight: "600" },
-  rowActions: { flexDirection: "row", gap: 10, marginTop: 10 },
+  rowActions: { flexDirection: "row", gap: 8, marginTop: 2 },
   primaryBtn: { backgroundColor: "#0f172a", paddingHorizontal: 16, paddingVertical: 11, borderRadius: 12, alignItems: "center", justifyContent: "center" },
   primaryBtnText: { color: "#fff", fontWeight: "700" },
   ghostBtn: { borderWidth: 1, borderColor: "#cbd5e1", backgroundColor: "#fff", paddingHorizontal: 16, paddingVertical: 11, borderRadius: 12, alignItems: "center", justifyContent: "center" },
@@ -733,17 +830,20 @@ const styles = StyleSheet.create({
   inlineGhostBtn: { alignSelf: "flex-start", borderWidth: 1, borderColor: "#cbd5e1", backgroundColor: "#fff", paddingHorizontal: 12, paddingVertical: 8, borderRadius: 999, alignItems: "center", justifyContent: "center" },
   heroPrimaryBtn: { flex: 1, backgroundColor: "#0f172a", paddingHorizontal: 14, paddingVertical: 11, borderRadius: 12, alignItems: "center", justifyContent: "center" },
   heroSecondaryBtn: { flex: 1, borderWidth: 1, borderColor: "#cbd5e1", backgroundColor: "#fff", paddingHorizontal: 14, paddingVertical: 11, borderRadius: 12, alignItems: "center", justifyContent: "center" },
-  secondaryBtn: { flex: 1, borderWidth: 1, borderColor: "#cbd5e1", backgroundColor: "#fff", paddingHorizontal: 14, paddingVertical: 11, borderRadius: 12, alignItems: "center", justifyContent: "center" },
+  secondaryBtn: { flex: 1, borderWidth: 1, borderColor: "#cbd5e1", backgroundColor: "#fff", paddingHorizontal: 12, paddingVertical: 9, borderRadius: 8, alignItems: "center", justifyContent: "center" },
   secondaryBtnText: { color: "#334155", fontWeight: "700" },
-  deleteBtn: { flex: 1, backgroundColor: "#fee2e2", borderWidth: 1, borderColor: "#fecaca", paddingHorizontal: 14, paddingVertical: 11, borderRadius: 12, alignItems: "center", justifyContent: "center" },
+  deleteBtn: { flex: 1, backgroundColor: "#fee2e2", borderWidth: 1, borderColor: "#fecaca", paddingHorizontal: 12, paddingVertical: 9, borderRadius: 8, alignItems: "center", justifyContent: "center" },
   deleteBtnText: { color: "#b91c1c", fontWeight: "700" },
   successBtn: { flex: 1, backgroundColor: "#15803d", paddingHorizontal: 14, paddingVertical: 11, borderRadius: 12, alignItems: "center", justifyContent: "center" },
   successBtnText: { color: "#fff", fontWeight: "700" },
-  assignmentCard: { borderWidth: 1, borderColor: "#e2e8f0", borderRadius: 18, padding: 14, backgroundColor: "#f8fafc", gap: 8 },
-  assignmentTitle: { color: "#0f172a", fontWeight: "800", fontSize: 16 },
-  assignmentScope: { color: "#475569", fontSize: 12, fontWeight: "700" },
-  assignmentText: { color: "#64748b", lineHeight: 18 },
-  assignmentSubjects: { color: "#334155", lineHeight: 20, fontWeight: "600" },
+  assignmentCard: { borderWidth: 1, borderColor: "#e2e8f0", borderRadius: 8, padding: 11, backgroundColor: "#f8fafc", gap: 7 },
+  assignmentHeader: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 8 },
+  assignmentCopy: { flex: 1, gap: 2 },
+  assignmentTitle: { color: "#0f172a", fontWeight: "900", fontSize: 14, lineHeight: 18 },
+  assignmentBadge: { borderWidth: 1, borderRadius: 8, paddingHorizontal: 7, paddingVertical: 4 },
+  assignmentScope: { color: "#475569", fontSize: 10, fontWeight: "900", textTransform: "uppercase" },
+  assignmentText: { color: "#64748b", lineHeight: 16, fontSize: 11, fontWeight: "600" },
+  assignmentSubjects: { color: "#334155", lineHeight: 18, fontSize: 12, fontWeight: "700" },
   modalOverlay: { flex: 1, justifyContent: "flex-end" },
   modalBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(15, 23, 42, 0.28)" },
   modalCard: { maxHeight: "86%", backgroundColor: "#fff", borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingHorizontal: 16, paddingTop: 16, paddingBottom: 32, marginBottom: 12, gap: 10 },
