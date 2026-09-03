@@ -1618,3 +1618,5 @@ Update this file after every meaningful implementation change.
 - Fixed the software Announcement SMS recipient dialog layout so the recipient
   table is the only scrollable area and the pagination footer remains visible
   in production-height viewports.
+- Corrected the SMS recipient dialog scroll behavior by giving the dialog a
+  fixed viewport-relative height and a real scroll box for the recipient table.

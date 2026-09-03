@@ -1603,7 +1603,7 @@ export default function Announcements() {
     />
 
       <Dialog open={Boolean(recipientDialogJob)} onOpenChange={(open) => !open && closeSmsRecipientsDialog()}>
-        <DialogContent className="flex max-h-[88vh] flex-col overflow-hidden p-0 sm:max-w-5xl">
+        <DialogContent className="flex h-[88vh] max-h-[88vh] flex-col overflow-hidden p-0 sm:max-w-5xl">
           <DialogHeader className="shrink-0 border-b bg-card px-6 py-5">
             <DialogTitle>SMS Recipients</DialogTitle>
             <DialogDescription>
@@ -1662,7 +1662,7 @@ export default function Announcements() {
               <SmsCountBadge label="Delivered" count={recipientDialogJob?.delivered_count} status="delivered" />
               <SmsCountBadge label="Failed" count={(Number(recipientDialogJob?.failed_recipient_count || 0) + Number(recipientDialogJob?.undelivered_count || 0)) || recipientDialogJob?.failed_count} status="failed" />
             </div>
-            <div className="min-h-0 flex-1 overflow-hidden rounded-md border border-border">
+            <div className="min-h-[180px] flex-1 overflow-hidden rounded-md border border-border">
               {recipientLoading ? (
                 <p className="p-4 text-sm text-muted-foreground">Loading recipients...</p>
               ) : recipientRows.length ? (
