@@ -219,6 +219,7 @@ function normalizeTargets(input = []) {
       user_id: intValue(target.user_id, "target.user_id"),
       session_id: intValue(target.session_id, "target.session_id"),
       scope_code: optionalString(target.scope_code),
+      staff_type: ["teaching", "non_teaching"].includes(String(target.staff_type || "")) ? String(target.staff_type) : null,
       class_id: intValue(target.class_id, "target.class_id"),
       section_id: intValue(target.section_id, "target.section_id"),
       medium: optionalString(target.medium),

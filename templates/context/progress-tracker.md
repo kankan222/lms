@@ -1620,3 +1620,19 @@ Update this file after every meaningful implementation change.
   in production-height viewports.
 - Corrected the SMS recipient dialog scroll behavior by giving the dialog a
   fixed viewport-relative height and a real scroll box for the recipient table.
+- Aligned Announcement staff targeting with Messaging in backend, software, and
+  mobile: normal Staff targeting now uses the teachers table with School/HS
+  scope plus Teaching/Non Teaching staff type filters, backed by a new
+  `announcement_targets.staff_type` migration.
+- Fixed Announcement timestamp consistency for school-facing SMS/admin fields:
+  dispatch start, retry/send attempts, delivery fallback, completion,
+  cancellation, and archive timestamps now use the module school-local SQL
+  clock instead of mixing raw database or JavaScript server time, and the
+  timestamp rule was added to code standards.
+- Updated the Announcement staff-type target migration to avoid MySQL
+  `ADD COLUMN IF NOT EXISTS` syntax so older production MySQL versions can run
+  the guarded column addition through `INFORMATION_SCHEMA` and prepared SQL.
+- Added student context to software Announcement SMS recipient details: the
+  recipient endpoint now joins the linked student, latest active enrollment,
+  class, section, medium, roll number, and stream, and the recipient dialog
+  shows that information in a separate Student column beside the parent.

@@ -100,12 +100,11 @@ const deliveryLabels = {
 
 const announcementTargetOptions = [
   { value: "parents", label: "Parents", description: "All parents or filtered parent groups" },
-  { value: "teachers", label: "Teachers", description: "All teachers, school teachers, or HS teachers" },
+  { value: "teachers", label: "Staff", description: "All staff, teaching staff, or non-teaching staff" },
   { value: "section", label: "Section", description: "Parents in one selected section" },
   { value: "class", label: "Class", description: "Parents in one selected class" },
   { value: "scope", label: "School / HS", description: "School or Higher Secondary scope" },
   { value: "all", label: "All Users", description: "Everyone with an active account" },
-  { value: "staff", label: "Staff", description: "Staff role users" },
   { value: "accounts", label: "Accounts", description: "Accounts role users" },
   { value: "role", label: "Custom Role", description: "Type a specific role name" },
 ];
@@ -123,6 +122,10 @@ function formatQueueAudience(item) {
     .split(",")
     .map((value) => value.trim())
     .filter(Boolean);
+  const staffTypes = String(item?.staff_types || "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
   if (!types.length) {
     const count = Number(item?.target_count || 0);
     return count ? `${count} target rule${count === 1 ? "" : "s"}` : "Audience not set";
@@ -134,7 +137,19 @@ function formatQueueAudience(item) {
         : scopes.includes("hs")
           ? "HS"
           : "School";
-      return `${scopeLabel} teachers`;
+      const staffLabel = staffTypes.includes("teaching") && staffTypes.includes("non_teaching")
+        ? "staff"
+        : staffTypes.includes("non_teaching")
+          ? "non-teaching staff"
+          : staffTypes.includes("teaching")
+            ? "teaching staff"
+            : "staff";
+      return `${scopeLabel} ${staffLabel}`;
+    }
+    if (type === "teachers" && staffTypes.length) {
+      if (staffTypes.includes("teaching") && staffTypes.includes("non_teaching")) return "All staff";
+      if (staffTypes.includes("non_teaching")) return "Non-teaching staff";
+      if (staffTypes.includes("teaching")) return "Teaching staff";
     }
     if (type === "scope" && scopes.length) {
       const scopeLabel = scopes.includes("school") && scopes.includes("hs")
@@ -182,6 +197,7 @@ const emptyAnnouncementForm = {
   role_name: "",
   session_id: "",
   scope_code: "",
+  staff_type: "",
   class_id: "",
   section_id: "",
   medium: "",
@@ -369,6 +385,7 @@ function announcementToForm(item = {}) {
     role_name: target.role_name || "",
     session_id: target.session_id ? String(target.session_id) : "",
     scope_code: target.scope_code || "",
+    staff_type: target.staff_type || "",
     class_id: target.class_id ? String(target.class_id) : "",
     section_id: target.section_id ? String(target.section_id) : "",
     medium: target.medium || "",
@@ -514,6 +531,7 @@ function normalizeTarget(form) {
     role_name: form.target_type === "role" ? form.role_name : null,
     session_id: toNumberOrNull(form.session_id),
     scope_code: ["scope", "teachers"].includes(form.target_type) ? form.scope_code || null : null,
+    staff_type: form.target_type === "teachers" ? form.staff_type || null : null,
     class_id: toNumberOrNull(form.class_id),
     section_id: toNumberOrNull(form.section_id),
     medium: form.medium || null,
@@ -611,9 +629,17 @@ export default function Announcements() {
     if (announcementForm.target_type === "all") return "All active users";
     if (announcementForm.target_type === "parents") return "All parents";
     if (announcementForm.target_type === "teachers") {
-      if (announcementForm.scope_code === "school") return "School teachers";
-      if (announcementForm.scope_code === "hs") return "Higher Secondary teachers";
-      return "All teachers";
+      const scopeLabel = announcementForm.scope_code === "school"
+        ? "School"
+        : announcementForm.scope_code === "hs"
+          ? "Higher Secondary"
+          : "All";
+      const staffLabel = announcementForm.staff_type === "teaching"
+        ? "Teaching Staff"
+        : announcementForm.staff_type === "non_teaching"
+          ? "Non Teaching Staff"
+          : "Staff";
+      return `${scopeLabel} ${staffLabel}`;
     }
     if (announcementForm.target_type === "staff") return "Staff";
     if (announcementForm.target_type === "accounts") return "Accounts";
@@ -1073,7 +1099,7 @@ export default function Announcements() {
     setAnnouncementForm((prev) => ({
       ...prev,
       [field]: value,
-      ...(field === "target_type" ? { role_name: "", class_id: "", section_id: "", medium: "", scope_code: "" } : {}),
+      ...(field === "target_type" ? { role_name: "", class_id: "", section_id: "", medium: "", scope_code: "", staff_type: "" } : {}),
       ...(field === "message_type" && value === "custom" ? { delivery_mode: "online", sms_template_id: "", sms_send_at: "", sms_variables: {} } : {}),
       ...(field === "message_type" && value === "registered_dlt" ? { delivery_mode: "both" } : {}),
       ...(field === "delivery_mode" && value === "online" && prev.message_type === "custom" ? { sms_template_id: "", sms_send_at: "" } : {}),
@@ -1347,7 +1373,7 @@ export default function Announcements() {
                           {[
                             { title: "Class Or Section", values: ["section", "class", "scope"] },
                             { title: "Whole Group", values: ["parents", "teachers", "all"] },
-                            { title: "Role", values: ["staff", "accounts", "role"] },
+                            { title: "Role", values: ["accounts", "role"] },
                           ].map((group) => (
                             <section key={group.title} className="space-y-2">
                               <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{group.title}</p>
@@ -1387,13 +1413,22 @@ export default function Announcements() {
                             <Field label="Role Name"><Input value={announcementForm.role_name} onChange={(event) => updateAnnouncementField("role_name", event.target.value)} placeholder="parent, teacher, staff" /></Field>
                           ) : null}
                           {announcementForm.target_type === "teachers" ? (
-                            <Field label="Teacher Scope">
-                              <select className={selectClassName} value={announcementForm.scope_code} onChange={(event) => updateAnnouncementField("scope_code", event.target.value)}>
-                                <option value="">All teachers</option>
-                                <option value="school">School teachers</option>
-                                <option value="hs">Higher Secondary teachers</option>
-                              </select>
-                            </Field>
+                            <div className="grid gap-3 md:grid-cols-2">
+                              <Field label="Scope">
+                                <select className={selectClassName} value={announcementForm.scope_code} onChange={(event) => updateAnnouncementField("scope_code", event.target.value)}>
+                                  <option value="">All scopes</option>
+                                  <option value="school">School</option>
+                                  <option value="hs">Higher Secondary</option>
+                                </select>
+                              </Field>
+                              <Field label="Staff Type">
+                                <select className={selectClassName} value={announcementForm.staff_type} onChange={(event) => updateAnnouncementField("staff_type", event.target.value)}>
+                                  <option value="">All staff types</option>
+                                  <option value="teaching">Teaching</option>
+                                  <option value="non_teaching">Non Teaching</option>
+                                </select>
+                              </Field>
+                            </div>
                           ) : null}
                           {["class", "section", "parents", "scope"].includes(announcementForm.target_type) ? (
                             <Field label="Session">
@@ -1671,6 +1706,7 @@ export default function Announcements() {
                     <thead className="sticky top-0 bg-muted text-xs uppercase text-muted-foreground">
                       <tr>
                         <th className="px-3 py-2 text-left font-medium">Recipient</th>
+                        <th className="px-3 py-2 text-left font-medium">Student</th>
                         <th className="px-3 py-2 text-left font-medium">Phone</th>
                         <th className="px-3 py-2 text-left font-medium">Status</th>
                         <th className="px-3 py-2 text-left font-medium">Provider</th>
@@ -1683,6 +1719,25 @@ export default function Announcements() {
                           <td className="px-3 py-2">
                             <p className="font-medium text-foreground">{recipient.recipient_name || "-"}</p>
                             <p className="text-xs text-muted-foreground">{recipient.recipient_role || "recipient"}</p>
+                          </td>
+                          <td className="px-3 py-2">
+                            {recipient.student_name ? (
+                              <div className="min-w-48">
+                                <p className="font-medium text-foreground">{recipient.student_name}</p>
+                                <p className="text-xs text-muted-foreground">
+                                  {[recipient.student_class_name, recipient.student_section_name].filter(Boolean).join(" / ") || "Class not set"}
+                                </p>
+                                <p className="text-xs text-muted-foreground">
+                                  {[
+                                    recipient.student_roll_number ? `Roll ${recipient.student_roll_number}` : null,
+                                    recipient.student_medium,
+                                    recipient.student_stream_name,
+                                  ].filter(Boolean).join(" | ") || "-"}
+                                </p>
+                              </div>
+                            ) : (
+                              <span className="text-muted-foreground">-</span>
+                            )}
                           </td>
                           <td className="px-3 py-2 text-muted-foreground">{recipient.phone || "-"}</td>
                           <td className="px-3 py-2"><StatusBadge status={recipient.status} /></td>

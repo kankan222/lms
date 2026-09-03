@@ -235,7 +235,8 @@ export function listAnnouncements(filters = {}) {
     `SELECT a.*, c.name AS category_name, c.slug AS category_slug, st.template_name AS sms_template_name,
             COALESCE(target_stats.target_count, 0) AS target_count,
             target_stats.target_types,
-            target_stats.scope_codes
+            target_stats.scope_codes,
+            target_stats.staff_types
      FROM announcements a
      LEFT JOIN announcement_categories c ON c.id = a.category_id
      LEFT JOIN announcement_sms_templates st ON st.id = a.sms_template_id
@@ -243,7 +244,8 @@ export function listAnnouncements(filters = {}) {
        SELECT announcement_id,
               COUNT(*) AS target_count,
               GROUP_CONCAT(DISTINCT target_type ORDER BY target_type SEPARATOR ',') AS target_types,
-              GROUP_CONCAT(DISTINCT NULLIF(scope_code, '') ORDER BY scope_code SEPARATOR ',') AS scope_codes
+              GROUP_CONCAT(DISTINCT NULLIF(scope_code, '') ORDER BY scope_code SEPARATOR ',') AS scope_codes,
+              GROUP_CONCAT(DISTINCT NULLIF(staff_type, '') ORDER BY staff_type SEPARATOR ',') AS staff_types
        FROM announcement_targets
        GROUP BY announcement_id
      ) target_stats ON target_stats.announcement_id = a.id
@@ -269,7 +271,11 @@ function mobileAudienceSql() {
           WHERE ur.user_id = ? AND r.name = at.role_name
         ))
         OR (at.target_type = 'teachers' AND EXISTS (
-          SELECT 1 FROM teachers t WHERE t.user_id = ?
+          SELECT 1
+          FROM teachers t
+          WHERE t.user_id = ?
+            AND (at.scope_code IS NULL OR at.scope_code = t.class_scope)
+            AND (at.staff_type IS NULL OR at.staff_type = 'all' OR at.staff_type = t.staff_type)
         ))
         OR (at.target_type IN ('staff', 'accounts') AND EXISTS (
           SELECT 1
@@ -504,9 +510,9 @@ async function replaceTargets(conn, announcementId, targets = []) {
   for (const target of targets) {
     await conn.execute(
       `INSERT INTO announcement_targets
-       (announcement_id, target_type, role_name, user_id, session_id, scope_code, class_id,
+       (announcement_id, target_type, role_name, user_id, session_id, scope_code, staff_type, class_id,
         section_id, medium, stream_id, include_inactive)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         announcementId,
         target.target_type,
@@ -514,6 +520,7 @@ async function replaceTargets(conn, announcementId, targets = []) {
         target.user_id || null,
         target.session_id || null,
         target.scope_code || null,
+        target.staff_type || null,
         target.class_id || null,
         target.section_id || null,
         target.medium || null,
@@ -559,7 +566,7 @@ export async function publishAnnouncement(id, userId) {
     const rootId = row.root_announcement_id || row.id;
     await conn.execute(
       `UPDATE announcements
-       SET is_current = 0, archived_at = COALESCE(archived_at, NOW()), updated_by = ?
+       SET is_current = 0, archived_at = COALESCE(archived_at, ${schoolNowSql()}), updated_by = ?
        WHERE (root_announcement_id = ? OR id = ?)
          AND id <> ?
          AND status IN ('published', 'sent')`,
@@ -597,7 +604,7 @@ export function listDueScheduledAnnouncements(limit = 25) {
 export async function cancelAnnouncement(id, userId) {
   const result = await execute(
     `UPDATE announcements
-     SET status = 'cancelled', cancelled_at = NOW(), updated_by = ?
+     SET status = 'cancelled', cancelled_at = ${schoolNowSql()}, updated_by = ?
      WHERE id = ? AND status IN ('draft', 'scheduled', 'published')`,
     [userId || null, id]
   );
@@ -653,6 +660,7 @@ async function resolveUsersForTarget(target) {
     const params = [];
     if (!target.include_inactive) where.push("u.status = 'active'");
     appendFilter(where, params, "t.class_scope", target.scope_code);
+    appendFilter(where, params, "t.staff_type", target.staff_type);
     return query(
       `SELECT DISTINCT u.id AS user_id
        FROM teachers t
@@ -707,6 +715,7 @@ async function resolveSmsForTarget(target) {
     const params = [];
     if (!target.include_inactive) where.push("u.status = 'active'");
     appendFilter(where, params, "t.class_scope", target.scope_code);
+    appendFilter(where, params, "t.staff_type", target.staff_type);
     return query(
       `SELECT u.id AS user_id, NULL AS student_id, NULL AS parent_id,
               COALESCE(t.phone, u.phone) AS phone, COALESCE(t.name, u.username) AS recipient_name, 'teacher' AS recipient_role
@@ -852,32 +861,74 @@ export function listSmsJobs(filters = {}) {
 }
 
 export async function listSmsJobRecipients(jobId, filters = {}) {
-  const where = ["sms_job_id = ?"];
+  const where = ["r.sms_job_id = ?"];
   const params = [jobId];
-  appendFilter(where, params, "status", filters.status);
+  appendFilter(where, params, "r.status", filters.status);
   const search = String(filters.q || "").trim();
   if (search) {
-    where.push("(recipient_name LIKE ? OR phone LIKE ? OR provider_status LIKE ? OR error_message LIKE ?)");
+    where.push(`(
+      r.recipient_name LIKE ?
+      OR r.phone LIKE ?
+      OR r.provider_status LIKE ?
+      OR r.error_message LIKE ?
+      OR s.name LIKE ?
+      OR c.name LIKE ?
+      OR sec.name LIKE ?
+      OR se.roll_number LIKE ?
+      OR sec.medium LIKE ?
+      OR str.name LIKE ?
+    )`);
     const like = `%${search}%`;
-    params.push(like, like, like, like);
+    params.push(like, like, like, like, like, like, like, like, like, like);
   }
   const limit = Math.max(1, Math.min(100, Number(filters.limit) || 50));
   const page = Math.max(1, Number(filters.page) || 1);
   const offset = (page - 1) * limit;
   const [rows, totalRows] = await Promise.all([
     query(
-      `SELECT id, sms_job_id, announcement_id, user_id, student_id, parent_id, phone,
-            recipient_name, recipient_role, status, provider_message_id, provider_status,
-            attempt_count, last_attempt_at, delivered_at, error_message, created_at, updated_at
-       FROM announcement_sms_recipients
+      `SELECT r.id, r.sms_job_id, r.announcement_id, r.user_id, r.student_id, r.parent_id, r.phone,
+            r.recipient_name, r.recipient_role, r.status, r.provider_message_id, r.provider_status,
+            r.attempt_count, r.last_attempt_at, r.delivered_at, r.error_message, r.created_at, r.updated_at,
+            s.name AS student_name,
+            s.admission_no AS student_admission_no,
+            se.roll_number AS student_roll_number,
+            c.name AS student_class_name,
+            sec.name AS student_section_name,
+            sec.medium AS student_medium,
+            str.name AS student_stream_name
+       FROM announcement_sms_recipients r
+       LEFT JOIN students s ON s.id = r.student_id
+       LEFT JOIN student_enrollments se ON se.id = (
+         SELECT se2.id
+         FROM student_enrollments se2
+         WHERE se2.student_id = r.student_id
+           AND se2.status = 'active'
+         ORDER BY se2.id DESC
+         LIMIT 1
+       )
+       LEFT JOIN classes c ON c.id = se.class_id
+       LEFT JOIN sections sec ON sec.id = se.section_id
+       LEFT JOIN streams str ON str.id = se.stream_id
       WHERE ${where.join(" AND ")}
-      ORDER BY id
+      ORDER BY r.id
       LIMIT ${limit} OFFSET ${offset}`,
       params
     ),
     query(
       `SELECT COUNT(*) AS total
-       FROM announcement_sms_recipients
+       FROM announcement_sms_recipients r
+       LEFT JOIN students s ON s.id = r.student_id
+       LEFT JOIN student_enrollments se ON se.id = (
+         SELECT se2.id
+         FROM student_enrollments se2
+         WHERE se2.student_id = r.student_id
+           AND se2.status = 'active'
+         ORDER BY se2.id DESC
+         LIMIT 1
+       )
+       LEFT JOIN classes c ON c.id = se.class_id
+       LEFT JOIN sections sec ON sec.id = se.section_id
+       LEFT JOIN streams str ON str.id = se.stream_id
        WHERE ${where.join(" AND ")}`,
       params
     ),
@@ -907,7 +958,7 @@ export async function claimSmsJob(id, force = false) {
   const dueClause = force ? "" : `AND (scheduled_at IS NULL OR scheduled_at <= ${schoolNowSql()})`;
   const result = await execute(
     `UPDATE announcement_sms_jobs
-     SET status = 'sending', started_at = COALESCE(started_at, NOW()), error_message = NULL
+     SET status = 'sending', started_at = COALESCE(started_at, ${schoolNowSql()}), error_message = NULL
      WHERE id = ?
        AND status IN ('queued', 'scheduled')
        ${dueClause}`,
@@ -932,7 +983,7 @@ export async function markSmsRecipientSent(id, payload = {}) {
   await execute(
     `UPDATE announcement_sms_recipients
      SET status = 'sent', provider_message_id = ?, provider_status = ?,
-         attempt_count = attempt_count + 1, last_attempt_at = NOW(), error_message = NULL
+         attempt_count = attempt_count + 1, last_attempt_at = ${schoolNowSql()}, error_message = NULL
      WHERE id = ?`,
     [
       payload.provider_message_id || null,
@@ -946,7 +997,7 @@ export async function markSmsRecipientFailed(id, errorMessage, retryable = false
   await execute(
     `UPDATE announcement_sms_recipients
      SET status = ?, provider_status = 'failed', attempt_count = attempt_count + 1,
-         last_attempt_at = NOW(), error_message = ?
+         last_attempt_at = ${schoolNowSql()}, error_message = ?
      WHERE id = ?`,
     [retryable ? "retrying" : "failed", String(errorMessage || "Could not send SMS").slice(0, 1000), id]
   );
@@ -989,12 +1040,15 @@ export async function listTrackableSmsRecipients(jobId, limit = 500) {
 export async function updateSmsRecipientDeliveryStatus(id, payload = {}) {
   await execute(
     `UPDATE announcement_sms_recipients
-     SET status = ?, provider_status = ?, delivered_at = ?, error_message = ?
+     SET status = ?, provider_status = ?,
+         delivered_at = CASE WHEN ? = 'delivered' THEN COALESCE(?, ${schoolNowSql()}) ELSE NULL END,
+         error_message = ?
      WHERE id = ?`,
     [
       payload.status,
       payload.provider_status || payload.status,
-      payload.status === "delivered" ? (payload.delivered_at || new Date()) : null,
+      payload.status,
+      payload.delivered_at || null,
       payload.error_message ? String(payload.error_message).slice(0, 1000) : null,
       id,
     ]
@@ -1025,14 +1079,15 @@ export async function refreshSmsJobStatus(id, errorMessage = null) {
         : "sent";
   await execute(
     `UPDATE announcement_sms_jobs
-     SET status = ?, sent_count = ?, failed_count = ?, completed_at = ?,
+     SET status = ?, sent_count = ?, failed_count = ?,
+         completed_at = CASE WHEN ? > 0 THEN NULL ELSE ${schoolNowSql()} END,
          error_message = ?
      WHERE id = ?`,
     [
       status,
       sent,
       failed,
-      pending > 0 ? null : new Date(),
+      pending,
       errorMessage ? String(errorMessage).slice(0, 1000) : null,
       id,
     ]

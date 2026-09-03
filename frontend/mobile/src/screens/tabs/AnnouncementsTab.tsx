@@ -41,12 +41,13 @@ import DateField from "../../components/form/DateField";
 type FilterKey = "all" | "urgent" | "holiday";
 type AdminFilterKey = "all" | "draft" | "scheduled" | "published" | "sent";
 type TabKey = "inbox" | "queue" | "templates" | "sms" | "holidays";
-type ComposeTarget = "all" | "parents" | "teachers" | "staff" | "accounts" | "scope";
+type ComposeTarget = "all" | "parents" | "teachers" | "accounts" | "scope";
 type ComposeStatus = "publish_now" | "draft" | "scheduled";
 
 const EMPTY_COMPOSE = {
   target_type: "all" as ComposeTarget,
   scope_code: "school",
+  staff_type: "all" as "all" | "teaching" | "non_teaching",
   message_type: "custom" as "custom" | "registered_dlt",
   title: "",
   body: "",
@@ -282,17 +283,19 @@ function statusTone(status?: string | null) {
 
 function audienceIcon(value: ComposeTarget): keyof typeof Ionicons.glyphMap {
   if (value === "parents") return "people-outline";
-  if (value === "teachers") return "school-outline";
-  if (value === "staff") return "briefcase-outline";
+  if (value === "teachers") return "briefcase-outline";
   if (value === "accounts") return "cash-outline";
   if (value === "scope") return "business-outline";
   return "globe-outline";
 }
 
-function audienceLabel(value: ComposeTarget, scopeCode = "school") {
+function audienceLabel(value: ComposeTarget, scopeCode = "school", staffType = "all") {
   if (value === "parents") return "Parents";
-  if (value === "teachers") return "Teachers";
-  if (value === "staff") return "Staff";
+  if (value === "teachers") {
+    const scopeLabel = scopeCode === "school" ? "School" : scopeCode === "hs" ? "Higher Secondary" : "All";
+    const staffLabel = staffType === "teaching" ? "Teaching Staff" : staffType === "non_teaching" ? "Non Teaching Staff" : "Staff";
+    return `${scopeLabel} ${staffLabel}`;
+  }
   if (value === "accounts") return "Accounts";
   if (value === "scope") return scopeCode === "hs" ? "Higher Secondary" : "School";
   return "All Users";
@@ -301,8 +304,7 @@ function audienceLabel(value: ComposeTarget, scopeCode = "school") {
 const ANNOUNCEMENT_AUDIENCES: Array<{ value: ComposeTarget; label: string; description: string }> = [
   { value: "all", label: "All Users", description: "Everyone with an active account" },
   { value: "parents", label: "Parents", description: "All parent users" },
-  { value: "teachers", label: "Teachers", description: "All teacher users" },
-  { value: "staff", label: "Staff", description: "Users with staff role" },
+  { value: "teachers", label: "Staff", description: "All staff, teaching staff, or non-teaching staff" },
   { value: "accounts", label: "Accounts", description: "Users with accounts role" },
   { value: "scope", label: "School / HS", description: "Limit by school or higher secondary scope" },
 ];
@@ -535,7 +537,12 @@ export default function AnnouncementsTab() {
   }
 
   function selectAudience(value: ComposeTarget) {
-    updateCompose("target_type", value);
+    setCompose((prev) => ({
+      ...prev,
+      target_type: value,
+      scope_code: value === "teachers" ? "all" : value === "scope" ? "school" : prev.scope_code,
+      staff_type: "all",
+    }));
     setComposeStep("message");
   }
 
@@ -692,7 +699,12 @@ export default function AnnouncementsTab() {
           : {},
         targets: [{
           target_type: compose.target_type,
-          scope_code: compose.target_type === "scope" ? compose.scope_code : null,
+          scope_code: compose.target_type === "scope"
+            ? compose.scope_code
+            : compose.target_type === "teachers" && compose.scope_code !== "all"
+              ? compose.scope_code
+              : null,
+          staff_type: compose.target_type === "teachers" && compose.staff_type !== "all" ? compose.staff_type : null,
         }],
       });
       if (compose.status === "publish_now" && created?.id) {
@@ -1246,7 +1258,7 @@ export default function AnnouncementsTab() {
   }
 
   function renderCompose() {
-    const selectedAudienceLabel = audienceLabel(compose.target_type, compose.scope_code);
+    const selectedAudienceLabel = audienceLabel(compose.target_type, compose.scope_code, compose.staff_type);
     return (
       <ScrollView
         style={[styles.screen, { backgroundColor: theme.bg }]}
@@ -1304,6 +1316,24 @@ export default function AnnouncementsTab() {
                 <View style={styles.segmentWrap}>
                   {renderSegment("school", "School", compose.scope_code, (value) => updateCompose("scope_code", value))}
                   {renderSegment("hs", "Higher Secondary", compose.scope_code, (value) => updateCompose("scope_code", value))}
+                </View>
+              </View>
+            ) : null}
+
+            {compose.target_type === "teachers" ? (
+              <View style={[styles.detailCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                <Text style={[styles.sectionTitle, { color: theme.text }]}>Staff Target</Text>
+                <Text style={[styles.fieldLabel, { color: theme.subText }]}>Scope</Text>
+                <View style={styles.segmentWrap}>
+                  {renderSegment("all", "All Scopes", compose.scope_code, (value) => updateCompose("scope_code", value))}
+                  {renderSegment("school", "School", compose.scope_code, (value) => updateCompose("scope_code", value))}
+                  {renderSegment("hs", "Higher Secondary", compose.scope_code, (value) => updateCompose("scope_code", value))}
+                </View>
+                <Text style={[styles.fieldLabel, { color: theme.subText }]}>Staff Type</Text>
+                <View style={styles.segmentWrap}>
+                  {renderSegment("all", "All Staff", compose.staff_type, (value) => updateCompose("staff_type", value as typeof compose.staff_type))}
+                  {renderSegment("teaching", "Teaching", compose.staff_type, (value) => updateCompose("staff_type", value as typeof compose.staff_type))}
+                  {renderSegment("non_teaching", "Non Teaching", compose.staff_type, (value) => updateCompose("staff_type", value as typeof compose.staff_type))}
                 </View>
               </View>
             ) : null}

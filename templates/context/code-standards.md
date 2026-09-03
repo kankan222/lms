@@ -96,6 +96,11 @@
   or mutation endpoints.
 - Store OTP hashes only. Never store or log plain OTP values.
 - Revoke trusted devices when passwords reset or accounts deactivate.
+- Do not mix timestamp clocks for school-facing records. If a module
+  stores school-local `DATETIME` values and compares schedules with a
+  module helper such as `schoolNowSql()`, all user-visible timestamps
+  in that module must use the same helper instead of raw `NOW()` or
+  JavaScript `new Date()`.
 
 ## File Organization
 
