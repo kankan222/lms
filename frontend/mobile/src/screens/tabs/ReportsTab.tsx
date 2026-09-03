@@ -444,6 +444,8 @@ export default function ReportsTab() {
   const scrollOffsetYRef = useRef(0);
   const focusedStudentIdRef = useRef<number | null>(null);
   const focusScrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingReviewRefreshRef = useRef(false);
+  const reviewInteractionRef = useRef({ editMode: false, selectedCount: 0, gridLoading: false });
   const [keyboardHeight, setKeyboardHeight] = useState(0);
 
   const scopedClassIds = useMemo(
@@ -601,6 +603,14 @@ export default function ReportsTab() {
     const timer = setTimeout(() => setNotice(null), 3200);
     return () => clearTimeout(timer);
   }, [notice]);
+
+  useEffect(() => {
+    reviewInteractionRef.current = {
+      editMode,
+      selectedCount: selectedStudentIds.length,
+      gridLoading,
+    };
+  }, [editMode, gridLoading, selectedStudentIds.length]);
 
   useEffect(() => {
     const showEvent = Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
@@ -831,8 +841,11 @@ export default function ReportsTab() {
     let cancelled = false;
 
     const refreshPendingReview = async () => {
-      if (cancelled || gridLoading) return;
+      if (cancelled || pendingReviewRefreshRef.current) return;
+      const interaction = reviewInteractionRef.current;
+      if (interaction.editMode || interaction.selectedCount > 0 || interaction.gridLoading) return;
 
+      pendingReviewRefreshRef.current = true;
       try {
         const [queue, summary] = await Promise.all([
           getPendingApprovalQueue(),
@@ -842,43 +855,22 @@ export default function ReportsTab() {
 
         setPendingQueue(queue || { total_pending: 0, groups: [] });
         setApprovalSummary(summary || { pending: 0, draft: 0, approved: 0 });
-
-        if (
-          !editMode &&
-          !selectedStudentIds.length &&
-          filters.exam_id &&
-          filters.class_id &&
-          filters.section_id &&
-          filters.subject_id
-        ) {
-          const data = await getMarksGrid(gridFiltersForActiveTab());
-          if (!cancelled) {
-            resetGridState(data);
-          }
-        }
       } catch {
-        // Silent background refresh failure to preserve current review state.
+        // Keep the current review state stable if the silent refresh fails.
+      } finally {
+        pendingReviewRefreshRef.current = false;
       }
     };
 
-    void refreshPendingReview();
     const timer = setInterval(() => {
       void refreshPendingReview();
-    }, 8000);
+    }, 30000);
 
     return () => {
       cancelled = true;
       clearInterval(timer);
     };
-  }, [
-    activeTab,
-    editMode,
-    filters,
-    gridLoading,
-    isAdmin,
-    loading,
-    selectedStudentIds.length,
-  ]);
+  }, [activeTab, isAdmin, loading]);
 
   async function loadBootstrap() {
     setLoading(true);
@@ -936,10 +928,29 @@ export default function ReportsTab() {
     setNotice({ title, message, tone: "error" });
   }
 
-  function resetGridState(nextGrid: MarksGridData) {
+  function restoreScrollPosition(offsetY = scrollOffsetYRef.current) {
+    const targetOffset = Math.max(0, offsetY);
+    setTimeout(() => {
+      scrollRef.current?.scrollTo({ y: targetOffset, animated: false });
+    }, 0);
+    setTimeout(() => {
+      scrollRef.current?.scrollTo({ y: targetOffset, animated: false });
+    }, 80);
+  }
+
+  function resetGridState(
+    nextGrid: MarksGridData,
+    options: { preserveVisibleRowCount?: boolean; preserveSelection?: boolean; preserveEditMode?: boolean } = {},
+  ) {
     setGrid(nextGrid);
-    setVisibleRowCount(GRID_BATCH_SIZE);
-    setSelectedStudentIds([]);
+    if (!options.preserveVisibleRowCount) {
+      setVisibleRowCount(GRID_BATCH_SIZE);
+    } else {
+      setVisibleRowCount((prev) => Math.max(prev, GRID_BATCH_SIZE));
+    }
+    if (!options.preserveSelection) {
+      setSelectedStudentIds([]);
+    }
     const draft: Record<number, MarkDraft> = {};
     (nextGrid.rows || []).forEach((row) => {
       draft[Number(row.student_id)] = {
@@ -948,7 +959,9 @@ export default function ReportsTab() {
       };
     });
     setEditedMarks(draft);
-    setEditMode(false);
+    if (!options.preserveEditMode) {
+      setEditMode(false);
+    }
   }
 
   function syncTabFilter(tab: ReportsTabKey) {
@@ -965,17 +978,21 @@ export default function ReportsTab() {
     };
   }
 
-  async function handleLoadGrid() {
+  async function handleLoadGrid(
+    options: { preserveScroll?: boolean; preserveVisibleRowCount?: boolean; preserveSelection?: boolean; preserveEditMode?: boolean } = {},
+  ) {
     if (!filters.exam_id || !filters.class_id || !filters.section_id || !filters.subject_id) {
       setError("Validation", "Exam, class, section, and subject are required.");
       return false;
     }
 
+    const scrollOffsetBeforeLoad = scrollOffsetYRef.current;
     setGridLoading(true);
     try {
       const data = await getMarksGrid(gridFiltersForActiveTab());
-      resetGridState(data);
+      resetGridState(data, options);
       setNotice(null);
+      if (options.preserveScroll) restoreScrollPosition(scrollOffsetBeforeLoad);
       return true;
     } catch (err: unknown) {
       resetGridState({
@@ -991,6 +1008,7 @@ export default function ReportsTab() {
         rows: [],
       });
       setError("Load failed", getErrorMessage(err, "Failed to load marks grid."));
+      if (options.preserveScroll) restoreScrollPosition(scrollOffsetBeforeLoad);
       return false;
     } finally {
       setGridLoading(false);
@@ -1233,7 +1251,11 @@ export default function ReportsTab() {
         ...buildMutationPayload(),
         marks,
       });
-      await handleLoadGrid();
+      await handleLoadGrid({
+        preserveScroll: true,
+        preserveVisibleRowCount: true,
+        preserveSelection: true,
+      });
       setEditMode(false);
       setSuccess("Saved", "Marks saved.");
     } catch (err: unknown) {
@@ -1266,7 +1288,12 @@ export default function ReportsTab() {
           },
         ],
       });
-      await handleLoadGrid();
+      await handleLoadGrid({
+        preserveScroll: true,
+        preserveVisibleRowCount: true,
+        preserveSelection: true,
+        preserveEditMode: editMode,
+      });
       setSuccess("Saved", `${row.student_name}'s marks saved.`);
     } catch (err: unknown) {
       setError("Save failed", getErrorMessage(err, "Failed to save marks."));
@@ -1284,7 +1311,10 @@ export default function ReportsTab() {
       if (!affected) {
         throw new Error("No draft marks are available to submit. Submitted marks are locked until an admin rejects them.");
       }
-      await handleLoadGrid();
+      await handleLoadGrid({
+        preserveScroll: true,
+        preserveVisibleRowCount: true,
+      });
       setSuccess(
         "Submitted",
         applyAll ? "All draft marks submitted." : "Selected draft marks submitted.",
@@ -1303,7 +1333,10 @@ export default function ReportsTab() {
       if (!affected) {
         throw new Error("No draft marks are available to submit. Submitted marks are locked until an admin rejects them.");
       }
-      await handleLoadGrid();
+      await handleLoadGrid({
+        preserveScroll: true,
+        preserveVisibleRowCount: true,
+      });
       setSuccess("Submitted", `${row.student_name}'s marks submitted.`);
     } catch (err: unknown) {
       setError("Submit failed", getErrorMessage(err, "Failed to submit marks."));
@@ -1323,7 +1356,10 @@ export default function ReportsTab() {
         const summary = await getMarksApprovalSummary();
         setApprovalSummary(summary);
       }
-      await handleLoadGrid();
+      await handleLoadGrid({
+        preserveScroll: true,
+        preserveVisibleRowCount: true,
+      });
       setSuccess(
         "Approved",
         applyAll ? "All pending marks approved." : "Selected marks approved.",
@@ -1344,7 +1380,10 @@ export default function ReportsTab() {
         const summary = await getMarksApprovalSummary();
         setApprovalSummary(summary);
       }
-      await handleLoadGrid();
+      await handleLoadGrid({
+        preserveScroll: true,
+        preserveVisibleRowCount: true,
+      });
       setSuccess("Approved", `${row.student_name}'s marks approved.`);
     } catch (err: unknown) {
       setError("Approve failed", getErrorMessage(err, "Failed to approve marks."));
@@ -1362,7 +1401,10 @@ export default function ReportsTab() {
         const summary = await getMarksApprovalSummary();
         setApprovalSummary(summary);
       }
-      await handleLoadGrid();
+      await handleLoadGrid({
+        preserveScroll: true,
+        preserveVisibleRowCount: true,
+      });
       setSuccess("Rejected", "Selected marks moved back to draft.");
     } catch (err: unknown) {
       setError("Reject failed", getErrorMessage(err, "Failed to reject marks."));
@@ -1571,7 +1613,7 @@ export default function ReportsTab() {
       <SectionCard title="Filters" hint="Choose scope and load a grid">
         {renderFilterFields()}
         <View style={styles.actionRow}>
-          <Pressable style={styles.primaryBtn} onPress={handleLoadGrid} disabled={gridLoading}>
+          <Pressable style={styles.primaryBtn} onPress={() => { void handleLoadGrid(); }} disabled={gridLoading}>
             <Text style={styles.primaryBtnText}>{gridLoading ? "Loading..." : "Load Students"}</Text>
           </Pressable>
         </View>
@@ -1621,7 +1663,7 @@ export default function ReportsTab() {
           </Pressable>
           <Pressable
             style={[styles.toolbarBtn, { borderColor: theme.border, backgroundColor: theme.card }, gridLoading && styles.disabledBtn]}
-            onPress={handleLoadGrid}
+            onPress={() => { void handleLoadGrid(); }}
             disabled={gridLoading}
           >
             <Ionicons name="refresh-outline" size={16} color={theme.icon} />

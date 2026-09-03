@@ -125,6 +125,21 @@ export function getSmsTemplateById(id) {
   return query("SELECT * FROM announcement_sms_templates WHERE id = ? LIMIT 1", [id]).then((rows) => rows[0] || null);
 }
 
+export async function getSmsTemplateUsage(id) {
+  const [announcementRows, jobRows] = await Promise.all([
+    query("SELECT COUNT(*) AS count FROM announcements WHERE sms_template_id = ?", [id]),
+    query("SELECT COUNT(*) AS count FROM announcement_sms_jobs WHERE sms_template_id = ?", [id]),
+  ]);
+  return {
+    announcements: Number(announcementRows[0]?.count || 0),
+    sms_jobs: Number(jobRows[0]?.count || 0),
+  };
+}
+
+export async function deleteSmsTemplate(id) {
+  await execute("DELETE FROM announcement_sms_templates WHERE id = ?", [id]);
+}
+
 export async function updateSmsTemplate(id, data) {
   await execute(
     `UPDATE announcement_sms_templates
@@ -217,10 +232,21 @@ export function listAnnouncements(filters = {}) {
 
   const limit = Math.max(1, Math.min(100, Number(filters.limit) || 50));
   return query(
-    `SELECT a.*, c.name AS category_name, c.slug AS category_slug, st.template_name AS sms_template_name
+    `SELECT a.*, c.name AS category_name, c.slug AS category_slug, st.template_name AS sms_template_name,
+            COALESCE(target_stats.target_count, 0) AS target_count,
+            target_stats.target_types,
+            target_stats.scope_codes
      FROM announcements a
      LEFT JOIN announcement_categories c ON c.id = a.category_id
      LEFT JOIN announcement_sms_templates st ON st.id = a.sms_template_id
+     LEFT JOIN (
+       SELECT announcement_id,
+              COUNT(*) AS target_count,
+              GROUP_CONCAT(DISTINCT target_type ORDER BY target_type SEPARATOR ',') AS target_types,
+              GROUP_CONCAT(DISTINCT NULLIF(scope_code, '') ORDER BY scope_code SEPARATOR ',') AS scope_codes
+       FROM announcement_targets
+       GROUP BY announcement_id
+     ) target_stats ON target_stats.announcement_id = a.id
      ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
      ORDER BY COALESCE(a.published_at, a.publish_at, a.created_at) DESC, a.id DESC
      LIMIT ${limit}`,
@@ -623,7 +649,17 @@ async function resolveUsersForTarget(target) {
     return query(`SELECT u.id AS user_id FROM users u WHERE u.id = ? ${activeClause}`, [target.user_id]);
   }
   if (target.target_type === "teachers") {
-    return query(`SELECT DISTINCT u.id AS user_id FROM teachers t JOIN users u ON u.id = t.user_id WHERE 1=1 ${activeClause}`);
+    const where = ["1=1"];
+    const params = [];
+    if (!target.include_inactive) where.push("u.status = 'active'");
+    appendFilter(where, params, "t.class_scope", target.scope_code);
+    return query(
+      `SELECT DISTINCT u.id AS user_id
+       FROM teachers t
+       JOIN users u ON u.id = t.user_id
+       WHERE ${where.join(" AND ")}`,
+      params
+    );
   }
   if (["staff", "accounts"].includes(target.target_type)) {
     return resolveUsersForTarget({ ...target, target_type: "role", role_name: target.target_type });
@@ -667,12 +703,17 @@ export async function resolveSmsRecipients(targets = []) {
 
 async function resolveSmsForTarget(target) {
   if (target.target_type === "teachers") {
+    const where = ["COALESCE(t.phone, u.phone) IS NOT NULL"];
+    const params = [];
+    if (!target.include_inactive) where.push("u.status = 'active'");
+    appendFilter(where, params, "t.class_scope", target.scope_code);
     return query(
       `SELECT u.id AS user_id, NULL AS student_id, NULL AS parent_id,
               COALESCE(t.phone, u.phone) AS phone, COALESCE(t.name, u.username) AS recipient_name, 'teacher' AS recipient_role
        FROM teachers t
        JOIN users u ON u.id = t.user_id
-       WHERE COALESCE(t.phone, u.phone) IS NOT NULL`
+       WHERE ${where.join(" AND ")}`,
+      params
     );
   }
   if (["all", "role", "staff", "accounts", "user"].includes(target.target_type)) {
@@ -775,33 +816,79 @@ export async function getSmsJobForDispatch(id) {
 export function listSmsJobs(filters = {}) {
   const where = [];
   const params = [];
-  appendFilter(where, params, "status", filters.status);
-  appendFilter(where, params, "announcement_id", filters.announcement_id);
+  appendFilter(where, params, "j.status", filters.status);
+  appendFilter(where, params, "j.announcement_id", filters.announcement_id);
   return query(
-    `SELECT *
-     FROM announcement_sms_jobs
+    `SELECT j.*,
+            a.title AS announcement_title,
+            st.template_name,
+            COALESCE(stats.queued_count, 0) AS queued_count,
+            COALESCE(stats.retrying_count, 0) AS retrying_count,
+            COALESCE(stats.sent_recipient_count, 0) AS sent_recipient_count,
+            COALESCE(stats.delivered_count, 0) AS delivered_count,
+            COALESCE(stats.failed_recipient_count, 0) AS failed_recipient_count,
+            COALESCE(stats.undelivered_count, 0) AS undelivered_count,
+            COALESCE(stats.stored_recipient_count, 0) AS stored_recipient_count
+     FROM announcement_sms_jobs j
+     LEFT JOIN announcements a ON a.id = j.announcement_id
+     LEFT JOIN announcement_sms_templates st ON st.id = j.sms_template_id
+     LEFT JOIN (
+       SELECT sms_job_id,
+              COUNT(*) AS stored_recipient_count,
+              SUM(status = 'queued') AS queued_count,
+              SUM(status = 'retrying') AS retrying_count,
+              SUM(status = 'sent') AS sent_recipient_count,
+              SUM(status = 'delivered') AS delivered_count,
+              SUM(status = 'failed') AS failed_recipient_count,
+              SUM(status = 'undelivered') AS undelivered_count
+       FROM announcement_sms_recipients
+       GROUP BY sms_job_id
+     ) stats ON stats.sms_job_id = j.id
      ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
-     ORDER BY created_at DESC
+     ORDER BY j.created_at DESC
      LIMIT 100`,
     params
   );
 }
 
-export function listSmsJobRecipients(jobId, filters = {}) {
+export async function listSmsJobRecipients(jobId, filters = {}) {
   const where = ["sms_job_id = ?"];
   const params = [jobId];
   appendFilter(where, params, "status", filters.status);
-  const limit = Math.max(1, Math.min(500, Number(filters.limit) || 200));
-  return query(
-    `SELECT id, sms_job_id, announcement_id, user_id, student_id, parent_id, phone,
+  const search = String(filters.q || "").trim();
+  if (search) {
+    where.push("(recipient_name LIKE ? OR phone LIKE ? OR provider_status LIKE ? OR error_message LIKE ?)");
+    const like = `%${search}%`;
+    params.push(like, like, like, like);
+  }
+  const limit = Math.max(1, Math.min(100, Number(filters.limit) || 50));
+  const page = Math.max(1, Number(filters.page) || 1);
+  const offset = (page - 1) * limit;
+  const [rows, totalRows] = await Promise.all([
+    query(
+      `SELECT id, sms_job_id, announcement_id, user_id, student_id, parent_id, phone,
             recipient_name, recipient_role, status, provider_message_id, provider_status,
             attempt_count, last_attempt_at, delivered_at, error_message, created_at, updated_at
-     FROM announcement_sms_recipients
-     WHERE ${where.join(" AND ")}
-     ORDER BY id
-     LIMIT ${limit}`,
-    params
-  );
+       FROM announcement_sms_recipients
+      WHERE ${where.join(" AND ")}
+      ORDER BY id
+      LIMIT ${limit} OFFSET ${offset}`,
+      params
+    ),
+    query(
+      `SELECT COUNT(*) AS total
+       FROM announcement_sms_recipients
+       WHERE ${where.join(" AND ")}`,
+      params
+    ),
+  ]);
+  return {
+    rows,
+    total: Number(totalRows[0]?.total || 0),
+    page,
+    limit,
+    total_pages: Math.max(1, Math.ceil(Number(totalRows[0]?.total || 0) / limit)),
+  };
 }
 
 export async function listDueSmsJobs(limit = 5) {

@@ -56,6 +56,14 @@ export async function updateSmsTemplate(req, res, next) {
   }
 }
 
+export async function deleteSmsTemplate(req, res, next) {
+  try {
+    res.json({ success: true, data: await service.deleteSmsTemplate(req.params.id) });
+  } catch (err) {
+    next(err);
+  }
+}
+
 export async function importSmsTemplates(req, res, next) {
   try {
     res.json({ success: true, data: await service.importSmsTemplates(req.file, req.user.userId) });
@@ -131,6 +139,14 @@ export async function cancelAnnouncement(req, res, next) {
 export async function listSmsJobs(req, res, next) {
   try {
     res.json({ success: true, data: await service.listSmsJobs(req.query) });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function listSmsJobRecipients(req, res, next) {
+  try {
+    res.json({ success: true, data: await service.listSmsJobRecipients(req.params.id, req.query) });
   } catch (err) {
     next(err);
   }

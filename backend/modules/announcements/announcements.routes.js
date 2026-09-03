@@ -19,9 +19,11 @@ router.post(
 );
 router.post("/sms-templates", requirePermission("announcement_templates.manage"), controller.createSmsTemplate);
 router.put("/sms-templates/:id", requirePermission("announcement_templates.manage"), controller.updateSmsTemplate);
+router.delete("/sms-templates/:id", requirePermission("announcement_templates.manage"), controller.deleteSmsTemplate);
 
 router.get("/sms-jobs", requirePermission("announcements.sms.send"), controller.listSmsJobs);
 router.post("/sms-jobs/dispatch", requirePermission("announcements.sms.send"), controller.dispatchDueSmsJobs);
+router.get("/sms-jobs/:id/recipients", requirePermission("announcements.sms.send"), controller.listSmsJobRecipients);
 router.post("/sms-jobs/:id/dispatch", requirePermission("announcements.sms.send"), controller.dispatchSmsJob);
 router.post("/sms-jobs/:id/refresh-status", requirePermission("announcements.sms.send"), controller.refreshSmsJobDeliveryStatus);
 router.get("/holidays", requirePermission("announcements.view"), controller.listHolidays);

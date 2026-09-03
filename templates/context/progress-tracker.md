@@ -14,6 +14,19 @@ Update this file after every meaningful implementation change.
 
 ## Completed
 
+- Moved Announcement SMS recipient details out of inline job expansion into a
+  paginated dialog with status filtering, search, page-size controls, and
+  server-side recipient limits so large 1000+ recipient jobs remain manageable.
+- Added Announcement software/backend improvements for DLT template deletion,
+  scoped teacher audiences with All/School/Higher Secondary teacher targeting,
+  and clearer SMS job status details with per-recipient status expansion.
+- Fixed software Announcement date/time display so publish, SMS schedule,
+  expiry, and holiday date values render from their stored school-local
+  components instead of being shifted by browser timezone conversion.
+- Fixed the mobile marksheet teacher entry/review scroll jump by preserving
+  the current scroll offset and loaded row batch when save, submit, approve, or
+  reject actions reload the marks grid, while normal filter loads and pull
+  refreshes still reset as expected.
 - Added developer-managed mobile app notices with a backend table/migration,
   authenticated API endpoints, Settings/App Updates software management UI,
   and mobile app-shell display that refreshes while the app is open, supports
@@ -1589,3 +1602,16 @@ Update this file after every meaningful implementation change.
   mobile module screens: top in-content labels now use compact uppercase text
   without explanatory subtitles, while shared headers keep the portal name and
   active module subtitle.
+- Fixed the mobile admin Marksheet Review/Pending background sync so it no
+  longer reloads the marks grid every interval; queue and summary counts now
+  refresh silently at a slower cadence and skip while the admin is editing,
+  selecting rows, or loading the grid.
+- Clarified the software Announcement SMS recipient overlay: SMS job cards now
+  show the stored recipient row count on the View Recipients action, the backend
+  job list returns `stored_recipient_count`, and the overlay now distinguishes
+  filter-empty results from jobs that have a total count but no stored recipient
+  detail rows.
+- Reworked the software Announcement Queue tab with clearer announcement cards,
+  visible delivery/status/category badges, reliable audience and visibility
+  metadata, SMS template/schedule context, and a backend target aggregate for
+  the queue list.

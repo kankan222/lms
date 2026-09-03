@@ -370,6 +370,21 @@ export async function updateSmsTemplate(id, body, userId) {
   return template;
 }
 
+export async function deleteSmsTemplate(id) {
+  const templateId = intValue(id, "template id", true);
+  const template = await repo.getSmsTemplateById(templateId);
+  if (!template) throw new AppError("SMS template not found", 404);
+  const usage = await repo.getSmsTemplateUsage(templateId);
+  if (usage.announcements || usage.sms_jobs) {
+    throw new AppError(
+      `DLT template is used by ${usage.announcements} announcement${usage.announcements === 1 ? "" : "s"} and ${usage.sms_jobs} SMS job${usage.sms_jobs === 1 ? "" : "s"}. Mark it inactive instead of deleting it.`,
+      409
+    );
+  }
+  await repo.deleteSmsTemplate(templateId);
+  return { id: templateId, deleted: true };
+}
+
 function splitCsvLine(line) {
   const cells = [];
   let current = "";
@@ -760,6 +775,10 @@ export async function cancelAnnouncement(id, userId) {
 
 export function listSmsJobs(filters) {
   return repo.listSmsJobs(filters);
+}
+
+export function listSmsJobRecipients(id, filters) {
+  return repo.listSmsJobRecipients(intValue(id, "SMS job id", true), filters);
 }
 
 function parseSmsVariables(value) {

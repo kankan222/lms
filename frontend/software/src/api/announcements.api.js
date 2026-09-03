@@ -54,6 +54,12 @@ export function updateAnnouncementSmsTemplate(id, data) {
   });
 }
 
+export function deleteAnnouncementSmsTemplate(id) {
+  return apiRequest(`/announcements/sms-templates/${id}`, {
+    method: "DELETE",
+  });
+}
+
 export async function importAnnouncementSmsTemplates(file) {
   async function request() {
     const token = localStorage.getItem("accessToken");
@@ -114,6 +120,10 @@ export function cancelAnnouncement(id) {
 
 export function getAnnouncementSmsJobs(params = {}) {
   return apiRequest(`/announcements/sms-jobs${buildQuery(params)}`);
+}
+
+export function getAnnouncementSmsJobRecipients(id, params = {}) {
+  return apiRequest(`/announcements/sms-jobs/${id}/recipients${buildQuery(params)}`);
 }
 
 export function dispatchAnnouncementSmsJobs() {

@@ -10,10 +10,21 @@ import {
   Send,
   SlidersHorizontal,
   Smartphone,
+  Trash2,
   Upload,
 } from "lucide-react";
 import TopBar from "../components/TopBar";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -21,6 +32,7 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
@@ -44,11 +56,13 @@ import {
   createAnnouncementCategory,
   createAnnouncementHolidayName,
   createAnnouncementSmsTemplate,
+  deleteAnnouncementSmsTemplate,
   dispatchAnnouncementSmsJob,
   dispatchAnnouncementSmsJobs,
   getAnnouncement,
   getAnnouncementCategories,
   getAnnouncementHolidayNames,
+  getAnnouncementSmsJobRecipients,
   getAnnouncementSmsJobs,
   getAnnouncementSmsTemplates,
   getAnnouncements,
@@ -72,6 +86,9 @@ const statusClass = {
   sent: "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/15 dark:text-emerald-200",
   partial_failed: "border-orange-200 bg-orange-50 text-orange-700 dark:border-orange-500/30 dark:bg-orange-500/15 dark:text-orange-200",
   failed: "border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-500/30 dark:bg-rose-500/15 dark:text-rose-200",
+  retrying: "border-orange-200 bg-orange-50 text-orange-700 dark:border-orange-500/30 dark:bg-orange-500/15 dark:text-orange-200",
+  delivered: "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/15 dark:text-emerald-200",
+  undelivered: "border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-500/30 dark:bg-rose-500/15 dark:text-rose-200",
   cancelled: "border-slate-200 bg-slate-50 text-slate-700 dark:border-slate-500/30 dark:bg-slate-500/15 dark:text-slate-200",
 };
 
@@ -83,7 +100,7 @@ const deliveryLabels = {
 
 const announcementTargetOptions = [
   { value: "parents", label: "Parents", description: "All parents or filtered parent groups" },
-  { value: "teachers", label: "Teachers", description: "Teaching staff with accounts" },
+  { value: "teachers", label: "Teachers", description: "All teachers, school teachers, or HS teachers" },
   { value: "section", label: "Section", description: "Parents in one selected section" },
   { value: "class", label: "Class", description: "Parents in one selected class" },
   { value: "scope", label: "School / HS", description: "School or Higher Secondary scope" },
@@ -95,6 +112,49 @@ const announcementTargetOptions = [
 
 function announcementTargetLabel(value) {
   return announcementTargetOptions.find((item) => item.value === value)?.label || "Target";
+}
+
+function formatQueueAudience(item) {
+  const types = String(item?.target_types || "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
+  const scopes = String(item?.scope_codes || "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
+  if (!types.length) {
+    const count = Number(item?.target_count || 0);
+    return count ? `${count} target rule${count === 1 ? "" : "s"}` : "Audience not set";
+  }
+  const labels = types.map((type) => {
+    if (type === "teachers" && scopes.length) {
+      const scopeLabel = scopes.includes("school") && scopes.includes("hs")
+        ? "School + HS"
+        : scopes.includes("hs")
+          ? "HS"
+          : "School";
+      return `${scopeLabel} teachers`;
+    }
+    if (type === "scope" && scopes.length) {
+      const scopeLabel = scopes.includes("school") && scopes.includes("hs")
+        ? "School + HS"
+        : scopes.includes("hs")
+          ? "HS"
+          : "School";
+      return `${scopeLabel} parents`;
+    }
+    return announcementTargetLabel(type);
+  });
+  return labels.join(", ");
+}
+
+function visibilitySummary(item) {
+  const channels = [];
+  if (item?.show_in_software) channels.push("Software");
+  if (item?.show_in_mobile) channels.push("Mobile");
+  if (item?.show_on_website) channels.push("Website");
+  return channels.length ? channels.join(" + ") : "Hidden";
 }
 
 const emptyAnnouncementForm = {
@@ -155,12 +215,27 @@ function toNumberOrNull(value) {
 
 function formatDate(value) {
   if (!value) return "-";
+  const text = String(value).trim();
+  const localDate = text.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (localDate) {
+    const [, year, month, day] = localDate;
+    return `${day}/${month}/${year}`;
+  }
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleDateString();
 }
 
 function formatDateTime(value) {
   if (!value) return "-";
+  const text = String(value).trim();
+  const localDateTime = text.match(/^(\d{4})-(\d{2})-(\d{2})[T\s](\d{2}):(\d{2})/);
+  if (localDateTime) {
+    const [, year, month, day, hourText, minute] = localDateTime;
+    const hour24 = Number(hourText);
+    const hour12 = hour24 % 12 || 12;
+    const period = hour24 >= 12 ? "PM" : "AM";
+    return `${day}/${month}/${year}, ${hour12}:${minute} ${period}`;
+  }
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleString();
 }
@@ -324,9 +399,32 @@ function templateToForm(item = {}) {
 function StatusBadge({ status }) {
   return (
     <Badge variant="outline" className={statusClass[status] || statusClass.cancelled}>
-      {status || "unknown"}
+      {String(status || "unknown").replace(/_/g, " ")}
     </Badge>
   );
+}
+
+function SmsCountBadge({ label, count, status }) {
+  return (
+    <Badge variant="outline" className={statusClass[status] || statusClass.cancelled}>
+      {label} {Number(count || 0)}
+    </Badge>
+  );
+}
+
+function paginationText(meta) {
+  const total = Number(meta.total || 0);
+  if (!total) return "No recipients";
+  const page = Number(meta.page || 1);
+  const limit = Number(meta.limit || 50);
+  const start = (page - 1) * limit + 1;
+  const end = Math.min(total, page * limit);
+  return `${start}-${end} of ${total}`;
+}
+
+function storedRecipientCount(job) {
+  const stored = Number(job?.stored_recipient_count || 0);
+  return stored || Number(job?.queued_count || 0) + Number(job?.retrying_count || 0) + Number(job?.sent_recipient_count || 0) + Number(job?.delivered_count || 0) + Number(job?.failed_recipient_count || 0) + Number(job?.undelivered_count || 0);
 }
 
 function Field({ label, children }) {
@@ -415,7 +513,7 @@ function normalizeTarget(form) {
     target_type: form.target_type,
     role_name: form.target_type === "role" ? form.role_name : null,
     session_id: toNumberOrNull(form.session_id),
-    scope_code: form.target_type === "scope" ? form.scope_code || null : null,
+    scope_code: ["scope", "teachers"].includes(form.target_type) ? form.scope_code || null : null,
     class_id: toNumberOrNull(form.class_id),
     section_id: toNumberOrNull(form.section_id),
     medium: form.medium || null,
@@ -476,6 +574,12 @@ export default function Announcements() {
   const [importFile, setImportFile] = useState(null);
   const [editingAnnouncement, setEditingAnnouncement] = useState(null);
   const [editingTemplate, setEditingTemplate] = useState(null);
+  const [templateToDelete, setTemplateToDelete] = useState(null);
+  const [recipientDialogJob, setRecipientDialogJob] = useState(null);
+  const [recipientRows, setRecipientRows] = useState([]);
+  const [recipientMeta, setRecipientMeta] = useState({ page: 1, limit: 50, total: 0, total_pages: 1 });
+  const [recipientFilters, setRecipientFilters] = useState({ status: "", q: "", page: 1, limit: 50 });
+  const [recipientLoading, setRecipientLoading] = useState(false);
   const [filters, setFilters] = useState({ status: "", delivery_mode: "" });
   const [holidayMonth, setHolidayMonth] = useState(() => {
     const today = new Date();
@@ -506,7 +610,11 @@ export default function Announcements() {
   const targetSummary = useMemo(() => {
     if (announcementForm.target_type === "all") return "All active users";
     if (announcementForm.target_type === "parents") return "All parents";
-    if (announcementForm.target_type === "teachers") return "All teachers";
+    if (announcementForm.target_type === "teachers") {
+      if (announcementForm.scope_code === "school") return "School teachers";
+      if (announcementForm.scope_code === "hs") return "Higher Secondary teachers";
+      return "All teachers";
+    }
     if (announcementForm.target_type === "staff") return "Staff";
     if (announcementForm.target_type === "accounts") return "Accounts";
     if (announcementForm.target_type === "role") return announcementForm.role_name ? `Role: ${announcementForm.role_name}` : "Select a role";
@@ -549,7 +657,6 @@ export default function Announcements() {
     });
     return dates;
   }, [holidayMonth, monthHolidays]);
-
   const loadAnnouncements = useCallback(async () => {
     try {
       const response = await getAnnouncements(filters);
@@ -744,6 +851,79 @@ export default function Announcements() {
     setTemplateForm(emptyTemplateForm);
   }
 
+  async function handleDeleteTemplate() {
+    if (!templateToDelete) return;
+    setSaving(true);
+    clearFeedback();
+    try {
+      await deleteAnnouncementSmsTemplate(templateToDelete.id);
+      setTemplates((prev) => prev.filter((item) => String(item.id) !== String(templateToDelete.id)));
+      showSuccess("DLT Template Deleted", `${templateToDelete.template_name || "Template"} was removed.`);
+      setTemplateToDelete(null);
+    } catch (err) {
+      showError("Template Delete Failed", err?.message || "Could not delete DLT template.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function loadSmsJobRecipients(job = recipientDialogJob, filters = recipientFilters) {
+    if (!job?.id) return;
+    setRecipientLoading(true);
+    try {
+      const response = await getAnnouncementSmsJobRecipients(job.id, filters);
+      const payload = response.data || {};
+      setRecipientRows(Array.isArray(payload.rows) ? payload.rows : []);
+      setRecipientMeta({
+        page: Number(payload.page || filters.page || 1),
+        limit: Number(payload.limit || filters.limit || 50),
+        total: Number(payload.total || 0),
+        total_pages: Number(payload.total_pages || 1),
+      });
+      setRecipientDialogJob((prev) => (
+        prev?.id && String(prev.id) === String(job.id)
+          ? { ...prev, stored_recipient_count: Number(payload.total || 0) || storedRecipientCount(prev) }
+          : prev
+      ));
+    } catch (err) {
+      showError("Recipients Load Failed", err?.message || "Could not load SMS recipients.");
+    } finally {
+      setRecipientLoading(false);
+    }
+  }
+
+  function openSmsRecipientsDialog(job) {
+    const nextFilters = { status: "", q: "", page: 1, limit: 50 };
+    setRecipientDialogJob(job);
+    setRecipientFilters(nextFilters);
+    setRecipientRows([]);
+    setRecipientMeta({ page: 1, limit: 50, total: 0, total_pages: 1 });
+    loadSmsJobRecipients(job, nextFilters);
+  }
+
+  function closeSmsRecipientsDialog() {
+    setRecipientDialogJob(null);
+    setRecipientRows([]);
+    setRecipientMeta({ page: 1, limit: 50, total: 0, total_pages: 1 });
+    setRecipientFilters({ status: "", q: "", page: 1, limit: 50 });
+  }
+
+  function updateRecipientFilters(patch) {
+    const nextFilters = { ...recipientFilters, ...patch };
+    setRecipientFilters(nextFilters);
+    loadSmsJobRecipients(recipientDialogJob, nextFilters);
+  }
+
+  const recipientEmptyMessage = useMemo(() => {
+    const filtered = Boolean(recipientFilters.status || String(recipientFilters.q || "").trim());
+    if (filtered) return "No recipients match the current filters.";
+    const jobTotal = Number(recipientDialogJob?.total_recipients || 0);
+    if (jobTotal > 0) return `No stored recipient rows for this SMS job. Job total: ${jobTotal}.`;
+    return "No recipients were generated for this SMS job.";
+  }, [recipientDialogJob, recipientFilters]);
+
+  const recipientStoredTotal = storedRecipientCount(recipientDialogJob);
+
   async function importTemplates() {
     if (!importFile) {
       showError("Import Failed", "Choose an XLSX or CSV file first.");
@@ -805,6 +985,9 @@ export default function Announcements() {
       const result = response.data || {};
       const jobsRes = await getAnnouncementSmsJobs();
       setSmsJobs(unwrap(jobsRes));
+      if (recipientDialogJob?.id && String(recipientDialogJob.id) === String(job.id)) {
+        await loadSmsJobRecipients(job);
+      }
       if (result.failed) {
         showError(
           "SMS Job Partially Completed",
@@ -828,6 +1011,9 @@ export default function Announcements() {
       const result = response.data || {};
       const jobsRes = await getAnnouncementSmsJobs();
       setSmsJobs(unwrap(jobsRes));
+      if (recipientDialogJob?.id && String(recipientDialogJob.id) === String(job.id)) {
+        await loadSmsJobRecipients(job);
+      }
       if (result.failed) {
         showError(
           "Status Refresh Partially Completed",
@@ -1099,6 +1285,26 @@ export default function Announcements() {
               </div>
             </DialogContent>
           </Dialog>
+          <AlertDialog open={Boolean(templateToDelete)} onOpenChange={(open) => !open && setTemplateToDelete(null)}>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Delete DLT template?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  This removes {templateToDelete?.template_name || "the selected template"} only if it has not been used by an announcement or SMS job. Used templates should be marked inactive instead.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogAction
+                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                  onClick={handleDeleteTemplate}
+                  disabled={saving}
+                >
+                  Delete Template
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
           <Dialog
             open={announcementOpen}
             onOpenChange={(open) => {
@@ -1179,6 +1385,15 @@ export default function Announcements() {
                         <div className="space-y-4">
                           {announcementForm.target_type === "role" ? (
                             <Field label="Role Name"><Input value={announcementForm.role_name} onChange={(event) => updateAnnouncementField("role_name", event.target.value)} placeholder="parent, teacher, staff" /></Field>
+                          ) : null}
+                          {announcementForm.target_type === "teachers" ? (
+                            <Field label="Teacher Scope">
+                              <select className={selectClassName} value={announcementForm.scope_code} onChange={(event) => updateAnnouncementField("scope_code", event.target.value)}>
+                                <option value="">All teachers</option>
+                                <option value="school">School teachers</option>
+                                <option value="hs">Higher Secondary teachers</option>
+                              </select>
+                            </Field>
                           ) : null}
                           {["class", "section", "parents", "scope"].includes(announcementForm.target_type) ? (
                             <Field label="Session">
@@ -1387,6 +1602,131 @@ export default function Announcements() {
       }
     />
 
+      <Dialog open={Boolean(recipientDialogJob)} onOpenChange={(open) => !open && closeSmsRecipientsDialog()}>
+        <DialogContent className="max-h-[88vh] overflow-hidden p-0 sm:max-w-5xl">
+          <DialogHeader className="border-b bg-card px-6 py-5">
+            <DialogTitle>SMS Recipients</DialogTitle>
+            <DialogDescription>
+              {recipientDialogJob?.announcement_title || `Job #${recipientDialogJob?.id || ""}`} recipient delivery details.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex min-h-0 flex-1 flex-col gap-4 px-6 py-5">
+            <div className="grid gap-3 rounded-md border border-border bg-muted/20 p-3 md:grid-cols-[1fr_auto] md:items-end">
+              <div className="grid gap-3 md:grid-cols-[180px_1fr_140px]">
+                <Field label="Status">
+                  <select
+                    className={selectClassName}
+                    value={recipientFilters.status}
+                    onChange={(event) => updateRecipientFilters({ status: event.target.value, page: 1 })}
+                  >
+                    <option value="">All statuses</option>
+                    <option value="queued">Queued</option>
+                    <option value="retrying">Retrying</option>
+                    <option value="sent">Sent</option>
+                    <option value="delivered">Delivered</option>
+                    <option value="failed">Failed</option>
+                    <option value="undelivered">Undelivered</option>
+                  </select>
+                </Field>
+                <Field label="Search">
+                  <Input
+                    value={recipientFilters.q}
+                    onChange={(event) => setRecipientFilters((prev) => ({ ...prev, q: event.target.value }))}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") updateRecipientFilters({ page: 1 });
+                    }}
+                    placeholder="Name, phone, provider status, or error"
+                  />
+                </Field>
+                <Field label="Page Size">
+                  <select
+                    className={selectClassName}
+                    value={recipientFilters.limit}
+                    onChange={(event) => updateRecipientFilters({ limit: Number(event.target.value), page: 1 })}
+                  >
+                    <option value={25}>25</option>
+                    <option value={50}>50</option>
+                    <option value={100}>100</option>
+                  </select>
+                </Field>
+              </div>
+              <Button type="button" variant="outline" onClick={() => updateRecipientFilters({ page: 1 })} disabled={recipientLoading}>
+                Search
+              </Button>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <StatusBadge status={recipientDialogJob?.status} />
+              <SmsCountBadge label="Total" count={recipientDialogJob?.total_recipients} status="queued" />
+              <SmsCountBadge label="Rows" count={recipientStoredTotal} status="queued" />
+              <SmsCountBadge label="Sent" count={recipientDialogJob?.sent_recipient_count ?? recipientDialogJob?.sent_count} status="sent" />
+              <SmsCountBadge label="Delivered" count={recipientDialogJob?.delivered_count} status="delivered" />
+              <SmsCountBadge label="Failed" count={(Number(recipientDialogJob?.failed_recipient_count || 0) + Number(recipientDialogJob?.undelivered_count || 0)) || recipientDialogJob?.failed_count} status="failed" />
+            </div>
+            <div className="min-h-0 overflow-hidden rounded-md border border-border">
+              {recipientLoading ? (
+                <p className="p-4 text-sm text-muted-foreground">Loading recipients...</p>
+              ) : recipientRows.length ? (
+                <div className="max-h-[52vh] overflow-auto">
+                  <table className="w-full text-sm">
+                    <thead className="sticky top-0 bg-muted text-xs uppercase text-muted-foreground">
+                      <tr>
+                        <th className="px-3 py-2 text-left font-medium">Recipient</th>
+                        <th className="px-3 py-2 text-left font-medium">Phone</th>
+                        <th className="px-3 py-2 text-left font-medium">Status</th>
+                        <th className="px-3 py-2 text-left font-medium">Provider</th>
+                        <th className="px-3 py-2 text-left font-medium">Attempts</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {recipientRows.map((recipient) => (
+                        <tr key={recipient.id} className="border-t border-border">
+                          <td className="px-3 py-2">
+                            <p className="font-medium text-foreground">{recipient.recipient_name || "-"}</p>
+                            <p className="text-xs text-muted-foreground">{recipient.recipient_role || "recipient"}</p>
+                          </td>
+                          <td className="px-3 py-2 text-muted-foreground">{recipient.phone || "-"}</td>
+                          <td className="px-3 py-2"><StatusBadge status={recipient.status} /></td>
+                          <td className="px-3 py-2">
+                            <p className="text-muted-foreground">{recipient.provider_status || "-"}</p>
+                            {recipient.error_message ? <p className="mt-1 text-xs text-destructive">{recipient.error_message}</p> : null}
+                          </td>
+                          <td className="px-3 py-2 text-muted-foreground">{recipient.attempt_count || 0}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <p className="p-4 text-sm text-muted-foreground">{recipientEmptyMessage}</p>
+              )}
+            </div>
+            <DialogFooter className="items-center justify-between gap-3 border-t border-border pt-4 sm:justify-between">
+              <p className="text-sm text-muted-foreground">{paginationText(recipientMeta)}</p>
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => updateRecipientFilters({ page: Math.max(1, Number(recipientMeta.page || 1) - 1) })}
+                  disabled={recipientLoading || Number(recipientMeta.page || 1) <= 1}
+                >
+                  <ChevronLeft className="mr-1 size-4" /> Previous
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => updateRecipientFilters({ page: Math.min(Number(recipientMeta.total_pages || 1), Number(recipientMeta.page || 1) + 1) })}
+                  disabled={recipientLoading || Number(recipientMeta.page || 1) >= Number(recipientMeta.total_pages || 1)}
+                >
+                  Next <ChevronRight className="ml-1 size-4" />
+                </Button>
+              </div>
+            </DialogFooter>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       <div className="pointer-events-none fixed top-6 right-6 z-50 w-full max-w-sm">
         <div
           className={`transition-all duration-500 ease-out ${
@@ -1422,31 +1762,55 @@ export default function Announcements() {
           <Card className="rounded-lg">
             <CardHeader>
               <CardTitle>Announcement Queue</CardTitle>
-              <CardDescription>Drafts can be edited later from the API. Publish sends online notifications and queues offline SMS.</CardDescription>
+              <CardDescription>Review drafts, scheduled posts, published notices, and SMS-enabled announcements.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
               {loading ? (
-                <p className="text-sm text-muted-foreground">Loading announcements...</p>
+                <div className="rounded-md border border-border bg-background p-4 text-sm text-muted-foreground dark:bg-input/20">
+                  Loading announcements...
+                </div>
               ) : announcements.length === 0 ? (
                 <EmptyState title="No announcements" description="Create a draft announcement to begin." />
               ) : (
                 announcements.map((item) => (
                   <div key={item.id} className="rounded-md border border-border bg-background p-4 dark:bg-input/20">
-                    <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_auto]">
                       <div className="min-w-0">
                         <div className="flex flex-wrap items-center gap-2">
-                          <p className="font-semibold text-foreground">{item.title}</p>
+                          <p className="font-semibold text-foreground">{item.title || `Announcement #${item.id}`}</p>
                           <StatusBadge status={item.status} />
                           {item.version_number ? <Badge variant="outline">v{item.version_number}</Badge> : null}
+                          {item.priority === "urgent" ? <Badge variant="destructive">Urgent</Badge> : null}
                           <Badge variant="secondary">{deliveryLabels[item.delivery_mode] || item.delivery_mode}</Badge>
                           {item.category_name ? <Badge variant="outline">{item.category_name}</Badge> : null}
                         </div>
                         <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">{item.body}</p>
-                        <p className="mt-2 text-xs text-muted-foreground">
-                          Publish: {formatDateTime(item.publish_at || item.published_at)} | Event: {formatDate(item.event_start_date)} - {formatDate(item.event_end_date)}
-                        </p>
+                        <div className="mt-3 grid gap-2 text-xs text-muted-foreground sm:grid-cols-2 xl:grid-cols-4">
+                          <div className="rounded-md bg-muted/30 px-3 py-2">
+                            <p className="font-medium text-foreground">Audience</p>
+                            <p className="mt-0.5">{formatQueueAudience(item)}</p>
+                          </div>
+                          <div className="rounded-md bg-muted/30 px-3 py-2">
+                            <p className="font-medium text-foreground">Publish</p>
+                            <p className="mt-0.5">{formatDateTime(item.published_at || item.publish_at)}</p>
+                          </div>
+                          <div className="rounded-md bg-muted/30 px-3 py-2">
+                            <p className="font-medium text-foreground">Visible</p>
+                            <p className="mt-0.5">{visibilitySummary(item)}</p>
+                          </div>
+                          <div className="rounded-md bg-muted/30 px-3 py-2">
+                            <p className="font-medium text-foreground">Event</p>
+                            <p className="mt-0.5">{formatDate(item.event_start_date)} - {formatDate(item.event_end_date)}</p>
+                          </div>
+                        </div>
+                        {item.sms_template_name ? (
+                          <p className="mt-2 text-xs text-muted-foreground">
+                            SMS template: <span className="font-medium text-foreground">{item.sms_template_name}</span>
+                            {item.sms_send_at ? ` | SMS send: ${formatDateTime(item.sms_send_at)}` : ""}
+                          </p>
+                        ) : null}
                       </div>
-                      <div className="flex shrink-0 gap-2">
+                      <div className="flex shrink-0 flex-wrap items-start justify-start gap-2 lg:justify-end">
                         {["draft", "scheduled", "published", "sent"].includes(item.status) ? (
                           <Button size="sm" variant="outline" onClick={() => openAnnouncementEditor(item)} disabled={saving}>
                             <Pencil className="mr-2 size-4" />
@@ -1498,6 +1862,9 @@ export default function Announcements() {
                         <Button type="button" size="icon" variant="outline" onClick={() => openTemplateDialog(item)} aria-label="Edit template">
                           <Pencil className="size-4" />
                         </Button>
+                        <Button type="button" size="icon" variant="destructive" onClick={() => setTemplateToDelete(item)} aria-label="Delete template">
+                          <Trash2 className="size-4" />
+                        </Button>
                       </div>
                     </div>
                     <p className="mt-1 text-xs text-muted-foreground">DLT: {item.dlt_template_id}</p>
@@ -1529,32 +1896,49 @@ export default function Announcements() {
                 <EmptyState title="No SMS jobs" description="Publish an offline or online + SMS announcement to create a job." />
               ) : (
                 smsJobs.map((job) => (
-                  <div key={job.id} className="grid gap-2 rounded-md border border-border bg-background p-4 dark:bg-input/20 md:grid-cols-[1fr_auto]">
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <p className="font-semibold">Job #{job.id}</p>
-                        <StatusBadge status={job.status} />
+                    <div key={job.id} className="rounded-md border border-border bg-background p-4 dark:bg-input/20">
+                      <div className="grid gap-3 md:grid-cols-[1fr_auto]">
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <p className="font-semibold">Job #{job.id}</p>
+                            <StatusBadge status={job.status} />
+                            {job.template_name ? <Badge variant="secondary">{job.template_name}</Badge> : null}
+                          </div>
+                          <p className="mt-1 text-sm text-muted-foreground">
+                            {job.announcement_title || `Announcement #${job.announcement_id}`}
+                          </p>
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            Scheduled: {formatDateTime(job.scheduled_at)} | Started: {formatDateTime(job.started_at)} | Completed: {formatDateTime(job.completed_at)}
+                          </p>
+                          {job.error_message ? <p className="mt-1 text-xs text-destructive">{job.error_message}</p> : null}
+                        </div>
+                        <div className="flex flex-wrap items-center justify-start gap-2 md:justify-end">
+                          <SmsCountBadge label="Total" count={job.total_recipients} status="queued" />
+                          <SmsCountBadge label="Queued" count={job.queued_count} status="queued" />
+                          <SmsCountBadge label="Retrying" count={job.retrying_count} status="retrying" />
+                          <SmsCountBadge label="Sent" count={job.sent_recipient_count ?? job.sent_count} status="sent" />
+                          <SmsCountBadge label="Delivered" count={job.delivered_count} status="delivered" />
+                          <SmsCountBadge label="Failed" count={(Number(job.failed_recipient_count || 0) + Number(job.undelivered_count || 0)) || job.failed_count} status="failed" />
+                        </div>
                       </div>
-                      <p className="mt-1 text-sm text-muted-foreground">
-                        Announcement #{job.announcement_id} | Scheduled: {formatDateTime(job.scheduled_at)}
-                      </p>
-                    </div>
-                    <div className="flex flex-wrap items-center justify-start gap-3 text-sm text-muted-foreground md:justify-end">
-                      <span>Total {job.total_recipients}</span>
-                      <span>Sent {job.sent_count}</span>
-                      <span>Failed {job.failed_count}</span>
-                      {["queued", "scheduled", "sending"].includes(job.status) ? (
-                        <Button size="sm" variant="outline" onClick={() => dispatchSingleSmsJob(job)} disabled={saving}>
-                          <Send className="mr-2 size-4" /> Dispatch
+                      <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-border pt-3">
+                        <Button size="sm" variant="outline" onClick={() => openSmsRecipientsDialog(job)}>
+                          View Recipients ({storedRecipientCount(job)})
                         </Button>
-                      ) : null}
-                      {["sent", "partial_failed"].includes(job.status) ? (
-                        <Button size="sm" variant="outline" onClick={() => refreshSmsJobStatus(job)} disabled={saving}>
-                          <RefreshCcw className="mr-2 size-4" /> Refresh Status
-                        </Button>
-                      ) : null}
+                        <div className="flex flex-wrap items-center gap-2">
+                          {["queued", "scheduled", "sending"].includes(job.status) ? (
+                            <Button size="sm" variant="outline" onClick={() => dispatchSingleSmsJob(job)} disabled={saving}>
+                              <Send className="mr-2 size-4" /> Dispatch
+                            </Button>
+                          ) : null}
+                          {["sent", "partial_failed"].includes(job.status) ? (
+                            <Button size="sm" variant="outline" onClick={() => refreshSmsJobStatus(job)} disabled={saving}>
+                              <RefreshCcw className="mr-2 size-4" /> Refresh Status
+                            </Button>
+                          ) : null}
+                        </div>
+                      </div>
                     </div>
-                  </div>
                 ))
               )}
             </CardContent>
