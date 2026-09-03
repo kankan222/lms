@@ -1615,3 +1615,6 @@ Update this file after every meaningful implementation change.
   visible delivery/status/category badges, reliable audience and visibility
   metadata, SMS template/schedule context, and a backend target aggregate for
   the queue list.
+- Fixed the software Announcement SMS recipient dialog layout so the recipient
+  table is the only scrollable area and the pagination footer remains visible
+  in production-height viewports.

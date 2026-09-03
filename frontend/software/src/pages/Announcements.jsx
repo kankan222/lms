@@ -1603,15 +1603,15 @@ export default function Announcements() {
     />
 
       <Dialog open={Boolean(recipientDialogJob)} onOpenChange={(open) => !open && closeSmsRecipientsDialog()}>
-        <DialogContent className="max-h-[88vh] overflow-hidden p-0 sm:max-w-5xl">
-          <DialogHeader className="border-b bg-card px-6 py-5">
+        <DialogContent className="flex max-h-[88vh] flex-col overflow-hidden p-0 sm:max-w-5xl">
+          <DialogHeader className="shrink-0 border-b bg-card px-6 py-5">
             <DialogTitle>SMS Recipients</DialogTitle>
             <DialogDescription>
               {recipientDialogJob?.announcement_title || `Job #${recipientDialogJob?.id || ""}`} recipient delivery details.
             </DialogDescription>
           </DialogHeader>
           <div className="flex min-h-0 flex-1 flex-col gap-4 px-6 py-5">
-            <div className="grid gap-3 rounded-md border border-border bg-muted/20 p-3 md:grid-cols-[1fr_auto] md:items-end">
+            <div className="shrink-0 grid gap-3 rounded-md border border-border bg-muted/20 p-3 md:grid-cols-[1fr_auto] md:items-end">
               <div className="grid gap-3 md:grid-cols-[180px_1fr_140px]">
                 <Field label="Status">
                   <select
@@ -1654,7 +1654,7 @@ export default function Announcements() {
                 Search
               </Button>
             </div>
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="flex shrink-0 flex-wrap items-center gap-2">
               <StatusBadge status={recipientDialogJob?.status} />
               <SmsCountBadge label="Total" count={recipientDialogJob?.total_recipients} status="queued" />
               <SmsCountBadge label="Rows" count={recipientStoredTotal} status="queued" />
@@ -1662,11 +1662,11 @@ export default function Announcements() {
               <SmsCountBadge label="Delivered" count={recipientDialogJob?.delivered_count} status="delivered" />
               <SmsCountBadge label="Failed" count={(Number(recipientDialogJob?.failed_recipient_count || 0) + Number(recipientDialogJob?.undelivered_count || 0)) || recipientDialogJob?.failed_count} status="failed" />
             </div>
-            <div className="min-h-0 overflow-hidden rounded-md border border-border">
+            <div className="min-h-0 flex-1 overflow-hidden rounded-md border border-border">
               {recipientLoading ? (
                 <p className="p-4 text-sm text-muted-foreground">Loading recipients...</p>
               ) : recipientRows.length ? (
-                <div className="max-h-[52vh] overflow-auto">
+                <div className="h-full overflow-auto">
                   <table className="w-full text-sm">
                     <thead className="sticky top-0 bg-muted text-xs uppercase text-muted-foreground">
                       <tr>
@@ -1700,7 +1700,7 @@ export default function Announcements() {
                 <p className="p-4 text-sm text-muted-foreground">{recipientEmptyMessage}</p>
               )}
             </div>
-            <DialogFooter className="items-center justify-between gap-3 border-t border-border pt-4 sm:justify-between">
+            <DialogFooter className="shrink-0 items-center justify-between gap-3 border-t border-border pt-4 sm:justify-between">
               <p className="text-sm text-muted-foreground">{paginationText(recipientMeta)}</p>
               <div className="flex items-center gap-2">
                 <Button
