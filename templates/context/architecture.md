@@ -174,6 +174,15 @@
 
 ## Routine Model
 
+- Generated class routine Free/Break rows use weekday and period number for
+  occupancy, scoped to the routine. Saved entry timing overrides never make
+  an occupied period appear empty. Weekday-specific template slots override
+  everyday defaults when filling genuinely missing periods. These are read
+  response calculations, so existing routines recover without per-slot saves,
+  data cleanup, or a migration. Web week/day summaries count a period as Free
+  only when it has no non-Free entry, and occupied entries take display
+  priority over any saved Free rows while retaining those rows in tooltips.
+
 - Class routine timing changes use a dedicated preview/apply operation guarded
   by both `routines.manage` and `routines.publish`. Admins may update one
   draft/published routine or every draft/published routine using its original

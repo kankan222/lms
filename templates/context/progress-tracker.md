@@ -14,6 +14,18 @@ Update this file after every meaningful implementation change.
 
 ## Completed
 
+- Fixed phantom Free entries after class routine time-slot edits: detail and
+  day-board reads now identify occupied positions by routine/day/period rather
+  than timing snapshots, preserve saved assignments/timing overrides, and use
+  day-specific template slots before everyday defaults for genuine empty
+  periods. Software shows occupied entries first and makes assigned/free
+  counts mutually exclusive in week/day views. Existing routines need no
+  resaving, cleanup SQL, or new migration. Validation: six regression scenarios
+  reproduced the previous failures and now pass for both detail and day-board
+  service paths (SQL reads doubled; no database records modified). Together
+  with existing bulk timing tests, all 18 Node checks passed. Software lint,
+  production build, backend syntax, and diff whitespace checks passed.
+
 - Fixed the exam routine PDF Date/Day mapping: calendar dates and weekday
   labels now populate separate Date and Day columns, with table widths
   rebalanced for both common-scope and mixed-scope exports. Validation:

@@ -761,11 +761,11 @@ function breakSlotAppliesToWeekday(slot, weekday) {
 }
 
 function routineEntrySlotKey(entry) {
+  // Occupancy follows the timetable position, not a timing snapshot. Template
+  // edits must not create a Free entry beside an existing subject/teacher.
   return [
     Number(entry.weekday || 0),
     Number(entry.period_number || 0),
-    String(entry.start_time || ""),
-    String(entry.end_time || ""),
   ].join("|");
 }
 
@@ -777,12 +777,18 @@ function sortRoutineEntryLike(a, b) {
 }
 
 function missingTemplateSlotKey(weekday, slot) {
-  return [
-    Number(weekday || 0),
-    Number(slot.period_number || 0),
-    String(slot.start_time || ""),
-    String(slot.end_time || ""),
-  ].join("|");
+  return routineEntrySlotKey({ weekday, period_number: slot.period_number });
+}
+
+function templateSlotsForWeekday(slots, weekday) {
+  const byPeriod = new Map();
+  for (const slot of slots) {
+    if (!breakSlotAppliesToWeekday(slot, weekday)) continue;
+    const period = Number(slot.period_number);
+    // A Saturday/day-specific slot takes precedence over an everyday default.
+    if (!byPeriod.has(period) || slot.weekday) byPeriod.set(period, slot);
+  }
+  return [...byPeriod.values()];
 }
 
 function isBreakTemplateSlot(slot) {
@@ -847,8 +853,7 @@ async function includeMissingBreakRows(rows = []) {
     const [, weekdayValue] = key.split("|");
     const weekday = Number(weekdayValue);
     const slots = slotsByTemplate.get(Number(sampleRow.time_slot_template_id || 0)) || [];
-    for (const slot of slots) {
-      if (!breakSlotAppliesToWeekday(slot, weekday)) continue;
+    for (const slot of templateSlotsForWeekday(slots, weekday)) {
       const slotKey = `${sampleRow.routine_version_id}|${missingTemplateSlotKey(weekday, slot)}`;
       if (existingKeys.has(slotKey)) continue;
       existingKeys.add(slotKey);
@@ -900,8 +905,7 @@ async function includeMissingBreakEntries(routine) {
   const existingKeys = new Set(routine.entries.map(routineEntrySlotKey));
   const syntheticEntries = [];
   for (const weekday of weekdays) {
-    for (const slot of templateSlots) {
-      if (!breakSlotAppliesToWeekday(slot, weekday)) continue;
+    for (const slot of templateSlotsForWeekday(templateSlots, weekday)) {
       const key = missingTemplateSlotKey(weekday, slot);
       if (existingKeys.has(key)) continue;
       existingKeys.add(key);

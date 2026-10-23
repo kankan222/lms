@@ -443,7 +443,11 @@ function RoutineSlotTooltipContent({ entries = [], showTeachers = true }) {
 }
 
 function RoutineSlotBlock({ entries = [], fallbackEntry = null, showTeachers = true }) {
-  const visibleEntries = entries.length ? entries : fallbackEntry ? [fallbackEntry] : [];
+  // Keep saved rows visible in the tooltip, but never let a Free row obscure
+  // an occupied entry in the same period (including older mixed responses).
+  const visibleEntries = entries.length
+    ? [...entries].sort((a, b) => Number(a.entry_type === "free") - Number(b.entry_type === "free"))
+    : fallbackEntry ? [fallbackEntry] : [];
   if (!visibleEntries.length) return <RoutineEntryBlock entry={null} />;
   const [primaryEntry, ...extraEntries] = visibleEntries;
   const entryBlock = (
@@ -945,8 +949,9 @@ export default function Routines() {
     const subjectEntries = entries.filter((entry) => entry.entry_type === "subject");
     const periodKey = (entry) => `${entry.weekday}-${entry.period_number}`;
     const totalPeriodKeys = uniqueCount(entries.map(periodKey));
-    const assignedPeriodKeys = uniqueCount(entries.filter((entry) => entry.entry_type !== "free").map(periodKey));
-    const freePeriodKeys = uniqueCount(entries.filter((entry) => entry.entry_type === "free").map(periodKey));
+    const assignedKeys = new Set(entries.filter((entry) => entry.entry_type !== "free").map(periodKey));
+    const assignedPeriodKeys = assignedKeys.size;
+    const freePeriodKeys = uniqueCount(entries.filter((entry) => entry.entry_type === "free" && !assignedKeys.has(periodKey(entry))).map(periodKey));
     return {
       totalPeriods: totalPeriodKeys || selectedClassRoutine?.entry_count || 0,
       assignedPeriods: assignedPeriodKeys,
@@ -974,10 +979,11 @@ export default function Routines() {
       }))
     );
     const periodKey = (row) => `${row.routineId || "routine"}-${row.entry.period_number}`;
+    const assignedKeys = new Set(periodRows.filter((row) => row.entry.entry_type !== "free").map(periodKey));
     return {
       totalPeriods: uniqueCount(periodRows.map(periodKey)),
-      assignedPeriods: uniqueCount(periodRows.filter((row) => row.entry.entry_type !== "free").map(periodKey)),
-      freePeriods: uniqueCount(periodRows.filter((row) => row.entry.entry_type === "free").map(periodKey)),
+      assignedPeriods: assignedKeys.size,
+      freePeriods: uniqueCount(periodRows.filter((row) => row.entry.entry_type === "free" && !assignedKeys.has(periodKey(row))).map(periodKey)),
     };
   }, [classRoutineBoard, selectedClassDay]);
 
