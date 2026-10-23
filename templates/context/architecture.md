@@ -252,6 +252,13 @@
   exam exports retain per-entry scopes when those differ from routine metadata.
   Oversized rows continue across pages without truncating teaching content,
   teacher names, or instructions. Dates preserve school-local calendar values.
+- Class routine PDFs render a weekly matrix rather than one row per entry:
+  weekdays down the left, periods/timings across the top, and styled subject
+  and teacher pairs inside each cell. Packed HS parallel entries remain in
+  their day/period cell with medium/section applicability. Smaller grids use
+  landscape A4; grids over seven periods and packed HS use landscape A3.
+  Varying day-specific timings appear in the cells instead of a misleading
+  common header. Large weekday rows paginate with repeated grid headers.
 - Excel import is a later workflow. Class routine imports should upsert the
   canonical routine for each resolved class scope, while exam routine imports
   should create draft routines. Imports should expose unresolved class,

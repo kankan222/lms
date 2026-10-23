@@ -304,7 +304,13 @@ controls and records.
 - Align class/exam routine exports with payment and marksheet documents:
   institution logo, prominent institution name, school/HS section heading,
   bordered details, restrained navy/neutral colors, and crisp table borders.
-- Use landscape A4 for routine tables. Wrap long content instead of clipping
+- Class PDFs use the weekly timetable grid: one weekday row, period/timing
+  headers across the top, and subject/teacher pairs grouped inside each cell.
+  Keep parallel HS entries together with their applicability details. Use
+  landscape A4 for up to seven periods; use landscape A3 for wider or packed
+  HS grids so text remains readable. If timings vary by day, identify that in
+  the header and print the actual timings inside the relevant cells.
+- Exam routine tables use landscape A4. Wrap long content instead of clipping
   or replacing it with ellipses. Repeat institution/table headers and page
   numbering on continuation pages; split oversized rows without losing text.
 - Include packed HS entry medium/section targeting, teacher/invigilator names,

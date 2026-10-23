@@ -118,6 +118,22 @@ function drawLines(doc, lines, x, y, width, lineHeight, align = "left") {
   });
 }
 
+function wrapCell(doc, value, width) {
+  const blocks = Array.isArray(value) ? value : [{ text: text(value) }];
+  return blocks.flatMap((block) => {
+    doc.font(block.font || "Helvetica").fontSize(block.size || FONT_SIZE);
+    const lines = block.text ? wrapLines(doc, block.text, width) : [""];
+    return lines.map((line) => ({ ...block, text: line }));
+  });
+}
+
+function drawCellLines(doc, lines, x, y, width, lineHeight, align) {
+  lines.forEach((line, index) => {
+    doc.font(line.font || "Helvetica").fontSize(line.size || FONT_SIZE).fillColor(line.color || INK);
+    drawLines(doc, [line.text], x, y + index * lineHeight, width, lineHeight, align);
+  });
+}
+
 function drawMetadata(doc, fields, y, width) {
   const cellWidth = width / 3;
   for (let offset = 0; offset < fields.length; offset += 3) {
@@ -185,9 +201,9 @@ function drawTableHeader(doc, columns, y, width) {
   return y + height;
 }
 
-async function buildRoutinePdf({ title, routine, fields, columns, rows }) {
+async function buildRoutinePdf({ title, routine, fields, columns, rows, pageSize = "A4" }) {
   const logoData = await loadLogo();
-  const doc = new PDFDocument({ size: "A4", layout: "landscape", margin: MARGIN, bufferPages: true,
+  const doc = new PDFDocument({ size: pageSize, layout: "landscape", margin: MARGIN, bufferPages: true,
     info: { Title: `${title} - ${text(routine.exam_name || routine.class_name, SCHOOL_NAME)}`, Author: SCHOOL_NAME } });
   const done = collectBuffer(doc);
   const logo = logoData ? doc.openImage(logoData) : null;
@@ -203,7 +219,7 @@ async function buildRoutinePdf({ title, routine, fields, columns, rows }) {
   for (const row of rows) {
     doc.font("Helvetica").fontSize(FONT_SIZE);
     const lineHeight = doc.currentLineHeight(true) + LINE_GAP;
-    const cells = columns.map((column) => wrapLines(doc, row[column.key], width * column.fraction - PADDING * 2));
+    const cells = columns.map((column) => wrapCell(doc, row[column.key], width * column.fraction - PADDING * 2));
     const rowLines = Math.max(...cells.map((lines) => lines.length));
     let offset = 0;
     while (offset < rowLines) {
@@ -231,8 +247,8 @@ async function buildRoutinePdf({ title, routine, fields, columns, rows }) {
         else doc.rect(x, y, cellWidth, height).strokeColor(INK).stroke();
         doc.fillColor(INK);
         const lines = cells[index].slice(offset, offset + count);
-        if (offset > 0 && index === 0 && !lines.length) lines.push("Cont.");
-        drawLines(doc, lines, x + PADDING, y + PADDING, cellWidth - PADDING * 2, lineHeight, column.align);
+        if (offset > 0 && index === 0 && !lines.length) lines.push({ text: row.continuationLabel || "Cont." });
+        drawCellLines(doc, lines, x + PADDING, y + PADDING, cellWidth - PADDING * 2, lineHeight, column.align);
         x += cellWidth;
       });
       y += height;
@@ -262,27 +278,60 @@ function metadata(routine) {
 }
 
 export function buildClassRoutinePdf(routine) {
-  const packed = routine.layout_mode === "packed_hs";
-  const rows = [...(routine.entries || [])].sort((a, b) =>
+  const entries = [...(routine.entries || [])].sort((a, b) =>
     Number(a.weekday) - Number(b.weekday) || Number(a.period_number) - Number(b.period_number) ||
     String(a.start_time || "").localeCompare(String(b.start_time || "")) || Number(a.sort_order || 0) - Number(b.sort_order || 0)
-  ).map((entry) => ({
-    day: WEEKDAYS[Number(entry.weekday)] || text(entry.weekday), period: periodLabel(entry), time: timeRange(entry),
-    subject: [entryLabel(entry), entry.notes ? `Note: ${entry.notes}` : ""].filter(Boolean).join("\n"),
-    teacher: text(entry.teacher_names), room: text(entry.room),
-    applies: [entry.applies_medium, entry.applies_section_names].filter(Boolean).join("\n") || "All",
-    isBreak: entry.entry_type === "break",
-  }));
+  );
+  const periodNumbers = [...new Set(entries.map((entry) => Number(entry.period_number)).filter(Boolean))].sort((a, b) => a - b);
+  if (!periodNumbers.length) {
+    return buildRoutinePdf({ title: "CLASS ROUTINE", routine, fields: metadata(routine),
+      columns: [{ key: "subject", label: "Weekly Timetable", fraction: 1 }], rows: [] });
+  }
+  const packed = routine.layout_mode === "packed_hs";
+  const pageSize = packed || periodNumbers.length > 7 ? "A3" : "A4";
+  const pageWidth = pageSize === "A3" ? 1190.55 : 841.89;
+  const dayFraction = 76 / (pageWidth - MARGIN * 2);
+  const periodFraction = (1 - dayFraction) / periodNumbers.length;
+  const byDayPeriod = new Map();
+  for (const entry of entries) {
+    const key = `${Number(entry.weekday)}|${Number(entry.period_number)}`;
+    if (!byDayPeriod.has(key)) byDayPeriod.set(key, []);
+    byDayPeriod.get(key).push(entry);
+  }
+  const periods = periodNumbers.map((number) => {
+    const periodEntries = entries.filter((entry) => Number(entry.period_number) === number);
+    const times = [...new Set(periodEntries.map((entry) => `${entry.start_time}|${entry.end_time}`))];
+    const first = periodEntries[0];
+    return { number, first, varies: times.length > 1,
+      isBreak: periodEntries.every((entry) => entry.entry_type === "break" || entry.slot_default_entry_type === "break") };
+  });
   const columns = [
-    { key: "day", label: "Day", fraction: .08, align: "center" },
-    { key: "period", label: "Period", fraction: .09, align: "center" },
-    { key: "time", label: "Time\nFrom / To", fraction: .12, align: "center" },
-    { key: "subject", label: "Subject / Activity", fraction: packed ? .23 : .31 },
-    { key: "teacher", label: "Teacher", fraction: packed ? .19 : .25 },
-    ...(packed ? [{ key: "applies", label: "Medium / Sections", fraction: .20 }] : []),
-    { key: "room", label: "Room", fraction: packed ? .09 : .15, align: "center" },
+    { key: "day", label: "Day", fraction: dayFraction, align: "center" },
+    ...periods.map((period) => ({ key: `period_${period.number}`, fraction: periodFraction,
+      label: `${periodLabel(period.first)}\n${period.varies ? "Varies by day" : `${timeText(period.first.start_time)} - ${timeText(period.first.end_time)}`}` })),
   ];
-  return buildRoutinePdf({ title: "CLASS ROUTINE", routine, fields: metadata(routine), columns, rows });
+  const weekdays = [1, 2, 3, 4, 5, 6, ...(entries.some((entry) => Number(entry.weekday) === 7) ? [7] : [])];
+  const rows = weekdays.map((weekday) => {
+    const row = { day: WEEKDAYS[weekday], continuationLabel: `${WEEKDAYS[weekday].slice(0, 3)} (cont.)` };
+    for (const period of periods) {
+      const slotEntries = byDayPeriod.get(`${weekday}|${period.number}`) || [];
+      const blocks = [];
+      for (const [index, entry] of slotEntries.entries()) {
+        if (index) blocks.push({ text: "" });
+        if (period.varies) blocks.push({ text: `${timeText(entry.start_time)} - ${timeText(entry.end_time)}`, size: 8, color: MUTED });
+        blocks.push({ text: entryLabel(entry), font: "Helvetica-Bold" });
+        if (entry.teacher_names) blocks.push({ text: entry.teacher_names, size: 8, color: MUTED });
+        if (packed && (entry.applies_medium || entry.applies_section_names)) {
+          blocks.push({ text: [entry.applies_medium, entry.applies_section_names].filter(Boolean).join(" / "), size: 8, color: MUTED });
+        }
+        if (entry.room) blocks.push({ text: `Room: ${entry.room}`, size: 8, color: MUTED });
+        if (entry.notes) blocks.push({ text: `Note: ${entry.notes}`, size: 8, color: MUTED });
+      }
+      row[`period_${period.number}`] = blocks.length ? blocks : [{ text: period.isBreak ? "Break" : "-", color: MUTED }];
+    }
+    return row;
+  });
+  return buildRoutinePdf({ title: "CLASS ROUTINE", routine, fields: metadata(routine), columns, rows, pageSize });
 }
 
 export function buildExamRoutinePdf(routine) {

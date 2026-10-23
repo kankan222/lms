@@ -14,6 +14,17 @@ Update this file after every meaningful implementation change.
 
 ## Completed
 
+- Reworked Class Routine PDF into the software-style weekly grid: weekdays
+  down the left, period/timing column headers, and subject/teacher pairs inside
+  each cell, including parallel HS subjects, applicability, rooms, and notes.
+  Uses A4 landscape for smaller grids and A3 landscape for over seven periods
+  or packed HS; varying day timings print inside cells. Validation: seven
+  rendered sample scenarios passed content, page-boundary, and pagination
+  checks (standard, wide, packed HS, varying timings, oversized cell, empty,
+  and exam regression). Standard seven/ten-period samples fit one sheet.
+  Rendered first/continuation/last pages were visually checked. Backend syntax
+  passed. No client, schema, or saved routine data changes are needed.
+
 - Fixed phantom Free entries after class routine time-slot edits: detail and
   day-board reads now identify occupied positions by routine/day/period rather
   than timing snapshots, preserve saved assignments/timing overrides, and use
