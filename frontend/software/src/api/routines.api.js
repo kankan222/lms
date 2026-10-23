@@ -70,6 +70,14 @@ export function getClassRoutines(params = {}) {
   return apiRequest(`/routines/class-routines${buildQuery(params)}`);
 }
 
+export function previewClassRoutineTimings(data) {
+  return apiRequest("/routines/class-routines/timings/preview", { method: "POST", body: JSON.stringify(data) });
+}
+
+export function applyClassRoutineTimings(data) {
+  return apiRequest("/routines/class-routines/timings/apply", { method: "POST", body: JSON.stringify(data) });
+}
+
 export function getClassRoutineBoard(params = {}) {
   return apiRequest(`/routines/class-routines/board${buildQuery(params)}`);
 }

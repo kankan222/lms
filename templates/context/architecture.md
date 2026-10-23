@@ -174,6 +174,28 @@
 
 ## Routine Model
 
+- Class routine timing changes use a dedicated preview/apply operation guarded
+  by both `routines.manage` and `routines.publish`. Admins may update one
+  draft/published routine or every draft/published routine using its original
+  template. The operation matches weekday-specific slots before everyday slots
+  by period number, updates all parallel entries, and preserves entry identity,
+  teachers, subjects, HS applicability, combined groups, and publication state.
+- Template edits do not silently overwrite saved entry times. Software opens
+  the bulk timing preview after template edits and provides explicit Change
+  Timings / Apply Timings to Routines actions to repair existing mismatches.
+  Custom timings create a separate template so synthetic Break/Free periods
+  stay aligned. Missing periods, break/class remapping, invalid/overlapping
+  periods, and teacher conflicts block apply rather than dropping content.
+- Timing preview/apply takes a short transaction lock on templates, active
+  class routines, entries, and teacher links. A snapshot fingerprint rejects
+  stale previews; apply revalidates the complete proposed schedule, including
+  simultaneous target changes and intra-routine teacher conflicts, and commits
+  timings plus an audit record atomically. This intentionally serializes bulk
+  timing operations; it is not used for ordinary viewing. Audit records live
+  in `class_routine_timing_audits` and retain actor, affected routines, and
+  previous/new entry times. Apply migration
+  `20261023_class_routine_timing_audits.sql` before using the operation.
+
 - Class routines are scoped by academic session, class, section, medium, and
   stream where applicable. Normal create, import, full-edit, and slot-edit
   operations upsert the canonical routine for that class scope instead of
@@ -212,6 +234,15 @@
 - Parent/student routine views expose only subject and time. Teacher views
   include assigned class/section, subject, and room.
 - Published class and exam routines must support PDF output.
+- Internal software exposes Class Routine Download PDF alongside Download
+  Excel and retains Exam Routine Download PDF. Both use the existing protected
+  PDF endpoints and the shared PDFKit renderer in `routines.pdf.service.js`.
+  Exports use the institution logo, school/HS heading, bordered scope metadata,
+  dark table borders, wrapped content, repeated page/table headers, and numbered
+  footers. Class exports include packed HS medium/section applicability;
+  exam exports retain per-entry scopes when those differ from routine metadata.
+  Oversized rows continue across pages without truncating teaching content,
+  teacher names, or instructions. Dates preserve school-local calendar values.
 - Excel import is a later workflow. Class routine imports should upsert the
   canonical routine for each resolved class scope, while exam routine imports
   should create draft routines. Imports should expose unresolved class,

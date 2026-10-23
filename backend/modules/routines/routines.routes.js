@@ -14,6 +14,8 @@ router.delete("/time-slot-templates/:id", requirePermission("routines.manage"), 
 router.get("/class-routines/effective", requirePermission("routines.view"), controller.effectiveClassRoutine);
 router.get("/class-routines/board", requirePermission("routines.view"), controller.classRoutineBoard);
 router.get("/class-routines", requirePermission("routines.view"), controller.listClassRoutines);
+router.post("/class-routines/timings/preview", requirePermission("routines.manage"), requirePermission("routines.publish"), controller.previewClassRoutineTimings);
+router.post("/class-routines/timings/apply", requirePermission("routines.manage"), requirePermission("routines.publish"), controller.applyClassRoutineTimings);
 router.post(
   "/class-routines/import",
   requirePermission("routines.manage"),

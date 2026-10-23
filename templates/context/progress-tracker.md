@@ -14,6 +14,35 @@ Update this file after every meaningful implementation change.
 
 ## Completed
 
+- Added Class Routine Download PDF alongside Download Excel, with shared
+  download-in-progress feedback for routine exports. Restyled both class and
+  exam PDFs to match institution payment/marksheet conventions: logo, school/HS
+  heading, scope metadata, dark borders, readable wrapped content, repeated
+  headers, and page-numbered footers. Packed HS applicability, notes, exam
+  instructions, and differing per-entry scopes remain visible. Oversized rows
+  continue without truncation. Validation: software lint/build and backend
+  syntax checks passed; both PDF service flows passed local database smoke
+  checks. Five synthetic PDFs (standard class, packed HS, multi-page exam,
+  empty routine, and an oversized exam row) were rendered and inspected.
+  All 24 generated pages passed text-boundary, repeated header/footer,
+  pagination, and content-retention checks. No application dependencies,
+  database schema, or production data changed for this PDF work.
+
+- Added class routine Change Timings and template Apply Timings to Routines
+  flows: editable timing preview, one-routine/all-template scope, all-weekday
+  and HS parallel-row updates, missing/break mapping checks, complete proposed
+  teacher schedule validation, stale-preview protection, atomic saves, and
+  audit history through new migration `20261023_class_routine_timing_audits.sql`.
+  Template edits open the explicit bulk repair flow instead of requiring
+  per-slot resaving. Custom timings receive a separate template so generated
+  breaks/free slots remain aligned. Validation: 11 targeted Node tests passed;
+  the opt-in MySQL integration test passed using connection-local temporary
+  tables, verifying preserved HS content/teacher links, audit writes, custom
+  template creation, and full rollback after a forced audit-write failure.
+  Software lint/build and backend syntax checks passed. The new migration was
+  applied successfully to local MySQL 8.0.44 only; production still requires
+  the migration before using Apply Changes. No production routines were edited.
+
 - Moved Announcement SMS recipient details out of inline job expansion into a
   paginated dialog with status filtering, search, page-size controls, and
   server-side recipient limits so large 1000+ recipient jobs remain manageable.

@@ -3,6 +3,25 @@ import { inflateRawSync } from "node:zlib";
 import * as repo from "./routines.repository.js";
 import { buildClassRoutinePdf, buildExamRoutinePdf } from "./routines.pdf.service.js";
 import { buildClassRoutineXlsx, classRoutineXlsxFileName } from "./routines.excel.service.js";
+import { buildClassRoutineTimingPlan } from "./routines.timings.js";
+import { withClassRoutineTimingSnapshot } from "./routines.timings.repository.js";
+
+export function previewClassRoutineTimings(body) {
+  return withClassRoutineTimingSnapshot((snapshot) => buildClassRoutineTimingPlan(snapshot, body));
+}
+
+export function applyClassRoutineTimings(body, userId) {
+  return withClassRoutineTimingSnapshot(async (snapshot, save) => {
+    const plan = buildClassRoutineTimingPlan(snapshot, body);
+    if (!body.preview_token || body.preview_token !== plan.preview_token) {
+      throw new AppError("The routine or template changed since your preview. Preview the timings again before applying.", 409);
+    }
+    if (!plan.can_apply) {
+      throw new AppError([...plan.errors, ...plan.conflicts].join("\n") || "No timing changes to apply", 400);
+    }
+    return save(plan, userId);
+  });
+}
 
 const ROUTINE_ENTRY_TYPES = new Set([
   "subject",

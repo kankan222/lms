@@ -17,6 +17,7 @@ import {
   Upload,
 } from "lucide-react";
 import TopBar from "../components/TopBar";
+import ClassRoutineTimingsDialog from "../components/routines/ClassRoutineTimingsDialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -66,6 +67,7 @@ import {
   deleteTimeSlotTemplate,
   duplicateClassRoutine,
   duplicateExamRoutine,
+  downloadClassRoutinePdf,
   downloadClassRoutineXlsx,
   downloadExamRoutinePdf,
   getClassRoutine,
@@ -776,6 +778,10 @@ function FileField({ file, onChange }) {
 export default function Routines() {
   const { user } = useAuth();
   const [activeTab, setActiveTab] = useState("class");
+  const [timingTarget, setTimingTarget] = useState(null);
+  const [downloadingFile, setDownloadingFile] = useState("");
+  const isTimingSuperAdmin = (user?.roles || []).some((role) => ["super_admin", "superadmin"].includes(String(role).trim().toLowerCase().replace(/[\s-]+/g, "_")));
+  const canChangeTimings = isTimingSuperAdmin || ["routines.manage", "routines.publish"].every((permission) => (user?.permissions || []).includes(permission));
   const [sessions, setSessions] = useState([]);
   const [classes, setClasses] = useState([]);
   const [streams, setStreams] = useState([]);
@@ -1405,7 +1411,7 @@ export default function Routines() {
     return () => {
       active = false;
     };
-  }, [selectedClassRoutine?.time_slot_template_id]);
+  }, [selectedClassRoutine?.time_slot_template_id, templates]);
 
   useEffect(() => {
     if (!slotEditorOpen || !selectedClassRoutine?.class_id) {
@@ -2021,7 +2027,7 @@ export default function Routines() {
       return;
     }
 
-    const { day, period, slot, entry, entries: existingEntries = [] } = slotContext;
+    const { period, slot, entry, entries: existingEntries = [] } = slotContext;
     if (!selectedWeekdays.length) {
       showError("Select at least one day for this slot.");
       return;
@@ -2271,6 +2277,9 @@ export default function Routines() {
       showNotice(editingTemplateId ? "Time slot template updated." : "Time slot template created.");
       resetTemplateDialog();
       await loadRoutineData();
+      if (editingTemplateId && canChangeTimings) {
+        setTimingTarget({ time_slot_template_id: editingTemplateId, source_template_id: editingTemplateId });
+      }
     } catch (err) {
       showError(err.message || "Failed to save time slot template");
     }
@@ -2576,17 +2585,34 @@ export default function Routines() {
   }
 
   async function downloadFile(downloadFn, id, fileName, fallbackMessage = "Failed to download file") {
+    if (downloadingFile) return;
+    setDownloadingFile(fileName);
     setError("");
     try {
       const blob = await downloadFn(id);
       saveBlob(blob, fileName);
     } catch (err) {
       showError(err.message || fallbackMessage);
+    } finally {
+      setDownloadingFile("");
     }
   }
 
   return (
     <div className="space-y-4">
+      {timingTarget ? (
+        <ClassRoutineTimingsDialog
+          target={timingTarget}
+          templates={templates}
+          onClose={() => setTimingTarget(null)}
+          onApplied={async (result) => {
+            setTimingTarget(null);
+            showNotice(`Timings updated for ${result.routine_count} routine(s).`);
+            await loadRoutineData();
+            if (classViewMode === "day") await loadClassRoutineBoardData(filters, selectedClassDay);
+          }}
+        />
+      ) : null}
       <div className="pointer-events-none fixed top-6 right-6 z-50 w-full max-w-sm">
         <div
           className={`transition-all duration-500 ease-out ${
@@ -2999,6 +3025,12 @@ export default function Routines() {
                       <Upload className="mr-2 size-4" />
                       Import
                     </Button>
+                    {classViewMode === "week" && canChangeTimings && ["draft", "published"].includes(selectedClassRoutine?.status) ? (
+                      <Button size="sm" variant="outline" onClick={() => setTimingTarget({ routine_id: selectedClassRoutine.id, time_slot_template_id: selectedClassRoutine.time_slot_template_id })}>
+                        <Clock className="mr-2 size-4" />
+                        Change Timings
+                      </Button>
+                    ) : null}
                     {selectedClassRoutine?.id ? (
                       <Button size="sm" variant="outline" onClick={openDuplicateClassRoutine}>
                         <Copy className="mr-2 size-4" />
@@ -3006,8 +3038,13 @@ export default function Routines() {
                       </Button>
                     ) : null}
                     {selectedClassRoutine?.id ? (
-                      <Button size="sm" variant="outline" onClick={() => downloadFile(downloadClassRoutineXlsx, selectedClassRoutine.id, `class-routine-${selectedClassRoutine.id}.xlsx`, "Failed to download class routine Excel file")}>
-                        Download Excel
+                      <Button size="sm" variant="outline" disabled={Boolean(downloadingFile)} onClick={() => downloadFile(downloadClassRoutinePdf, selectedClassRoutine.id, `class-routine-${selectedClassRoutine.id}.pdf`, "Failed to download class routine PDF")}>
+                        {downloadingFile === `class-routine-${selectedClassRoutine.id}.pdf` ? "Downloading..." : "Download PDF"}
+                      </Button>
+                    ) : null}
+                    {selectedClassRoutine?.id ? (
+                      <Button size="sm" variant="outline" disabled={Boolean(downloadingFile)} onClick={() => downloadFile(downloadClassRoutineXlsx, selectedClassRoutine.id, `class-routine-${selectedClassRoutine.id}.xlsx`, "Failed to download class routine Excel file")}>
+                        {downloadingFile === `class-routine-${selectedClassRoutine.id}.xlsx` ? "Downloading..." : "Download Excel"}
                       </Button>
                     ) : null}
                     {selectedClassRoutine?.id ? (
@@ -3543,8 +3580,8 @@ export default function Routines() {
                       </DialogContent>
                     </Dialog>
                     {selectedExamRoutine?.id ? (
-                      <Button size="sm" variant="outline" onClick={() => downloadFile(downloadExamRoutinePdf, selectedExamRoutine.id, `exam-routine-${selectedExamRoutine.id}.pdf`, "Failed to download exam routine PDF")}>
-                        Download PDF
+                      <Button size="sm" variant="outline" disabled={Boolean(downloadingFile)} onClick={() => downloadFile(downloadExamRoutinePdf, selectedExamRoutine.id, `exam-routine-${selectedExamRoutine.id}.pdf`, "Failed to download exam routine PDF")}>
+                        {downloadingFile === `exam-routine-${selectedExamRoutine.id}.pdf` ? "Downloading..." : "Download PDF"}
                       </Button>
                     ) : null}
                     {["draft", "published"].includes(selectedExamRoutine?.status) ? (
@@ -3863,6 +3900,12 @@ export default function Routines() {
                       <Pencil className="mr-2 size-4" />
                       Edit
                     </Button>
+                    {canChangeTimings ? (
+                      <Button size="sm" variant="outline" onClick={() => setTimingTarget({ time_slot_template_id: template.id, source_template_id: template.id })}>
+                        <Clock className="mr-2 size-4" />
+                        Apply Timings to Routines
+                      </Button>
+                    ) : null}
                     <Button size="sm" variant="outline" onClick={() => handleDeleteTemplate(template)}>
                       <Trash2 className="mr-2 size-4 text-destructive" />
                       Delete

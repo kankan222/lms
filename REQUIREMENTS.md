@@ -75,6 +75,14 @@
 
 ### 5. Routines and Schedules
 
+- Class routine timings must support an explicit bulk preview/apply flow for
+  one routine or all draft/published routines sharing a template. Template
+  changes must not require per-slot resaving. Apply must preserve teaching
+  content and publication state, reject missing/ambiguous or break/class period
+  mappings and teacher conflicts, reject stale previews, and atomically retain
+  previous/new timings with the actor in an audit record. Custom timings must
+  keep generated break/free periods aligned through a separate template.
+
 - Super admin and admin users must be able to manage class routines, exam
   routines, time-slot templates, and routine substitutions.
 - Class routines must be scoped to academic session, class, section, medium,

@@ -299,6 +299,20 @@ app header carries the portal name and active module subtitle; the
 in-content label is only a lightweight section marker before the screen
 controls and records.
 
+## Routine PDF Exports
+
+- Align class/exam routine exports with payment and marksheet documents:
+  institution logo, prominent institution name, school/HS section heading,
+  bordered details, restrained navy/neutral colors, and crisp table borders.
+- Use landscape A4 for routine tables. Wrap long content instead of clipping
+  or replacing it with ellipses. Repeat institution/table headers and page
+  numbering on continuation pages; split oversized rows without losing text.
+- Include packed HS entry medium/section targeting, teacher/invigilator names,
+  room information, notes/instructions, and school-local dates/times.
+- Keep Download PDF next to the class Excel export, with loading feedback.
+- Generate representative standard, packed HS, empty, and multi-page samples
+  and visually check rendered pages when changing the PDF layout.
+
 ## Accessibility
 
 - Dialogs need title and description.

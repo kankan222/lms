@@ -54,6 +54,9 @@ staff content, and mobile access around one Express/MySQL backend.
   reusable time slots, break/activity/free/custom entries, teacher
   assignment validation, publish state, PDFs, and role-specific
   teacher/parent/student views.
+- Bulk class routine timing preview/apply for one routine or all routines
+  sharing a template, including production mismatch repair, conflict checks,
+  atomic updates, and timing-change audit history.
 
 ### Attendance and Reporting
 
