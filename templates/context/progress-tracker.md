@@ -14,6 +14,12 @@ Update this file after every meaningful implementation change.
 
 ## Completed
 
+- Fixed the exam routine PDF Date/Day mapping: calendar dates and weekday
+  labels now populate separate Date and Day columns, with table widths
+  rebalanced for both common-scope and mixed-scope exports. Validation:
+  backend syntax check passed; rendered both layouts and verified date-string
+  and Date-object inputs print dates/weekdays in separate, aligned cells.
+
 - Added Class Routine Download PDF alongside Download Excel, with shared
   download-in-progress feedback for routine exports. Restyled both class and
   exam PDFs to match institution payment/marksheet conventions: logo, school/HS

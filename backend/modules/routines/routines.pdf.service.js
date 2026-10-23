@@ -296,16 +296,17 @@ export function buildExamRoutinePdf(routine) {
     String(a.start_time || "").localeCompare(String(b.start_time || "")) ||
     String(a.class_name || "").localeCompare(String(b.class_name || ""), undefined, { numeric: true })
   ).map((entry) => ({
-    date: [dateText(entry.exam_date), weekdayText(entry.exam_date)].filter(Boolean).join("\n"), time: timeRange(entry),
+    date: dateText(entry.exam_date), day: weekdayText(entry.exam_date), time: timeRange(entry),
     classScope: [entry.class_name || routine.class_name, entry.section_name || routine.section_name, entry.medium || routine.medium, entry.stream_name || routine.stream_name].filter(Boolean).join("\n"),
     subject: [entryLabel(entry), entry.instructions ? `Instructions: ${entry.instructions}` : ""].filter(Boolean).join("\n"),
     invigilator: text(entry.invigilator_names), room: text(entry.room),
   }));
   const columns = [
     { key: "date", label: "Date", fraction: .12, align: "center" },
+    { key: "day", label: "Day", fraction: .07, align: "center" },
     { key: "time", label: "Time\nFrom / To", fraction: showEntryScope ? .14 : .16, align: "center" },
     ...(showEntryScope ? [{ key: "classScope", label: "Class / Section / Medium", fraction: .19 }] : []),
-    { key: "subject", label: "Subject / Paper", fraction: showEntryScope ? .27 : .42 },
+    { key: "subject", label: "Subject / Paper", fraction: showEntryScope ? .20 : .35 },
     { key: "invigilator", label: "Invigilator", fraction: showEntryScope ? .19 : .20 },
     { key: "room", label: "Room", fraction: showEntryScope ? .09 : .10, align: "center" },
   ];
